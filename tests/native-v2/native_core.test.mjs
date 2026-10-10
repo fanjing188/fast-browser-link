@@ -52,6 +52,16 @@ async function executeUserApproved(executor, api, command) {
 }
 
 const load = () => import('../../native-extension/core.mjs');
+test('coordinate input remains confirmed without optional popup tab inventory',async()=>{
+ const {Executor}=await load(),api=fixtureApi();delete api.tabs.query;
+ const executor=new Executor(api);await executor.approve(task());
+ const capture=await executor.execute(scope('interaction.capture'));
+ const bound=await executor.execute({...scope('interaction.bounds'),screenshotId:capture.id,selector:'#button'});
+ const result=await executor.execute(confirmOnce(executor,{...scope('interaction.click'),screenshotId:capture.id,point:bound.imageCenter,expectedRef:bound.ref}));
+ assert.deepEqual(result,{ok:true,kind:'coordinate-click',delivery:'confirmed',effect:'observed'});
+ assert.equal(executor.popups.observations.size,0);
+ assert.equal(executor.popups.candidates.size,0);
+});
 const task = () => ({
   ...trustedTask('task-v2', [7]), generation: 3,
 });

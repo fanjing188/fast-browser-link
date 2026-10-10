@@ -30,6 +30,8 @@ export class OAuthPopups{
  prune(){const now=Date.now();for(const [id,row] of this.observations)if(row.expiresAt<=now||row.task.revoked)this.observations.delete(id);for(const [ref,row] of this.candidates)if(row.expiresAt<=now||row.task.revoked)this.candidates.delete(ref);}
  async source(task,tabId,guard){const tab=await this.executor.api.tabs.get(tabId).catch(()=>{throw denied();});guard();if(!task.allowedOrigins.includes(site(tab.url))||tab.pendingUrl&&site(tab.pendingUrl)!==site(tab.url))throw denied();return {...identity(tab),documentGeneration:this.executor.docs.get(tabId)||0};}
  async arm(task,tabId,guard){
+  // 中文注释：缺少标签清单能力时不建立观察资格；附加发现逻辑不能阻断原有输入动作。
+  if(typeof this.executor.api.tabs?.query!=='function'){this.invalidate(tabId,'unavailable');guard();return null;}
   this.prune();const source=await this.source(task,tabId,guard);
   const existing=await this.executor.api.tabs.query({});guard();
   this.observations.set(tabId,{task,generation:task.generation,modeGeneration:task.policy.modeGeneration,source,existingTabIds:new Set(existing.map(tab=>tab.id)),expiresAt:Date.now()+OBSERVATION_MS});return source;

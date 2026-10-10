@@ -25,6 +25,48 @@ def load(name):
 
 
 class ResultPrivacyTests(unittest.TestCase):
+    def test_semantic_wire_invalid_params_keeps_bridge_code_and_gives_model_field_hint(self):
+        module=load('native_tools')
+        error=RuntimeError(CANARY)
+        error.code='invalid_params'
+        error.data={'outcomeUnknown':False,'fields':['sections',CANARY,{}]}
+        profile=SimpleNamespace(authority=SimpleNamespace(consume=lambda *a,**kw:SimpleNamespace(owner='tool:synthetic',tool_call_id='call-1')),
+            call=lambda *a,**kw:(_ for _ in ()).throw(error))
+        handler=module.make_tool_handler('browser_shared_run',profile)
+        output=json.loads(handler({'task_id':'t','tab_id':1,'action':'semantic_snapshot','options':{'mode':'content'}},session_id='test'))
+        self.assertEqual(output['bridgeCode'],'invalid_params')
+        self.assertEqual(output['code'],'invalid_semantic_options')
+        self.assertEqual(output['fields'],['sections'])
+        self.assertIn('page.parse',output['error'])
+        self.assertFalse(output['outcome_unknown'])
+        self.assertNotIn(CANARY,json.dumps(output))
+        other=json.loads(handler({'task_id':'t','tab_id':1,'action':'snapshot'},session_id='test'))
+        self.assertNotEqual(other['code'],'invalid_semantic_options')
+        self.assertNotIn('fields',other)
+
+    def test_connection_popup_description_preserves_non_provider_confirmation_in_full_mode(self):
+        description=load('native_tools').TOOL_SCHEMAS['browser_shared_run']['description']
+        self.assertIn('smart/full',description)
+        self.assertIn('白名单外',description)
+        self.assertIn('全部访问也必须明确确认',description)
+        self.assertNotIn('非 smart 模式',description)
+
+    def test_semantic_parse_options_report_exact_fields_without_rpc_or_values(self):
+        output,calls=self.invoke(True,'run',{'task_id':'t','tab_id':1,'action':'semantic_snapshot',
+            'options':{'mode':'content','sections':['blocks'],'composed':True}}, {})
+        self.assertEqual(output['code'],'invalid_semantic_options')
+        self.assertEqual(output['fields'],['sections'])
+        self.assertIn('page.parse',output['error'])
+        self.assertEqual(calls,[])
+        self.assertFalse(output['outcome_unknown'])
+        parsed,calls=self.invoke(True,'run',{'task_id':'t','tab_id':1,'action':'page.parse',
+            'options':{'sections':['blocks'],'composed':True}}, {})
+        self.assertNotIn('error',parsed)
+        self.assertTrue(calls)
+        schema=load('native_tools').TOOL_SCHEMAS['browser_shared_run']['parameters']
+        rule=next(row for row in schema['allOf'] if row.get('if',{}).get('properties',{}).get('action',{}).get('const')=='semantic_snapshot')
+        self.assertNotIn('sections',rule['then']['properties']['options']['properties'])
+
     def test_click_navigation_receipt_survives_without_extra_page_content(self):
         raw = {'clicked': True, 'delivery': 'confirmed', 'navigation': {'kind': 'document', 'origin': 'https://fixture.test', 'private': CANARY},
                'postCheck': {'status': 'new_read_required', 'private': CANARY}, 'private': CANARY}

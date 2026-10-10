@@ -276,9 +276,9 @@ try{
    return {effect:result.effect,popupOpened:result.popupOpened};
   }));
  }
- for(const [label,button,windowType] of [['popup','只开授权小窗','popup'],['same-window-tab','只开同窗授权标签','normal']]){
-  await check(`B smart ${label}：本地白名单自动接管并登记审计`,()=>withOAuthTask('B-'+label,async handle=>{
-   await setMode(handle,'smart');const result=await openOnly(handle,button);
+ for(const mode of ['smart','full'])for(const [label,button,windowType] of [['popup','只开授权小窗','popup'],['same-window-tab','只开同窗授权标签','normal']]){
+  await check(`B ${mode} ${label}：本地白名单自动接管并登记审计`,()=>withOAuthTask('B-'+mode+'-'+label,async handle=>{
+   await setMode(handle,mode);const result=await openOnly(handle,button);
    assert.equal(result.popupOpened.origin,loginOrigin);assert.equal(result.popupOpened.windowType,windowType);
    if(windowType==='normal')assert.equal(await session.ui.evaluate(`chrome.tabs.get(${result.popupOpened.tabId}).then(async target=>target.windowId===(await chrome.tabs.get(${handle.tabId})).windowId)`),true);
    const audit=await verifyAutoAudit(handle,result.popupOpened);
@@ -299,8 +299,8 @@ try{
   const saved=await persistedTask(handle);assert.ok(!saved.requestHistory.some(row=>row.automatic===true));
   return {manual:true,tabId:candidate.tabId};
  }));
- await check('D smart：站点关闭登录页后回源读取新文档且不报 stale',()=>withOAuthTask('D-close',async(handle,flow)=>{
-  await setMode(handle,'smart');const sourceSnapshot=await confirmedRun(handle,'semantic_snapshot',{options:{mode:'content',budget:5000}});
+ for(const mode of ['smart','full'])await check(`D ${mode}：站点关闭登录页后回源读取新文档且不报 stale`,()=>withOAuthTask('D-'+mode+'-close',async(handle,flow)=>{
+  await setMode(handle,mode);const sourceSnapshot=await confirmedRun(handle,'semantic_snapshot',{options:{mode:'content',budget:5000}});
   const result=await openOnly(handle,'只开授权小窗');await verifyAutoAudit(handle,result.popupOpened);
   const popupHandle={...handle,tabId:result.popupOpened.tabId,run:(action,params={},id)=>handle.run(action,{...params,tab_id:result.popupOpened.tabId},id)};
   await confirmedRun(popupHandle,'ref_click',await freshRef(popupHandle,'完成本地授权'));
@@ -319,12 +319,16 @@ try{
   assert.ok(JSON.stringify(read.items).includes(OAUTH_DONE_MARKER));assert.notEqual(read.binding.documentId,sourceSnapshot.binding.documentId);
   return {popupClosed:read.popupClosed,newDocument:true};
  }));
- await check('E full 白名单：不自动接管，仍需要精确确认',()=>withOAuthTask('E-full',async handle=>{
+ await check('E full 白名单：连接授权后的常态自动接管并登记审计',()=>withOAuthTask('E-full',async handle=>{
   const result=await openOnly(handle,'只开授权小窗'),current=await taskState(handle);assert.equal(current.activeMode,'full');
+  return verifyAutoAudit(handle,result.popupOpened);
+ }));
+ await check('F full 非白名单：全部访问也必须明确确认',()=>withOAuthTask('F-full-manual',async handle=>{
+  const result=await openOnly(handle,'只开非白名单小窗'),current=await taskState(handle);assert.equal(current.activeMode,'full');
   assert.ok(!current.adoptedPopupTabIds?.includes(result.popupOpened.tabId));
   const catalog=verify(await handle.run('popup_catalog')),candidate=catalog.candidates.find(row=>row.candidateRef===result.popupOpened.candidateRef);assert.ok(candidate);
   assert.equal((await handle.run('popup_adopt',{candidate_ref:candidate.candidateRef})).status,'approval_required');
-  await session.approvePanel('reject',loginOrigin);
+  await session.approvePanel('reject',manualOrigin);
   assert.ok(!(await taskState(handle)).adoptedPopupTabIds?.includes(candidate.tabId));
   const saved=await persistedTask(handle);assert.ok(!saved.requestHistory.some(row=>row.automatic===true));
   return {mode:'full',automatic:false,confirmationRequired:true};
@@ -336,4 +340,4 @@ try{
 }
 for(const result of results)console.log(`${result.ok?'PASS':'FAIL'} ${result.name}${result.ok?'':': '+result.error}`);
 console.log(JSON.stringify({browser,passed:results.filter(result=>result.ok).length,total:results.length,output}));
-process.exitCode=results.length===(process.argv.includes('--popup-only')?3:19)&&results.every(result=>result.ok)?0:1;
+process.exitCode=results.length===(process.argv.includes('--popup-only')?3:23)&&results.every(result=>result.ok)?0:1;

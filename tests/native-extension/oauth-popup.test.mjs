@@ -503,12 +503,12 @@ for(const action of ['click','ref_click','interaction.click'])test(`${action} re
  assert.ok(!JSON.stringify(result).includes('canary'));
 });
 
-test('non-provider and social-site ordinary pages retain manual confirmation',async()=>{
+for(const mode of ['smart','full'])test(`${mode} non-provider and social-site ordinary pages retain manual confirmation`,async()=>{
  for(const url of ['https://accounts.example.test/login','https://github.com/user/repo','https://x.com/home','https://accounts.google.com.evil.test/login','http://accounts.google.com/login']){
-  const f=await fixture(),t=f.executor.tasks.get('a');await f.executor.withSpawnScope(t,1,async()=>{});await f.create(2,{url});
+  const f=await fixture(),t=f.executor.tasks.get('a');if(mode==='full')f.executor.setMode({...trustedTask(),modeGeneration:2,activeMode:mode});await f.executor.withSpawnScope(t,1,async()=>{});await f.create(2,{url});
   const row=[...f.executor.popups.candidates.values()][0];await row.autoWork;
   assert.equal(f.executor.leases.has(2),false);
-  await assert.rejects(f.executor.execute(f.command('popup_adopt',{candidateRef:row.candidateRef})),/confirmation required/);
+  await assert.rejects(f.executor.execute(f.command('popup_adopt',{modeGeneration:t.policy.modeGeneration,candidateRef:row.candidateRef})),/confirmation required/);
  }
 });
 
@@ -527,9 +527,9 @@ test('pre-existing tabs and foreign-task leases cannot be recognized or auto-ado
  assert.equal(f.executor.popups.candidates.size,0);assert.equal(f.executor.leases.has(2),false);assert.equal(f.executor.leases.get(3),'peer');
 });
 
-for(const change of ['paused','pauseRequested','revoked','mode'])test(`provider adoption is fenced after ${change}`,async()=>{
- const f=await fixture(),t=f.executor.tasks.get('a');await f.executor.withSpawnScope(t,1,async()=>{});
- if(change==='mode')f.executor.setMode({...trustedTask(),modeGeneration:2,activeMode:'full'});else t[change]=true;
+for(const mode of ['smart','full'])for(const change of ['paused','pauseRequested','revoked','mode'])test(`${mode} provider adoption is fenced after ${change}`,async()=>{
+ const f=await fixture(),t=f.executor.tasks.get('a');if(mode==='full')f.executor.setMode({...trustedTask(),modeGeneration:2,activeMode:mode});await f.executor.withSpawnScope(t,1,async()=>{});
+ if(change==='mode')f.executor.setMode({...trustedTask(),modeGeneration:t.policy.modeGeneration+1,activeMode:mode});else t[change]=true;
  await f.create(2,{url:'https://accounts.google.com/login'});
  await Promise.all([...f.executor.popups.candidates.values()].map(row=>row.autoWork));
  assert.equal(f.executor.leases.has(2),false);
@@ -575,6 +575,7 @@ test('click reports a newly created blank login tab without inventing its origin
  const result=await f.executor.execute(f.command('click'));
  assert.equal(result.popupOpened.tabId,2);assert.equal(result.popupOpened.origin,null);
  assert.match(result.popupNextStep,/popup_catalog/);assert.equal(f.executor.leases.has(2),false);
+ assert.match(result.popupNextStep,/白名单授权页会自动接管/);
 });
 
 test('provider observation and candidate lifetimes permit slow pages but still expire',async()=>{
@@ -586,12 +587,36 @@ test('provider observation and candidate lifetimes permit slow pages but still e
  assert.deepEqual((await f.executor.execute(f.command('popup_catalog'))).candidates,[]);
 });
 
-test('a whitelisted origin in full mode still uses explicit adoption approval',async()=>{
- const f=await fixture(),t=f.executor.tasks.get('a');f.executor.setMode({...trustedTask(),modeGeneration:2,activeMode:'full'});
+test('a whitelisted origin in full mode automatically adopts with an audit and no deletion grant',async()=>{
+ const audits=[],f=await fixture({onPopupAdopt:async p=>audits.push(p)}),t=f.executor.tasks.get('a');f.executor.setMode({...trustedTask(),modeGeneration:2,activeMode:'full'});
  await f.executor.withSpawnScope(t,1,async()=>{});await f.create(2,{url:'https://accounts.google.com/login'});
  const row=[...f.executor.popups.candidates.values()][0];await row.autoWork;
- assert.equal(f.executor.leases.has(2),false);
- await assert.rejects(f.executor.execute(f.command('popup_adopt',{modeGeneration:2,candidateRef:row.candidateRef})),/confirmation required/);
+ assert.equal(f.executor.leases.get(2),'a');assert.equal(audits.length,1);
+ assert.equal(audits[0].modeGeneration,2);assert.ok(!t.agentTabs.has(2));
+});
+
+test('missing optional tab inventory cannot break a normal action or discover any popup',async()=>{
+ const f=await fixture(),t=f.executor.tasks.get('a');delete f.executor.api.tabs.query;
+ let actions=0;
+ assert.deepEqual(await f.executor.withSpawnScope(t,1,async()=>{actions++;return {effect:'observed'};}),{effect:'observed'});
+ await f.create(2,{url:'https://accounts.google.com/login'});
+ assert.equal(actions,1);assert.equal(f.executor.popups.candidates.size,0);assert.equal(f.executor.leases.has(2),false);
+});
+
+for(const windowId of [7,8])test(`full mode adopts delayed provider navigation in window ${windowId} without a manual grant`,async()=>{
+ const audits=[],f=await fixture({onPopupAdopt:async p=>audits.push(p)}),t=f.executor.tasks.get('a');
+ f.executor.setMode({...trustedTask(),modeGeneration:2,activeMode:'full'});
+ await f.executor.withSpawnScope(t,1,async()=>{});await f.create(2,{windowId,url:'about:blank'});
+ const row=[...f.executor.popups.candidates.values()][0];await row.autoWork;assert.equal(f.executor.leases.has(2),false);
+ f.tabs.get(2).url='https://accounts.google.com/login';await f.executor.tabEvent(2,'navigated',f.tabs.get(2).url);await row.autoWork;
+ assert.equal(f.executor.leases.get(2),'a');assert.equal(audits.length,1);assert.equal(f.executor.actionGrants.size,0);
+ assert.equal(audits[0].modeGeneration,2);assert.equal(row.adoption.cleanupOwned,false);
+});
+test('a failing inventory query is not swallowed or converted into an observed action',async()=>{
+ const f=await fixture();f.executor.api.tabs.query=async()=>{throw Error('inventory denied');};
+ let actions=0;
+ await assert.rejects(f.executor.withSpawnScope(f.executor.tasks.get('a'),1,async()=>actions++),/inventory denied/);
+ assert.equal(actions,0);assert.equal(f.executor.popups.candidates.size,0);
 });
 
 test('Edge missing creation opener readback adopts only the verified new provider tab',async()=>{

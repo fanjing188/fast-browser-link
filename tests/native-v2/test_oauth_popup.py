@@ -11,11 +11,37 @@ import unittest
 
 ROOT=Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(ROOT/'native-bridge'))
+from client import BridgeError
 SPEC=importlib.util.spec_from_file_location('oauth_daemon',ROOT/'native-bridge/daemon.py')
 assert SPEC is not None and SPEC.loader is not None
 m=importlib.util.module_from_spec(SPEC);sys.modules[SPEC.name]=m;SPEC.loader.exec_module(m)
 
 class PopupTests(unittest.TestCase):
+    def test_semantic_option_fields_survive_client_without_untrusted_values(self):
+        error=BridgeError('invalid_params','untrusted',{'fields':['sections','PRIVATE_CANARY',{},[]],'outcomeUnknown':False})
+        self.assertEqual(error.code,'invalid_params')
+        self.assertEqual(error.data['fields'],['sections'])
+        self.assertNotIn('PRIVATE_CANARY',str(error.data))
+
+    def test_semantic_parse_options_return_named_contract_error_before_dispatch(self):
+        with self.assertRaises(m.ProtocolError) as error:
+            self.daemon._run_task(self.params('semantic_snapshot',options={'mode':'content','sections':['blocks']}))
+        self.assertEqual(error.exception.code,'invalid_params')
+        self.assertEqual(error.exception.data['fields'],['sections'])
+        self.assertFalse(error.exception.data['outcomeUnknown'])
+        self.assertEqual(self.calls,[])
+
+    def test_full_automatic_popup_receipt_records_audit_and_preserves_source_authority(self):
+        self.task['activeMode']='full'
+        self.scope['candidate']['origin']='https://accounts.google.com'
+        event={'taskId':'task','generation':1,'modeGeneration':2,'popupScope':self.scope}
+        self.assertTrue(self.daemon._dispatch_extension('instance','extension.popup_adopted',event)['adopted'])
+        self.assertTrue(self.task['requestHistory'][-1]['automatic'])
+        self.assertEqual(self.task['requestHistory'][-1]['state'],'confirmed')
+        self.assertEqual(self.daemon.tab_leases[('instance',1)],'task')
+        self.assertEqual(self.daemon.tab_leases[('instance',2)],'task')
+        self.assertEqual(self.task['agentTabIds'],[])
+
     def test_automatic_audit_survives_repeated_snapshot_compaction_and_restart(self):
         self.task['activeMode']='smart'
         event={'taskId':'task','generation':1,'modeGeneration':2,'popupScope':self.scope}

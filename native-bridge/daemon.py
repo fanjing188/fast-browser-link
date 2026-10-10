@@ -123,6 +123,8 @@ def _safe_error_data(data: Any) -> dict:
     if not isinstance(data, dict):
         return {}
     safe = {key: data[key] for key in ("outcomeUnknown", "retryable") if type(data.get(key)) is bool}
+    if isinstance(data.get('fields'), list):
+        safe['fields'] = sorted(field for field in data['fields'] if isinstance(field, str) and field in {'sections', 'maxScan', 'schema'})
     # 中文注释：错误摘要只保留已脱敏的角色、名称和关闭按钮引用。
     rows = data.get('candidates')
     if isinstance(rows, list):
@@ -2704,8 +2706,11 @@ class BridgeDaemon:
         if action == "semantic_snapshot" and "options" in params:
             options = params["options"]
             allowed = {"mode", "root", "query", "roles", "viewport", "composed", "budget", "cursor", "baselineId", "frameToken", "accessibility"}
-            if not isinstance(options, dict) or set(options) - allowed:
+            if not isinstance(options, dict):
                 raise ProtocolError("invalid_params", "invalid semantic options")
+            if set(options) - allowed:
+                raise ProtocolError('invalid_params', 'semantic_snapshot options are unsupported; use page.parse for sections/maxScan/schema',
+                                    {'outcomeUnknown': False, 'fields': sorted(set(options) - allowed)})
             if options.get("mode", "interactive") not in {"interactive", "content", "table"}:
                 raise ProtocolError("invalid_params", "invalid semantic mode")
             for name, limit, empty in (("root", 4096, False), ("query", 2000, True),
@@ -3382,7 +3387,7 @@ class BridgeDaemon:
                     or task['state'] not in {'ready', 'running'} or task.get('accessRevoked')
                     or params.get('generation') != task['generation']
                     or params.get('modeGeneration') != task.get('modeGeneration', 1)
-                    or task.get('activeMode') != 'smart'):
+                    or task.get('activeMode') not in {'smart', 'full'}):
                 raise ProtocolError('approval_stale', 'automatic popup scope changed')
             if len(task.get('requestHistory', [])) >= self.request_history_limit:
                 raise ProtocolError('request_history_full', 'automatic popup audit history is full')

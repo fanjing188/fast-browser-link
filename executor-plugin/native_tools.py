@@ -178,8 +178,9 @@ PUBLIC_ACTIONS = frozenset({
     'images', 'console', 'dialog',
 })
 _run_schema = TOOL_SCHEMAS['browser_shared_run']['parameters']
-TOOL_SCHEMAS['browser_shared_run']['description'] += ' 点击第三方登录后查看 popupOpened 和 popupNextStep；smart 模式下内置身份提供方授权页由本任务新打开时自动接管，直接 browser_shared_use_tab 到 popupOpened.tabId 并重读页面选账号。密码、验证码、2FA 用 manual_input 请用户亲自填写。弹窗关闭时 popupClosed.returnedTo 指向源页，返回后重读，不复用旧引用。白名单外及非 smart 模式仍需 popup_catalog 保留候选、popup_adopt 必须明确确认；脚本 wait_pending 只读查账本，返回 state=confirmed，不重发接管，再 use_tab 到已确认候选并读取；单工具用 browser_shared_get 核对 generation 与 adoptedPopupTabIds 后选页重读。不得另开登录网址替代原弹窗，不自动移动或关闭，不授予清理权；未知或变化的授权不能重放。'
+TOOL_SCHEMAS['browser_shared_run']['description'] += ' 点击第三方登录后查看 popupOpened 和 popupNextStep；smart/full（连接授权后的全部访问）模式下内置身份提供方授权页由本任务新打开时自动接管，直接 browser_shared_use_tab 到 popupOpened.tabId 并重读页面选账号。密码、验证码、2FA 用 manual_input 请用户亲自填写。弹窗关闭时 popupClosed.returnedTo 指向源页，返回后重读，不复用旧引用。白名单外弹窗即使全部访问也必须明确确认，仍需 popup_catalog 保留候选、popup_adopt 等待用户确认；脚本 wait_pending 只读查账本，返回 state=confirmed，不重发接管，再 use_tab 到已确认候选并读取；单工具用 browser_shared_get 核对 generation 与 adoptedPopupTabIds 后选页重读。不得另开登录网址替代原弹窗，不自动移动或关闭，不授予清理权；未知或变化的授权不能重放。'
 TOOL_SCHEMAS['browser_shared_run']['description'] += (
+    ' semantic_snapshot 不接受 sections/maxScan/schema；需要 regions/blocks/forms/collections 等分区时用 page.parse。'
     ' 页面执行：连接授权后 js.evaluate / cdp.send / cdp.events 直接执行，不逐项确认。'
     '发生过凭据填写的页面不能运行任意 JS/CDP。原始脚本结果不做字段级脱敏。'
     ' read_page/page_text 返回 dict：读 page["items"] / page["elements"]，不能切片 dict；wait_for timeout 上限 60 秒。'
@@ -194,6 +195,9 @@ _run_schema['properties']['options']['properties'].update({
     'maxScan': {'type': 'integer', 'minimum': 1, 'maximum': 100000},
     'schema': {'type': 'object'},
 })
+# 中文注释：共享 options 含解析字段，但语义快照只接受自己的选项；sections 属于 page.parse。
+_run_schema['allOf'].append({'if': {'properties': {'action': {'const': 'semantic_snapshot'}}, 'required': ['action']},
+                           'then': {'properties': {'options': _semantic_options()}}})
 
 for suffix, description in (
     ('get', '读取当前可信会话拥有的任务。'),
@@ -373,6 +377,10 @@ def _validate(tool_name, args):
     extra = set(public) - set(schema['properties'])
     if extra:
         raise ArgumentFieldsError('invalid_fields', extra)
+    if tool_name == 'browser_shared_run' and public.get('action') == 'semantic_snapshot' and isinstance(public.get('options'), dict):
+        invalid = set(public['options']) - set(_semantic_options()['properties'])
+        if invalid:
+            raise ArgumentFieldsError('invalid_semantic_options', invalid)
     for key, value in public.items():
         try:
             _validate_field(key, value, schema['properties'][key], public)
@@ -468,6 +476,8 @@ def make_tool_handler(tool_name, profile_runtime, *, host_bridge=None, backend_c
             except ArgumentFieldsError as exc:
                 message = ('keep_tabs=true 必须补 handoff_reason（captcha/login/verification/final_submit/user_requested），或不传 keep_tabs 普通关闭。'
                            if tool_name == 'browser_shared_close' and 'handoff_reason' in exc.fields else '浏览器动作参数不符合契约')
+                if exc.code == 'invalid_semantic_options':
+                    message = 'semantic_snapshot 的 options 不支持所列字段；sections/maxScan/schema 请使用 page.parse。'
                 return json.dumps({'error': message, 'code': exc.code,
                                    'fields': exc.fields, 'retryable': False, 'outcome_unknown': False}, ensure_ascii=False)
             params = {'owner': lease.owner}
@@ -608,6 +618,7 @@ def make_tool_handler(tool_name, profile_runtime, *, host_bridge=None, backend_c
                 'capture_frame_uninspectable': '框架遮罩位置无法确认；请移开该框架或让用户手动截图。',
                 'task_paused': '用户正在接管浏览器页面。请等待用户退出接管，再继续此任务。',
                 'execution_denied': '浏览器拒绝执行，原因未分类；请查看任务和扩展状态，先读取页面核实结果。不要自动重试。',
+                'invalid_semantic_options': 'semantic_snapshot 的 options 不支持所列字段；sections/maxScan/schema 请使用 page.parse。',
                 'outcome_unknown': '执行结果不确定，请先检查页面；禁止自动重试。',
                 'extension_timeout': '浏览器响应超时，结果不确定；禁止自动重试。',
                 'scroll_timeout': '滚动派发未在短期限内返回；先读取原标签页面确认位置，再决定是否继续。',
@@ -698,7 +709,7 @@ def make_tool_handler(tool_name, profile_runtime, *, host_bridge=None, backend_c
             safe_before_dispatch = data.get('outcomeUnknown') is False and code in {
                 'popup_stale', 'stale_reference', 'stale_frame', 'target_unavailable', 'invalid_select_option',
                 'invalid_target_state', 'document_changed', 'site_changed', 'cdp_method_denied', 'invalid_params',
-                'task_busy', 'target_not_owned', 'permission_denied', 'no_dialog', 'dialog_open', 'invalid_state', 'task_closed', 'instance_unavailable', 'task_preparing', 'browser_access_revoked',
+                'invalid_semantic_options', 'task_busy', 'target_not_owned', 'permission_denied', 'no_dialog', 'dialog_open', 'invalid_state', 'task_closed', 'instance_unavailable', 'task_preparing', 'browser_access_revoked',
                 'target_occluded', 'target_hit_unverified', 'target_unstable', 'unsupported_frame_transform', 'background_pointer_unavailable', 'radio_cannot_uncheck',
                 'target_disabled', 'target_hidden', 'target_zero_size', 'target_out_of_viewport',
                 'reference_target_missing', 'reference_target_ambiguous', 'closed_shadow_unavailable', 'cross_origin_frame_unavailable',
@@ -720,6 +731,12 @@ def make_tool_handler(tool_name, profile_runtime, *, host_bridge=None, backend_c
                       'outcome_unknown': unknown}
             # 中文注释：协议层固定码必须始终传给模型，未知码仍有稳定的分类入口。
             result['bridgeCode'] = code or 'bridge_error'
+            # 中文注释：协议保留 invalid_params；仅语义读取的固定字段诊断映射为模型可理解的提示。
+            if code == 'invalid_params' and tool_name == 'browser_shared_run' and args.get('action') == 'semantic_snapshot' and isinstance(data.get('fields'), list):
+                fields = sorted(field for field in data['fields'] if isinstance(field, str) and field in {'sections', 'maxScan', 'schema'})
+                if fields:
+                    result.update(code='invalid_semantic_options', fields=fields, retryable=False,
+                                  error='semantic_snapshot 的 options 不支持 ' + '、'.join(fields) + '；请使用 page.parse。')
             if action_confirmed:
                 result.update(action_confirmed=True, outcome_unknown=False, retryable=False,
                               error='点击已确认，当前页面输出被保护拒绝；请重新读取核对，不要重放点击。')

@@ -83,6 +83,8 @@ class BridgeError(RuntimeError):
         self.message = message
         self.data = {key: data[key] for key in ("outcomeUnknown", "retryable")
                      if isinstance(data, dict) and type(data.get(key)) is bool}
+        if code == 'invalid_params' and isinstance(data, dict) and isinstance(data.get('fields'), list):
+            self.data['fields'] = sorted(field for field in data['fields'] if isinstance(field, str) and field in {'sections', 'maxScan', 'schema'})
         # 中文注释：保护仍拒绝输出，仅转发扩展已确认的点击事实，不接受页面字段或异常原文。
         if (isinstance(data, dict) and data.get('actionConfirmed') is True and code in {
                 'content_shield_stale', 'content_shield_changed', 'content_shield_unavailable',

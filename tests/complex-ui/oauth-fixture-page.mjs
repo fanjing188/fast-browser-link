@@ -15,8 +15,9 @@ export function oauthSourcePage({origin,loginOrigin,manualOrigin,flow}){
  });
  </script></html>`;
 }
-export function oauthProviderPage({frameOrigin="http://127.0.0.1:9000"}={}){
- return `<!doctype html><html lang="zh"><title>本地模拟身份提供方</title><main id="accounts"><ul>${OAUTH_FIXTURE_ACCOUNTS.map(email=>`<li><button class="account" data-email="${email}">${email}</button></li>`).join('')}</ul><button id="complete">完成本地授权</button></main><iframe title="账号页附属框架" src="${attribute(frameOrigin+'/oauth-frame')}" style="position:fixed;right:0;bottom:0;width:2px;height:2px;border:0"></iframe><script>
+export function oauthProviderPage({frameOrigin="http://127.0.0.1:9000",accountRole=null}={}){
+ const tag=accountRole?'div':'button',role=accountRole?` role="${accountRole}" tabindex="0"`:'';
+ return `<!doctype html><html lang="zh"><title>本地模拟身份提供方</title><main id="accounts"><ul>${OAUTH_FIXTURE_ACCOUNTS.map(email=>`<li><${tag}${role} class="account" data-email="${email}">${email}</${tag}></li>`).join('')}</ul><button id="complete">完成本地授权</button></main><iframe title="账号页附属框架" src="${attribute(frameOrigin+'/oauth-frame')}" style="position:fixed;right:0;bottom:0;width:2px;height:2px;border:0"></iframe><script>
  const flow=new URLSearchParams(location.search).get('flow'),source=new URLSearchParams(location.search).get('source');
  window.fixtureAccountClicks=0;window.fixtureChosenAccount=null;window.fixtureFrameLoaded=false;
  const frame=document.querySelector('iframe');

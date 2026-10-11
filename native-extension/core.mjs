@@ -312,10 +312,10 @@ export const semanticWorldDeclaration=`function(op,p){
  const editable=()=>interaction().editable;
  const fillable=()=>interaction().actions.includes('fill');
  if(op==='shield_write_target'){
-  // 中文注释：动作已由宿主限定为五类原生引用操作，此处只核实真实节点和所在文档。
+  // 中文注释：账号项也可能是 ARIA 链接或按钮；仍核实真实引用、所属文档及后续框架重叠，不能只按标签名识别。
   const a=p.action.slice(4),tag=node.tagName;
   const ok=a==='fill'?['INPUT','TEXTAREA'].includes(tag):a==='select_option'?tag==='SELECT':
-   a==='set_checked'?tag==='INPUT'&&['checkbox','radio'].includes(node.type):['A','BUTTON','INPUT','TEXTAREA','SELECT'].includes(tag);
+   a==='set_checked'?tag==='INPUT'&&['checkbox','radio'].includes(node.type):['A','BUTTON','INPUT','TEXTAREA','SELECT'].includes(tag)||a==='click'&&['link','button'].includes(interaction().role);
   return ok&&doc===document?(a==='click'||a==='set_checked'?controlVisual(node):node):null;
  }
  // 中文注释：计划和指针定位共用选项查找，保留缺失、歧义及禁用检查，不缓存页面节点。

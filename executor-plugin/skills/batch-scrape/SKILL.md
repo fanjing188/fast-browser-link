@@ -59,6 +59,8 @@ print({'coverage': page['coverage'], 'items': page['items'][:5]})
 
 Use the current owned work tab; with multiple tabs select `use_tab(tab_id)` or pass `tab=`. Do not create an extra tab just to select one.
 
+登录弹窗先确认 `adoptedPopupTabIds`，再 `use_tab` 并按用户指定邮箱读取账号项；`role` 取自快照（可能是 `link`）。用 `click_element` 唯一定位，让执行器核验 `coveredScopeComplete` 下的局部点击，不把 `complete=false` 一律改成整页失败，也不跳过其他覆盖检查。收到 `popupClosed.returnedTo` 后重读源页确认登录；未知写入不重放。详细流程见 `browser-link:use-my-browser`。
+
 ## JS 传值
 
 先用 read_page/extract。确需 JS 时用函数参数，不拼接业务数据到源码：

@@ -37,8 +37,8 @@ test('状态解析支持禁用 fieldset、ARIA 三态、展开和忙碌，同文
   } finally {f.close();}
 });
 
-test('占位提示中的标记秘密仍脱敏', () => {
+test('占位提示中的标记文本原样返回', () => {
   const f = fixture('<input placeholder="token=PRIVATE_TOKEN">');
-  try {assert.doesNotMatch(JSON.stringify(f.semantics.snapshot()), /PRIVATE_TOKEN/);}
+  try {assert.match(JSON.stringify(f.semantics.snapshot()), /PRIVATE_TOKEN/);}
   finally {f.close();}
 });

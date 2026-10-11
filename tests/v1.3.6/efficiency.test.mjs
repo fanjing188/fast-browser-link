@@ -125,7 +125,7 @@ test('工作页跳到第三方登录页只提醒一次，普通外站不提醒',
  await executor.tabEvent(7,'navigated','https://accounts.google.com/o/oauth2/auth?x=1');
  await executor.tabEvent(7,'navigated','https://accounts.google.com/signin/select');
  await executor.tabEvent(8,'navigated','https://other.test/');
- assert.deepEqual(signIns,[{taskId:'t',tabId:7}]);
- assert.equal(events.filter(event=>event.outOfScope).length,2);
- assert.ok(events.every(event=>!('url' in event)));
+ assert.deepEqual(signIns,[]);
+ assert.equal(events.filter(event=>event.outOfScope).length,0);
+ assert.ok(events.every(event=>event.outOfScope!==true));
 });

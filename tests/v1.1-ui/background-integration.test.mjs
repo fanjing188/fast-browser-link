@@ -37,7 +37,7 @@ function harness({focusFails=false,browserFullConsent=false,decideFails=false,co
   tabs:{get:async id=>id===7?clone(tab):id===panelTab?.id?clone(panelTab):null,query:async()=>[clone(tab)],onCreated:{addListener(){}},onRemoved:{addListener(){}},onUpdated:{addListener(){}}},
   windows:{getLastFocused:async()=>({id:12}),onRemoved:{addListener:f=>windowRemoved=f},get:async id=>({id,left:100,top:40,width:1000,height:800,type:'normal'}),update:async(id,p)=>{focusCalls.push([id,p]);if(focusFails)throw Error('focus failed');return {id,focused:true};},create:async p=>{windowCalls.push(p);panelTab={id:400+(++created),windowId:90+created,url:p.url};return {id:panelTab.windowId,tabs:[panelTab],focused:true};},remove:async()=>{}},
   action:{setBadgeText:async p=>badge.push(p.text),setTitle:async()=>{}},debugger:{onDetach:{addListener(){}}}};
- vm.runInNewContext(background.replace(/^import .*;\n/gm,''),{CloudLink,validateShieldRules,reloadForInstalledBuild:async()=>false,BUILD_ID:'',registerWorkspaceStartup:()=>{},NativeWorkspaces:WorkspaceFake,Executor:ExecutorFake,CookieMirror,Bridge,BrowserConsent,isUiSender,createApprovalNotifier,origin:u=>new URL(u).origin,chrome,crypto:globalThis.crypto,navigator:{userAgent:'Node'},console,setTimeout,clearTimeout});
+ vm.runInNewContext(background.replace(/^import .*;\n/gm,''),{CloudLink,reloadForInstalledBuild:async()=>false,BUILD_ID:'',registerWorkspaceStartup:()=>{},NativeWorkspaces:WorkspaceFake,Executor:ExecutorFake,CookieMirror,Bridge,BrowserConsent,isUiSender,createApprovalNotifier,origin:u=>new URL(u).origin,chrome,crypto:globalThis.crypto,navigator:{userAgent:'Node'},console,setTimeout,clearTimeout});
  const sender=()=>({id:'ext-123',url:'chrome-extension://ext-123/approval-panel.html',tab:{id:panelTab?.id,windowId:panelTab?.windowId}});
  const message=(m,s=sender())=>new Promise(resolve=>{const yes=listeners.message(m,s,resolve);if(!yes)resolve({ignored:true});});
  return {sendNative:m=>receiver(m),tick,message,sender,nativeCalls,focusCalls,windowCalls,badge,notification:id=>listeners.notification(id),disconnect:()=>disconnect?.(),windowRemoved:()=>windowRemoved?.(panelTab?.windowId),setApprovals:x=>approvals=x,setTask:x=>task={...task,...x},setTab:x=>tab={...tab,...x},executor:()=>executor,changed:()=>receiver({method:'tasks.changed'}),chrome};
@@ -115,21 +115,11 @@ test('card shows a bounded target but never the content being filled',async()=>{
 });
 
 // 中文注释：验证真实后台消息路由，不允许网页或审批面板修改持久化过滤偏好。
-test('only trusted popup can persist the independent content filter setting',async()=>{
+test('旧过滤设置入口不再提供写入能力',async()=>{
  const h=harness();await h.tick();
  const popup={id:'ext-123',url:'chrome-extension://ext-123/popup.html'};
- for(const sender of [{id:'ext-123',url:'https://example.test/'},{id:'other',url:popup.url},h.sender()]){
-  assert.equal((await h.message({type:'page_content_filter',enabled:true},sender)).ignored,true);
- }
+ assert.equal((await h.message({type:'page_content_filter',enabled:true},popup)).error,'不支持的操作');
  assert.equal((await h.chrome.storage.local.get()).pageContentFilter,undefined);
- assert.equal((await h.message({type:'page_content_filter',enabled:'true'},popup)).error,'无效的过滤设置');
- assert.equal((await h.message({type:'page_content_filter',enabled:true},popup)).result.enabled,true);
- assert.equal((await h.chrome.storage.local.get()).pageContentFilter,true);
- assert.equal((await h.chrome.storage.local.get()).browserFullConsent.enabled,false);
- assert.equal((await h.message({type:'page_content_filter',enabled:false},popup)).result.enabled,false);
- h.chrome.storage.local.set=async()=>{throw Error('storage failed');};
- assert.equal((await h.message({type:'page_content_filter',enabled:true},popup)).error,'storage failed');
- assert.equal((await h.chrome.storage.local.get()).pageContentFilter,false);
 });
 
 // 中文注释：生产后台在全部访问中仍只认源扩展面板，native 取块不能绕过人工批准。
@@ -168,4 +158,3 @@ test('system notification event focuses the pending panel without dispatching ap
  assert.ok((await h.message({type:'approval_panel_view'})).result);
 });
 // 中文注释：VM 只替换模块链接，完整设置校验仍复用生产实现。
-import {validateShieldRules} from '../../native-extension/content-shield.mjs';

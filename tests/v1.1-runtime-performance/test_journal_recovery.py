@@ -155,6 +155,12 @@ class JournalTests(unittest.TestCase):
         self.assertEqual(sent, [])
 
     def test_same_task_dispatches_two_tabs_and_rejects_inflight_replay(self):
+        self.assert_concurrent_dispatch_without_replay('snapshot')
+
+    def test_dispatched_writes_reject_inflight_replay(self):
+        self.assert_concurrent_dispatch_without_replay('click')
+
+    def assert_concurrent_dispatch_without_replay(self, action):
         from concurrent.futures import ThreadPoolExecutor
         self.task.update(state='ready', allowedOrigins=['https://example.test'], activeMode='full')
         self.task['requestHistory'] = []
@@ -165,7 +171,7 @@ class JournalTests(unittest.TestCase):
         self.bridge.tab_leases[('instance', 8)] = 'task'
         started, finish = threading.Barrier(3), threading.Event()
         calls = []
-        def extension(_extension, method, params):
+        def extension(_extension, method, params, **kwargs):
             self.assertEqual(method, 'browser.execute')
             # 中文注释：进入扩展前，该请求必须已在 fsync 日志里。
             rows = [json.loads(line) for line in self.bridge.journal_path.read_bytes().splitlines()]
@@ -177,7 +183,8 @@ class JournalTests(unittest.TestCase):
             return {'text': 'bounded fixture'}
         self.bridge._extension_call = extension
         def params(tab):
-            return {'owner': 'owner', 'taskId': 'task', 'requestId': str(tab), 'action': 'snapshot', 'tabId': tab}
+            return {'owner': 'owner', 'taskId': 'task', 'requestId': str(tab), 'action': action, 'tabId': tab,
+                    **({'selector': '#account'} if action == 'click' else {})}
         with ThreadPoolExecutor(max_workers=2) as pool:
             futures = [pool.submit(self.bridge._run_task_impl, params(tab), None, []) for tab in (7, 8)]
             try:

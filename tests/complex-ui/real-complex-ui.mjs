@@ -79,12 +79,11 @@ try{
  assert.equal(await tab.read(`document.querySelector('#standard-mixed').indeterminate`),false);
  const readonly=await tab.run('ref_fill',{...await ref('标准只读'),text:'不应填写'});assert.ok(readonly.error);assert.equal(readonly.outcome_unknown,false);
  assert.equal(await tab.read(`document.querySelector('[aria-label="标准只读"]').textContent`),'原有正文');
- // 中文注释：固定遮罩覆盖按钮时只检查拒绝回执，不触发关闭按钮。
+ // 中文注释：1.11.0 起固定遮罩覆盖按钮时插件自动关闭遮罩后点击成功。
  await tab.read(`(()=>{const mask=document.createElement('div');mask.id='acceptance-mask';mask.setAttribute('role','dialog');mask.setAttribute('aria-label','验收遮挡层');mask.style.cssText='position:fixed;inset:0;z-index:2147483647;background:rgba(0,0,0,.1)';const close=document.createElement('button');close.textContent='关闭遮挡层';close.onclick=()=>mask.remove();mask.append(close);document.body.append(mask);return true})()`);
  const covered=await tab.run('ref_click',await ref('保存',['button']));
- assert.equal(covered.code,'target_occluded',JSON.stringify(covered));
- assert.equal(covered.obstruction?.role,'dialog');
- assert.equal(covered.obstruction?.closeButton?.role,'button');
+ assert.equal(covered.error,undefined,JSON.stringify(covered));
+ assert.equal(covered.recovery?.triggered,true,JSON.stringify(covered.recovery));
  console.log('复杂界面真实浏览器验收通过');
 }finally{
  await session?.close?.();

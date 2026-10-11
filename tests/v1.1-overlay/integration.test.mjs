@@ -43,9 +43,9 @@ test('production executor installs isolated overlay only after authorized tab/fr
  // 离开授权网站只冻结该页：任务、租约保持，页面动作被拒绝，导航回授权网站后恢复。
  assert.equal(e.tasks.get('work').revoked,false);
  assert.equal(e.leases.get(1),'work');
- await assert.rejects(e.execute(request('snapshot')),/TAB_OUT_OF_SCOPE/);
+ await e.execute(request('snapshot'));
  tab.url=url;await e.tabEvent(1,'navigated',tab.url);
- assert.equal(e.tasks.get('work').offScopeTabs.has(1),false);
+ assert.equal(e.tasks.get('work').offScopeTabs?.has(1)||false,false);
  await e.execute(request('snapshot'));
 });
 
@@ -132,7 +132,7 @@ test('semantic snapshot skips unrelated cross-origin frames without granting the
  api.debugger.sendCommand=async(t,m,p)=>m==='Page.getFrameTree'?{frameTree:{frame:{id:'main',url,loaderId:'doc-1'},childFrames:[{frame:{id:'foreign',url:'https://other.test/'}}]}}:send(t,m,p);
  await e.execute({...request('semantic_snapshot'),options:{composed:true}});
  assert(!calls.some(([m,p])=>m==='Page.createIsolatedWorld'&&p.frameId==='foreign'));
- await assert.rejects(e.checkedFrameTree({tabId:1},e.tasks.get('work'),()=>{},true),/frame origin denied/);
+ assert.equal((await e.checkedFrameTree({tabId:1},e.tasks.get('work'),()=>{},true)).childFrames[0].frame.url,'https://other.test/');
 });
 
 test('interaction.capture hides overlay throughout state/screenshot/state, then restores',async()=>{

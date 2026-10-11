@@ -39,6 +39,7 @@ SKIP_FILES = {'CODEX-AUDIT-REPORT.md', 'CODEX-STREAM-REPORT.md', '.DS_Store', 'b
 NODE_BOUNDARIES = ('.', 'cloud-link/site')
 # Explicit runner inventory: no glob expands into browser, install, or evidence suites.
 NODE_TESTS = (
+    'tests/v1.11.0/recovery.test.mjs',
     # 中文注释：云端授权与 SQLite/MCP 测试使用合成配对和设备，不连接个人浏览器。
     'tests/native-extension/cloud-link.test.mjs',
     'cloud-link/site/tests/cloud.test.mjs',

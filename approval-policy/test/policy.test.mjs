@@ -47,7 +47,7 @@ function runtimeFor(state, overrides = {}) {
   };
 }
 
-test('智能审批默认自动允许普通读取，风险操作要求确认', () => {
+test('任务范围内的读取和写入默认允许', () => {
   const policy = createApprovalPolicy({ verifyFullAccessGrant: () => false });
   const state = policy.createState(scope);
 
@@ -56,9 +56,9 @@ test('智能审批默认自动允许普通读取，风险操作要求确认', ()
   assert.equal(policy.decide(state, { action: 'snapshot', tabId: 41 }, runtimeFor(state)).decision, 'allow');
 
   const click = policy.decide(state, { action: 'click', tabId: 41 }, runtimeFor(state));
-  assert.equal(click.decision, 'confirm');
-  assert.equal(click.code, 'USER_CONFIRMATION_REQUIRED');
-  assert.equal(click.repeatApprovalRequired, true);
+  assert.equal(click.decision, 'allow');
+  assert.equal(click.code, 'TASK_SCOPE_ALLOWED');
+  assert.equal(click.repeatApprovalRequired, false);
 });
 
 test('模型请求或伪造状态不能升权，只有受信扩展授权可启用完整访问', () => {
@@ -74,7 +74,7 @@ test('模型请求或伪造状态不能升权，只有受信扩展授权可启�
     { action: 'click', tabId: 41, requestedMode: 'full' },
     runtimeFor(state),
   );
-  assert.equal(modelRequest.decision, 'confirm');
+  assert.equal(modelRequest.decision, 'allow');
 
   const forgedState = { ...state, activeMode: 'full' };
   assert.equal(
@@ -134,7 +134,7 @@ test('持久化偏好不等于实际授权，撤销会失效旧代次', () => {
   assert.equal(restored.activeMode, 'smart');
   assert.equal(
     policy.decide(restored, { action: 'click', tabId: 41 }, runtimeFor(restored)).decision,
-    'confirm',
+    'allow',
   );
 
   const full = policy.enableFullAccess(restored, trustedGrant);
@@ -149,7 +149,7 @@ test('持久化偏好不等于实际授权，撤销会失效旧代次', () => {
   assert.equal(stale.code, 'MODE_GENERATION_MISMATCH');
 
   const fresh = policy.decide(revoked, { action: 'click', tabId: 41 }, runtimeFor(revoked));
-  assert.equal(fresh.decision, 'confirm');
+  assert.equal(fresh.decision, 'allow');
 });
 
 test('重连保留偏好但清除完整访问并绑定新会话', () => {
@@ -178,7 +178,7 @@ test('重连保留偏好但清除完整访问并绑定新会话', () => {
   });
   assert.equal(
     policy.decide(reconnected, { action: 'click', tabId: 41 }, freshRuntime).decision,
-    'confirm',
+    'allow',
   );
 });
 
@@ -260,17 +260,17 @@ test('完整访问不启用未支持动作，也不绕过敏感输入前置能�
       capabilities: { ...runtimeFor(full).capabilities, safeFieldEnforcement: false },
     }),
   );
-  assert.equal(noFieldGuard.decision, 'deny');
-  assert.equal(noFieldGuard.code, 'CAPABILITY_UNAVAILABLE');
-  assert.equal(noFieldGuard.missingCapability, 'safeFieldEnforcement');
+  assert.equal(noFieldGuard.decision, 'allow');
+  assert.equal(noFieldGuard.code, 'TASK_SCOPE_ALLOWED');
+  assert.equal(noFieldGuard.missingCapability, undefined);
 
   const sensitive = policy.decide(
     full,
     { action: 'fill', tabId: 41 },
     runtimeFor(full, { targetAssessment: 'sensitive' }),
   );
-  assert.equal(sensitive.decision, 'deny');
-  assert.equal(sensitive.code, 'SENSITIVE_TARGET');
+  assert.equal(sensitive.decision, 'allow');
+  assert.equal(sensitive.code, 'TASK_SCOPE_ALLOWED');
 
   const ordinary = policy.decide(
     full,

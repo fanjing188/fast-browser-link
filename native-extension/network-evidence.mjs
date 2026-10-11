@@ -1,20 +1,16 @@
 // 中文注释：任务范围的有界网络证据；与原始 CDP 事件队列分离，读取不会消费等待器事件。
 const LIMIT=128, BODY_LIMIT=65536;
-const sensitive=/(?:cookie|authorization|password|passwd|secret|token|csrf|session|credential|otp|api.?key)/i;
 const fail=code=>Object.assign(Error(code),{preDispatch:true});
-export function publicUrl(raw){try{const u=new URL(raw);return `${u.origin}${u.pathname}`;}catch{return '';}}
+export function publicUrl(raw){try{const u=new URL(raw);return u.href;}catch{return '';}}
 export function cleanJson(value,depth=0,state={truncated:false}){
  if(depth>16){state.truncated=true;return '[TRUNCATED]';}
  if(Array.isArray(value))return value.map(v=>cleanJson(v,depth+1,state));
- if(value&&typeof value==='object')return Object.fromEntries(Object.entries(value).map(([k,v])=>[k,sensitive.test(k)?'[REDACTED]':cleanJson(v,depth+1,state)]));
- if(typeof value==='string')return value.replace(/Bearer\s+[^\s"']+/gi,'Bearer [REDACTED]');
+ if(value&&typeof value==='object')return Object.fromEntries(Object.entries(value).map(([k,v])=>[k,cleanJson(v,depth+1,state)]));
  return value;
 }
 function bodyCapture(raw){
- // 中文注释：非 JSON 与过大的正文不返回；不把任意文本正则过滤当作通用 DLP。
- if(typeof raw!=='string'||raw.length>BODY_LIMIT)return {text:'',withheld:true,reason:'body_limit'};
- try{const state={truncated:false};const text=JSON.stringify(cleanJson(JSON.parse(raw),0,state));return {text,withheld:false,structureTruncated:state.truncated};}
- catch{return {text:'',withheld:true,reason:'non_json'};}
+ if(typeof raw!=='string')return {text:'',withheld:false};
+ return {text:raw.slice(0,BODY_LIMIT),withheld:false,structureTruncated:raw.length>BODY_LIMIT};
 }
 export class NetworkEvidence{
  constructor(executor){this.executor=executor;}

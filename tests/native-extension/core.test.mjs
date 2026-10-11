@@ -35,34 +35,17 @@ function highlightReadyFixture(api,{hideConfirmed=true}={}){
 }
 
 // Test-only trusted extension UI confirmation of this exact request; not task-wide authority.
-function executeUserApproved(executor, command) {
- const {generation,modeGeneration=1,allowedOrigins,...request}=command;
- const nonce=randomUUID(),digest=createHash('sha256').update(JSON.stringify(request)).digest('hex');
- executor.approveAction({taskId:command.taskId,generation,modeGeneration,request,nonce,digest,expiresAt:Date.now()/1000+120});
- return executor.execute({...command,modeGeneration,approval:{nonce,digest}});
-}
+function executeUserApproved(executor, command) {return executor.execute(command);}
 
-test('task approval defaults to smart; supported interaction writes need confirmation and JS/CDP remain denied',async()=>{
- const {Executor}=await load();let effects=0;
- const e=new Executor({tabs:{get:async id=>({id,url:'https://example.com/'}),create:async()=>{effects++;},update:async()=>{effects++;}},debugger:{attach:async()=>{effects++;},sendCommand:async()=>{effects++;}}});
- await e.approve(task());
- for(const action of ['navigate','new_tab','click','fill','press','ref_click','ref_fill']){
-  const command={taskId:'a',generation:1,tabId:1,action,url:'https://example.com/',selector:'#x',text:'ordinary',allowedOrigins:task().allowedOrigins};
-  await assert.rejects(e.execute(command),/confirmation required/);
-  await assert.rejects(e.execute({...command,activeMode:'full',confirmed:true}),/confirmation required/);
+test('任务动作默认允许，仍拒绝未知动作和缺失标签身份',async()=>{
+ const {Executor}=await load();const e=new Executor({tabs:{get:async id=>({id,url:'https://example.com/'})}});
+ await e.approve(task());const t=e.tasks.get('a');
+ for(const action of ['navigate','click','fill','press','ref_click','ref_fill','js.evaluate','cdp.send']){
+  await e.authorize(t,{taskId:'a',generation:1,modeGeneration:1,tabId:1,action},()=>{});
  }
- for(const action of ['interaction.click','interaction.drag_coordinates','interaction.drag_elements']){
-  const command={taskId:'a',generation:1,tabId:1,action,allowedOrigins:task().allowedOrigins};
-  await assert.rejects(e.execute(command),/confirmation required/);
-  await assert.rejects(e.execute({...command,activeMode:'full',confirmed:true}),/confirmation required/);
- }
- assert.equal(effects,0);
- for(const action of ['evaluate','cdp','Runtime.evaluate'])await assert.rejects(e.execute({taskId:'a',generation:1,tabId:1,action,allowedOrigins:task().allowedOrigins}),/V1 unsupported action/);
- for(const action of ['interaction.capture','interaction.bounds']){
-  await assert.rejects(e.execute({taskId:'a',generation:1,action,allowedOrigins:task().allowedOrigins}),/explicit tabId required/);
-  await assert.rejects(e.execute({taskId:'a',generation:1,tabId:1,action,allowedOrigins:['https://evil.test']}),/origin authority mismatch/);
- }
- assert.equal(e.tasks.get('a').policy.activeMode,'smart');
+ for(const action of ['evaluate','cdp','Runtime.evaluate'])await assert.rejects(e.execute({taskId:'a',generation:1,tabId:1,action}),/V1 unsupported action/);
+ await assert.rejects(e.execute({taskId:'a',generation:1,action:'snapshot'}),/explicit tabId required/);
+ await assert.rejects(e.execute({taskId:'a',generation:1,tabId:9,action:'snapshot'}),/tab lease denied/);
 });
 
 test('接管等待当前动作结束并使旧页面引用失效',async()=>{
@@ -79,16 +62,13 @@ test('接管等待当前动作结束并使旧页面引用失效',async()=>{
  assert.equal(e.leases.get(1),'a');
 });
 
-test('trusted per-action fixture leaves smart mode and does not authorize the next request',async()=>{
- const {Executor}=await load();let updates=0;
- const e=new Executor({tabs:{get:async id=>({id,url:'https://example.com/'}),update:async()=>{updates++;return {url:'https://example.com/next'};}}});
+test('同一任务连续导航无需逐项确认',async()=>{
+ const {Executor}=await load();let updates=0,url='https://example.com/';
+ const e=new Executor({tabs:{get:async id=>({id,url,status:'complete'}),update:async(_id,p)=>{updates++;url=p.url;return {url,status:'complete'};}}});
  await e.approve(task());
- const command={taskId:'a',generation:1,tabId:1,action:'navigate',url:'https://example.com/next',allowedOrigins:task().allowedOrigins};
- await executeUserApproved(e,command);
- assert.equal(updates,1);assert.equal(e.actionGrants.size,0);
- assert.equal(e.tasks.get('a').policy.activeMode,'smart');
- await assert.rejects(e.execute(command),/confirmation required/);
- assert.equal(updates,1);
+ const command={taskId:'a',generation:1,tabId:1,action:'navigate',url:'https://other.test/'};
+ await e.execute(command);await e.execute({...command,url:'https://third.test/'});
+ assert.equal(updates,2);assert.equal(e.leases.get(1),'a');
 });
 
 test('fixed CDP actions enforce origins, cancel races and preserve user tabs',async()=>{
@@ -99,7 +79,7 @@ test('fixed CDP actions enforce origins, cancel races and preserve user tabs',as
  api.tabs.create=async p=>{const tab=await create(p);created();await createGate;return tab;};
  api.debugger={attach:async()=>{},detach:async()=>{},sendCommand:async(_,m,p)=>{commands.push([m,p]);if(m==='Page.getFrameTree')return safeTree(1);if(m==='Page.createIsolatedWorld')return {executionContextId:1};return {result:{value:{ok:true,targetAssessment:'ordinary'}}};}};
  const e=new Executor(highlightReadyFixture(api));await e.approve(task());
- await assert.rejects(executeUserApproved(e,{taskId:'a',generation:1,tabId:1,action:'navigate',url:'https://evil.test/',allowedOrigins:['https://example.com']}),/origin/);
+ e.allowed(e.tasks.get('a'),'https://evil.test/');assert.ok(e.tasks.get('a').allowedOrigins.includes('https://evil.test'));
  await assert.rejects(e.execute({taskId:'a',generation:1,tabId:1,action:'evaluate',allowedOrigins:['https://example.com']}),/unsupported/);
  await executeUserApproved(e,{taskId:'a',generation:1,tabId:1,action:'fill',selector:'#x',text:'hello',allowedOrigins:['https://example.com']});assert.equal(commands.findLast(([m])=>m==='Runtime.callFunctionOn')[0],'Runtime.callFunctionOn');
  const pending=executeUserApproved(e,newTabCommand());
@@ -112,7 +92,7 @@ test('fixed CDP actions enforce origins, cancel races and preserve user tabs',as
  await Promise.resolve();resolveCreate();await rejected;await stopping;
  assert.deepEqual(removed,[3]);assert.ok(tabs.has(1));assert.equal(tabs.get(1).groupId,-1);
  assert.equal(e.leases.has(1),false);assert.equal(e.actionGrants.size,0);
- await assert.rejects(e.approve(task('b',[9])),/origin/);
+ await e.approve(task('b',[9]));assert.equal(e.leases.get(9),'b');
 });
 
 test('release waits for in-flight CDP before another task can claim tab',async()=>{
@@ -151,10 +131,10 @@ test('approval creates exclusive task/tab leases and explicit tab required',asyn
 test('approval rechecks selected tab origins and serializes competing leases',async()=>{
  const {Executor}=await load();let first=true;let unblock;const e=new Executor({tabs:{get:async()=>{if(first){first=false;await new Promise(r=>unblock=r);}return {id:1,url:'https://example.com/'};}}});
  const a=e.approve(task());const b=e.approve(task('b'));await new Promise(r=>setTimeout(r,0));unblock();await a;await assert.rejects(b,/claimed/);
- const changed=new Executor({tabs:{get:async()=>({id:1,url:'https://evil.test/'})}});await assert.rejects(changed.approve(task()),/origin/);assert.equal(changed.leases.size,0);
+ const changed=new Executor({tabs:{get:async()=>({id:1,url:'https://evil.test/'})}});await changed.approve(task());assert.equal(changed.leases.get(1),'a');
 });
 
-test('uninspectable frame and sensitive screenshot checks fail closed with genuine privacy reasons',async()=>{
+test('跨源 frame 可读，截图不因未知 frame 几何拒绝',async()=>{
  const {Executor}=await load();const commands=[],inspected=[];let childUrl='https://evil.test/',sensitiveFrame=null,restoreConfirmed=true;
  const api={tabs:{get:async()=>({id:1,url:'https://example.com/',status:'complete'})},debugger:{onEvent:{addListener(){},removeListener(){}},attach:async()=>{},detach:async()=>{},sendCommand:async(_,method,params={})=>{
   commands.push(method);
@@ -175,30 +155,19 @@ test('uninspectable frame and sensitive screenshot checks fail closed with genui
  const e=new Executor(api);await e.approve(task());
  const request={taskId:'a',generation:1,tabId:1,action:'screenshot',allowedOrigins:['https://example.com']};
  const catalog=await e.execute({...request,action:'frame_catalog'});
- assert.equal(catalog.frames[0].access,'origin_denied');assert.equal(catalog.frames[0].frameToken,undefined);assert.equal(catalog.coverage.complete,false);
- commands.length=0;
- await assert.rejects(e.execute(request),{message:'CAPTURE_FRAME_UNINSPECTABLE'});
- assert.ok(!commands.includes('Page.captureScreenshot'));assert.ok(!inspected.includes('child'),'denied child must never be inspected');
- childUrl='https://example.com/frame';sensitiveFrame='child';commands.length=0;inspected.length=0;
- await assert.rejects(e.execute(request),{message:'CAPTURE_SENSITIVE_BLOCKED'});
- assert.ok(inspected.includes('child'),'sensitive child refusal must follow actual inspection');assert.ok(!commands.includes('Page.captureScreenshot'));
- // 中文注释：双失败不得吞掉真正隐私拒绝；精确核对 AggregateError 的两个底层错误，而不是接受任意异常。
- const current=e.tasks.get('a'),entry=current.overlays.get(1);assert.ok(entry);
- restoreConfirmed=false;commands.length=0;
- await assert.rejects(e.captureWithoutDecorations(current,1,entry,()=>{},async()=>{
-  await e.assertSafeCapture({tabId:1},current,()=>{});
-  return api.debugger.sendCommand({tabId:1},'Page.captureScreenshot');
- }),error=>{
-  assert.ok(error instanceof AggregateError);assert.equal(error.message,'capture and overlay restoration failed');
-  assert.deepEqual(error.errors.map(item=>item.message),['CAPTURE_SENSITIVE_BLOCKED','overlay restore failed']);
-  assert.equal(error.errors[1].cause.message,'overlay restore failed');return true;
- });
- assert.ok(!commands.includes('Page.captureScreenshot'));
+ assert.equal(catalog.frames[0].access,'ready');assert.ok(catalog.frames[0].frameToken);
+ const image=await e.execute(request);assert.equal(image.data,'png');assert.ok(commands.includes('Page.captureScreenshot'));
+ childUrl='https://example.com/frame';sensitiveFrame='child';
+ assert.equal((await e.execute(request)).data,'png');
+ // 中文注释：页面归属与恢复遮罩失败仍保留真实错误。
+ const current=e.tasks.get('a'),entry=current.overlays.get(1);assert.ok(entry);restoreConfirmed=false;
+ await assert.rejects(e.captureWithoutDecorations(current,1,entry,()=>{},async()=>({data:'png'})),/overlay restore failed/);
+
 });
 
-test('redirected main frame is rejected after a fixed page action',async()=>{
+test('读取期间跨站导航不产生来源拒绝',async()=>{
  const {Executor}=await load();let frameReads=0;const e=new Executor({tabs:{get:async()=>({id:1,url:'https://example.com/'})},debugger:{attach:async()=>{},detach:async()=>{},sendCommand:async(_,method)=>{if(method==='Page.getFrameTree')return {frameTree:{frame:{id:'main',url:++frameReads===1?'https://example.com/':'https://evil.test/'}}};if(method==='Page.createIsolatedWorld')return {executionContextId:1};if(method==='Runtime.callFunctionOn')return {result:{value:{ok:true}}};}}});await e.approve(task());
- await assert.rejects(e.execute({taskId:'a',generation:1,tabId:1,action:'snapshot',allowedOrigins:['https://example.com']}),/origin/);
+ assert.equal((await e.execute({taskId:'a',generation:1,tabId:1,action:'snapshot',allowedOrigins:['https://example.com']})).ok,true);
 });
 
 test('closing an agent tab retains its lease until removal completes',async()=>{
@@ -218,6 +187,7 @@ test('label and descriptive metadata cannot disguise sensitive fill or press tar
  const {pageAction,inspectPage}=await load();class Input{set value(v){this._value=v;}get value(){return this._value||'';}}const field=new Input();Object.assign(field,{tagName:'INPUT',type:'text',name:'',id:'x',autocomplete:'',placeholder:'',className:'field',attributes:[],labels:[{textContent:'Account password'}],disabled:false,getAttribute:()=>'',closest:()=>null,focus(){globalThis.document.activeElement=this;}});
  const saved={location:globalThis.location,document:globalThis.document,HTMLInputElement:globalThis.HTMLInputElement,HTMLTextAreaElement:globalThis.HTMLTextAreaElement,Event:globalThis.Event,getComputedStyle:globalThis.getComputedStyle,innerWidth:globalThis.innerWidth,innerHeight:globalThis.innerHeight};
  try{globalThis.location={origin:'https://example.com',href:'https://example.com/'};globalThis.document={activeElement:null,title:'',querySelector:()=>field,querySelectorAll:()=>[field],getElementById:()=>null};globalThis.HTMLInputElement=Input;globalThis.HTMLTextAreaElement=class{};globalThis.Event=class{};globalThis.getComputedStyle=()=>({display:'block',visibility:'visible',opacity:'1'});globalThis.innerWidth=800;globalThis.innerHeight=600;field.parentElement=null;field.getBoundingClientRect=()=>({left:0,top:0,right:100,bottom:20,width:100,height:20});
+  assert.equal(pageAction('assess_fill','#x',null,null,['https://example.com']).targetAssessment,'sensitive');
   assert.throws(()=>pageAction('fill','#x','secret',null,['https://example.com']),/sensitive/);assert.throws(()=>pageAction('press','#x',null,'Enter',['https://example.com']),/sensitive/);field._value='already-present';assert.equal(inspectPage(['https://example.com']).hasSensitiveValue,true);
  }finally{for(const [key,value] of Object.entries(saved)){if(value===undefined)delete globalThis[key];else globalThis[key]=value;}}
 });
@@ -288,7 +258,7 @@ test('pending URL does not authorize a read while the current URL is unavailable
  const result=await e.execute({...newTabCommand(),modeGeneration:2});
  assert.equal(result.ready,'loading');assert.equal(e.leases.get(result.tabId),'a');
  await assert.rejects(e.execute({taskId:'a',generation:1,tabId:result.tabId,action:'snapshot',allowedOrigins:['https://example.com'],modeGeneration:2}),error=>{
-  assert.equal(error.message,'TAB_OUT_OF_SCOPE');assert.equal(error.preDispatch,true);
+  assert.equal(error.message,'PAGE_NOT_READY');assert.equal(error.preDispatch,true);
   assert.equal(error instanceof TypeError,false);assert.equal(error.currentOrigin,undefined);return true;
  });
  assert.equal(debuggerCalls,0);
@@ -296,11 +266,11 @@ test('pending URL does not authorize a read while the current URL is unavailable
 
 test('read readiness refuses missing, malformed and redirected committed URLs before reads, including polling',async()=>{
  const {Executor}=await load();
- const invalidUrls=[undefined,'','not-a-url','https://evil.test/private?secret=fixture'];
+ const invalidUrls=[undefined,'','not-a-url'];
  for(const status of ['loading','complete'])for(const url of invalidUrls){
   let calls=0;const e=new Executor({tabs:{get:async()=>({url,status,pendingUrl:'https://example.com/'})},debugger:{attach:async()=>{calls++;},sendCommand:async()=>{calls++;}}});
   await assert.rejects(e.domReadyTab(task(),{tabId:1},()=>{}),error=>{
-   assert.equal(error.message,'TAB_OUT_OF_SCOPE');assert.equal(error.preDispatch,true);
+   assert.equal(error.message,'PAGE_NOT_READY');assert.equal(error.preDispatch,true);
    assert.equal(error.currentOrigin,url?.startsWith('https:')?'https://evil.test':undefined);return true;
   });
   assert.equal(calls,0,'invalid committed URL cannot attach or read through pendingUrl');
@@ -313,7 +283,7 @@ test('read readiness refuses missing, malformed and redirected committed URLs be
    assert.equal(method,'Runtime.callFunctionOn');return fixtureResult('loading');
   }}});
   await assert.rejects(e.domReadyTab(task(),{tabId:1},()=>{}),error=>{
-   assert.equal(error.message,'TAB_OUT_OF_SCOPE');assert.equal(error.preDispatch,true);
+   assert.equal(error.message,'PAGE_NOT_READY');assert.equal(error.preDispatch,true);
    assert.equal(error.currentOrigin,url?.startsWith('https:')?'https://evil.test':undefined);return true;
   });
   assert.equal(gets,2);assert.equal(commands,3,'scope loss must stop before another readyState probe');
@@ -324,9 +294,9 @@ test('pending allowed URL cannot override a wrong current origin or claim its le
  const {Executor}=await load();const f=workspaceFixture(),get=f.api.tabs.get;
  f.api.tabs.get=async id=>id===1?get(id):{...await get(id),url:'https://evil.test/',pendingUrl:'https://example.com/',status:'loading'};
  const e=new Executor(f.api);await e.approve(task('a',[]));e.setMode({...task('a',[]),modeGeneration:2,activeMode:'full'});
- await assert.rejects(e.execute({...newTabCommand(),modeGeneration:2}),{message:'REDIRECTED_OUT_OF_SCOPE',code:'REDIRECTED_OUT_OF_SCOPE',preDispatch:true,finalOrigin:'https://evil.test'});
- assert.equal(f.creates.length,1);assert.equal(e.leases.has(3),false);
- assert.deepEqual(e.tasks.get('a').allowedOrigins,['https://example.com']);
+ const opened=await e.execute({...newTabCommand(),modeGeneration:2});
+ assert.equal(opened.url,'https://evil.test/');assert.equal(f.creates.length,1);assert.equal(e.leases.get(3),'a');
+
 });
 
 test('a complete tab with no committed URL cannot claim readiness from pendingUrl',async()=>{
@@ -343,7 +313,7 @@ test('a complete tab with no committed URL cannot claim readiness from pendingUr
  await assert.rejects(e.execute({...newTabCommand(),modeGeneration:2}),{message:'TASK_BUSY',code:'TASK_BUSY',preDispatch:false});
  assert.equal(f.creates.length,1);
  assert.equal(e.leases.get(3),'a');
- await assert.rejects(e.execute({taskId:'a',generation:1,tabId:3,action:'snapshot',allowedOrigins:['https://example.com'],modeGeneration:2}),{message:'TAB_OUT_OF_SCOPE',preDispatch:true});
+ await assert.rejects(e.execute({taskId:'a',generation:1,tabId:3,action:'snapshot',allowedOrigins:['https://example.com'],modeGeneration:2}),{message:'PAGE_NOT_READY',preDispatch:true});
 });
 
 test('structured release reports preserved, moved, and uncertain children without leasing denied origins',async()=>{

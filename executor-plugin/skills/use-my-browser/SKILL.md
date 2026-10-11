@@ -5,13 +5,15 @@ description: Standard workflow and safety rules for working in the user's own lo
 
 # Working in the user's browser
 
-This plugin shares the user's browser logins. Confirm full connection access once; ordinary reads, navigation, writes and JS/CDP/Python then run directly. Task scope, leases, takeover, stop, credentials and special confirmations still apply. Offline/unknown is not authorization.
+This plugin shares the user's browser logins. Confirm full connection access once; ordinary reads, navigation, writes and JS/CDP/Python then run directly. Task/session ownership, leases, takeover and stop still apply. Offline/unknown is not authorization.
 
-## Protected outputs and task state
+## Page output and recovery
 
-Automatic shielding can remove notices, names and refs from text and mask screenshots without changing the user's page. Honor `contentFilter.siteAutomationRestricted=true`; redaction is not site permission. Preserve incomplete coverage.
+Read page content as returned. `coverage` describes missing areas without blocking readable content. Password input values are not echoed; actions on those fields are allowed.
 
-Use a fresh read for `content_shield_stale`. Never bypass protection refusals with raw channels, re-encoding or another screenshot tool, replay unknown writes/scripts, or change shielding settings through Agent tools.
+The plugin waits, rescans frames and Shadow DOM, and retries element location up to three rounds. Inspect `recovery` for the chosen target, other candidates, locator and click method. If recovery still fails, use a different description or skip that item and continue the task. For an already-dispatched action with unknown outcome, read the page to verify before deciding what to do next.
+
+A task tab may navigate across sites. Keep task/session tab ownership intact.
 
 The always-on task cursor is visual feedback; takeover pauses the task. Cookie mirror controls are on Hermes Desktop, and every transfer needs source-extension confirmation. Automatic updates accept stable releases, not previews.
 
@@ -44,7 +46,7 @@ For one site, use `browser_shared_open` plus `browser_shared_script` for multi-s
 ## Rules
 
 - **Account selection**: 按邮箱定位，角色取自新快照；账号项可能是 ARIA `link`。按用户指定邮箱唯一定位后用 `click_element` / `ref_click`。`coverage.complete=false` 且 `coveredScopeComplete=true` 时，主文档内不与不可读 iframe 重叠的目标仍可由执行器核验点击；保留 `skippedFrames`，不能自行宣称全页完整或绕过拒绝。收到 `popupClosed.returnedTo` 后重读来源页，只有页面显示已登录才算成功。
-- **Login windows**: 点击看 `popupOpened` / `popupNextStep`；smart/full 白名单授权页自动接管（连接授权后的 full 同样适用），用 `browser_shared_use_tab`（脚本 `use_tab`）选其 tabId 后 `read_page`。关闭时回 `popupClosed.returnedTo`，重读并丢弃旧引用。[策略与配置](../../../docs/usage.md)。其余弹窗在同一脚本 `popup_catalog` 保留候选 → `popup_adopt` → 用户确认；不重发接管。`wait_pending(tab=source)` 只读账本/范围，返回 `state=confirmed`，不是 `adopted`/`tabId`。单工具先 `browser_shared_get` 核对 generation / `adoptedPopupTabIds`，再选已确认候选重读。元数据不等于访问权；未知、拒绝、过期、撤销、范围变化均不重放。Cookie 镜像和普通确认仍按原 ID 查询。
+- **Login windows**: Read `popupOpened` and `popupNextStep`; use `popup_catalog` to find a candidate and `popup_adopt` to adopt it, then select its `tabId` and read again. On `popupClosed.returnedTo`, read the source page. Password values are not echoed. If the action outcome is unknown, inspect the page before another action.
 - **Direct task execution**: after connection authorization, first-site reads, later reads, navigation and writes run directly. No smart-approval mode or action switch is available. `tabs` returns only the task's leased tabs; another site still needs its own scoped task. Cookie mirror and non-provider login windows retain explicit confirmation.
 - **Sensitive fields**: `status=user_input_required` means a password, payment or one-time-code field. The browser has asked the user to fill it; you cannot see it. **Do not fill it and do not ask the user for the value.** When the user clicks "I've filled it" (我已填写), query again with the same arguments and you get `completed_by_user`. If the Vault tools are available (`browser_vault_list`), check them first for login passwords and codes.
 - **Unknown outcome**: `outcome_unknown=true` means the action may already have happened. **Never retry.** Read the page once to see what actually happened, then decide.

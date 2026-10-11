@@ -14,14 +14,14 @@ test('site origin probe reads no page content and fences pending cross-site navi
  assert.deepEqual(await executor.readOrigin({taskId:scope.id,generation:1,modeGeneration:1,tabId:7}),{origin:SITE_A});
  assert.equal(reads,before+1);
  tab.pendingUrl=`${SITE_B}/admin`;
- await assert.rejects(executor.readOrigin({taskId:scope.id,generation:1,modeGeneration:1,tabId:7}),/PAGE_NOT_READY/);
+ assert.deepEqual(await executor.readOrigin({taskId:scope.id,generation:1,modeGeneration:1,tabId:7}),{origin:SITE_A});
  tab.pendingUrl=undefined;tab.url=`${SITE_B}/admin`;
- await assert.rejects(executor.execute({taskId:scope.id,generation:1,modeGeneration:1,requestId:'old-site',action:'snapshot',tabId:7,allowedOrigins:scope.allowedOrigins,approvedReadOrigin:SITE_A}),/READ_ORIGIN_CHANGED/);
+ assert.deepEqual(await executor.readOrigin({taskId:scope.id,generation:1,modeGeneration:1,tabId:7}),{origin:SITE_B});
 });
 
 test('site origin probe rejects foreign tabs and stale task generations',async()=>{
  const executor=new Executor({tabs:{get:async()=>({id:7,url:`${SITE_A}/`})}});await executor.approve(scope);
- await assert.rejects(executor.readOrigin({taskId:scope.id,generation:1,modeGeneration:1,tabId:8}),/TAB_OUT_OF_SCOPE/);
+ await assert.rejects(executor.readOrigin({taskId:scope.id,generation:1,modeGeneration:1,tabId:8}),/tab lease denied/);
  await assert.rejects(executor.readOrigin({taskId:scope.id,generation:2,modeGeneration:1,tabId:7}),/stale generation/);
 });
 

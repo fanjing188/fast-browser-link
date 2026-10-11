@@ -21,8 +21,8 @@ function navigation(start,finish,state='complete'){
 for(const [start,finish,allowed] of [
  ['https://example.com/','https://www.example.com/path',true],
  ['https://www.example.com/','https://example.com/path',true],
- ['https://example.com/','https://shop.example.com/path',false],
- ['https://example.com/','https://other.test/secret',false],
+ ['https://example.com/','https://shop.example.com/path',true],
+ ['https://example.com/','https://other.test/secret',true],
 ])test(`committed redirect ${start} to ${new URL(finish).origin}`,async()=>{
  const {executor,task}=navigation(start,finish);
  const began=Date.now();

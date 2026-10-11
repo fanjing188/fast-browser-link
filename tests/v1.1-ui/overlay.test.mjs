@@ -368,7 +368,7 @@ test('步骤标签只显示控件名称，最近五步的错误码有固定说�
 test('最近步骤说明内容保护拒绝、失效引用和缺失选项，保留未知结果状态',()=>{
  const {doc}=fixture(),overlay=createAutomationOverlay({document:doc,...scope,onStop:async()=>({state:'stopped'}),onTakeover:async()=>({state:'paused'}),onResume:async()=>({state:'running'})});
  overlay.setRecentSteps([
-  {action:'ref_fill',result:'content_shield_uninspectable'},
+  {action:'ref_fill',result:'target_occluded'},
   {action:'ref_set_checked',result:'unknown',errorCode:'stale_reference'},
   {action:'ref_select_option',result:'select_option_missing'},
   {action:'click',result:'execution_denied'},
@@ -376,7 +376,7 @@ test('最近步骤说明内容保护拒绝、失效引用和缺失选项，保�
  ]);
  const panel=overlay.host.shadow.children.find(x=>x.dataset.role==='status').children.find(x=>x.tagName==='details');
  const lines=panel.children[1].children.map(x=>x.textContent);
- assert.match(lines[0],/失败.*无法检查/);
+ assert.match(lines[0],/失败.*遮挡/);
  assert.match(lines[1],/结果不确定.*引用已失效/);
  assert.match(lines[2],/失败.*未找到指定选项/);
  assert.match(lines[3],/失败.*安全检查/);
@@ -386,17 +386,12 @@ test('最近步骤说明内容保护拒绝、失效引用和缺失选项，保�
  overlay.remove();
 });
 
-test('保护状态变化对读取提示重新读取，对写入保留核对结果提示',()=>{
+test('文档变化说明保留读取失败和写入未知的区别',()=>{
  const {doc}=fixture(),overlay=createAutomationOverlay({document:doc,...scope,onStop:async()=>({state:'stopped'}),onTakeover:async()=>({state:'paused'}),onResume:async()=>({state:'running'})});
- overlay.setRecentSteps([
-  {action:'semantic_snapshot',result:'content_shield_changed'},
-  {action:'snapshot',result:'failed',errorCode:'content_shield_changed'},
-  {action:'ref_fill',result:'unknown',errorCode:'content_shield_changed'},
- ]);
+ overlay.setRecentSteps([{action:'semantic_snapshot',result:'failed',errorCode:'document_changed'},{action:'ref_fill',result:'unknown',errorCode:'document_changed'}]);
  const panel=overlay.host.shadow.children.find(x=>x.dataset.role==='status').children.find(x=>x.tagName==='details');
  const lines=panel.children[1].children.map(x=>x.textContent);
- for(const line of lines.slice(0,2)){assert.match(line,/重新读取/);assert.doesNotMatch(line,/不要重复提交/);}
- assert.match(lines[2],/结果不确定.*核对实际结果.*不要重复提交/);overlay.remove();
+ assert.match(lines[0],/失败.*文档已变化/);assert.match(lines[1],/结果不确定.*文档已变化/);overlay.remove();
 });
 
 test('接管快捷键与按钮调用同一控制回调',async()=>{

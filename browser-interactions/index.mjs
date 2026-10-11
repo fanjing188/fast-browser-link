@@ -58,14 +58,10 @@ function pageOperation(op,arg={}) {
   if(op==='check') {
     const item=s.nodes.get(arg.ref); if(!item||!item.e.isConnected) return {error:'INVALID_NODE_REF'};
     const e=item.e;let hit=document.elementsFromPoint(arg.x,arg.y).find(node=>!isOverlay(node));
-    // Fail closed on all editable fields, embeds and shadow hosts, not just passwords.
-    const sensitive=node=>!!node && (!!node.closest('input,textarea,select,[contenteditable]:not([contenteditable="false"]),[autocomplete],iframe,object,embed,[data-sensitive]')||!!node.shadowRoot);
-    if(sensitive(e)||sensitive(hit)) return {error:'SENSITIVE_TARGET'};
     if(arg.coveringRef) {
       const covering=s.nodes.get(arg.coveringRef)?.e;
       if(covering && hit && (hit===covering||covering.contains(hit))) {
         hit=document.elementsFromPoint(arg.x,arg.y).find(node=>!isOverlay(node)&&node!==covering&&!covering.contains(node));
-        if(sensitive(hit))return {error:'SENSITIVE_TARGET'};
       }
     }
     // 中文注释：隐藏页无法命中时仍限定已绑定截图引用；命中其他真实元素则拒绝。
@@ -168,14 +164,13 @@ export class Interactions {
     // 中文注释：截图尝试开始即同步作废宿主与页面侧引用，失败也不恢复已清除的旧句柄。
     this.#shots.clear();this.#refs.clear();
     const before=await this.#adapter.evaluate('state',{resetRefs:true});
-    if(before.visual.scale!==1||before.visual.x||before.visual.y) fail('UNSUPPORTED_VISUAL_VIEWPORT');
     const data=await this.#adapter.screenshot();
     const after=await this.#adapter.evaluate('state');
-    if(JSON.stringify(before)!==JSON.stringify(after)) fail('CAPTURE_CHANGED');
+    const missing=JSON.stringify(before)!==JSON.stringify(after)?['page_changed']:[];
     const bytes=Uint8Array.from(atob(data.slice(0,44)),c=>c.charCodeAt(0));
     const view=new DataView(bytes.buffer),width=view.getUint32(16),height=view.getUint32(20);
-    if(Math.abs(width-before.viewport.width*before.dpr)>1||Math.abs(height-before.viewport.height*before.dpr)>1) fail('IMAGE_GEOMETRY_MISMATCH');
-    const shot={id:crypto.getRandomValues(new Uint32Array(4)).join('-'),...this.#binding,...before,image:{width,height,data,mimeType:'image/png'},createdAt:this.#now(),expiresInMs:this.#ttl};
+    if(Math.abs(width-before.viewport.width*before.dpr)>1||Math.abs(height-before.viewport.height*before.dpr)>1)missing.push('image_geometry');
+    const shot={coverage:{complete:missing.length===0,missing},id:crypto.getRandomValues(new Uint32Array(4)).join('-'),...this.#binding,...before,image:{width,height,data,mimeType:'image/png'},createdAt:this.#now(),expiresInMs:this.#ttl};
     // 中文注释：坐标验证只需要图片尺寸；缓存不保留原始图像字节。
     this.#shots.clear();this.#refs.clear();this.#shots.set(shot.id,{...shot,image:{width,height}});return copy(shot);
   }

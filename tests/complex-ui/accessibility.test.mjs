@@ -33,11 +33,11 @@ test('AX 局部查询最多 16 个，句柄全部释放且原 DOM 引用仍可�
   assert.ok(node);assert.equal(page.items[0].expanded,false);assert.equal(page.items[0].nameSource,'accessibility');
  }finally{f.close();}
 });
-test('AX 结果只接受对应 backend 节点，不泄露私密标签并过滤秘密',async()=>{
+test('AX 结果只接受对应 backend 节点，原样返回标签和文本',async()=>{
  const f=fixture('<section id="scope"><button></button><button aria-labelledby="private"></button><span id="private" data-private>PRIVATE_CANARY</span></section>',p=>({nodes:[{backendDOMNodeId:999,name:{type:'computedString',value:'OTHER_CANARY'}},{backendDOMNodeId:p.backendNodeId,name:{type:'computedString',value:'token=AX_SECRET_CANARY'}}]}));
  try{
   const page=await f.e.callSemanticWorld({tabId:7},'main','semantic_snapshot',{binding:f.binding,options:{root:'#scope',accessibility:true,budget:6000}},()=>{},17);
-  assert.equal(page.coverage.axEnriched,1);assert.equal(page.coverage.axOmitted,1);assert(!JSON.stringify(page).includes('_CANARY'));assert(page.items.some(i=>i.name==='token=[redacted]'));
+  assert.equal(page.coverage.axEnriched,1);assert.equal(page.coverage.axOmitted,0);assert(!JSON.stringify(page).includes('OTHER_CANARY'));assert(page.items.some(i=>i.name==='token=AX_SECRET_CANARY'));assert(page.items.some(i=>i.name==='PRIVATE_CANARY'));
  }finally{f.close();}
 });
 test('AX 查询期间目标变化拒绝绑定，并关闭 AX 与释放句柄',async()=>{
@@ -53,11 +53,11 @@ for(const options of [{accessibility:true},{root:'#scope',accessibility:true,cur
 });
 
 // 中文注释：带值控件不触发 AX 查询，避免浏览器返回的 AX value 将输入内容带入宿主结果。
-test('带值控件和私密子节点不会触发 AX 数据读取',async()=>{
+test('带值控件不触发 AX，data-private 文本仍可读取',async()=>{
  const f=fixture('<section id="scope"><input value="INPUT_CANARY"><textarea>TEXTAREA_CANARY</textarea><div role="textbox"></div><button><span data-private>PRIVATE_CANARY</span></button></section>');
  try{
   const page=await f.e.callSemanticWorld({tabId:7},'main','semantic_snapshot',{binding:f.binding,options:{root:'#scope',accessibility:true,budget:6000}},()=>{},17);
-  assert.equal(page.coverage.axEnriched,0);assert(!f.calls.some(([m])=>m==='Accessibility.getPartialAXTree'));assert(!JSON.stringify(page).includes('_CANARY'));
+  assert.equal(page.coverage.axEnriched,0);assert(!f.calls.some(([m])=>m==='Accessibility.getPartialAXTree'));assert(JSON.stringify(page).includes('PRIVATE_CANARY'));assert(!JSON.stringify(page).includes('INPUT_CANARY'));assert(!JSON.stringify(page).includes('TEXTAREA_CANARY'));
  }finally{f.close();}
 });
 
@@ -81,11 +81,11 @@ test('升级实现版本后重新创建实例并撤销旧引用',async()=>{
 });
 
 // 中文注释：私密分配节点不是 Shadow 控件的 DOM 子孙，仍必须在查询 AX 之前排除。
-test('slot 分配的私密文本不会通过 AX 名称重新泄露',async()=>{
+test('slot 分配文本正常提供名称，无需重复 AX 查询',async()=>{
  const f=fixture('<section id="scope"><div id="host"><span slot="label" data-private>SLOT_PRIVATE_CANARY</span></div></section>');
  try{
   f.w.document.querySelector('#host').attachShadow({mode:'open'}).innerHTML='<button><slot name="label"></slot></button>';
   const page=await f.e.callSemanticWorld({tabId:7},'main','semantic_snapshot',{binding:f.binding,options:{root:'#scope',composed:true,accessibility:true,budget:6000}},()=>{},17);
-  assert.equal(page.coverage.axEnriched,0);assert(!f.calls.some(([m])=>m==='Accessibility.getPartialAXTree'));assert(!JSON.stringify(page).includes('_CANARY'));
+  assert.equal(page.coverage.axEnriched,0);assert(!f.calls.some(([m])=>m==='Accessibility.getPartialAXTree'));assert(JSON.stringify(page).includes('PRIVATE_CANARY'));assert(!JSON.stringify(page).includes('INPUT_CANARY'));assert(!JSON.stringify(page).includes('TEXTAREA_CANARY'));
  }finally{f.close();}
 });

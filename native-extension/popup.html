@@ -8,7 +8,7 @@
   <section class="connection-card" id="connection-card"><p id="connection-detail" class="detail"></p><button id="connect" type="button" aria-describedby="connection-detail" hidden>连接 Hermes</button></section>
   <!-- 中文注释：连接确认即授予任务页直接访问，不再提供独立权限开关。 -->
   <section class="access-row" aria-labelledby="access-label">
-    <div><h2 id="access-label">任务页访问</h2><p id="access-detail" class="detail" aria-live="polite">连接状态待确认。</p><p class="detail">授权仅限任务页，无须逐站或逐项审批。仍保留接管、停止及凭据保护；Cookie 镜像和弹出页接入另行确认。</p></div>
+    <div><h2 id="access-label">任务页访问</h2><p id="access-detail" class="detail" aria-live="polite">连接状态待确认。</p><p class="detail">授权仅限任务页，无须逐站或逐项审批。保留接管、停止和任务隔离；密码输入值不回显。</p></div>
   </section>
   <!-- 中文注释：云端配对确认授予直接访问，仅授权云端创建的任务页。 -->
   <section class="cloud-section" aria-labelledby="cloud-label">
@@ -27,11 +27,6 @@
   </dialog>
   <!-- 中文注释：只显示当前标签页的任务；接管和停止都保留，页面遮罩共享同一任务状态。 -->
   <section id="page-task" class="page-task" aria-label="当前页面任务" hidden><span id="operation" role="status"></span><div class="page-controls"><button id="takeover" type="button">接管</button><button id="stop-task" class="danger" type="button">停止</button></div></section>
-  <!-- 中文注释：模拟鼠标固定启用，Cookie 镜像只在 Hermes 插件页提供；弹窗只保留自动屏蔽开关。 -->
-    <section class="access-row" aria-labelledby="filter-label">
-      <div><h2 id="filter-label">自动屏蔽网页干扰</h2><p id="filter-help" class="detail">屏蔽明确的访问禁令和提示注入，保留工具功能介绍、邮箱、验证和错误提示。结构读取可返回主文档及未读框架说明，截图与脚本保持严格检查。无须配置网站或选择器。</p><p id="filter-detail" class="detail" aria-live="polite"></p></div>
-      <button id="filter-toggle" class="switch" type="button" role="switch" aria-checked="false" aria-labelledby="filter-label" aria-describedby="filter-help" disabled><span></span></button>
-    </section>
   <p id="error" role="alert" hidden></p>
 </main>
 <script type="module" src="popup.mjs"></script><script type="module" src="cloud-popup.mjs"></script>

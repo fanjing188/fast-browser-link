@@ -162,43 +162,12 @@ test('状态读取失败时显示未知并禁用页面控制', async () => {
   h.dom.window.close()
 })
 
-// 中文注释：过滤开关独立于连接与授权，开关后均以持久化读回状态展示。
-test('过滤开关默认关闭，断线仍可切换且恢复时同步保存状态', async () => {
-  const h=await mount({connected:false,browserFullConsentStatus:'disabled',tasks:[]})
-  const button=h.document.querySelector('#filter-toggle')
-  assert.equal(button.disabled,false)
-  assert.equal(button.getAttribute('aria-checked'),'false')
-  button.click()
-  await h.flush()
-  assert.equal(button.getAttribute('aria-checked'),'true')
-  assert.match(h.document.querySelector('#filter-detail').textContent,/已开启/)
-  assert.equal(h.calls.filter(call=>call.type==='browser_consent').length,0)
-  h.setStatus({connected:true,pageContentFilter:true,tasks:[]})
-  await h.flush()
-  assert.equal(button.getAttribute('aria-checked'),'true')
-  button.click()
-  await h.flush()
-  assert.equal(button.getAttribute('aria-checked'),'false')
-  h.dom.window.close()
-})
-
-test('过滤设置保存失败时显示未确认，不显示为已开启', async () => {
-  const h=await mount({connected:true,pageContentFilter:false,tasks:[]})
-  h.dom.window.chrome.runtime.sendMessage=async()=>{throw Error('storage failed')}
-  h.document.querySelector('#filter-toggle').click()
-  await h.flush()
-  assert.equal(h.document.querySelector('#filter-toggle').getAttribute('aria-checked'),'false')
-  assert.equal(h.document.querySelector('#filter-toggle').disabled,true)
-  assert.match(h.document.querySelector('#error').textContent,/无法核实过滤设置/)
-  h.dom.window.close()
-})
-
 // 中文注释：新弹窗只保留当前页一行任务状态，模拟鼠标和过滤设置直接展示。
 test('任务页访问说明和文字过滤常驻，无任务时隐藏任务区',async()=>{
  const h=await mount({connected:true,browserFullConsentStatus:'enabled',tasks:[]});
  try{
   assert.equal(h.document.querySelector('#access-detail').closest('details'),null);
-  assert.equal(h.document.querySelector('#filter-toggle').closest('details'),null);
+  assert.equal(h.document.querySelector('#filter-toggle'),null);
   assert.equal(h.document.querySelector('#page-task').hidden,true);
   assert.equal(h.document.querySelector('#task-list,#verify-control'),null);
  }finally{h.dom.window.close();}
@@ -279,9 +248,7 @@ test('暂停进行中显示等待且只允许停止',async()=>{
 test('弹窗仅保留访问说明和自动屏蔽，Cookie 与模拟鼠标和额外区域均移除',async()=>{
  const h=await mount({connected:true,browserFullConsentStatus:'disabled',tasks:[]});
  assert.equal(h.document.querySelector('#cookie-mirror,#cookie-pending,#cookie-desktop,#cursor-toggle,#cursor-label,#shield-settings,#shield-origin,#shield-selectors,#shield-save'),null);
- assert.equal(h.document.querySelector('#filter-toggle').closest('details'),null);
- h.document.querySelector('#filter-toggle').click();await h.flush();
- assert.equal(h.document.querySelector('#filter-toggle').getAttribute('aria-checked'),'true');
+ assert.equal(h.document.querySelector('#filter-toggle'),null);
  assert.equal(h.calls.some(call=>call.type==='visual_cursor'||call.type==='cookie_mirror_pending'||call.type.startsWith('page_content_shield')),false);h.dom.window.close();
 });
 // 中文注释：版本直接来自当前扩展，在后台断开或给出不同版本时也不会变成宿主版本。
@@ -292,14 +259,8 @@ test('右上角版本使用当前 manifest，后台断线仍显示版本',async(
  h.setStatus({connected:true,version:'0.0.2',tasks:[]});await h.flush();
  assert.equal(h.document.querySelector('#version-label').textContent,'v9.8.7');h.dom.window.close();
 });
-// 中文注释：自动流程只需点击已有开关，没有网站或选择器表单。
-test('自动屏蔽开关无需填写 origin 或选择器',async()=>{
+test('弹窗不保留过滤开关或规则入口',async()=>{
  const h=await mount({connected:false,tasks:[]});
- assert.match(h.document.querySelector('#filter-label').textContent,/自动屏蔽/);
- assert.match(h.document.querySelector('#filter-help').textContent,/无须配置网站或选择器/);
- assert.equal(h.document.querySelector('#shield-settings'),null);
- h.document.querySelector('#filter-toggle').click();await h.flush();
- assert.equal(h.document.querySelector('#filter-toggle').getAttribute('aria-checked'),'true');
- assert.match(h.document.querySelector('#filter-detail').textContent,/自动识别/);
- assert.equal(h.calls.some(call=>call.type.startsWith('page_content_shield')),false);h.dom.window.close();
+ assert.equal(h.document.querySelector('#filter-toggle,#filter-label,#shield-settings'),null);
+ h.dom.window.close();
 });

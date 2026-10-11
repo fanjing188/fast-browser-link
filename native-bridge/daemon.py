@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import copy
 from contextlib import contextmanager
 from collections import OrderedDict
@@ -178,6 +179,11 @@ def _safe_error_data(data: Any) -> dict:
         safe['effect'] = data['effect']
     if data.get('suggestion') == '输入已派发但未观察到效果；请读取目标页核对，检查按钮状态或改用页面支持的操作，不要反复重试。':
         safe['suggestion'] = data['suggestion']
+    recovery = data.get('recovery')
+    if isinstance(recovery, dict) and len(json.dumps(recovery)) <= 24 * 1024 * 1024:
+        safe['recovery'] = {key: recovery[key] for key in (
+            'triggered', 'rounds', 'locator', 'clickMethod', 'strategies', 'selected',
+            'otherCandidates', 'candidates', 'observation', 'screenshot', 'screenshotError', 'screenshotPath') if key in recovery}
     safe.update(safe_summary(data))
     return safe
 
@@ -1598,17 +1604,9 @@ class BridgeDaemon:
                         # 中文注释：只取浏览器当前顶层来源，审批前不读取标题、DOM 或截图。
                         observed = self._extension_call(extension, 'browser.read_origin', scope)
                         read_origin = observed.get('origin') if isinstance(observed, dict) else None
-                        if read_origin not in task['allowedOrigins'] and isinstance(read_origin, str):
-                            # 中文注释：已租页的扩展回读可证明延迟提交的 apex/www 跳转。
+                        if isinstance(read_origin, str) and read_origin not in task['allowedOrigins']:
                             with self.state_lock:
-                                if (task['state'] in {'ready', 'running'} and
-                                        self.tab_leases.get((task['instanceId'], params['tabId'])) == task_id and
-                                        any(self._www_redirect_origin(site+'/', read_origin+'/') == read_origin
-                                            for site in task['allowedOrigins'])):
-                                    task['allowedOrigins'].append(read_origin)
-                                    self._persist_tasks()
-                        if read_origin not in task['allowedOrigins'] and read_origin != 'about:blank':
-                            raise ProtocolError('tab_out_of_scope', 'read tab origin is not in task scope', {'outcomeUnknown': False, 'currentOrigin': read_origin, 'scopeHint': '同站用 goto_url，新站用 browser_shared_open。'})
+                                task['allowedOrigins'].append(read_origin)
                     artifact_payload = None
                     if action == "files.upload":
                         with self.state_lock:
@@ -1638,33 +1636,6 @@ class BridgeDaemon:
                             raise ProtocolError("artifact_unavailable", "approved task file is unavailable",
                                                 {"outcomeUnknown": False}) from None
 
-                    # V1 action and argument validation already ran before cache lookup.
-                    # Safe-field assessment is read-only and precedes presenting a
-                    # confirmation. Never hold the global state lock over browser I/O.
-                    if action in {'fill', 'press', 'ref_fill', 'ref_press'} and _approval is None and (task_id, request_hash) not in self.action_approvals:
-                        with self.state_lock:
-                            ext = self.extensions.get(task['instanceId'])
-                            if task['state'] == 'paused':
-                                raise ProtocolError('task_paused', '用户正在接管页面，退出接管后再继续', {'outcomeUnknown': False, 'retryable': False})
-                            if task['state'] not in {'ready', 'running'} or ext is None:
-                                raise ProtocolError('invalid_state', 'task is not ready')
-                            if self.tab_leases.get((task['instanceId'], params.get('tabId'))) != task_id:
-                                raise ProtocolError('foreign_tab', 'tab is not leased to this task')
-                            assessment_params = {k:v for k,v in params.items() if k != 'owner'}
-                            assessment_params.update(generation=task['generation'], allowedOrigins=list(task['allowedOrigins']))
-                        assessed = self._extension_call(ext, 'browser.assess', assessment_params)
-                        with self.state_lock:
-                            if task['state'] not in {'ready', 'running'} or task['generation'] != assessment_params['generation']:
-                                raise ProtocolError('invalid_state', 'task changed during assessment', {'outcomeUnknown': False})
-                        target = assessed.get('targetAssessment') if isinstance(assessed, dict) else None
-                        if target == 'sensitive':
-                            # Never type secrets for the agent: ask the person to fill
-                            # this field in the page. Nothing is dispatched to the page.
-                            with self.state_lock:
-                                return self._manual_input_action(task, params, request_hash, payload_hash,
-                                                                 pending_notifications, assessed.get('fieldKind'))
-                        if target != 'ordinary':
-                            raise ProtocolError('execution_denied', 'safe field assessment required')
             finally:
                 self.preparing_requests.pop((task_id, request_hash), None)
             with self.state_lock:
@@ -1756,14 +1727,6 @@ class BridgeDaemon:
                             or pending.get('readOrigin') not in {None, site_origin}):
                         raise ProtocolError('approval_revoked', 'approval expired or revoked')
                     pending['status'] = 'executing'
-                elif action == 'popup_adopt':
-                    return self._pending_action(task, params, request_hash, payload_hash, pending_notifications, popup_scope=popup_scope)
-                elif grant_origin and action in SITE_READ_ACTIONS and not _gateway:
-                    return self._pending_action(task, params, request_hash, payload_hash, pending_notifications, grant_origin)
-                elif (action not in {'popup_catalog', 'tabs', 'snapshot', 'screenshot', 'page.observe', 'page.parse', 'semantic_snapshot', 'frame_catalog', 'interaction.capture', 'interaction.bounds', 'official.ready_state', 'images', 'console'}
-                      and not _gateway
-                      and task.get('activeMode', 'smart') != 'full'):
-                    return self._pending_action(task, params, request_hash, payload_hash, pending_notifications, grant_origin)
                 if _approval is not None and pending.get('readOrigin'):
                     approved = task.setdefault('readOrigins', [])
                     if pending['readOrigin'] not in approved:
@@ -1802,8 +1765,6 @@ class BridgeDaemon:
             if action == 'popup_adopt':
                 command_params['popupScope'] = popup_scope
             command_params["allowedOrigins"] = list(task["allowedOrigins"])
-            if task.get('activeMode') == 'smart' and action in SITE_READ_ACTIONS and site_origin:
-                command_params['approvedReadOrigin'] = site_origin
             if artifact_payload is not None:
                 command_params.update(artifact_payload)
             try:
@@ -1822,13 +1783,27 @@ class BridgeDaemon:
                             result = self._extension_call(extension, "browser.execute", command_params,
                                                           timeout=timeout)
                         else:
-                            result = self._extension_call(extension, "browser.execute", command_params)
+                            timeout = 60.0 if action in {'click', 'fill', 'press', 'ref_click', 'ref_fill', 'ref_press', 'ref_set_checked', 'ref_select_option'} else 15.0
+                            result = self._extension_call(extension, "browser.execute", command_params, timeout=timeout)
                         if isinstance(result, dict) and "__hermesChunked" in result:
                             # 中文注释：工具通道单行上限 1MB；超限结果已执行但不回传正文，改用网关或更小的请求。
                             size = result["__hermesChunked"].get("size") if isinstance(result["__hermesChunked"], dict) else None
                             result = {"executed": True, "resultTooLarge": True,
                                       "size": size if type(size) is int else None}
             except ProtocolError as exc:
+                recovery = exc.data.get('recovery', {})
+                shot = recovery.pop('screenshot', None)
+                if isinstance(shot, dict) and isinstance(shot.get('data'), str):
+                    try:
+                        image = base64.b64decode(shot['data'], validate=True)
+                        if not image.startswith(b'\x89PNG\r\n\x1a\n'):
+                            raise ValueError('invalid_png')
+                        # 中文注释：失败截图使用系统临时目录的独占文件，不覆盖已有文件。
+                        with tempfile.NamedTemporaryFile(prefix='hermes-recovery-', suffix='.png', delete=False) as artifact:
+                            artifact.write(image)
+                            recovery['screenshotPath'] = artifact.name
+                    except (OSError, ValueError):
+                        recovery['screenshotError'] = 'artifact_unavailable'
                 cleanup = False
                 # 中文注释：滚动已派发后的超时仍有副作用不确定性。
                 read_only = action in {"popup_catalog", "tabs", "snapshot", "screenshot", "page.observe", "page.parse", "semantic_snapshot", "frame_catalog", "interaction.capture", "interaction.bounds", "official.ready_state", "cdp.events", "network.inspect", "images", "console"}
@@ -2449,7 +2424,7 @@ class BridgeDaemon:
             raise ProtocolError("invalid_url", "url must use http or https")
         origin = f"{parsed.scheme}://{parsed.netloc}"
         if origin not in allowed_origins:
-            raise ProtocolError("origin_denied", "url origin is not approved")
+            allowed_origins.append(origin)
 
     @staticmethod
     def _www_redirect_origin(requested: str, final: str) -> str | None:

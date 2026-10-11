@@ -32,11 +32,7 @@ try{
    if(name==='rerender')await tab.read(`document.querySelector('#list').innerHTML='<li><button id="act" onclick="window.count++">Apply</button></li>'`);
    if(name==='animation')await tab.read(`document.querySelector('#act').animate([{transform:'translateX(0)'},{transform:'translateX(250px)'}],{duration:900,fill:'forwards'});true`);
    if(name==='enabled')await tab.read(`document.querySelector('#act').disabled=true;setTimeout(()=>document.querySelector('#act').disabled=false,1400);true`);
-   if(name==='cookie'){
-    const blocked=await tab.run('ref_click',token);
-    if(blocked.code!=='target_occluded'||blocked.outcome_unknown!==false||blocked.obstruction?.name!=='Cookie banner')throw blocked;
-    const close=await tab.ref('Close cookies');result=await tab.act('ref_click',close);if(result.error)throw result;
-   }
+   // 中文注释：1.11.0 起 cookie 横幅遮挡由插件自动关闭后点击，调用方不再先拒绝再手动关闭。
    result=await tab.run(['native','custom'].includes(name)?'ref_select_option':'ref_click',{...token,...(['native','custom'].includes(name)?{by:'label',values:['New Zealand']}:{})});
    if(result.error||result.outcome_unknown===true)throw result;
    if(name==='navigation')success=await session.readUrl('/done',`Boolean(document.querySelector('#done'))`);

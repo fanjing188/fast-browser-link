@@ -88,7 +88,7 @@ function fixture({afterHighlight=null,afterHide=null,overlayEvents=true}={}){
           return {result:{value:copy(value)}};
         }
         if(method==='Runtime.evaluate'){
-          const value=window.eval(params.expression);await observeHighlight();return {result:{value:copy(value)}};
+          const value=params.awaitPromise?await window.eval(params.expression):window.eval(params.expression);await observeHighlight();return {result:{value:copy(value)}};
         }
         if(method==='DOM.getNodeForLocation'){
           const node=hitTest(params.x,params.y);if(!node)throw Error('no real DOM target at coordinate');

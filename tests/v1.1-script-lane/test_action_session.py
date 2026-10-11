@@ -297,7 +297,7 @@ class ActionSessionTest(unittest.TestCase):
                 adapter.ActionSession(RecordingRuntime([]), **kwargs)
 
 
-class PopupPendingIntegrationTest(unittest.TestCase):
+class PopupDirectIntegrationTest(unittest.TestCase):
     """ActionSession -> daemon -> production Bridge/Executor; Chrome boundary synthetic."""
 
     def setUp(self):
@@ -337,57 +337,29 @@ class PopupPendingIntegrationTest(unittest.TestCase):
         self.session.install_scope('instance', 1)
         self.session.tab_id = 1
 
-    def pending_adoption(self):
+    def adopt_popup(self):
         candidate = self.session.run('popup_catalog', {})['candidates'][0]
-        with self.assertRaises(adapter.ApprovalRequired):
-            self.session.run('popup_adopt', {'candidateRef': candidate['candidateRef']})
-        pending = next(iter(self.fixture.daemon.action_approvals.values()))
-        return candidate, pending
+        receipt = self.session.run('popup_adopt', {'candidateRef': candidate['candidateRef']})
+        self.assertTrue(receipt['adopted'])
+        self.assertEqual(self.fixture.daemon.action_approvals, {})
+        return candidate, receipt
 
-    def approve(self, pending):
-        pending['status'] = 'approved'
-        grant = {key: pending[key] for key in
-                 ('nonce', 'digest', 'expiresAt', 'generation', 'modeGeneration', 'popupScope')}
-        grant.update(taskId='task', request={key: value for key, value in pending['params'].items()
-                                           if key != 'owner'})
-        self.fixture.rpc(op='grant', approval=grant)
-        self.fixture.daemon._approval_worker(('task', self.fixture.module._sha256(
-            pending['params']['requestId'])), pending)
-
-    def test_popup_wait_queries_only_while_approval_is_pending(self):
-        self.pending_adoption()
-        before = len(self.fixture.calls)
-        for _ in range(2):
-            with self.assertRaises(adapter.ApprovalRequired):
-                self.session.resume_pending()
-        self.assertEqual(len(self.fixture.calls), before)
-        self.assertEqual([method for method, _ in self.runtime_calls[-4:]],
-                         ['shared.operation_status', 'shared.get'] * 2)
-
-    def test_denial_and_expiry_return_no_success_without_replaying(self):
-        for decision in ('denied', 'expired'):
-            with self.subTest(decision=decision):
-                _, pending = self.pending_adoption()
-                if decision == 'denied':
-                    self.fixture.daemon._dispatch_extension('instance', 'extension.decide', {
-                        'taskId': 'task', 'nonce': pending['nonce'], 'digest': pending['digest'], 'approve': False})
-                else:
-                    pending['expiresAt'] = 0
-                    self.fixture.daemon._expire_approvals_locked()
-                before = len(self.fixture.calls)
-                with self.assertRaises(adapter.ActionRejected):
-                    self.session.resume_pending()
-                self.assertEqual(len(self.fixture.calls), before)
-                self.assertIsNone(self.session._pending)
-                self.assertNotIn(2, self.fixture.task['tabIds'])
+    def test_popup_adopts_directly_without_pending_request(self):
+        self.adopt_popup()
+        self.assertIsNone(self.session._pending)
+        self.assertTrue(self.session.completion()['execution_complete'])
+        self.assertEqual(self.session.current_tab(), 1)
 
     def test_unknown_adoption_stays_fenced_without_replay(self):
-        _, pending = self.pending_adoption()
-        self.fixture.rpc(op='settings', enabled=False, toggleAtSend=True)
-        self.approve(pending)
-        before = len(self.fixture.calls)
+        candidate = self.session.run('popup_catalog', {})['candidates'][0]
+        def lost(response):
+            response.pop('result')
+            response['error'] = {'code': 'extension_disconnected', 'message': 'receipt lost',
+                                 'data': {'outcomeUnknown': True}}
+        self.fixture.intercept_adoption_receipt(lost)
         with self.assertRaises(adapter.OutcomeUnknown):
-            self.session.resume_pending()
+            self.session.run('popup_adopt', {'candidateRef': candidate['candidateRef']})
+        before = len(self.fixture.calls)
         with self.assertRaises(adapter.OutcomeUnknown):
             self.session.resume_pending()
         with self.assertRaises(adapter.OutcomeUnknown):
@@ -396,33 +368,35 @@ class PopupPendingIntegrationTest(unittest.TestCase):
         self.assertFalse(self.session.completion()['execution_complete'])
         self.assertEqual(self.fixture.rpc(op='state')['removed'], [])
 
-    def test_confirmed_old_adoption_cannot_survive_scope_changes(self):
-        changes = ('generation', 'modeGeneration', 'cancelled', 'target_closed', 'origin_revoked')
-        for change in changes:
+    def test_late_adoption_cannot_survive_scope_changes(self):
+        for change in ('generation', 'modeGeneration', 'cancelled', 'target_closed', 'source_lease'):
             with self.subTest(change=change):
-                case = PopupPendingIntegrationTest(methodName='runTest')
+                case = PopupDirectIntegrationTest(methodName='runTest')
                 case.setUp()
                 try:
-                    _, pending = case.pending_adoption()
-                    case.approve(pending)
-                    if change in ('generation', 'modeGeneration'):
-                        case.fixture.task[change] += 1
-                    elif change == 'cancelled':
-                        case.fixture.daemon._revoke_task_locked(case.fixture.task, 'cancelled')
-                    elif change == 'target_closed':
-                        case.fixture.daemon._handle_tab_event('instance', {
-                            'taskId': 'task', 'generation': 1, 'tabId': 2,
-                            'event': 'closed', 'documentGeneration': 0})
-                    else:
-                        case.fixture.task['allowedOrigins'] = ['https://example.com']
+                    candidate = case.session.run('popup_catalog', {})['candidates'][0]
+                    def changed(response):
+                        if change in ('generation', 'modeGeneration'):
+                            case.fixture.task[change] += 1
+                        elif change == 'cancelled':
+                            case.fixture.daemon._revoke_task_locked(case.fixture.task, 'cancelled')
+                        elif change == 'target_closed':
+                            case.fixture.daemon._handle_tab_event('instance', {
+                                'taskId': 'task', 'generation': 1, 'tabId': 2,
+                                'event': 'closed', 'documentGeneration': 0})
+                        else:
+                            case.fixture.daemon.tab_leases.pop(('instance', 1))
+                    case.fixture.intercept_adoption_receipt(changed)
+                    with self.assertRaises(adapter.OutcomeUnknown):
+                        case.session.run('popup_adopt', {'candidateRef': candidate['candidateRef']})
                     before = len(case.fixture.calls)
-                    with self.assertRaises(adapter.ActionRejected):
+                    with self.assertRaises(adapter.OutcomeUnknown):
                         case.session.resume_pending()
                     self.assertEqual(len(case.fixture.calls), before)
                 finally:
                     case.doCleanups()
 
-    def test_real_script_wait_pending_reads_original_popup_through_public_projection(self):
+    def test_real_script_direct_adoption_reads_original_popup_through_public_projection(self):
         import json
         root = MODULE.parents[2]
         native_runtime = self.fixture.module.native_runtime if hasattr(self.fixture.module, 'native_runtime') else __import__('native_runtime')
@@ -439,9 +413,6 @@ class PopupPendingIntegrationTest(unittest.TestCase):
             if method == 'browser.list':
                 return [{'instanceId': 'instance', 'connected': True}]
             result = original(method, params)
-            if method == 'shared.run' and params['action'] == 'popup_adopt':
-                pending = next(iter(self.fixture.daemon.action_approvals.values()))
-                self.approve(pending)
             if method in ('shared.get', 'shared.run'):
                 result = projection._project_tool_result('browser_shared_get' if method == 'shared.get'
                     else 'browser_shared_run', params, result)
@@ -453,9 +424,8 @@ class PopupPendingIntegrationTest(unittest.TestCase):
         handler = tool.make_handler(bridge, authority, pathlib.Path(self.fixture.temp.name),
                                    lease_error=native_runtime.OwnerLeaseError, bridge_denied=host.BridgeDenied)
         code = ("candidate=popup_catalog(tab=1)['candidates'][0]\n"
-                "try:\n popup_adopt(candidate['candidateRef'], tab=1)\n"
-                "except ApprovalRequired:\n result=wait_pending(timeout_s=2, tab=1)\n"
-                "print(result['state'], 'adopted' in result, current_tab())\n"
+                "result=popup_adopt(candidate['candidateRef'], tab=1)\n"
+                "print(result['adopted'], current_tab())\n"
                 "use_tab(candidate['tabId'])\n"
                 "page=read_page(mode='interactive')\n"
                 "print(current_tab(), len(page['items']), page['items'][0]['name'])\n")
@@ -464,21 +434,15 @@ class PopupPendingIntegrationTest(unittest.TestCase):
         self.assertEqual(hook['action'], 'modify')
         result = json.loads(handler({**args, **hook['args']}, session_id='popup-script'))
         self.assertEqual(result['exit_code'], 0, result)
-        self.assertEqual(result['stdout'].strip().splitlines(), ['confirmed False 1', '2 1 Original popup'])
+        self.assertEqual(result['stdout'].strip().splitlines(), ['True 1', '2 1 Original popup'])
         self.assertTrue(result['execution_complete'], result)
         self.assertFalse(result['outcome_unknown'], result)
         self.assertEqual(len([p for method, p in self.runtime_calls
                               if method == 'shared.run' and p['action'] == 'popup_adopt']), 1)
 
-    def test_popup_wait_queries_ledger_not_one_shot_adoption_then_reads_original_window(self):
-        candidate, pending = self.pending_adoption()
-        self.approve(pending)
-        before = len(self.fixture.calls)
-        result = self.session.resume_pending()
-        self.assertEqual(result['state'], 'confirmed')
-        self.assertNotIn('adopted', result, 'ledger confirmation is not a new adoption receipt')
-        self.assertNotIn('tabId', result)
-        self.assertEqual(len(self.fixture.calls), before, 'waiting must not execute or prepare adoption')
+    def test_direct_adoption_reads_original_window_without_replay(self):
+        candidate, receipt = self.adopt_popup()
+        self.assertTrue(receipt['adopted'])
         self.assertEqual(self.session.current_tab(), 1)
         self.assertEqual(self.session.use_tab(candidate['tabId']), 2)
         page = self.session.run('semantic_snapshot', {})

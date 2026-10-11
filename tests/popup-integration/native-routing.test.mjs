@@ -1,6 +1,5 @@
 import {CloudLink} from '../support/cloud-link-stub.mjs';
 // 中文注释：VM 夹具显式注入独立 Cookie 模块，保持生产后台模块依赖一致。
-import {validateShieldRules} from '../../native-extension/content-shield.mjs';
 import {CookieMirror} from '../../native-extension/cookie-mirror.mjs';
 // Real popup -> real background dispatcher -> real Bridge request envelope.
 // Browser/Executor and daemon replies are in-memory doubles; NO browser or host starts.
@@ -57,7 +56,7 @@ async function harness(initialStorage={},manifestVersion=packageVersion){
   alarms:{create(){},onAlarm:event},tabs:{onCreated:event,onRemoved:event,onUpdated:event,query:async()=>[{id:7,url:'https://example.test/work',title:'工作页'}],get:async()=>({id:7,url:'https://example.test/work'})},debugger:{onDetach:event}
  };
  // Only ES module linking is replaced. The background handler body is unchanged.
- vm.runInNewContext(background.replace(/^import .*;\n/gm,''),{CloudLink,validateShieldRules,CookieMirror,Executor:TestExecutor,NativeWorkspaces:TestWorkspaces,Bridge,BrowserConsent,isUiSender,reloadForInstalledBuild:async()=>false,BUILD_ID:'',registerWorkspaceStartup:()=>{},origin:u=>new URL(u).origin,chrome:api,navigator:{userAgent:'Node DOM harness'},crypto:globalThis.crypto,console});
+ vm.runInNewContext(background.replace(/^import .*;\n/gm,''),{CloudLink,CookieMirror,Executor:TestExecutor,NativeWorkspaces:TestWorkspaces,Bridge,BrowserConsent,isUiSender,reloadForInstalledBuild:async()=>false,BUILD_ID:'',registerWorkspaceStartup:()=>{},origin:u=>new URL(u).origin,chrome:api,navigator:{userAgent:'Node DOM harness'},crypto:globalThis.crypto,console});
  const flush=async()=>{for(let i=0;i<6;i++)await new Promise(r=>setImmediate(r));};await flush();
  const sender={id:'test',url:'chrome-extension://test/popup.html'};
  const send=m=>new Promise(resolve=>{popupCalls.push(clone(m));assert.equal(dispatch(m,sender,resolve),true);});
@@ -113,51 +112,17 @@ test('popup exposes connection status without mode switch; foreign senders canno
 });
 
 // 中文注释：使用真实后台消息处理器验证受信配置、持久化读回及恶意发起者拒绝。
-test('指定屏蔽区域只接受受信 popup，校验 origin 与选择器并读回',async()=>{
- const h=await harness();
- const rules={'https://example.test':['#notice','main > .private']};
- assert.deepEqual((await h.send({type:'page_content_shield_save',rules})).result.rules,rules);
- assert.deepEqual((await h.send({type:'page_content_shield_read'})).result.rules,rules);
- for(const bad of [{'https://example.test/path':['#notice']},{'https://example.test':['[']}])assert.ok((await h.send({type:'page_content_shield_save',rules:bad})).error);
- for(const sender of [{id:'test',url:'https://example.test/'},{id:'other',url:'chrome-extension://test/popup.html'},{id:'test',url:'chrome-extension://test/approval-panel.html'}])assert.equal(h.dispatch({type:'page_content_shield_save',rules},sender,()=>assert.fail('非法 sender')),false);
- h.dom.window.close();
+test('旧过滤设置被忽略，弹窗无过滤入口，原始事件正常推送',async()=>{
+ const h=await harness({pageContentFilter:'invalid',pageContentShieldRules:{bad:['[']}});
+ try{
+  assert.equal(h.d.querySelector('#filter-toggle,#shield-settings'),null);
+  assert.equal(h.d.querySelector('#version-label').textContent,`v${packageVersion}`);
+  assert.equal((await h.send({type:'popup_status'})).error,undefined);
+  const before=h.nativeCalls.filter(m=>m.method==='extension.cdp_events').length;
+  await h.executor.options.onCdpEvents({events:[{text:'原始事件正文'}]});
+  assert.equal(h.nativeCalls.filter(m=>m.method==='extension.cdp_events').length,before+1);
+ }finally{h.dom.window.close();}
 });
-// 中文注释：真实后台路由对应的弹窗不再展示额外区域、鼠标开关或 Cookie 镜像。
-test('生产弹窗仅提供自动屏蔽，右上角展示本扩展版本',async()=>{
- const h=await harness();
- assert.equal(h.d.querySelector('#shield-settings,#cursor-toggle,#cookie-mirror'),null);
- assert.equal(h.d.querySelector('#version-label').textContent,`v${packageVersion}`);
- await h.click('#filter-toggle');assert.equal(h.storage.pageContentFilter,true);
- assert.equal(h.popupCalls.some(row=>row.type==='visual_cursor'||row.type==='cookie_mirror_pending'||row.type.startsWith('page_content_shield')),false);h.dom.window.close();
-});
-
-test('配置读取失败和保存读回不一致不能显示成功',async()=>{
- const h=await harness();h.api.storage.local.get=async()=>{throw Error('合成读失败');};
- assert.ok((await h.send({type:'page_content_shield_read'})).error);
- assert.ok((await h.send({type:'page_content_shield_save',rules:{'https://example.test':['#notice']}})).error);
- h.api.storage.local.get=async()=>({pageContentShieldRules:{}});
- assert.ok((await h.send({type:'page_content_shield_save',rules:{'https://example.test':['#notice']}})).error);h.dom.window.close();
-});
-test('已建立的原始 CDP 订阅遵循当前过滤开关，读取失败不推送',async()=>{
- const h=await harness();let count=h.nativeCalls.filter(m=>m.method==='extension.cdp_events').length;
- h.storage.pageContentFilter=true;await h.executor.options.onCdpEvents({events:[{text:'原始事件正文'}]});
- assert.equal(h.nativeCalls.filter(m=>m.method==='extension.cdp_events').length,count);
- h.storage.pageContentFilter=false;await h.executor.options.onCdpEvents({events:[]});count++;
- assert.equal(h.nativeCalls.filter(m=>m.method==='extension.cdp_events').length,count);
- h.api.storage.local.get=async()=>{throw Error('读失败');};await h.executor.options.onCdpEvents({events:[{text:'原始事件正文'}]});
- assert.equal(h.nativeCalls.filter(m=>m.method==='extension.cdp_events').length,count);h.dom.window.close();
-});
-
-// 中文注释：损坏设置不能让发送边界把过滤当作关闭，也不能推送原始订阅事件。
-for(const storage of [{pageContentFilter:'true'},{pageContentFilter:false,pageContentShieldRules:{'https://example.test':['[']}}])test('损坏设置禁止公开过滤状态和原始事件',async()=>{
- const h=await harness(storage);
- assert.ok((await h.send({type:'popup_status'})).error);
- let pushed=h.nativeCalls.filter(row=>row.method==='extension.cdp_events').length;
- await h.executor.options.onCdpEvents({events:[{text:'RAW_CORRUPT_SETTINGS_CANARY'}]});
- assert.equal(h.nativeCalls.filter(row=>row.method==='extension.cdp_events').length,pushed);
- h.dom.window.close();
-});
-
 
 test('automatic popup audit rejection stops the exact task and releases overlays without deleting tabs or replaying',async()=>{
  const h=await harness();

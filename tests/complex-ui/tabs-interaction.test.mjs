@@ -26,13 +26,7 @@ test('准备阶段等待延迟启用及短暂遮挡，保持固定检查上限',
  e.callSemanticWorld=async(_target,_frame,op)=>{calls++;if(calls===1)throw Error('TARGET_DISABLED');if(op==='reveal_ref')return {rect:[0,0,100,30]};return [0,0,100,30];};
  await e.settleSemanticTarget({tabId:1},'main',{},()=>{});assert.ok(calls>=4);
 });
-test('保护复查失败不覆盖已确认点击，回执只保留固定动作证据',async()=>{
- const e=new Executor({tabs:{},debugger:{}});const settings={enabled:true,rules:{}};e.shieldSettings=async()=>settings;
- let calls=0,dispatches=0;e.shieldInventory=async()=>{if(calls++)throw Error('CONTENT_SHIELD_UNINSPECTABLE');return {document:'doc',tokens:[],writeTarget:null};};
- e.performSettled=async()=>{dispatches++;return {clicked:true,delivery:'confirmed',effect:'observed',privateText:'must disappear'};};
- const result=await e.performProtected({}, {tabId:1,action:'ref_click'});
- assert.equal(result.clicked,true);assert.equal(result.outcomeUnknown,false);assert.equal(result.postCheck.code,'content_shield_uninspectable');assert.equal(result.privateText,undefined);assert.equal(dispatches,1);
-});
+
 test('明确 SPA 或整页导航证据可确认已派发点击，不重放工作函数',async()=>{
  for(const method of ['Page.navigatedWithinDocument','Page.frameNavigated']){
   let listener,dispatched=0;const api={debugger:{onEvent:{addListener(fn){listener=fn;},removeListener(){}},sendCommand:async()=>({result:{value:true}})}};
@@ -54,14 +48,7 @@ test('有界遮挡等待不会用内部快照淘汰调用方引用',()=>{
  }finally{f.dom.window.close();}
 });
 
-test('结构读取在保护预检遇到导航中的 CDP 上下文时最多重试一次，写入不重放',async()=>{
- for(const action of ['semantic_snapshot','ref_fill']){
-  const e=new Executor({tabs:{},debugger:{}});let attempts=0;e.check=()=>{};e.shieldSettings=async()=>({enabled:true,rules:{}});
-  e.performProtectedAttempt=async()=>{attempts++;if(attempts===1)throw Error('{"code":-32000,"message":"Execution context was destroyed"}');return {items:[]};};
-  if(action==='semantic_snapshot'){assert.deepEqual(await e.performProtected({}, {action}),{items:[]});assert.equal(attempts,2);}
-  else{await assert.rejects(e.performProtected({}, {action}),/destroyed/);assert.equal(attempts,1);}
- }
-});
+
 test('浏览器已丢弃的页明确拒绝读取，不自动重载或执行调试命令',async()=>{
  let commands=0;const e=new Executor({tabs:{get:async()=>({url:'https://fixture.test',status:'complete',discarded:true})},debugger:{sendCommand:async()=>{commands++;}}});
  e.allowed=()=>{};
@@ -73,14 +60,7 @@ test('身份变化的过期引用给出当前候选，绝不点击相似的新�
   assert.throws(()=>f.call('confirm_ref',f.token),error=>/REF_TARGET_MISSING/.test(error.message)&&decodeURIComponent(error.message).includes('Other record'));
  }finally{f.dom.window.close();}
 });
-test('动作后设置变化仍拒绝页面输出，同时明确点击已确认，旧正文不回放',async()=>{
- const e=new Executor({tabs:{},debugger:{}});let settings={enabled:true,rules:{}};
- e.shieldSettings=async()=>settings;e.shieldInventory=async()=>({document:'doc',tokens:[],writeTarget:null});
- e.performSettled=async()=>{settings={enabled:true,rules:{'https://fixture.test':['#private']}};return {clicked:true,delivery:'confirmed',effect:'observed',privateText:'PRIVATE_CANARY'};};
- const p={tabId:1,action:'ref_click'},result=await e.performProtected({},p);
- assert.equal(result.privateText,undefined);
- await assert.rejects(e.shieldResponse({method:'browser.execute',params:p},result),error=>error.message==='CONTENT_SHIELD_STALE'&&error.actionConfirmed===true);
-});
+
 test('创建日志恢复失败与真正没有日志分开报告，均不授予清理权限',async()=>{
  const e=new Executor({tabs:{},debugger:{}});
  assert.equal((await e.cleanupStatus({taskId:'missing',generation:1})).cleanupReason,'no_journal');

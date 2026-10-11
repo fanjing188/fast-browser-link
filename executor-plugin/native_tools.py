@@ -745,7 +745,7 @@ def make_tool_handler(tool_name, profile_runtime, *, host_bridge=None, backend_c
             if code in {'click_no_effect', 'accessibility_unavailable'} or code in _CONTENT_SHIELD_CODES:
                 result['code'] = code
             # 中文注释：只转发 client 已校验的固定诊断字段。
-            for key in ('currentOrigin', 'scopeHint', 'stage', 'reasonCode', 'effect', 'suggestion', 'skippedFrame'):
+            for key in ('currentOrigin', 'scopeHint', 'stage', 'reasonCode', 'effect', 'suggestion', 'skippedFrame', 'recovery'):
                 if key in data:
                     result[key] = data[key]
             # 中文注释：工作页停在第三方登录页时，回到原站会打断登录；改为请用户亲自登录并等待自动恢复。

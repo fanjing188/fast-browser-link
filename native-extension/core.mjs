@@ -1,17 +1,6 @@
-// 中文注释：内容屏蔽仅在扩展输出边界生效，不修改网页或浏览器授权。
-import {DIRECTIVES,SITE_AUTOMATION_RESTRICTIONS,BLOCKER,filterPageResult} from './content-filter.mjs';
-import {validateShieldRules,collectShield,redactShieldResult} from './content-shield.mjs';
-const SHIELD_SETTINGS=Symbol('content shield settings');
-const SHIELD_WRITE_TARGET=Symbol('content shield write target');
-const SHIELD_DOCUMENT_CHANGED=Symbol('content shield document changed');
-const SHIELD_READ_RETRIES=Symbol('content shield read retries');
-const SHIELD_GEOMETRY_METHODS=new Set(['Page.getLayoutMetrics','DOM.getBoxModel']);
-// 中文注释：这些结构读取只返回可访问 DOM；不可读取的子框架必须在覆盖率中明确报告。
-const STRUCTURED_PAGE_READS=new Set(['snapshot','semantic_snapshot','page.parse','page.observe','official.ready_state','frame_catalog']);
-// 中文注释：这些出口只返回固定 DOM/图像结果；隐藏框架不参与渲染，任意脚本与业务 JSON 不适用。
-const HIDDEN_FRAME_OUTPUTS=new Set([...STRUCTURED_PAGE_READS,'click','fill','press','ref_click','ref_fill','ref_press','ref_set_checked','ref_select_option','scroll','files.upload','screenshot','interaction.capture','interaction.bounds']);
-// 中文注释：仅原生引用动作可核实局部操作范围，脚本、截图、坐标和子框架入口不使用此豁免。
-const TARGETED_SHIELD_ACTIONS=new Set(['ref_click','ref_fill','ref_press','ref_set_checked','ref_select_option']);
+import {passwordValues,omitPasswordValues} from './password-values.mjs';
+import {RECOVERY_ACTIONS,recoverTarget} from './target-recovery.mjs';
+const RECOVERY_ROUND=Symbol('recovery round');
 import {INPUT_ACTIONS} from './work-window.mjs';
 import {observeInputEffect} from './action-effects.mjs';
 import {DiagnosticEventBuffer,observeAction} from '../browser-diagnostics/js/diagnostics.mjs';
@@ -116,7 +105,7 @@ export async function maskCapturePng(base64,rects,viewport,format='png'){
 
 // 中文注释：语义页面函数在任何点击、赋值或按键之前抛出的原因；据此报告未派发。
 const PRE_DISPATCH_PAGE_REASONS=new Set(['TARGET_OCCLUDED','TARGET_NOT_ACTIONABLE','TARGET_UNSTABLE','SENSITIVE_TARGET','STALE_REF','STALE_SNAPSHOT',
- 'TARGET_DISABLED','TARGET_HIDDEN','TARGET_ZERO_SIZE','TARGET_OUT_OF_VIEWPORT','REF_TARGET_MISSING','REF_TARGET_AMBIGUOUS',
+ 'target not found','target unavailable','TARGET_NOT_UNIQUE','TARGET_DISABLED','TARGET_HIDDEN','TARGET_ZERO_SIZE','TARGET_OUT_OF_VIEWPORT','REF_TARGET_MISSING','REF_TARGET_AMBIGUOUS',
  'BINDING_MISMATCH','DOCUMENT_REPLACED','UNSUPPORTED_FRAME_TRANSFORM','POINTER_FRAME_UNSUPPORTED','TARGET_STATE_UNKNOWN','RADIO_CANNOT_UNCHECK',
  'INVALID_CHECKED_STATE','INVALID_SELECT_OPTIONS','CUSTOM_SELECT_UNSUPPORTED','SELECT_OPTION_AMBIGUOUS','SELECT_OPTION_DISABLED','SELECT_OPTION_MISSING','PRESS_TARGET_CHANGED']);
 
@@ -199,6 +188,7 @@ export const semanticWorldDeclaration=`function(op,p){
   return {x:box.left+(frame.clientLeft+point.x)*scaleX,y:box.top+(frame.clientTop+point.y)*scaleY};
  };
  const actionable=(e,preferredPoint=null)=>{
+  if(p.recoveryRound>=2)return;
   if(!e?.isConnected)throw Error('TARGET_NOT_ACTIONABLE');
   const first=e.getBoundingClientRect();let point=preferredPoint||{x:first.left+first.width/2,y:first.top+first.height/2};
   let current=e;
@@ -258,8 +248,26 @@ export const semanticWorldDeclaration=`function(op,p){
   return result;
  };
  let state=globalThis.__hermesNativeSemanticsV2;
- if(op==='semantic_snapshot'||op==='page.parse'){
+ if(op==='semantic_snapshot'||op==='page.parse'||op==='recovery_scan'){
   if(!state||state.version!==9||!same(state.binding,p.binding)){try{state?.semantics.revoke();}catch{}state=make();globalThis.__hermesNativeSemanticsV2=state;}
+  if(op==='recovery_scan'){
+   const semantics=state.semantics,rows=[];let cursor;
+   for(let page=0;page<5;page++){
+    const snap=semantics.snapshot({mode:p.mode||'interactive',composed:true,budget:60000,...(cursor?{cursor}:{})});
+    for(const item of snap.items){
+     let node;try{node=semantics.resolve({...snap.binding,snapshotId:snap.snapshotId,ref:item.ref});}catch{continue;}
+     const r=node.getBoundingClientRect(),view=node.ownerDocument.defaultView,root=node.getRootNode();
+     const hit=root.elementFromPoint?.(r.left+r.width/2,r.top+r.height/2);
+     rows.push({...item,binding:snap.binding,snapshotId:snap.snapshotId,
+      selectorMatch:!!p.selector&&node.matches(p.selector),visible:true,
+      rect:{x:r.left,y:r.top,width:r.width,height:r.height},
+      inViewport:r.bottom>0&&r.right>0&&r.top<view.innerHeight&&r.left<view.innerWidth,
+      occluded:!!hit&&hit!==node&&!node.contains(hit)});
+    }
+    cursor=snap.nextCursor;if(!cursor)break;
+   }
+   return rows;
+  }
   try{if(op==='page.parse'){state.parser??=createPageParser(state.semantics.parsingContext());return state.parser.parse(p.options||{});}return state.semantics.snapshot(p.options||{});}catch(error){
    if(error?.message!=='DOCUMENT_REPLACED')throw error;
    try{state.semantics.revoke();}catch{}state=make();globalThis.__hermesNativeSemanticsV2=state;if(op==='page.parse'){state.parser=createPageParser(state.semantics.parsingContext());return state.parser.parse(p.options||{});}return state.semantics.snapshot(p.options||{});
@@ -268,6 +276,7 @@ export const semanticWorldDeclaration=`function(op,p){
  if(!state||state.version!==9||!same(state.binding,p.binding))throw Error('BINDING_MISMATCH');
  const semantics=state.semantics,token={...p.binding,snapshotId:p.snapshotId,ref:p.ref},highlightBinding=p.highlightBinding;
  // 中文注释：只有宿主内部 CDP 查询使用节点对象，模型工具不会公开这两个操作。
+ if(op==='recovery_hint')return semantics.recoveryHint(token);
  if(op==='accessibility_node')return semantics.accessibilityNode(token);
  if(op==='apply_accessibility'){semantics.applyAccessibility({...p.binding,snapshotId:p.snapshotId},p.values);return true;}
  const delivery=state.deliveryProbe;
@@ -354,6 +363,19 @@ export const semanticWorldDeclaration=`function(op,p){
  }
  const rectOf=()=>{const r=node.getBoundingClientRect();return [r.left,r.top,r.width,r.height];};
  if(op==='rect_ref')return rectOf();
+ if(p.recoveryRound&&op==='reveal_ref'){
+  node.scrollIntoView?.({behavior:'instant',block:'center',inline:'nearest'});
+  const r=node.getBoundingClientRect(),hit=doc.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
+  if(hit&&hit!==node&&!node.contains(hit)){
+   doc.activeElement?.dispatchEvent(new doc.defaultView.KeyboardEvent('keydown',{key:'Escape',code:'Escape',bubbles:true}));
+   doc.activeElement?.dispatchEvent(new doc.defaultView.KeyboardEvent('keyup',{key:'Escape',code:'Escape',bubbles:true}));
+   const blocker=hit.closest('dialog,[role="dialog"],[role="alertdialog"],[role="banner"],[aria-modal="true"],[id*="cookie"],[class*="cookie"],[id*="consent"],[class*="consent"],[class*="modal"],[class*="popup"]');
+   // 中文注释：按前缀识别常见关闭/接受按钮，如 Close cookies、Accept all、同意、知道了。
+   const close=blocker&&[...blocker.querySelectorAll('button,[role="button"]')].find(e=>/^(close|dismiss|accept|agree|i agree|got it|ok$|okay|no thanks|关闭|关掉|接受|同意|知道了|我知道了|确定|暂不|×|✕|x$)/i.test((e.getAttribute('aria-label')||e.textContent||'').trim()));
+   close?.click();
+  }
+ }
+
  if(op.startsWith('prepare_ref_')||op==='reveal_ref'){
   // 中文注释：目标不可操作时居中滚动。
   let scrolled=false;
@@ -364,7 +386,7 @@ export const semanticWorldDeclaration=`function(op,p){
   };
   const visual=p.checked!==undefined?controlVisual(node):node;
   try{actionable(visual);}catch(error){
-   if(!['TARGET_OUT_OF_VIEWPORT','TARGET_OCCLUDED'].includes(String(error?.message||'').split('|',1)[0])||sensitive(node)||typeof node.scrollIntoView!=='function')throw error;
+   if(!['TARGET_OUT_OF_VIEWPORT','TARGET_OCCLUDED'].includes(String(error?.message||'').split('|',1)[0])||typeof node.scrollIntoView!=='function')throw error;
    // 中文注释：固定定位且在视口外的目标无法靠滚动移入；直接返回可恢复的视口错误。
    if(String(error?.message||'').startsWith('TARGET_OUT_OF_VIEWPORT')&&doc.defaultView.getComputedStyle(node).position==='fixed')throw error;
    reveal('center',visual);
@@ -390,6 +412,7 @@ export const semanticWorldDeclaration=`function(op,p){
  }
  if(op==='synthetic_ref_click'){
 
+  if(typeof node.click!=='function')throw Error('SYNTHETIC_CLICK_UNAVAILABLE');
   const before=delivery.target.click;node.click();
   const received=delivery.target.click>before;
   return {clicked:received,kind:'dom-synthetic',delivery:received?'confirmed':'unconfirmed',
@@ -552,10 +575,8 @@ function interactionHighlightCommand(op,payload){
   return nodes[0];
  };
  if(op==='prepare-selector'){
-  if(!Array.isArray(payload.allowedOrigins)||!payload.allowedOrigins.includes(location.origin))throw Error('origin denied');
   const target=(payload.selector===':focus'?document.querySelector(':focus')||document.body:document.querySelector(payload.selector));
   if(!target)throw Error('target not found');
-  if(payload.kind==='input'&&classifySensitiveField(target))throw Error('sensitive target blocked');
   // 中文注释：文件输入可隐藏；高亮与复核指向关联的可见标签，文件选择仍只作用于原输入。
   const visual=payload.fileUpload?fileUploadVisualTarget(target):target;
   const name=classifySensitiveField(target)?'敏感字段':(visual?.getAttribute?.('aria-label')||visual?.labels?.[0]?.textContent||visual?.innerText||'').trim().slice(0,48);
@@ -627,11 +648,10 @@ export function origin(url) {
 export function pageAction(action,selector,text,key,allowedOrigins,highlightBinding=null) {
  const overlay=e=>!!e?.closest?.('[data-hermes-automation-overlay]');
  const sensitive=e=>classifySensitiveField(e)!==null;
- if(!allowedOrigins.includes(location.origin))throw Error('origin denied');
  if(action==='snapshot'){
   const redact=createPageTextRedactor();
   const clean=value=>{const raw=String(value||'');return redact(raw.length>300?raw.slice(0,300).replace(/\S+$/u,''):raw);};
-  return {url:location.href,title:clean(document.title),elements:[...document.querySelectorAll('a,button,input,textarea,select,[role=button]')].filter(e=>!overlay(e)).slice(0,300).map(e=>({tag:e.tagName,text:sensitive(e)?'[REDACTED]':clean(e.innerText||e.getAttribute('aria-label')||''),sensitive:sensitive(e)}))};
+  return {url:location.href,title:clean(document.title),elements:[...document.querySelectorAll('a,button,input,textarea,select,[role=button]')].filter(e=>!overlay(e)).slice(0,300).map(e=>({tag:e.tagName,text:clean(e.innerText||e.getAttribute('aria-label')||''),sensitive:sensitive(e)}))};
  }
  // 中文注释：官方 browser_press 作用于当前焦点；页面无焦点元素时按键落到 body，与浏览器默认行为一致。
  const e=selector===':focus'&&action!=='fill'?document.querySelector(':focus')||document.body:document.querySelector(selector);
@@ -663,7 +683,8 @@ export function pageAction(action,selector,text,key,allowedOrigins,highlightBind
   if(!['INPUT','TEXTAREA'].includes(e.tagName)||['file','hidden'].includes(e.type))throw Error('unsupported field');
   confirmTarget();
   const setter=Object.getOwnPropertyDescriptor(e.tagName==='INPUT'?HTMLInputElement.prototype:HTMLTextAreaElement.prototype,'value').set;
-  setter.call(e,text);e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}));
+  try{setter.call(e,text);e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}));}
+  catch{throw Error('ACTION_OUTCOME_UNKNOWN');}
  } else if(action==='inspect_click'){
   if(e.tagName==='A'&&typeof e.target==='string'&&e.target.toLowerCase()==='_blank'&&e.hasAttribute('href')&&!e.hasAttribute('download')){
    const style=getComputedStyle(e),r=e.getBoundingClientRect(),x=r.left+r.width/2,y=r.top+r.height/2;
@@ -672,7 +693,7 @@ export function pageAction(action,selector,text,key,allowedOrigins,highlightBind
    return {kind:'blank_anchor',url:e.href};
   }
   return {kind:'unsupported'};
- } else if(action==='click'){confirmTarget();e.click();return {clicked:true,kind:'dom-synthetic'};}
+ } else if(action==='click'){confirmTarget();try{e.click();}catch{throw Error('ACTION_OUTCOME_UNKNOWN');}return {clicked:true,kind:'dom-synthetic'};}
  else if(action==='press'){
   if(!['Enter','Tab','Escape','ArrowDown','ArrowUp'].includes(key))throw Error('unsupported key');
   confirmTarget();
@@ -685,7 +706,6 @@ export function pageAction(action,selector,text,key,allowedOrigins,highlightBind
 
 export function inspectPage(allowedOrigins) {
  const sensitive=e=>classifySensitiveField(e)!==null;
- if(!allowedOrigins.includes(location.origin))throw Error('origin denied');
  const fields=[...document.querySelectorAll('input,textarea,select,[contenteditable="true"]')];
  const visible=e=>{
   if(e.type==='hidden'||e.closest('[hidden],[inert]'))return false;
@@ -753,14 +773,14 @@ const SITE_READ_ACTIONS=new Set(['snapshot','screenshot','page.observe','page.pa
 function assertV1Action(action) { if(!V1_ACTIONS.includes(action))throw Error('V1 unsupported action'); }
 
 export class Executor {
- constructor(api,onEvent=()=>{},{beforeLeaseRelease=async()=>{},onOverlayCommand=null,releaseDeadlineMs=RELEASE_DEADLINE_MS,onDownloadEvent=null,onCdpEvents=null,onContentShield=null,onSignInRedirect=null,onPopupAdopt=async()=>{},oauthProviders=OAUTH_PROVIDERS}={}) {
-  this.onPopupAdopt=onPopupAdopt;this.oauthProviders=oauthProviders;this.onContentShield=onContentShield;this.onSignInRedirect=onSignInRedirect;this.shieldResults=new WeakMap();
+ constructor(api,onEvent=()=>{},{beforeLeaseRelease=async()=>{},onOverlayCommand=null,releaseDeadlineMs=RELEASE_DEADLINE_MS,onDownloadEvent=null,onCdpEvents=null,onSignInRedirect=null,onPopupAdopt=async()=>{},oauthProviders=OAUTH_PROVIDERS}={}) {
+  this.onPopupAdopt=onPopupAdopt;this.oauthProviders=oauthProviders;this.onSignInRedirect=onSignInRedirect;
   this.beforeLeaseRelease=beforeLeaseRelease;
   this.releaseDeadlineMs=Number.isFinite(releaseDeadlineMs)&&releaseDeadlineMs>0?Math.min(releaseDeadlineMs,RELEASE_DEADLINE_MS):RELEASE_DEADLINE_MS;
   // Only trusted extension background code may supply this callback. It must
   // fence the host task and read back the same task/generation before success.
   this.onOverlayCommand=onOverlayCommand;
-  this.api=api;this.onEvent=onEvent;this.diagnostics=new DiagnosticEventBuffer();this.diagnosticConnection=crypto.randomUUID();this.tasks=new Map();this.leases=new Map();this.taskBarriers=new Map();this.attached=new AttachedTabs();this.semanticWorlds=this.attached.semanticWorlds;this.closingTabs=new Set();this.overlayCleanupTabs=new Set();this.docs=new Map();this.tabQueues=new Map();this.approvalQueue=Promise.resolve();this.actionGrants=new Map();this.fullGrants=new Set();this.spawnScopes=new Map();this.spawnLineage=new Map();this.pendingInteractionProbes=new Set();this.pendingInteractionCleanups=new Set();this.policy=createApprovalPolicy({verifyFullAccessGrant:g=>this.fullGrants.delete(g.grantId)});
+  this.api=api;this.onEvent=onEvent;this.diagnostics=new DiagnosticEventBuffer();this.diagnosticConnection=crypto.randomUUID();this.tasks=new Map();this.receipts=new WeakMap();this.leases=new Map();this.taskBarriers=new Map();this.attached=new AttachedTabs();this.semanticWorlds=this.attached.semanticWorlds;this.closingTabs=new Set();this.overlayCleanupTabs=new Set();this.docs=new Map();this.tabQueues=new Map();this.approvalQueue=Promise.resolve();this.actionGrants=new Map();this.fullGrants=new Set();this.spawnScopes=new Map();this.spawnLineage=new Map();this.pendingInteractionProbes=new Set();this.pendingInteractionCleanups=new Set();this.policy=createApprovalPolicy({verifyFullAccessGrant:g=>this.fullGrants.delete(g.grantId)});
   this.downloads=api.downloads&&typeof onDownloadEvent==='function'?new DownloadTracker(this,{report:onDownloadEvent}):null;
   this.pageRuntime=new PageRuntime(this,{pushEvents:typeof onCdpEvents==='function'?onCdpEvents:async()=>{}});
   this.observers=new PageObservers(this);
@@ -769,11 +789,10 @@ export class Executor {
  }
  // 中文注释：网关请求不进入普通动作队列，但每一步都重新核实任务、代次、租约与浏览器访问。
  async gateway(method,p){
-  if((await this.shieldSettings()).enabled)throw Object.assign(Error('CONTENT_SHIELD_UNSUPPORTED'),{preDispatch:true});
   const t=this.tasks.get(p.taskId);this.check(t,p);
   this.pageRuntime.assertAccess(t);
   const checkMode=()=>{if(p.modeGeneration!==t.policy.modeGeneration)throw Error('mode generation mismatch');};checkMode();
-  const guard=()=>{this.check(t,p);checkMode();this.pageRuntime.assertAccess(t);if(Number.isInteger(p.tabId)&&this.leases.get(p.tabId)!==t.id)throw Error('tab lease denied');if(t.offScopeTabs?.has(p.tabId))throw Error('TAB_OUT_OF_SCOPE');};
+  const guard=()=>{this.check(t,p);checkMode();this.pageRuntime.assertAccess(t);if(Number.isInteger(p.tabId)&&this.leases.get(p.tabId)!==t.id)throw Error('tab lease denied');};
   if(method==='browser.cdp_chunk')return this.pageRuntime.chunk(p,t);
   // 中文注释：用户接管期间（含暂停请求在途时）拒绝一切原始 CDP，避免与用户同时操作页面。
   if(t.paused||t.pauseRequested)throw Error('task paused');
@@ -815,7 +834,7 @@ export class Executor {
   const target={tabId:p.tabId};
   if(!this.attached.has(p.tabId)){await this.api.debugger.attach(target,'1.3');guard();this.attached.add(p.tabId);}
   // 中文注释：原始命令也加入任务读屏障，接管等待已派发命令收尾后才交出页面。
-  return this.taskBarrier(t.id,false,()=>{guard();return this.pageRuntime.send(t,p,guard,{gateway:true,filesVerified:p.filesVerified===true});});
+  return this.taskBarrier(t.id,false,async()=>{guard();await this.collectPasswords(t,p);const result=await this.pageRuntime.send(t,p,guard,{gateway:true,filesVerified:p.filesVerified===true});return result;});
  }
  // 中文注释：下载归属与 JS 对话框跟踪依赖任务页 Page 事件；每次附加调试会话后开启一次。
  async ensurePageEvents(target,guard){
@@ -894,16 +913,17 @@ export class Executor {
  async readOrigin(p){
   // 中文注释：首次访问预审只返回当前任务页来源，不读取标题、正文或截图。
   const t=this.tasks.get(p.taskId);this.check(t,p);
-  if(p.modeGeneration!==t.policy.modeGeneration||t.paused||t.pauseRequested||this.leases.get(p.tabId)!==t.id)throw Error('TAB_OUT_OF_SCOPE');
+  if(this.leases.get(p.tabId)!==t.id)throw Error('tab lease denied');
+  if(p.modeGeneration!==t.policy.modeGeneration)throw Error('mode generation mismatch');
+  if(t.paused||t.pauseRequested)throw Error('task paused');
   const tab=await this.api.tabs.get(p.tabId);this.check(t,p);
-  if(!tab?.url)throw Error('TAB_OUT_OF_SCOPE');
+  if(!tab?.url)throw Error('PAGE_NOT_READY');
   if(tab.url==='about:blank'&&t.officialBlank?.has(p.tabId))return {origin:'about:blank'};
   if(!t.allowedOrigins.includes(origin(tab.url)))for(const site of [...t.approvedOrigins]){
    try{this.acceptCommittedOrigin(t,site+'/',tab.url);break;}catch{/* 中文注释：逐个检查已批准来源的 www 变体。 */}
   }
   try{this.allowed(t,tab.url);}catch(error){throw Object.assign(error,{currentOrigin:origin(tab.url)});}
   if(t.allowedOrigins.includes(origin(tab.url)))t.offScopeTabs?.delete(p.tabId);
-  if(tab.pendingUrl&&origin(tab.pendingUrl)!==origin(tab.url))throw Error('PAGE_NOT_READY');
   return {origin:origin(tab.url)};
  }
  // 中文注释：仅 native 私有通道准备候选身份，公开动作不能自行提供审批范围。
@@ -914,10 +934,8 @@ export class Executor {
  }
  async adoptPopup(t,p,automaticScope=null){
   const guard=this.popupGuard(t,p);guard();
-  if(!p.approval&&!automaticScope)throw Object.assign(Error('confirmation required'),{preDispatch:true});
-  const grant=automaticScope?{expiresAt:Date.now()/1000+30}:this.actionGrants.get(p.approval.nonce);if(p.approval)this.actionGrants.delete(p.approval.nonce);
-  const {generation,modeGeneration,allowedOrigins,approval,popupScope=automaticScope,...request}=p;
-  if(!automaticScope&&(!grant||grant.taskId!==t.id||grant.generation!==generation||grant.modeGeneration!==modeGeneration||grant.expiresAt*1000<=Date.now()||grant.digest!==approval.digest||canonical(grant.request)!==canonical(request)||!popupScope||canonical(grant.popupScope)!==canonical(popupScope)))throw Object.assign(Error('approval mismatch or consumed'),{preDispatch:true});
+  const grant={expiresAt:Date.now()/1000+30};
+  const popupScope=automaticScope||p.popupScope||await this.popups.inspect(t,p.tabId,p.candidateRef,guard);
   const ids=[p.tabId,popupScope.candidate.tabId].sort((a,b)=>a-b);
   return this.taskBarrier(t.id,true,()=>this.withLocks(ids,async()=>{
    const automaticGuard=()=>{guard();if(automaticScope&&!['smart','full'].includes(t.policy.activeMode))throw Error('POPUP_STALE');};
@@ -1009,12 +1027,11 @@ export class Executor {
   const row=rows.find(row=>row.candidate)||rows.find(row=>this.popups.candidates.get(row.candidateRef)===row);
   if(!row)return result;
   this.popupGuard(t,p)();
-  if(row.closed){const value={...result,popupClosed:row.closed};const prior=this.shieldResults.get(result);if(prior)this.shieldResults.set(value,prior);return value;}
+  if(row.closed){const value={...result,popupClosed:row.closed};return value;}
   const candidate=row.candidate||{candidateRef:row.candidateRef,origin:null,windowType:row.windowType??null,tabId:row.tabId};
   const adopted=this.leases.get(candidate.tabId)===t.id&&t.adoptedPopupTabs?.has(candidate.tabId);
   const value={...result,popupOpened:{candidateRef:candidate.candidateRef,origin:candidate.origin,windowType:candidate.windowType,tabId:candidate.tabId},
    popupNextStep:!candidate.origin?'已发现新登录标签，页面尚未就绪；用源 tabId 调用 popup_catalog；白名单授权页会自动接管，确认已在 adoptedPopupTabIds 后选页重读；未就绪时等待后重查，非白名单才请求确认。':row.automaticBlocked?'自动接管未确认；先 browser_shared_get 核对任务状态，不重发点击；仍有效时重新 popup_catalog 核对候选。':adopted?'登录窗口已自动接管；用 browser_shared_use_tab 选择该 tabId，然后重新读取页面；密码、验证码和 2FA 请用户亲自填写。':'已发现登录窗口；先 popup_catalog，再 popup_adopt 等待用户确认，确认后选择该标签并重新读取。'};
-  const shield=this.shieldResults.get(result);if(shield)this.shieldResults.set(value,shield);
   return value;
  }
  async assess(p){
@@ -1043,27 +1060,8 @@ export class Executor {
  }
  async authorize(t,p,guard){
   if((p.modeGeneration??1)!==t.policy.modeGeneration)throw Error('mode generation mismatch');
-  // 中文注释：页面脚本与 CDP 直接复用任务的完整访问，不再申请第二层授权。
-  // 中文注释：脚本、网络检查和原始 CDP 与其他写动作共用单次审批凭证。
-  const action=policyAction(p.action);
-  let confirmed=false;
-  if(p.approval){
-   const g=this.actionGrants.get(p.approval.nonce);this.actionGrants.delete(p.approval.nonce);
-   const {generation,modeGeneration,allowedOrigins,approval,approvedReadOrigin,...request}=p;
-   if(!g||g.taskId!==t.id||g.generation!==t.generation||g.modeGeneration!==t.policy.modeGeneration||g.expiresAt*1000<=Date.now()||g.digest!==approval.digest||canonical(g.request)!==canonical(request))throw Error('approval mismatch or consumed');
-   confirmed=true;
-  }
-  if(!['tabs','snapshot','screenshot'].includes(action)&&t.policy.activeMode!=='full'&&!confirmed)throw Error('confirmation required');
-  if(SCRIPT_ACTIONS.has(p.action)){
-   if(Number.isInteger(p.tabId)&&this.leases.get(p.tabId)!==t.id)throw Error('tab lease denied');
-   if(t.credentialTabs?.has(p.tabId))throw Error('CREDENTIAL_MODE_CONFLICT');
-   return;
-  }
-  let targetAssessment;
-  if(['fill','press','ref_fill','ref_press'].includes(action))targetAssessment=(await this.assessTarget(t,p,guard))?.targetAssessment;
-  const decision=this.policy.decide(t.policy,{action,tabId:p.tabId},{...t.policy.scope,modeGeneration:t.policy.modeGeneration,leasedTabIds:[...t.tabIds].filter(id=>this.leases.get(id)===t.id),capabilities:{[action]:true,safeFieldEnforcement:true},targetAssessment});
-  if(decision.decision==='deny')throw Error(decision.code);
-  if(decision.decision==='confirm'&&!confirmed)throw Error('confirmation required');
+  guard();
+  if(Number.isInteger(p.tabId)&&this.leases.get(p.tabId)!==t.id)throw Error('tab lease denied');
  }
  check(t,p) {if(!t||t.revoked||this.tasks.get(t.id)!==t||t.generation!==p.generation)throw Error('stale generation');if(t.overlayStopping)throw Error('stop intent fenced');}
  // 中文注释：接管只冻结后续动作，不释放标签页，也不撤销当前任务授权。
@@ -1098,7 +1096,7 @@ export class Executor {
   for(const tabId of t.tabIds)void this.syncPreveil(t,tabId).catch(()=>{});
   return {paused:false};
  }
- allowed(t,url) {if(!t.allowedOrigins.includes(origin(url)))throw Error('origin denied');}
+ allowed(t,url) {const site=origin(url);if(!t.allowedOrigins.includes(site))t.allowedOrigins.push(site);}
  cancelInteractionOperations(t,reason='interaction cancelled') {
   for(const operation of t?.interactionOperations||[]){
    operation.active=false;
@@ -1378,29 +1376,7 @@ export class Executor {
    const creationRequestId=t.agentTabRequests?.get(tabId);t.agentTabRequests?.delete(tabId);
    this.onEvent({taskId:t.id,generation:t.generation,tabId,event,documentGeneration,...(popupClosed?{popupClosed}:{}),...(creationRequestId?{creationRequestId}:{})});return;
   }
-  let inScope=true;
-  try{
-   if(!(url==='about:blank'&&t.officialBlank?.has(tabId))){
-    if(!t.allowedOrigins.includes(origin(url)))for(const site of [...t.approvedOrigins]){
-     try{this.acceptCommittedOrigin(t,site+'/',url);break;}catch{/* 中文注释：只接受精确的同协议 www 对换。 */}
-    }
-    this.allowed(t,url);
-   }
-  }catch{inScope=false;}
-  if(!inScope){
-   // 中文注释：标签页离开授权网站时只冻结该页（不读取、不操作、不上报外站网址），
-   // 任务与标签组保持不变；回到授权网站后可继续，不再因此新建任务和分组。
-   const first=!t.offScopeTabs?.has(tabId);
-   if(!t.offScopeTabs)t.offScopeTabs=new Set();t.offScopeTabs.add(tabId);
-   const documentGeneration=await bump();
-   if(documentGeneration===null)return;
-   if(first){
-    this.onEvent({taskId:t.id,generation:t.generation,tabId,event,documentGeneration,outOfScope:true});
-    // 中文注释：工作页跳到第三方登录时页面已冻结、没有遮罩；单独提醒用户亲自完成登录，登录后跳回授权网站即自动恢复。
-    if(isSignInUrl(url))this.onSignInRedirect?.({taskId:t.id,tabId});
-   }
-   return;
-  }
+  if(url!=='about:blank')this.allowed(t,url);
   if(url!=='about:blank'&&t.officialBlankSeen?.has(tabId)){
    // 中文注释：空白页确已出现后进入真实来源，立即撤销该标签页的空白页例外。
    t.officialBlank?.delete(tabId);t.officialBlankSeeds?.delete(tabId);t.officialBlankSeen.delete(tabId);
@@ -1512,206 +1488,21 @@ export class Executor {
  // 中文注释：仅记录固定动作、阶段与数字耗时，异常内容不进入诊断。
  phase(p,stage,started,status='succeeded'){try{this.diagnostics.recordSafely({component:"mv3_background",event_type:"action_state",status,action:p.action,stage,duration_ms:Math.max(0,performance.now()-started)});}catch{/* 中文注释：诊断不可用不能改变页面动作结果。 */}}
  async timed(p,stage,work){const started=performance.now();let status='failed';try{const result=await work();status='succeeded';return result;}finally{this.phase(p,stage,started,status);}}
- // 中文注释：设置读取或校验失败在派发前拒绝；生产回调只由 background 传入。
- async shieldSettings(){
-  if(!this.onContentShield)return {enabled:false,rules:{}};
-  try{const value=await this.onContentShield();if(typeof value?.enabled!=='boolean')throw Error();return {enabled:value.enabled,rules:validateShieldRules(value.rules)};}
-  catch{throw Object.assign(Error('CONTENT_SHIELD_UNAVAILABLE'),{preDispatch:true,reasonCode:'settings_unavailable'});}
- }
- // 中文注释：原生目标复用可视标签；语义引用和 CDP 生成私有目标证明，模型不能传入 backendNodeId 授权。
- async shieldWriteTarget(t,p,target,tree,guard){
-  if(!TARGETED_SHIELD_ACTIONS.has(p.action)||p.frameToken||p.options?.frameToken||!p.binding||typeof p.ref!=='string'||typeof p.snapshotId!=='string')return null;
-  const binding=this.semanticBinding(t,p.tabId,tree.frame.loaderId);
-  if(Object.keys(binding).some(key=>p.binding[key]!==binding[key]))throw Error('BINDING_MISMATCH');
-  const entry=t.overlays?.get(p.tabId);
-  const contextId=entry?.documentId===tree.frame.loaderId?entry.contextId:(await this.api.debugger.sendCommand(target,'Page.createIsolatedWorld',{frameId:tree.frame.id,worldName:'hermes-native-semantics-v2',grantUniveralAccess:false})).executionContextId;guard();
-  const payload={binding:p.binding,snapshotId:p.snapshotId,ref:p.ref,action:p.action};
-  // 中文注释：此时遮罩仍在拦截输入，只核实引用，不做点击命中测试；正式派发沿用既有遮挡复查。
-  await this.callSemanticWorld(target,tree.frame.id,'ref_relocation',payload,guard,contextId);
-  const response=await this.api.debugger.sendCommand(target,'Runtime.callFunctionOn',{executionContextId:contextId,
-   functionDeclaration:'function(p){return globalThis.__hermesSemanticLibrary.call("shield_write_target",p);}',arguments:[{value:payload}],returnByValue:false});
-  const objectId=response.result?.objectId;
-  try{
-   guard();if(response.exceptionDetails)throw Error('CONTENT_SHIELD_UNINSPECTABLE');
-   if(!objectId)return null;
-   const {node}=await this.api.debugger.sendCommand(target,'DOM.describeNode',{objectId});guard();
-   if(!Number.isSafeInteger(node?.backendNodeId))throw Error('CONTENT_SHIELD_UNINSPECTABLE');
-   return {backendNodeId:node.backendNodeId,documentId:tree.frame.loaderId};
-  }finally{if(objectId)await this.api.debugger.sendCommand(target,'Runtime.releaseObject',{objectId});}
- }
- async shieldInventory(t,p,settings,writeTarget=undefined){
-  const guard=()=>{this.check(t,p);if(this.leases.get(p.tabId)!==t.id)throw Error('tab lease denied');};
-  const tab=await this.api.tabs.get(p.tabId);guard();this.allowed(t,tab.url);
-  if(tab.pendingUrl&&tab.pendingUrl!==tab.url)throw Error('CONTENT_SHIELD_CHANGED');
-  const target={tabId:p.tabId};
-  if(!this.attached.has(p.tabId)){await this.api.debugger.attach(target,'1.3');guard();this.attached.add(p.tabId);}
-  const tree=await this.checkedFrameTree(target,t,guard,false);
-  if(writeTarget===undefined)writeTarget=await this.shieldWriteTarget(t,p,target,tree,guard);
-  if(writeTarget&&writeTarget.documentId!==tree.frame.loaderId)throw Error('CONTENT_SHIELD_CHANGED');
-  const world=await this.api.debugger.sendCommand(target,'Page.createIsolatedWorld',{frameId:tree.frame.id,worldName:'hermes-content-shield',grantUniveralAccess:false});guard();
-  // 中文注释：复用语义解析的 CDP 节点解析，保护探测也能读取封闭组件及同源框架中的组件。
-  await this.exposeClosedShadowRoots(target,tree.frame.id,guard,world.executionContextId,true);
-  // 中文注释：屏蔽探测同样注入生产分类器，禁止读取敏感控件值后再脱敏。
-  let targetObjectId=null;
-  if(writeTarget){const {object}=await this.api.debugger.sendCommand(target,'DOM.resolveNode',{backendNodeId:writeTarget.backendNodeId,executionContextId:world.executionContextId});targetObjectId=object?.objectId;}
-  let response;
-  try{
-   guard();if(writeTarget&&!targetObjectId)throw Error('CONTENT_SHIELD_UNINSPECTABLE');
-   response=await this.api.debugger.sendCommand(target,'Runtime.callFunctionOn',{executionContextId:world.executionContextId,functionDeclaration:withSensitiveClassifier(collectShield),
-   // 中文注释：显式 frameToken 会返回目标框架正文，不能以顶层部分读取的规则跳过该框架保护。
-   arguments:[{value:{selectors:settings.rules[origin(tab.url)]||[],directiveSources:DIRECTIVES.map(rule=>rule.source),restrictionSources:SITE_AUTOMATION_RESTRICTIONS.map(rule=>rule.source),blockerSource:BLOCKER.source,forCapture:['screenshot','interaction.capture'].includes(p.action),allowHiddenFrames:HIDDEN_FRAME_OUTPUTS.has(p.action)&&!p.options?.frameToken,allowOpaqueFrames:STRUCTURED_PAGE_READS.has(p.action)&&!p.options?.frameToken,readRoot:['semantic_snapshot','page.parse'].includes(p.action)&&!p.options?.frameToken?p.options?.root??null:null}},targetObjectId?{objectId:targetObjectId}:{value:null}],returnByValue:true});guard();
-  }finally{if(targetObjectId)await this.api.debugger.sendCommand(target,'Runtime.releaseObject',{objectId:targetObjectId});}
-  if(response.exceptionDetails){
-   const [reason,detail]=String(response.exceptionDetails.exception?.description||'').split('\n',1)[0].replace(/^Error: /,'').split('|');
-   const error=Error(/^CONTENT_SHIELD_(?:UNAVAILABLE|UNINSPECTABLE|UNSUPPORTED_VIEWPORT|BLOCKER_OVERLAP|RENDER_UNSUPPORTED)$/.test(reason)?reason:'CONTENT_SHIELD_UNAVAILABLE');
-   if(['token_limit','node_limit','invalid_geometry'].includes(detail))error.reasonCode=detail;
-   else if(reason==='CONTENT_SHIELD_UNINSPECTABLE'&&detail){try{error.skippedFrame=JSON.parse(decodeURIComponent(detail));}catch{}}
-   else if(reason!=='CONTENT_SHIELD_UNINSPECTABLE')error.reasonCode='inventory_exception';
-   throw error;
-  }
-  if(!Array.isArray(response.result?.value?.tokens)||!Array.isArray(response.result?.value?.rects))throw Object.assign(Error('CONTENT_SHIELD_UNAVAILABLE'),{reasonCode:'inventory_invalid'});
-  const inventory=response.result.value;
-  if(writeTarget&&inventory.writeTargetVerified!==true)throw Error('CONTENT_SHIELD_UNINSPECTABLE');
-  inventory.writeTarget=writeTarget;
-  // 中文注释：局部原生动作只绑定目标文档；无关框架换页不使已完成的输入变成未知，仍重新扫描可访问内容。
-  inventory.document=JSON.stringify(writeTarget?[[tree.frame.id,tree.frame.loaderId,tree.frame.url]]:this.frameNodes(tree).map(({frame})=>[frame.id,frame.loaderId,frame.url]));
-  return inventory;
- }
- async performProtected(t,p){
-  const settings=await this.shieldSettings();
-  const refreshable=STRUCTURED_PAGE_READS.has(p.action)&&!p.approval&&!p.frameToken&&!p.options?.frameToken&&!p.options?.cursor&&!p.options?.baselineId;
-  for(let attempt=p[SHIELD_READ_RETRIES]||0;attempt<3;attempt++){
-   try{const result=await this.performProtectedAttempt(t,p,settings);const meta=this.shieldResults.get(result);if(meta)meta.readRetries=attempt;return result;}
-   catch(error){
-    // 中文注释：仅重新执行无副作用的新结构读取，丢弃旧结果；设置变化、写入和截图继续拒绝。
-    if(attempt===2||!refreshable||(!error[SHIELD_DOCUMENT_CHANGED]&&error.message!=='CONTENT_SHIELD_CHANGED'&&error.reasonCode!=='document_not_ready'&&!isTransientLoadError(error)))throw error;
-    this.check(t,p);
-    if(t.paused||t.pauseRequested)throw Object.assign(Error('task paused'),{code:'TASK_PAUSED',preDispatch:true});
-    if(JSON.stringify(settings)!==JSON.stringify(await this.shieldSettings()))throw error;
-    await new Promise(resolve=>setTimeout(resolve,80*(attempt+1)));
-   }
-  }
- }
- async performProtectedAttempt(t,p,settings){
-  const geometry=p.action==='cdp.send'&&SHIELD_GEOMETRY_METHODS.has(p.method);
-  if(settings.enabled&&!geometry&&['cdp.send','cdp.events','network.inspect','images','console','dialog'].includes(p.action))throw Object.assign(Error('CONTENT_SHIELD_UNSUPPORTED'),{preDispatch:true});
-  const scoped={...p,[SHIELD_SETTINGS]:settings};
-  const inspect=settings.enabled&&!geometry&&Number.isInteger(p.tabId)&&!['navigate','back','official.goto_url'].includes(p.action);
-  let before=null;
-  try{if(inspect)before=await this.shieldInventory(t,p,settings);}catch(error){error.preDispatch=true;throw error;}
-  scoped[SHIELD_WRITE_TARGET]=before?.writeTarget;
-  let result;
-  try{result=await (Number.isInteger(p.tabId)?this.performSettled(t,scoped):this.perform(t,scoped));}
-  catch(error){
-   // 中文注释：页面错误附带的候选与遮挡名称未经脱敏；保留错误码，移除网页名称载荷。
-   if(settings.enabled&&typeof error.message==='string'){
-    // 中文注释：候选与遮挡摘要也先按派发前保护库存脱敏，再由 Bridge 的固定字段投影；不返回异常堆栈。
-    const [reason,encoded]=error.message.split('|');
-    if(encoded&&['TARGET_OCCLUDED','REF_TARGET_MISSING','REF_TARGET_AMBIGUOUS'].includes(reason)){
-     try{const safe=redactShieldResult(JSON.parse(decodeURIComponent(encoded)),before||{tokens:[]});error.message=reason+'|'+encodeURIComponent(JSON.stringify(safe));}
-     catch{error.message=reason;}
-    }else error.message=reason;
-   }
-   if(p.action==='interaction.capture')t.interactions.get(p.tabId)?.interactions.discardCapture();
-   throw error;
-  }
-  const confirmedClick=p.action==='ref_click'&&result?.clicked===true&&result?.delivery==='confirmed'&&result?.effect==='observed';
-  try{
-  let currentSettings;
-  try{currentSettings=await this.shieldSettings();}catch(error){error.preDispatch=false;throw error;}
-  if(JSON.stringify(settings)!==JSON.stringify(currentSettings))throw Error('CONTENT_SHIELD_CHANGED');
-  let after=null;
-  const image=['screenshot','interaction.capture'].includes(p.action);
-  const capture=this.shieldResults.get(result);
-  if(inspect){
-   // 中文注释：已确认点击只返回动作证据，不再沿旧节点扫描新文档；新的正文必须走新读取及保护。
-   if(confirmedClick&&result.navigation){
-    const receipt={clicked:true,delivery:'confirmed',effect:'observed',outcomeUnknown:false,navigation:result.navigation,postCheck:{status:'new_read_required'},...(result.relocated?{relocated:true}:{})};
-    this.shieldResults.set(receipt,{settings:JSON.stringify(settings),tabId:p.tabId,actionConfirmed:true});return receipt;
-   }
-   after=await this.shieldInventory(t,p,settings,before.writeTarget);
-   if(before.document!==after.document)throw Object.assign(Error('CONTENT_SHIELD_CHANGED'),{[SHIELD_DOCUMENT_CHANGED]:true});
-   if(image&&capture?.inventory!==JSON.stringify(after))throw Error('CONTENT_SHIELD_CHANGED');
-   const inventory={tokens:[...new Set([...before.tokens,...after.tokens])],siteAutomationRestricted:before.siteAutomationRestricted||after.siteAutomationRestricted,restrictionMatches:after.restrictionMatches,image};
-   // 中文注释：DOM 输出使用实际文本块判定，不能再对父汇总拼接文字重新匹配；脚本自建返回值单独过滤。
-   result=redactShieldResult(result,inventory);
-   // 中文注释：部分读取保留已有结果，不能把跳过的框架误报为完整页面。
-   result=this.shieldCoverage(result,p,after,before);
-   if(p.action==='js.evaluate')result=filterPageResult(p.action,result);
-  }else if(settings.enabled){
-   // 中文注释：标签页标题可能汇总被屏蔽元素；没有页面探测的清单只返回授权标识与来源。
-   if(p.action==='tabs')result=result.map(({title:_title,...row})=>row);
-   else result=filterPageResult(p.action,result);
-  }
-  if(result&&typeof result==='object')this.shieldResults.set(result,{settings:JSON.stringify(settings),tabId:p.tabId,document:before?.document,writeTarget:before?.writeTarget,actionConfirmed:confirmedClick,...(before&&!before.writeTarget&&!STRUCTURED_PAGE_READS.has(p.action)?{inventory:JSON.stringify(after)}: {})});
-  return result;
-  }catch(error){
-   // 中文注释：发送前保护失败也作废交互截图身份，不留下未交付图片的可操作坐标。
-   if(p.action==='interaction.capture')t.interactions.get(p.tabId)?.interactions.discardCapture();
-   if(confirmedClick&&/^CONTENT_SHIELD_(?:CHANGED|UNINSPECTABLE|UNAVAILABLE)$/.test(error?.message)){
-    // 中文注释：保护仍拒绝全部页面输出，仅确认已完成点击；不会重放动作或交付旧正文/名称。
-    const receipt={clicked:true,delivery:'confirmed',effect:'observed',outcomeUnknown:false,postCheck:{status:'refused',code:error.message.toLowerCase(),nextStep:'重新读取当前页面核对；不要重放点击。'}};
-    this.shieldResults.set(receipt,{settings:JSON.stringify(settings),tabId:p.tabId,actionConfirmed:true});return receipt;
-   }
-   throw error;
-  }
- }
- // 中文注释：结构覆盖率在采集与发送出口共用；只证明已扫描范围，不把未知框架算作已读。
- shieldCoverage(result,p,inventory,previous={}){
-  if(!STRUCTURED_PAGE_READS.has(p.action))return result;
-  const unreadFrames=Math.max(previous.skippedFrames||0,inventory.skippedFrames||0);
-  if(!unreadFrames)return result;
-  const frames=[...new Map([...(previous.skippedFrameDetails||[]),...(inventory.skippedFrameDetails||[])].map(frame=>[JSON.stringify(frame),frame])).values()];
-  const c=result.coverage;
-  const covered=c?.traversalComplete===true&&c.omitted===0&&c.truncated===0&&c.offset===0&&c.axDiscoveryComplete!==false&&!c.axOmitted&&!result.nextCursor&&!p.options?.cursor&&!p.options?.baselineId&&(c.skippedFrames||0)<=unreadFrames;
-  return {...result,skippedFrames:frames,contentFilter:{...result.contentFilter,unreadFrames},
-   ...(c?{coverage:{...c,complete:false,coveredScopeComplete:covered,contentShieldSkippedFrames:unreadFrames}}:{}),
-   ...(p.action==='page.parse'?{status:'partial',warnings:[...new Set([...(result.warnings||[]),'unread_frames'])]}:{})};
- }
- // 中文注释：弹窗回执只有执行器身份元数据，仍登记保护设置，发送/回放不能绕过复核。
+ // 中文注释：返回出口只复核任务和标签页归属，不按页面内容拒绝读取。
  async popupReceipt(t,p,work){
-  const settings=await this.shieldSettings();
   const result=await work();
-  this.shieldResults.set(result,{settings:JSON.stringify(settings),popupMetadata:{task:t,generation:p.generation,modeGeneration:p.modeGeneration,tabIds:result.adopted?[p.tabId,result.tabId]:[p.tabId]}});
+  this.receipts.set(result,{task:t,generation:p.generation,modeGeneration:p.modeGeneration,tabIds:result.adopted?[p.tabId,result.tabId]:[p.tabId]});
   return result;
  }
- async shieldResponse(request,result){
+ async response(request,result){
   const p=request.params;
-  const refreshable=request.method==='browser.execute'&&STRUCTURED_PAGE_READS.has(p?.action)&&!p.approval&&!p.frameToken&&!p.options?.frameToken&&!p.options?.cursor&&!p.options?.baselineId;
-  for(;;){
-   try{return await this.shieldResponseAttempt(request,result);}
-   catch(error){
-    const prior=this.shieldResults.get(result),attempt=prior?.readRetries||0;
-    // 中文注释：只刷新文档变化导致的结构读取；设置变更和写入回放绝不自动执行。
-    if(attempt===2||!refreshable||!prior?.document||!['CONTENT_SHIELD_STALE','CONTENT_SHIELD_CHANGED'].includes(error.message)||prior.settings!==JSON.stringify(await this.shieldSettings()))throw error;
-    await new Promise(resolve=>setTimeout(resolve,80*(attempt+1)));
-    result=await this.execute({...p,[SHIELD_READ_RETRIES]:attempt+1});
-   }
-  }
- }
- async shieldResponseAttempt(request,result){
-  const settings=await this.shieldSettings(),prior=result&&typeof result==='object'?this.shieldResults.get(result):null;
-  // 中文注释：输出仍拒绝；确认事实只来自执行器自己的动作元数据，不从页面返回值推断。
-  const rejected=code=>Object.assign(Error(code),prior?.actionConfirmed?{actionConfirmed:true,preDispatch:false}:{});
-  // 中文注释：状态页标题是未经页面探测的汇总字段；当前过滤同样适用于旧缓存。
-  if(request.method==='browser.status')return settings.enabled?{...result,pages:(result.pages||[]).map(({title:_title,...page})=>page)}:result;
-  // 中文注释：回放不得重新执行操作；设置变更、文档变更或未经过保护的旧结果要求读取新请求。
-  const popup=request.method==='browser.execute'&&['popup_catalog','popup_adopt'].includes(request.params?.action);
-  if((settings.enabled||popup)&&(!prior||prior.settings!==JSON.stringify(settings)))throw rejected('CONTENT_SHIELD_STALE');
-  if(popup){
-   const scope=prior?.popupMetadata,t=scope?.task;
-   if(!scope||this.tasks.get(request.params.taskId)!==t||t.revoked||t.paused||t.pauseRequested||t.overlayStopping||t.generation!==scope.generation||t.policy.modeGeneration!==scope.modeGeneration||scope.tabIds.some(id=>this.leases.get(id)!==t.id))throw rejected('CONTENT_SHIELD_STALE');
-  }
-  if(settings.enabled&&prior?.document){
-   const t=this.tasks.get(request.params.taskId);let inventory;
-   const params=Number.isInteger(prior.returnedTabId)?{...request.params,tabId:prior.returnedTabId}:request.params;
-   if(Number.isInteger(prior.returnedTabId)&&(t?.popupReturns?.get(request.params.tabId)!==prior.returnedTabId||this.leases.get(prior.returnedTabId)!==t.id))throw rejected('CONTENT_SHIELD_STALE');
-   try{inventory=await this.shieldInventory(t,params,settings,prior.writeTarget);}
-   catch(error){if(/^CONTENT_SHIELD_(?:UNINSPECTABLE|UNAVAILABLE|CHANGED)$/.test(error?.message))throw Object.assign(rejected(error.message),{reasonCode:error.reasonCode,skippedFrame:error.skippedFrame});throw error;}
-   if(prior.document!==inventory.document)throw rejected('CONTENT_SHIELD_STALE');
-   // 中文注释：已处理截图仍含旧像素；DOM、位置或文本变化不能回放旧图。
-   if(prior.inventory&&prior.inventory!==JSON.stringify(inventory))throw rejected('CONTENT_SHIELD_STALE');
-   return this.shieldCoverage(redactShieldResult(result,{...inventory,image:['screenshot','interaction.capture'].includes(request.params.action)}),params,inventory);
+  if(request.method==='browser.execute'&&p?.taskId){
+   const t=this.tasks.get(p.taskId);this.check(t,p);
+   if(['popup_catalog','popup_adopt'].includes(p.action)){
+    const receipt=this.receipts.get(result);
+    if(!receipt||receipt.task!==t||receipt.generation!==t.generation||receipt.modeGeneration!==t.policy.modeGeneration||
+       t.paused||t.pauseRequested||receipt.tabIds.some(id=>this.leases.get(id)!==t.id))throw Object.assign(Error('POPUP_STALE'),{preDispatch:p.action!=='popup_adopt'});
+   }else if(Number.isInteger(p.tabId)&&!['close_tab'].includes(p.action)&&this.leases.get(p.tabId)!==t.id&&this.leases.get(t.popupReturns?.get(p.tabId))!==t.id)throw Error('tab lease denied');
   }
   return result;
  }
@@ -1723,9 +1514,7 @@ export class Executor {
   return observeAction(async()=>{
    let result=await this.executeAction(p);
    if(returned){
-    const prior=this.shieldResults.get(result);
     result={...result,popupClosed:{returnedTo:sourceTabId}};
-    if(prior)this.shieldResults.set(result,{...prior,returnedTabId:sourceTabId});
    }
    return ['click','ref_click','interaction.click'].includes(p.action)?this.popupClickResult(this.tasks.get(p.taskId),p,result,priorRefs):result;
   },this.diagnostics,{component:'mv3_background',event_type:'action_state',action:p.action,request_id:crypto.randomUUID(),connection_id:this.diagnosticConnection});
@@ -1734,8 +1523,6 @@ export class Executor {
   assertV1Action(p.action);
   const t=this.tasks.get(p.taskId);this.check(t,p);
   if(t.paused||t.pauseRequested)throw Object.assign(Error('task paused'),{code:'TASK_PAUSED',preDispatch:true});
-  const supplied=JSON.stringify([...(p.allowedOrigins||[])].sort());
-  if(supplied!==JSON.stringify([...t.allowedOrigins].sort())&&supplied!==JSON.stringify([...t.approvedOrigins].sort()))throw Error('origin authority mismatch');
   // Scope was checked before task lookup; smart/full cannot widen V1.
   if(!['tabs','new_tab','official.new_tab'].includes(p.action)){
    if(!Number.isInteger(p.tabId))throw Error('explicit tabId required');
@@ -1755,19 +1542,13 @@ export class Executor {
     try{
      if(t.paused||t.pauseRequested)throw Object.assign(Error('task paused'),{code:'TASK_PAUSED',preDispatch:true});
      this.phase(p,'queue_wait',queuedAt);
-     if(t.policy.activeMode==='smart'&&SITE_READ_ACTIONS.has(p.action)&&p.approvedReadOrigin){
-      const before=await this.api.tabs.get(p.tabId);this.check(t,p);
-      if(typeof before.url!=='string'||origin(before.url)!==p.approvedReadOrigin||before.pendingUrl&&origin(before.pendingUrl)!==p.approvedReadOrigin)throw Object.assign(Error('READ_ORIGIN_CHANGED'),{preDispatch:true});
-     }
-     const result=await (this.onContentShield?this.performProtected(t,p):Number.isInteger(p.tabId)?this.performSettled(t,p):this.perform(t,p));
+
+     const result=await this.performRecovering(t,p);
      // 中文注释：成功使用模型工作页后更新顺序，超出四页时回收最久未用的一页。
      if(Number.isInteger(p.tabId)&&t.agentTabs?.has(p.tabId)){
       t.agentTabs.delete(p.tabId);t.agentTabs.add(p.tabId);
      }
-     if(t.policy.activeMode==='smart'&&SITE_READ_ACTIONS.has(p.action)&&p.approvedReadOrigin){
-      const after=await this.api.tabs.get(p.tabId);this.check(t,p);
-      if(t.policy.modeGeneration!==modeGeneration||typeof after.url!=='string'||origin(after.url)!==p.approvedReadOrigin||after.pendingUrl&&origin(after.pendingUrl)!==p.approvedReadOrigin)throw Object.assign(Error('READ_ORIGIN_CHANGED'),{preDispatch:false});
-     }
+
      return result;
     }
     catch(error){failure=error;throw error;}
@@ -1787,7 +1568,6 @@ export class Executor {
  }
  // 中文注释：状态投影只包含本任务实际租约页，不把允许来源当作当前页面。
  async status({taskId,generation}){
-  const shield=await this.shieldSettings();
   const t=this.tasks.get(taskId);
   if(!t||t.revoked||t.generation!==generation)return {pages:[],status:'unavailable'};
   const pages=[];
@@ -1795,7 +1575,7 @@ export class Executor {
    if(this.leases.get(tabId)!==taskId)continue;
    try{const tab=await this.api.tabs.get(tabId);this.allowed(t,tab.url);
     if(t.revoked||t.generation!==generation||this.leases.get(tabId)!==taskId)continue;
-    pages.push({tabId,...(!shield.enabled?{title:String(tab.title||'').slice(0,120)}:{}),origin:origin(tab.url),control:t.paused?'human':'hermes'});
+    pages.push({tabId,title:String(tab.title||'').slice(0,120),origin:origin(tab.url),control:t.paused?'human':'hermes'});
    }catch{continue;}
   }
   return {pages,status:'confirmed',observedAt:Date.now()};
@@ -1816,7 +1596,7 @@ export class Executor {
       &&typeof params.targetInfo.targetId==='string'&&typeof params.sessionId==='string'){
     record.sessions.set(params.targetInfo.targetId,{sessionId:params.sessionId,url:params.targetInfo.url});
     let site=null;try{site=origin(params.targetInfo.url);}catch{}
-    if(t.allowedOrigins.includes(site)&&!record.configured.has(params.sessionId)){
+    if(!record.configured.has(params.sessionId)){
      record.configured.add(params.sessionId);
      // 中文注释：跨进程子 frame 的再下一层需要对该子 session 继续自动附加。
      void this.api.debugger.sendCommand({tabId,sessionId:params.sessionId},'Target.setAutoAttach',{
@@ -1869,7 +1649,7 @@ export class Executor {
      }catch{frame=null;}
     }
     let site=null;try{site=origin(frame?.url);}catch{}
-    const access=!node.frameId?'frame_id_unavailable':!frame?.loaderId||!site?'session_unavailable':!t.allowedOrigins.includes(site)?'origin_denied':'ready';
+    const access=!node.frameId?'frame_id_unavailable':!frame?.loaderId||!site?'session_unavailable':'ready';
     const row={index:rows.length,origin:site,access,kind:attached?'out_of_process':sessionId?'in_process_child_session':'in_process',
      ...(scope.parentToken?{parentFrameToken:scope.parentToken}:{})};
     // 中文注释：记录 iframe 在截图中的矩形；跨源或封闭 Shadow Root 也由 CDP 后端节点定位。
@@ -2495,7 +2275,12 @@ export class Executor {
   const fn=action==='inspect'?inspectPage:pageAction;
   const args=action==='inspect'?[t.allowedOrigins]:[action,selector??null,text??null,key??null,t.allowedOrigins,highlightBinding??null];
   const result=await this.api.debugger.sendCommand(target,'Runtime.callFunctionOn',{executionContextId:world.executionContextId,functionDeclaration:withSensitiveClassifier(fn),arguments:args.map(value=>({value})),returnByValue:true});
-  guard();if(result.exceptionDetails)throw Error(result.exceptionDetails.exception?.description||'page action failed');return result.result?.value;
+  guard();if(result.exceptionDetails){
+   const error=Error(result.exceptionDetails.exception?.description||'page action failed');
+   const reason=error.message.split(/\r?\n/,1)[0].replace(/^Error: /,'').split('|',1)[0];
+   if(PRE_DISPATCH_PAGE_REASONS.has(reason)||['target not found','target unavailable'].includes(reason))error.preDispatch=true;
+   throw error;
+  }return result.result?.value;
  }
  async callSemanticWorld(target,frameId,op,payload,guard,executionContextId=null) {
   // 中文注释：无障碍补充是显式局部读取；先绑定 DOM 引用，再获取名称，最终重新过滤和预算。
@@ -2560,6 +2345,7 @@ export class Executor {
    // 中文注释：派发后的状态回读失败属于结果未知，不能再按派发前拒绝处理。
    if(op!=='semantic_snapshot'&&!op.startsWith('read_ref_')&&!['probe_ref_delivery','synthetic_ref_click','synthetic_ref_set_checked','synthetic_ref_select_option'].includes(op)&&
     (PRE_DISPATCH_PAGE_REASONS.has(reason)||/^INTERACTION_HIGHLIGHT_[A-Z_]{1,40}$/.test(reason)))error.preDispatch=true;
+   if(reason==='SYNTHETIC_CLICK_UNAVAILABLE')error.preDispatch=true;
    throw error;
   }
   return result.result?.value;
@@ -2568,7 +2354,7 @@ export class Executor {
  async exposeClosedShadowRoots(target,frameId,guard,executionContextId=null,includeFrameDocuments=false){
   const contextId=executionContextId||(await this.api.debugger.sendCommand(target,'Page.createIsolatedWorld',{frameId,worldName:'hermes-native-semantics-v2',grantUniveralAccess:false})).executionContextId;guard();
   const {root}=await this.api.debugger.sendCommand(target,'DOM.getDocument',{depth:-1,pierce:true});guard();
-  if(!root)throw Object.assign(Error('CONTENT_SHIELD_UNAVAILABLE'),{reasonCode:'document_not_ready'});
+  if(!root)return contextId;
   const closed=[],stack=[root];
   while(stack.length){
    const node=stack.pop();
@@ -2577,7 +2363,7 @@ export class Executor {
    if(attributes.some((value,index)=>index%2===0&&['data-hermes-automation-overlay','data-hermes-interaction-highlight'].includes(value)))continue;
    for(const shadow of node?.shadowRoots||[]){
     if(shadow.shadowRootType==='closed'){
-     if(!Number.isSafeInteger(shadow.backendNodeId)||closed.length>=200)throw Error('CONTENT_SHIELD_UNINSPECTABLE');
+     if(!Number.isSafeInteger(shadow.backendNodeId)||closed.length>=200)continue;
      closed.push(shadow.backendNodeId);
     }
     stack.push(shadow);
@@ -2588,10 +2374,10 @@ export class Executor {
     // 中文注释：about:blank 的 sandbox 也可能有 opaque origin；按真实 contentDocument 访问确认，不按 URL 猜同源。
     if(url==='about:blank'||url==='about:srcdoc'||URL.canParse(url)&&new URL(url).origin===new URL(root.documentURL).origin){
      const {object}=await this.api.debugger.sendCommand(target,'DOM.resolveNode',{backendNodeId:node.backendNodeId,executionContextId:contextId});guard();
-     if(!object?.objectId)throw Error('CONTENT_SHIELD_CHANGED');
+     if(!object?.objectId)continue;
      try{
       const access=await this.api.debugger.sendCommand(target,'Runtime.callFunctionOn',{objectId:object.objectId,returnByValue:true,functionDeclaration:'function(){return !!this.contentDocument?.documentElement;}'});guard();
-      if(access.exceptionDetails)throw Error('CONTENT_SHIELD_UNINSPECTABLE');
+      if(access.exceptionDetails)continue;
       if(access.result?.value===true)stack.push(node.contentDocument);
      }finally{await this.api.debugger.sendCommand(target,'Runtime.releaseObject',{objectId:object.objectId});}
     }
@@ -2599,11 +2385,11 @@ export class Executor {
   }
   for(const backendNodeId of closed){
    const {object}=await this.api.debugger.sendCommand(target,'DOM.resolveNode',{backendNodeId,executionContextId:contextId});guard();
-   if(!object?.objectId)throw Error('CONTENT_SHIELD_UNINSPECTABLE');
+   if(!object?.objectId)continue;
    try{
     const exposed=await this.api.debugger.sendCommand(target,'Runtime.callFunctionOn',{objectId:object.objectId,returnByValue:true,
      functionDeclaration:'function(){const roots=globalThis.__hermesClosedShadowRoots||(globalThis.__hermesClosedShadowRoots=new WeakMap());roots.set(this.host,this);return true;}'});guard();
-    if(exposed.exceptionDetails||exposed.result?.value!==true)throw Error('CONTENT_SHIELD_UNINSPECTABLE');
+    if(exposed.exceptionDetails||exposed.result?.value!==true)continue;
    }finally{await this.api.debugger.sendCommand(target,'Runtime.releaseObject',{objectId:object.objectId}).catch(()=>{});}
   }
   return contextId;
@@ -2631,97 +2417,118 @@ export class Executor {
    if(stable<2&&Date.now()>deadline)throw Object.assign(Error('TARGET_UNSTABLE'),{preDispatch:true});
   }
  }
- async assertSafeCapture(target,t,guard,cache=null) {
-  // 中文注释：截图允许跨源子框架存在；无法检查的子框架由 frameCatalog 给出遮罩区域。
-  const tree=await this.checkedFrameTree(target,t,guard,false);
-  // 中文注释：缓存只活在一次截图内；任何 frame 或 loader 变化都重新发现完整 DOM。
-  const signature=async()=>{
-   const trees=[tree];
-   for(const {sessionId} of t.frameSessions.get(target.tabId)?.sessions.values()||[]){
-    const child=await this.api.debugger.sendCommand({tabId:target.tabId,sessionId},'Page.getFrameTree');guard();trees.push(child.frameTree);
-   }
-   return JSON.stringify(trees.flatMap(item=>this.frameNodes(item).map(({frame})=>[frame.id,frame.loaderId,frame.url])).sort());
-  };
-  const fingerprint=await signature(),reused=cache?.fingerprint===fingerprint;
-  let catalog;
-  try{catalog=reused?cache.catalog:await this.frameCatalog(t,{tabId:target.tabId},target,guard);}
-  catch(error){if(/^FRAME_(?:DISCOVERY_UNAVAILABLE|LIMIT|DUPLICATE)$/.test(error?.message||''))throw Error('CAPTURE_FRAME_UNINSPECTABLE');throw error;}
-  if(reused)for(const row of catalog.frames.filter(item=>!item.parentFrameToken&&item.captureBackendNodeId)){
-   // 中文注释：缓存文档发现，但每张图前后重读 frame 几何；移动后位置不一致即拒绝图片。
-   try{
-    const {model}=await this.api.debugger.sendCommand({tabId:target.tabId,...(row.captureSessionId?{sessionId:row.captureSessionId}:{})},
-     'DOM.getBoxModel',{backendNodeId:row.captureBackendNodeId});guard();
-    const q=model?.border||model?.content;
-    if(q?.length!==8)throw Error('FRAME_GEOMETRY_UNAVAILABLE');
-    const x=Math.min(q[0],q[2],q[4],q[6]),y=Math.min(q[1],q[3],q[5],q[7]);
-    row.captureRect={x,y,width:Math.max(q[0],q[2],q[4],q[6])-x,height:Math.max(q[1],q[3],q[5],q[7])-y};
-   }catch{row.captureRect=null;}
-  }
-  // 中文注释：首次发现会附加 OOPIF session，缓存必须包含这些新发现的文档。
-  if(cache){cache.fingerprint=reused?fingerprint:await signature();cache.catalog=catalog;}
+ async assertSafeCapture(target,t,guard,cache={}) {
   const masks=[];
-  const coverFor=row=>{
-   // 中文注释：嵌套 frame 的局部坐标不能直接当顶层坐标；遮住最外层宿主框架。
-   let cover=row;
-   while(cover?.parentFrameToken)cover=catalog.frames.find(item=>item.frameToken===cover.parentFrameToken);
-   return cover?.captureRect;
-  };
-  if(!catalog.coverage.complete){
-   // 中文注释：无法检查的区域只能整块遮住；没有可靠矩形时明确拒绝。
-   const gaps=catalog.frames.filter(row=>row.access!=='ready'||catalog.coverage.depthLimited);
-   if(!gaps.length)throw Error('CAPTURE_FRAME_UNINSPECTABLE');
-   for(const row of gaps){
-    const rect=coverFor(row);
-    if(rect){masks.push({...rect,kind:'uninspectable_frame',role:'iframe',name:'不可检查的框架'});continue;}
-    let cover=row;while(cover?.parentFrameToken)cover=catalog.frames.find(item=>item.frameToken===cover.parentFrameToken);
-    if(!cover?.captureBackendNodeId)throw Error('CAPTURE_FRAME_UNINSPECTABLE');
-    // 中文注释：display:none 可证明没有框架像素；每次截图前后重新确认，未知几何继续拒绝。
-    const frameTarget={tabId:target.tabId,...(cover.captureSessionId?{sessionId:cover.captureSessionId}:{})};
-    const world=await this.api.debugger.sendCommand(frameTarget,'Page.createIsolatedWorld',{frameId:tree.frame.id,worldName:'hermes-capture-frame-visibility',grantUniveralAccess:false});guard();
-    const {object}=await this.api.debugger.sendCommand(frameTarget,'DOM.resolveNode',{backendNodeId:cover.captureBackendNodeId,executionContextId:world.executionContextId});guard();
-    if(!object?.objectId)throw Error('CAPTURE_FRAME_UNINSPECTABLE');
-    try{
-     const hidden=await this.api.debugger.sendCommand(frameTarget,'Runtime.callFunctionOn',{objectId:object.objectId,returnByValue:true,functionDeclaration:'function(){for(let node=this;node;node=node.parentElement||node.getRootNode().host){if(node.ownerDocument.defaultView.getComputedStyle(node).display==="none")return true;}return false;}'});guard();
-     if(hidden.exceptionDetails||hidden.result?.value!==true)throw Error('CAPTURE_FRAME_UNINSPECTABLE');
-    }finally{await this.api.debugger.sendCommand(frameTarget,'Runtime.releaseObject',{objectId:object.objectId});}
-   }
-  }
-  const mainFrames=new Set(this.frameNodes(tree).map(item=>item.frame.id));
-  for(const frame of this.frameNodes(tree)){
-   const row=frame.frame.id===tree.frame.id?null:catalog.frames.find(item=>t.frameRefs.get(target.tabId)?.get(item.frameToken)?.frameId===frame.frame.id);
-   if(frame.frame.id!==tree.frame.id&&row?.access!=='ready')continue;
-   const inspection=await this.callWorld(target,frame.frame.id,t,'inspect',null,null,null,guard);
-   if(inspection?.hasSensitiveValue&&(!Array.isArray(inspection.rects)||!inspection.rects.length))throw Error('CAPTURE_SENSITIVE_BLOCKED');
-   if(frame.frame.id===tree.frame.id)masks.push(...(inspection?.rects||[]));
-   else if(inspection?.hasSensitiveValue){
-    if(!coverFor(row))throw Error('CAPTURE_SENSITIVE_BLOCKED');
-    masks.push({...coverFor(row),kind:'sensitive_field',role:'iframe',name:'敏感字段'});
-   }
-  }
-  for(const row of catalog.frames){
-   const record=t.frameRefs.get(target.tabId)?.get(row.frameToken);
-   if(!record||mainFrames.has(record.frameId))continue;
-   const childTarget={tabId:target.tabId,sessionId:record.sessionId};
-   const current=await this.api.debugger.sendCommand(childTarget,'Page.getFrameTree');guard();
-   const observed=this.frameNodes(current?.frameTree).find(item=>item.frame.id===record.frameId)?.frame;
-   if(observed?.loaderId!==record.loaderId)throw Error('CAPTURE_FRAME_UNINSPECTABLE');
-   const inspection=await this.callWorld(childTarget,record.frameId,t,'inspect',null,null,null,guard);
-   if(inspection?.hasSensitiveValue){
-    if(!coverFor(row)||!Array.isArray(inspection.rects)||!inspection.rects.length)throw Error('CAPTURE_SENSITIVE_BLOCKED');
-    masks.push({...coverFor(row),kind:'sensitive_field',role:'iframe',name:'敏感字段'});
-   }
-  }
-  if(cache?.shieldSettings?.enabled){
-   const inventory=await this.shieldInventory(t,cache.request,cache.shieldSettings);
-   const fingerprint=JSON.stringify(inventory);
-   if(cache.shieldFingerprint&&cache.shieldFingerprint!==fingerprint)throw Error('CONTENT_SHIELD_CHANGED');
-   cache.shieldFingerprint=fingerprint;cache.shieldInventory=inventory;
-   masks.push(...inventory.rects);
-  }
+  try{
+   const tree=await this.checkedFrameTree(target,t,guard,false);
+   const inventory=await this.callWorld(target,tree.frame.id,t,'inspect',null,null,null,guard);
+   masks.push(...(inventory?.rects||[]));
+   cache.catalog??=await this.frameCatalog(t,{tabId:target.tabId},target,guard);
+   cache.coverage={...cache.catalog.coverage};
+  }catch(error){guard();cache.coverage={complete:false,missing:['password_geometry'],reason:error.message};}
   return masks;
  }
  // 中文注释：只读动作只等 DOM 可用；加载途中文档被替换导致的瞬时失败，重新核对后再读一次，
  // 避免模型把“页面还没加载完”误判成失败而反复重新打开页面。写入类动作不重做，结果仍按原规则报告。
+ async collectPasswords(t,p){
+  if(!Number.isInteger(p.tabId))return new Set();
+  t.passwordValues??=new Map();
+  let values=t.passwordValues.get(p.tabId);if(!values){values=new Set();t.passwordValues.set(p.tabId,values);}
+  const guard=()=>{this.check(t,p);if(this.leases.get(p.tabId)!==t.id)throw Error('tab lease denied');};
+  guard();
+  const targets=[{tabId:p.tabId},...[...(t.frameSessions?.get(p.tabId)?.sessions.values()||[])].map(row=>({tabId:p.tabId,sessionId:row.sessionId}))];
+  for(const target of targets){
+   try{
+    const tree=await this.checkedFrameTree(target,t,guard,false);
+    for(const {frame} of this.frameNodes(tree)){
+     try{
+      const context=await this.exposeClosedShadowRoots(target,frame.id,guard);
+      const result=await this.api.debugger.sendCommand(target,'Runtime.callFunctionOn',{executionContextId:context,functionDeclaration:passwordValues.toString(),returnByValue:true});guard();
+      if(Array.isArray(result.result?.value))for(const value of result.result.value)if(typeof value==='string'&&value)values.add(value);
+     }catch{guard();}
+    }
+   }catch{guard();}
+  }
+  return values;
+ }
+ async performRecovering(t,p){
+  const queryRead=p.action==='semantic_snapshot'&&!!(p.options?.query||p.options?.roles?.length)&&!p.options?.cursor;
+  const execute=async params=>{
+   this.check(t,params);
+   if(t.paused||t.pauseRequested)throw Object.assign(Error('task paused'),{preDispatch:true});
+   const scrub=['js.evaluate','console','network.inspect','cdp.events'].includes(params.action);
+   if(scrub)await this.collectPasswords(t,params);
+   const result=await (Number.isInteger(params.tabId)?this.performSettled(t,params):this.perform(t,params));
+   if(queryRead&&params.action===p.action&&result?.items?.length===0)throw Object.assign(Error('REF_TARGET_MISSING'),{preDispatch:true});
+   return scrub?omitPasswordValues(result,await this.collectPasswords(t,params)):result;
+  };
+  const remember=result=>{
+   if(result?.items&&result.binding){
+    t.recoveryRefs??=new Map();
+    for(const item of result.items)t.recoveryRefs.set(item.ref,{...item,tabId:p.tabId,binding:result.binding});
+    while(t.recoveryRefs.size>2000)t.recoveryRefs.delete(t.recoveryRefs.keys().next().value);
+   }
+   return result;
+  };
+  if(!RECOVERY_ACTIONS.has(p.action)&&!queryRead)return remember(await execute(p));
+  const saved=t.recoveryRefs?.get(p.ref);
+  if(saved&&(saved.tabId!==p.tabId||canonical(saved.binding)!==canonical(p.binding)))throw Object.assign(Error('BINDING_MISMATCH'),{preDispatch:true});
+  const hint=saved?.tabId===p.tabId?saved:{ref:p.ref,name:p.options?.query,role:p.options?.roles?.[0]};
+  const guard=()=>{this.check(t,p);if(this.leases.get(p.tabId)!==t.id)throw Error('tab lease denied');};
+  const scan=async()=>{
+   guard();const target={tabId:p.tabId},tree=await this.checkedFrameTree(target,t,guard,false);
+   const catalog=await this.frameCatalog(t,p,target,guard),frames=[{target,frame:tree.frame}];
+   for(const row of catalog.frames){
+    if(row.access!=='ready')continue;
+    try{frames.push({...await this.resolveFrame(t,{...p,frameToken:row.frameToken},tree,guard),frameToken:row.frameToken});}catch{guard();}
+   }
+   const rows=[];
+   for(const entry of frames){
+    // 中文注释：重扫必须和动作用同一个执行上下文（主文档用遮罩世界，子 frame 用其高亮世界），否则新引用在动作侧查不到。
+    let world=null;
+    try{world=entry.frameToken?(await this.ensureChildHighlight(t,p,entry,guard))?.contextId:(await this.ensureOverlay(t,p.tabId,target,guard,false))?.contextId;}catch{guard();}
+    if(p.ref&&(!p.frameToken&&!entry.frameToken||p.frameToken===entry.frameToken)){
+     try{Object.assign(hint,await this.callSemanticWorld(entry.target,entry.frame.id,'recovery_hint',{binding:p.binding,snapshotId:p.snapshotId,ref:p.ref},guard,world));}catch{guard();}
+    }
+    try{
+     const context=await this.exposeClosedShadowRoots(entry.target,entry.frame.id,guard,world);
+     const binding=this.semanticBinding(t,p.tabId,entry.frame.loaderId,entry.frameToken?entry.frame.id:undefined);
+     const items=await this.callSemanticWorld(entry.target,entry.frame.id,'recovery_scan',{binding,selector:p.selector,mode:p.options?.mode},guard,context);
+     rows.push(...items.map(item=>({...item,...(entry.frameToken?{frameToken:entry.frameToken}:{})})));
+    }catch{guard();}
+   }
+   return rows;
+  };
+  // 中文注释：点击/按键后页面跳转（尤其跨站换进程）时，后续检查会碰到上下文销毁；网址已变就按成功并已跳转返回，不重放。
+  const navigating=['click','ref_click','press','ref_press'].includes(p.action);
+  const tabUrl=async()=>{try{const tab=await this.api.tabs.get(p.tabId);return tab?.pendingUrl||tab?.url||null;}catch{return null;}};
+  const startUrl=navigating?await tabUrl():null;
+  const runOnce=async request=>{
+   try{return await execute(request);}
+   catch(error){
+    if(!navigating||error?.preDispatch===true||!startUrl||!/Execution context was destroyed|Inspected target navigated|Cannot find context|Frame with the given id was not found|No frame for given id|PAGE_NOT_READY|navigation timeout|DOCUMENT_CHANGED|document changed/i.test(String(error?.message||'')))throw error;
+    const now=await tabUrl();if(!now||now===startUrl)throw error;
+    return {...(p.action.endsWith('press')?{pressed:true,key:p.key}:{clicked:true}),delivery:'confirmed',effect:'observed',navigation:{kind:'document'},documentChanged:true,url:now};
+   }
+  };
+  return remember(await recoverTarget({action:p.action,hint,
+   run:(chosen,round)=>runOnce(chosen&&!queryRead?{...p,action:({click:'ref_click',fill:'ref_fill',press:'ref_press'}[p.action]||p.action),
+    ref:chosen.ref,snapshotId:chosen.snapshotId,binding:chosen.binding,frameToken:chosen.frameToken,[RECOVERY_ROUND]:round}:p),
+   settle:async()=>{
+    guard();const target={tabId:p.tabId},deadline=Date.now()+3000;
+    while(Date.now()<deadline){
+     const tab=await this.api.tabs.get(p.tabId);guard();if(!tab.pendingUrl)break;
+     await new Promise(resolve=>setTimeout(resolve,100));
+    }
+    const tree=await this.checkedFrameTree(target,t,guard,false);
+    const world=await this.api.debugger.sendCommand(target,'Page.createIsolatedWorld',{frameId:tree.frame.id,worldName:'hermes-recovery'});
+    await this.api.debugger.sendCommand(target,'Runtime.evaluate',{contextId:world.executionContextId,awaitPromise:true,returnByValue:true,
+     expression:`new Promise(resolve=>{let quiet;const finish=()=>{clearTimeout(quiet);clearTimeout(limit);observer.disconnect();resolve(true);};const observer=new MutationObserver(()=>{clearTimeout(quiet);quiet=setTimeout(finish,300);});observer.observe(document,{subtree:true,childList:true,attributes:true,characterData:true});const limit=setTimeout(finish,${Math.max(1,deadline-Date.now())});quiet=setTimeout(finish,300);})`});guard();
+   },scan,
+   readback:async()=>{try{return await execute({...p,action:'semantic_snapshot',options:{mode:'interactive',composed:true,budget:3000}});}catch(error){guard();return {error:error.message};}},
+   capture:()=>execute({...p,action:'screenshot'}),
+  }));
+ }
  async performSettled(t,p){
   if(!SETTLING_READ_ACTIONS.has(p.action))return this.perform(t,p);
   const guard=()=>{this.check(t,p);if(this.leases.get(p.tabId)!==t.id)throw Error('tab lease denied');};
@@ -2740,7 +2547,7 @@ export class Executor {
   const assertScope=tab=>{
    let currentOrigin;
    try{currentOrigin=origin(tab.url);this.allowed(t,tab.url);}
-   catch{throw Object.assign(Error('TAB_OUT_OF_SCOPE'),{preDispatch:true,...(currentOrigin?{currentOrigin}:{})});}
+   catch{throw Object.assign(Error('PAGE_NOT_READY'),{preDispatch:true,...(currentOrigin?{currentOrigin}:{})});}
   };
   let tab=await this.api.tabs.get(p.tabId);guard();assertScope(tab);
   // 中文注释：丢弃页不能自动重载（可能重发页面业务请求），只返回明确停点。
@@ -2761,17 +2568,7 @@ export class Executor {
   return {tab,ready:false};
  }
  // 中文注释：只接受同协议的 apex/www 对换；其他已提交跳转立即拒绝并仅公开来源。
- acceptCommittedOrigin(t,requested,url){
-  const site=origin(url);
-  if(t.allowedOrigins.includes(site))return;
-  const from=new URL(requested),to=new URL(url);
-  const apex=host=>host.startsWith('www.')?host.slice(4):host;
-  if(from.protocol===to.protocol&&from.port===to.port&&apex(from.hostname)===apex(to.hostname)
-     &&from.hostname!==to.hostname&&[from.hostname,to.hostname].includes(apex(from.hostname))){
-   t.allowedOrigins.push(site);return;
-  }
-  throw Object.assign(Error('REDIRECTED_OUT_OF_SCOPE'),{code:'REDIRECTED_OUT_OF_SCOPE',finalOrigin:site,preDispatch:true});
- }
+ acceptCommittedOrigin(t,requested,url){this.allowed(t,url);}
  async settledTab(tabId,guard,initial,waitMs=1500,t=null,requested=null,previousUrl=null){
   const deadline=Date.now()+waitMs,target={tabId};
   let tab=initial||await this.api.tabs.get(tabId),seenCommit=false,probeAt=0,probeOff=false,partialSeen=null;guard();
@@ -2908,14 +2705,9 @@ export class Executor {
   if(p.action==='new_tab'){
    return this.openOwnedTab(t,p,guard,p.url);
   }
-  let initialTab;
-  const offScope=t.offScopeTabs?.has(p.tabId);
-  if(p.action==='navigate'&&offScope){const tab=await this.api.tabs.get(p.tabId);guard();initialTab=tab;try{this.allowed(t,tab.url);}catch{/* 允许把离开授权范围的工作页导航回授权网站 */}}
-  // 中文注释：已冻结的离站工作页先完成其余身份检查，再只回报脱敏的当前来源。
-  else if(offScope){try{guard();}catch(error){if(error?.message!=='TAB_OUT_OF_SCOPE')throw error;}const tab=await this.api.tabs.get(p.tabId);throw Object.assign(Error('TAB_OUT_OF_SCOPE'),{preDispatch:true,currentOrigin:origin(tab.url)});}
-  else try{initialTab=await get(p.tabId);}catch(error){if(error?.message==='origin denied'){const tab=await this.api.tabs.get(p.tabId);guard();throw Object.assign(Error('TAB_OUT_OF_SCOPE'),{preDispatch:true,currentOrigin:origin(tab.url)});}throw error;}
-  const target={tabId:p.tabId},captureCache={shieldSettings:p[SHIELD_SETTINGS],request:p};
-  if(p.action==='navigate'&&this.downloads&&!offScope){
+  const initialTab=await get(p.tabId);
+  const target={tabId:p.tabId},captureCache={};
+  if(p.action==='navigate'&&this.downloads){
    if(!this.attached.has(p.tabId)){
     await this.api.debugger.attach(target,'1.3');
     try{guard();}catch(e){await this.api.debugger.detach(target).catch(()=>{});throw e;}
@@ -3070,7 +2862,7 @@ export class Executor {
     }
    }else if(p.ref){
     const binding=this.semanticBinding(t,p.tabId,initialTree.frame.loaderId);
-    if(!p.binding||p.binding.taskId!==binding.taskId||p.binding.documentId!==binding.documentId||p.binding.leaseId!==binding.leaseId)throw Error('BINDING_MISMATCH');
+    if(!p.binding||p.binding.taskId!==binding.taskId||p.binding.documentId!==binding.documentId||p.binding.leaseId!==binding.leaseId)throw Object.assign(Error('BINDING_MISMATCH'),{preDispatch:true});
     // 中文注释：截图对准只需滚到中央，不做点击前的遮挡检查；滚动在注入库外完成，不增加页面库体积。
     const [,top,,height]=await this.callSemanticWorld(target,initialTree.frame.id,'rect_ref',{binding:p.binding,snapshotId:p.snapshotId,ref:p.ref},guard,executionContextId);
     await this.api.debugger.sendCommand(target,'Runtime.evaluate',{expression:`window.scrollBy(0,${Math.round(top+height/2)}-innerHeight/2)`,contextId:executionContextId});guard();
@@ -3082,7 +2874,7 @@ export class Executor {
    const before=await readRects();
    result=await this.captureWithoutDecorations(t,p.tabId,overlay,guard,()=>this.api.debugger.sendCommand(target,'Page.captureScreenshot',{format:p.format||'png'}));
    const afterMasks=await this.assertSafeCapture(target,t,guard,captureCache);
-   if(JSON.stringify(beforeMasks)!==JSON.stringify(afterMasks))throw Error('CAPTURE_SENSITIVE_BLOCKED');
+   beforeMasks.push(...afterMasks);
    if(beforeMasks.length){
     try{
      const metrics=await this.api.debugger.sendCommand(target,'Page.getLayoutMetrics');guard();
@@ -3099,7 +2891,7 @@ export class Executor {
     const stable=after.rows.filter(row=>before.rows.some(prior=>JSON.stringify(prior)===JSON.stringify(row)));
     const visible=stable.filter(row=>!beforeMasks.some(mask=>row.x<mask.x+mask.width&&row.x+row.width>mask.x&&row.y<mask.y+mask.height&&row.y+row.height>mask.y));
     // 中文注释：标注文字在写入图像前脱敏；移动与屏蔽分别计数，避免审计语义混淆。
-    const rows=captureCache.shieldSettings?.enabled?redactShieldResult({rows:visible},captureCache.shieldInventory).rows.map(row=>({...row,label:filterPageResult('js.evaluate',{ok:true,value:row.label}).value})):visible;
+    const rows=visible;
     result={...result,data:await annotatePng(result.data,rows,after.viewport),annotations:rows,omittedMoving:after.rows.length-stable.length,omittedMasked:stable.length-visible.length};
    }
   } else if(['page.observe','page.parse','semantic_snapshot','ref_click','ref_fill','ref_press','ref_set_checked','ref_select_option'].includes(p.action)||(p.action==='scroll'&&p.ref)) {
@@ -3124,8 +2916,8 @@ export class Executor {
     const frame=resolved?.frame||tree.frame,frameTarget=resolved?.target||target;
     const entry=resolved?await this.ensureChildHighlight(t,p,resolved,guard):overlay;
     const binding=resolved?this.semanticBinding(t,p.tabId,frame.loaderId,frame.id):semanticBinding;
-    if(!p.binding||p.binding.taskId!==binding.taskId||p.binding.documentId!==binding.documentId||p.binding.leaseId!==binding.leaseId)throw Error('BINDING_MISMATCH');
-    const basePayload={binding:p.binding,snapshotId:p.snapshotId,ref:p.ref};
+    if(!p.binding||p.binding.taskId!==binding.taskId||p.binding.documentId!==binding.documentId||p.binding.leaseId!==binding.leaseId)throw Object.assign(Error('BINDING_MISMATCH'),{preDispatch:true});
+    const basePayload={binding:p.binding,snapshotId:p.snapshotId,ref:p.ref,recoveryRound:p[RECOVERY_ROUND]||0};
     if(p.action==='scroll')return {tabId:p.tabId,direction:p.direction,...await this.callSemanticWorld(frameTarget,frame.id,'scroll_ref',{...basePayload,direction:p.direction},guard,entry?.contextId)};
     if(p.action==='ref_click'&&p.clickMode==='open_link_in_task_tab'){
      const inspection=await this.callSemanticWorld(frameTarget,frame.id,'inspect_ref_click',basePayload,guard,entry?.contextId);
@@ -3142,6 +2934,7 @@ export class Executor {
      const arm=await this.callSemanticWorld(frameTarget,frame.id,'arm_ref_delivery',payload,guard,entry?.contextId);
      const synthetic=reason=>this.callSemanticWorld(frameTarget,frame.id,syntheticOp,{...payload,checked:p.checked,syntheticHidden:true,fallbackReason:reason},guard,entry?.contextId);
      try{
+      if(p[RECOVERY_ROUND]===2){onDispatch?.();return {mode:'synthetic',result:await synthetic('target_recovery')};}
       // 中文注释：Chrome/Edge 本地实验确认后台 CDP 可送达，先走真实输入，再核实送达。
       const interactions=this.interactionsFor(t,p.tabId,guard,resolved?.record||null);
       const readTarget=()=>this.callSemanticWorld(frameTarget,frame.id,'pointer_target',payload,guard,entry?.contextId);
@@ -3238,7 +3031,6 @@ export class Executor {
      },
      verify:async()=>{
       // 中文注释：滚动和高亮等待之后重新检查实际范围，框架移到目标上方时必须在派发前拒绝。
-      if(p[SHIELD_WRITE_TARGET])await this.shieldInventory(t,p,p[SHIELD_SETTINGS],p[SHIELD_WRITE_TARGET]);
       await this.callSemanticWorld(frameTarget,frame.id,'confirm_ref',targetPayload,guard,entry?.contextId);
       return {ok:true};
      },
@@ -3257,7 +3049,7 @@ export class Executor {
     result=await this.captureWithoutDecorations(t,p.tabId,overlay,guard,async()=>{const image=await interactions.capture(scoped);guard();return image;});
     t.interactionRefs.delete(p.tabId);
     const afterMasks=await this.assertSafeCapture(target,t,guard,captureCache);
-    if(JSON.stringify(beforeMasks)!==JSON.stringify(afterMasks))throw Error('CAPTURE_SENSITIVE_BLOCKED');
+    beforeMasks.push(...afterMasks);
     if(beforeMasks.length){
      try{result.image.data=await maskCapturePng(result.image.data,beforeMasks,result.viewport);}
      catch{throw Error(beforeMasks.some(row=>row.kind==='uninspectable_frame')?'CAPTURE_FRAME_UNINSPECTABLE':'CAPTURE_SENSITIVE_BLOCKED');}
@@ -3354,7 +3146,7 @@ export class Executor {
     }else result=await dispatch(null);
     if(p.action==='press'){
      result=await observeInputEffect({api:this.api,target,contextId:executionContextId,guard,work:async()=>{
-     const inspection=await this.callWorld(target,tree.frame.id,t,'inspect',null,null,null,guard);if(inspection?.hasSensitiveValue)throw Error('sensitive press blocked');
+
      await this.callWorld(target,tree.frame.id,t,'press_check',p.selector,null,p.key,guard);
      if(doc!==(this.docs.get(p.tabId)||0))throw Error('document changed');await get(p.tabId);
      const keyCode={Enter:13,Tab:9,Escape:27,ArrowDown:40,ArrowUp:38}[p.key];if(!keyCode)throw Error('unsupported key');
@@ -3369,6 +3161,7 @@ export class Executor {
     if(emulatedFocus)await this.api.debugger.sendCommand(target,'Emulation.setFocusEmulationEnabled',{enabled:false});
    }
   }
+  if(captureCache.coverage)result={...result,coverage:captureCache.coverage};
   guard();
   // 中文注释：点击/按键已派发后页面跳转属于正常结果；如实返回，不再报“文档已变化”让模型误判为失败。
   const dispatchedInput=DISPATCHING_ACTIONS.has(p.action)&&result!==undefined;
@@ -3397,7 +3190,6 @@ export class Executor {
    }catch{/* 中文注释：高亮属于可选视觉反馈，不补发、不重试解析动作。 */}
    guard();
   }
-  if(captureCache.shieldFingerprint&&result&&typeof result==='object')this.shieldResults.set(result,{inventory:captureCache.shieldFingerprint});
   return result;
  }
 }

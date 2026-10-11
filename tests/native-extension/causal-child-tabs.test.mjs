@@ -175,7 +175,7 @@ test('normal click dispatches the requested page action without substituting nav
  await assert.rejects(e.execute({...action('a','#button'),clickMode:undefined}),error=>error.message==='INTERACTION_HIGHLIGHT_TARGET_CHANGED'&&error.preDispatch===true);
  assert.deepEqual(ops,['confirm_click','click','confirm_click']);
  refuse=false;observe=false;
- await assert.rejects(e.execute({...action('a','#button'),clickMode:undefined}),error=>error.code==='CLICK_NO_EFFECT'&&error.outcomeUnknown===true);
+ {const r=await e.execute({...action('a','#button'),clickMode:undefined});assert.equal(r.effect,'unobserved');}
  assert.deepEqual(ops,['confirm_click','click','confirm_click','confirm_click','click']);
  assert.deepEqual(f.creates,[]);
 });

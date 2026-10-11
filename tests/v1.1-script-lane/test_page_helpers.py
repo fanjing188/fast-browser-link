@@ -58,7 +58,7 @@ class PageHelpersTests(unittest.TestCase):
 
     def test_click_resolves_fresh_ref_and_dispatches_once(self):
         with patch.object(child, '_call', side_effect=[snapshot([button()]), {'clicked': True}]) as call:
-            self.assertEqual(child.click_element('继续', role='button'), {'clicked': True})
+            self.assertTrue(child.click_element('继续', role='button')['clicked'])
             self.assertEqual(call.call_count, 2)
             self.assertEqual(call.call_args.args, ('run', ['ref_click', {
                 'binding': {'taskId': 'owned'}, 'snapshotId': 'fresh', 'ref': 'one'}]))
@@ -69,12 +69,12 @@ class PageHelpersTests(unittest.TestCase):
             self.assertTrue(child.click_element('继续')['clicked'])
             self.assertEqual(call.call_count, 2)
 
-    def test_incomplete_scope_never_implies_uniqueness(self):
-        with patch.object(child, '_call', return_value=snapshot([button()], False)) as call:
-            with self.assertRaises(child.BrowserError) as caught:
-                child.click_element('继续')
-            self.assertEqual(caught.exception.code, 'incomplete_target_scope')
-            self.assertEqual(call.call_count, 1)
+    def test_incomplete_scope_allows_available_target(self):
+        with patch.object(child, '_call', side_effect=[snapshot([button()], False), {'clicked': True}]) as call:
+            result = child.click_element('继续')
+            self.assertTrue(result['clicked'])
+            self.assertEqual(result['recovery']['otherCandidates'], 0)
+            self.assertEqual(call.call_count, 2)
 
     def test_r10_unique_main_document_account_with_opaque_frame_dispatches_once(self):
         page = snapshot([button(name='synthetic-target@example.test')], False)
@@ -90,12 +90,11 @@ class PageHelpersTests(unittest.TestCase):
             page = snapshot(items, False)
             page['coverage'].update(coveredScopeComplete=covered, contentShieldSkippedFrames=1)
             page['skippedFrames'] = [{'origin': 'https://frame.test', 'width': 2, 'height': 2}]
-            with self.subTest(covered=covered, items=items), patch.object(child, '_call', return_value=page) as call:
-                with self.assertRaises(child.BrowserError) as caught:
-                    child.click_element('继续')
-                self.assertEqual(caught.exception.code, 'incomplete_target_scope')
-                self.assertIn('https://frame.test (2x2)', str(caught.exception))
-                self.assertEqual(call.call_count, 1)
+            with self.subTest(covered=covered, items=items), patch.object(child, '_call', side_effect=[page, {'clicked': True}]) as call:
+                result = child.click_element('继续')
+                self.assertTrue(result['clicked'])
+                self.assertEqual(result['recovery']['otherCandidates'], len(items) - 1)
+                self.assertEqual(call.call_count, 2)
 
     def test_dynamic_element_waits_only_on_reads(self):
         with patch.object(child, '_call', side_effect=[snapshot([]), snapshot([button(disabled=True)]),

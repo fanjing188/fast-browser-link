@@ -1,6 +1,6 @@
 # Hermes Browser Link
 
-**1.10.3 — macOS 正式稳定版。** 支持受授权网页任务、自动文本与截图屏蔽、持续任务鼠标、桌面 Cookie 镜像、独立云端浏览器调用和正式版自动更新。
+**1.11.0 — 本地候选，尚未发布。** 支持受授权网页任务、页面原样读取与定位自动恢复、持续任务鼠标、桌面 Cookie 镜像、独立云端浏览器调用和正式版自动更新。
 
 ![Hermes Browser Link](docs/assets/readme-banner.png)
 
@@ -19,13 +19,13 @@
 | OAuth 登录窗口 | 发现已有登录弹窗后明确确认并接管；操作权不包含自动删除权。 |
 | 页面读取与操作 | 提取正文、表格、表单和记录；支持语义引用、点击、输入、选择、滚动及文件上传下载。 |
 | Python 工作流 | 多步脚本和经过验证的可复用网站工具，沿用同一任务授权链路。 |
-| 自动内容屏蔽 | 开关开启后，内置中英文正则自动识别公告和网页指令，屏蔽 Agent 文本及对应截图区域，无需填写网站或选择器。 |
+| 定位自动恢复 | 元素定位失败后等待、重扫并最多恢复三轮；已派发且结果未知的写入先回读核实。 |
 | 持续任务鼠标 | 固定启用，任务执行与等待下一步时持续显示，目标间平滑移动，支持接管和系统减少动态效果。 |
 | 桌面 Cookie 镜像 | 在 Hermes 插件页选择站点和目标浏览器，每次复制都需在源扩展确认。 |
 | 云端调用 | 本机弹窗生成连接码，与自己的 Sites 插件配对；独立权限、多个对话任务、多页面并发及清理确认。见 [云端连接](docs/cloud-connection.md)。 |
 | 安装与更新 | 一份共享程序、各 profile 引用，配置和数据独立；完整性校验、升级备份与失败回滚、每小时检查正式版及空闲安装。 |
 
-内容屏蔽只处理 Browser Link 发给 Agent 的输出，用户看到的网页保持原样；真实验证和错误信号保留。未支持的原始通道或不可检查页面结构会拒绝输出。详见 [屏蔽边界](docs/content-shield.md)、[完整功能](docs/features.md) 和 [模块索引](docs/product-modules.zh-CN.md)。
+页面内容不按文字或区域过滤，密码输入值不回显；覆盖率说明未读范围。详见[页面读取与定位恢复](docs/content-shield.md)。
 
 ## 前置条件
 
@@ -38,10 +38,10 @@
 
 ## 快速安装（3 步）
 
-1. 先确认 Hermes 和 Python 已安装（`hermes --version`、`python3 --version`），下载 [Release 附件](https://github.com/fanjing188/hermes-browser-link/releases) `hermes-browser-link-1.10.3.zip`，不要选 GitHub 的 **Source code (zip)**。无需 Node.js 或 npm；“程序安装并启用完成”只代表本机程序装好，不代表浏览器已连接：
+1. 先确认 Hermes 和 Python 已安装（`hermes --version`、`python3 --version`），下载 [Release 附件](https://github.com/fanjing188/hermes-browser-link/releases) `hermes-browser-link-1.11.0.zip`，不要选 GitHub 的 **Source code (zip)**。无需 Node.js 或 npm；“程序安装并启用完成”只代表本机程序装好，不代表浏览器已连接：
 
    ```sh
-   curl -fL https://github.com/fanjing188/hermes-browser-link/releases/download/v1.10.3/hermes-browser-link-1.10.3.zip -o hermes-browser-link-1.10.3.zip && unzip hermes-browser-link-1.10.3.zip && cd hermes-browser-link-1.10.3 && ./install.sh
+   curl -fL https://github.com/fanjing188/hermes-browser-link/releases/download/v1.11.0/hermes-browser-link-1.11.0.zip -o hermes-browser-link-1.11.0.zip && unzip hermes-browser-link-1.11.0.zip && cd hermes-browser-link-1.11.0 && ./install.sh
    ```
 
 2. 终端等待时，在浏览器打开 `chrome://extensions` 或 `edge://extensions` → 开发者模式 → 加载已解压的扩展程序 → 粘贴脚本打印的“扩展目录”绝对路径，不是 ZIP 解压目录。可用时脚本会复制路径到剪贴板；最多等待 3 分钟，显示“扩展已连接”才代表连接确认。Ctrl+C 只跳过等待；超时不会撤销安装，也不需要重装，加载扩展后运行打印的“检查 / Check”命令即可。
@@ -51,7 +51,7 @@
 
 升级：在新包目录运行 `./install.sh --upgrade`（自动备份，失败回滚），再重载扩展和重启桌面端。卸载：`./install.sh --uninstall`（默认保留任务私有数据；加 `--purge` 才删除）。
 
-1.10.3 为正式稳定版，可进入自动更新通道。旧安装先手动升级一次；旧云入口按提示使用 `--upgrade --maintenance`，退出 Chrome、Edge 和 Hermes 后执行。安装本次更新组件后运行 `./install.sh --auto-update install`，每小时检查正式 Release，在浏览器和 Hermes 退出后安装。更新后重载扩展再启动 Hermes。仅检查用 `--auto-update check`，关闭用 `--auto-update off`；立即更新用 `--update`。详见 [自动更新](docs/installation.md#automatic-updates--自动更新)。
+1.11.0 为正式稳定版，可进入自动更新通道。旧安装先手动升级一次；旧云入口按提示使用 `--upgrade --maintenance`，退出 Chrome、Edge 和 Hermes 后执行。安装本次更新组件后运行 `./install.sh --auto-update install`，每小时检查正式 Release，在浏览器和 Hermes 退出后安装。更新后重载扩展再启动 Hermes。仅检查用 `--auto-update check`，关闭用 `--auto-update off`；立即更新用 `--update`。详见 [自动更新](docs/installation.md#automatic-updates--自动更新)。
 
 [源码、手动安装、多 profile 与故障排查](docs/installation.md) · [代理安装提示词](docs/agent-install-prompt.md)。
 

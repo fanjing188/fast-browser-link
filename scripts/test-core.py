@@ -47,6 +47,7 @@ with (nullcontext(_explicit_tmp) if _use_explicit else tempfile.TemporaryDirecto
         [sys.executable, '-m', 'unittest', 'discover', '-s', 'native-bridge/tests', '-p', 'test_cleanup_contract.py', '-v'],
         # 中文注释：独立云端入口的身份、Native 帧和本地任务隔离纳入离线门禁。
         [sys.executable, '-m', 'unittest', 'discover', '-s', 'cloud-link/tests', '-v'],
+        [sys.executable, '-m', 'unittest', 'discover', '-s', 'tests/v1.11.0', '-v'],
         [sys.executable, 'scripts/generate-browser-reference.py', '--check'],
     ]
     for command in commands:

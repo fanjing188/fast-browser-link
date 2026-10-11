@@ -42,7 +42,7 @@ export function collectShield(options,writeTarget=null){
  const shadowRootOf=element=>element.shadowRoot||globalThis.__hermesClosedShadowRoots?.get(element);
  const directives=directiveSources.map(source=>new RegExp(source,'iu'));
  const restrictions=restrictionSources.map(source=>new RegExp(source,'iu'));
- const restricted=value=>restrictions.some(rule=>rule.test(value));
+ const restricted=(value,location='text-block')=>{const rule=restrictions.findIndex(rule=>rule.test(value));if(rule<0)return false;if(restrictionMatches.length<8)restrictionMatches.push({rule,location,length:value.length});return true;};
  // 中文注释：分类器由生产注入声明提供；敏感控件正文（textarea/option）也不能作为值词表读取。
  const sensitive=node=>['INPUT','TEXTAREA','SELECT'].includes(node.tagName)&&classifySensitiveField(node)!==null;
  // 中文注释：脚本、样式和模板不作为可见公告；每轮探测缓存正文，避免反复读取整棵子树。
@@ -55,7 +55,7 @@ export function collectShield(options,writeTarget=null){
  const semanticAttributes=new Set(['id','class','name','title','aria-label','placeholder','aria-labelledby','aria-describedby']);
  const proseAttributes=['aria-label','alt','title','placeholder'];
  const blocker=new RegExp(blockerSource||'captcha|验证码|人机验证|access denied|拒绝访问|登录|login|sign in|rate limit|限流|\\b(?:401|403|429)\\b','iu');
- const tokens=new Set(),rects=[];let siteAutomationRestricted=false,count=0,skippedFrames=0;
+ const tokens=new Set(),rects=[];let siteAutomationRestricted=false,count=0,skippedFrames=0;const skippedFrameDetails=[],restrictionMatches=[];
  const matches=value=>directives.some(rule=>rule.test(value));
  const add=(value,prose=true)=>{
   if(typeof value!=='string'||!value.trim())return;
@@ -70,7 +70,7 @@ export function collectShield(options,writeTarget=null){
    }
    return;
   }
-  if(tokens.size>10000||value.length>60000)throw Error('CONTENT_SHIELD_UNAVAILABLE');
+  if(tokens.size>10000||value.length>60000)throw Error('CONTENT_SHIELD_UNAVAILABLE|token_limit');
   tokens.add(value);tokens.add(value.trim());
   // 中文注释：汇总字段可能折叠空白，按文本片段补充匹配；不在日志或回执中输出词表。
   tokens.add(value.replace(/\s+/gu,' ').trim());
@@ -78,7 +78,7 @@ export function collectShield(options,writeTarget=null){
  };
  const cover=(node,frameCover)=>{
   const rect=frameCover||node.getBoundingClientRect();
-  if(![rect.x,rect.y,rect.width,rect.height].every(Number.isFinite))throw Error('CONTENT_SHIELD_UNAVAILABLE');
+  if(![rect.x,rect.y,rect.width,rect.height].every(Number.isFinite))throw Error('CONTENT_SHIELD_UNAVAILABLE|invalid_geometry');
   if(rect.width>0&&rect.height>0)rects.push({x:rect.x,y:rect.y,width:rect.width,height:rect.height,kind:'content_shield',role:'region',name:'已屏蔽区域'});
   // 中文注释：隐藏节点无需像素遮罩；可见溢出文本需覆盖子孙盒与文字 Range。
   if(!frameCover)for(const child of node.childNodes||[])if(child.nodeType===3&&child.textContent.trim()){
@@ -90,10 +90,10 @@ export function collectShield(options,writeTarget=null){
  };
  const walk=(root,inherited=false,frameCover=null)=>{
   // 中文注释：页面标题属于文本出口但不在截图视口内，只脱敏文字，不扩大截图区域。
-  if(root.nodeType===9){siteAutomationRestricted ||= restricted(root.title);if(matches(root.title)&&!blocker.test(root.title))add(root.title);}
+  if(root.nodeType===9){siteAutomationRestricted = restricted(root.title,'title')||siteAutomationRestricted;if(matches(root.title)&&!blocker.test(root.title))add(root.title);}
   const selected=new Set(selectors.flatMap(selector=>[...root.querySelectorAll(selector)]));
   // 中文注释：先按 CSS 块边界归并内联文字，再匹配正则；相邻段落不能拼成一条公告。
-  const groups=new Map(),automatic=new Set(),fragments=new Set(),styles=new WeakMap();
+  const groups=new Map(),automatic=new Set(),fragments=new Set(),styles=new WeakMap();let blockIndex=0;
   const styleOf=element=>{
    if(!styles.has(element))styles.set(element,element.ownerDocument.defaultView.getComputedStyle(element));
    return styles.get(element);
@@ -102,27 +102,31 @@ export function collectShield(options,writeTarget=null){
   const structural=new Set(['HTML','BODY','MAIN','NAV','HEADER','FOOTER','ARTICLE']);
   let indexed=0;
   const index=(element,parentBlock=null)=>{
-   if(++indexed>30000)throw Error('CONTENT_SHIELD_UNAVAILABLE');
+   if(++indexed>30000)throw Error('CONTENT_SHIELD_UNAVAILABLE|node_limit');
    if(excluded.has(element.tagName)||element.matches('[data-hermes-automation-overlay],[data-hermes-interaction-highlight]'))return;
    const block=!parentBlock||isBlock(element)?element:parentBlock;
-   if(!groups.has(block))groups.set(block,{nodes:[],members:[],attributes:[],hasSubBlocks:false});
+   if(!groups.has(block))groups.set(block,{nodes:[],text:[],members:[],attributes:[],hasSubBlocks:false});
    if(parentBlock&&block!==parentBlock)groups.get(parentBlock).hasSubBlocks=true;
    const group=groups.get(block);group.members.push(element);
+   // 中文注释：交互控件有独立名称，不能把按钮文字拼到前面的禁令词尾；普通 inline 仍连续匹配。
+   const control=element.matches('button,a[href],input,select,textarea,[role=button],[role=link]');
+   if(control)group.text.push('\n');
    for(const name of proseAttributes){
     const value=element.getAttribute(name);
-    if(value){siteAutomationRestricted ||= restricted(value);if(matches(value)&&!blocker.test(value)){add(value);group.attributes.push(element);}}
+    if(value){siteAutomationRestricted = restricted(value,'attribute')||siteAutomationRestricted;if(matches(value)&&!blocker.test(value)){add(value);group.attributes.push(element);}}
    }
    // 中文注释：敏感控件的正文和 option 均不进入自动匹配，继续沿用原有值读取门禁。
    if(sensitive(element))return;
    for(const child of element.childNodes){
-    if(child.nodeType===3)group.nodes.push(child);
+    if(child.nodeType===3){group.nodes.push(child);group.text.push(child.textContent);}
     else if(child.nodeType===1)index(child,block);
    }
+   if(control)group.text.push('\n');
   };
   if(root.nodeType===9)index(root.documentElement);else for(const child of root.children)index(child);
   for(const [block,group] of groups){
-   const text=group.nodes.map(node=>node.textContent).join('');
-   siteAutomationRestricted ||= restricted(text);
+   const text=group.text.join('');
+   siteAutomationRestricted = restricted(text,`${block.tagName.toLowerCase()}:${++blockIndex}`)||siteAutomationRestricted;
    const textMatch=matches(text)&&!blocker.test(text);
    if(!textMatch&&!group.attributes.length)continue;
    if(!structural.has(block.tagName)&&!group.hasSubBlocks)automatic.add(block);
@@ -133,7 +137,7 @@ export function collectShield(options,writeTarget=null){
    }
   }
   const visit=(element,hidden)=>{
-   if(++count>30000)throw Error('CONTENT_SHIELD_UNAVAILABLE');
+   if(++count>30000)throw Error('CONTENT_SHIELD_UNAVAILABLE|node_limit');
    if(excluded.has(element.tagName)||element.matches('[data-hermes-automation-overlay],[data-hermes-interaction-highlight]'))return;
    const sensitiveField=sensitive(element);
    const textNodes=sensitiveField?[]:[...element.childNodes].filter(node=>node.nodeType===3),texts=textNodes.map(node=>node.textContent);
@@ -179,9 +183,9 @@ export function collectShield(options,writeTarget=null){
     if(frameCover){cover(element,frameCover);continue;}
     const range=element.ownerDocument.createRange();range.selectNodeContents(node);
     // 中文注释：文字块没有可靠 Range 几何时拒绝图片，不能用整页盒代替。
-    if(typeof range.getClientRects!=='function'){if(forCapture)throw Error('CONTENT_SHIELD_UNAVAILABLE');continue;}
+    if(typeof range.getClientRects!=='function'){if(forCapture)throw Error('CONTENT_SHIELD_UNAVAILABLE|invalid_geometry');continue;}
     for(const rect of range.getClientRects()){
-     if(![rect.x,rect.y,rect.width,rect.height].every(Number.isFinite))throw Error('CONTENT_SHIELD_UNAVAILABLE');
+     if(![rect.x,rect.y,rect.width,rect.height].every(Number.isFinite))throw Error('CONTENT_SHIELD_UNAVAILABLE|invalid_geometry');
      if(rect.width>0&&rect.height>0)rects.push({x:rect.x,y:rect.y,width:rect.width,height:rect.height,kind:'content_shield',role:'region',name:'已屏蔽区域'});
     }
    }
@@ -200,8 +204,12 @@ export function collectShield(options,writeTarget=null){
     // 中文注释：隐藏 sandbox iframe 不进入固定 DOM/截图输出；任意 JS 输出仍拒绝不可检查区域。
     if(allowHiddenFrames&&unrendered){/* 中文注释：不计入当前可见页面的覆盖缺口。 */}
     else if(!doc?.documentElement){
-     if(forCapture||!allowOpaqueFrames&&!unrelatedFrame(element,frameCover))throw Error('CONTENT_SHIELD_UNINSPECTABLE');
-     if(inReadScope(element))skippedFrames++;
+     const r=frameCover||element.getBoundingClientRect();
+     let origin='opaque';try{const url=new URL(element.src,element.ownerDocument.baseURI);if(['http:','https:'].includes(url.protocol))origin=url.origin;}catch{}
+     const frame={origin,x:r.x,y:r.y,width:r.width,height:r.height};
+     if(![r.x,r.y,r.width,r.height].every(Number.isFinite))throw Error('CONTENT_SHIELD_UNAVAILABLE|invalid_geometry');
+     if(forCapture||!allowOpaqueFrames&&!unrelatedFrame(element,frameCover))throw Error('CONTENT_SHIELD_UNINSPECTABLE|'+encodeURIComponent(JSON.stringify(frame)));
+     if(inReadScope(element)){skippedFrames++;skippedFrameDetails.push(frame);}
     }else{
      const r=frameCover||element.getBoundingClientRect();
      walk(doc,descendantsHidden,r);
@@ -214,7 +222,7 @@ export function collectShield(options,writeTarget=null){
  walk(document);
  const v=window.visualViewport;
  if(v&&(v.scale!==1||v.offsetLeft||v.offsetTop))throw Error('CONTENT_SHIELD_UNSUPPORTED_VIEWPORT');
- return {tokens:[...tokens].sort((a,b)=>b.length-a.length),rects,siteAutomationRestricted,skippedFrames,writeTargetVerified:writeTarget!==null,
+ return {tokens:[...tokens].sort((a,b)=>b.length-a.length),rects,siteAutomationRestricted,restrictionMatches,skippedFrames,skippedFrameDetails,writeTargetVerified:writeTarget!==null,
   state:{url:location.href,width:window.innerWidth,height:window.innerHeight,scrollX:window.scrollX,scrollY:window.scrollY,dpr:window.devicePixelRatio,scale:v?.scale||1}};
 }
 
@@ -250,5 +258,5 @@ export function redactShieldResult(result,inventory){
  };
  const filtered=visit(result);
  if(!filtered||typeof filtered!=='object'||Array.isArray(filtered))return filtered;
- return {...filtered,contentFilter:{...filtered.contentFilter,enabled:true,siteAutomationRestricted:inventory.siteAutomationRestricted===true||filtered.contentFilter?.siteAutomationRestricted===true}};
+ return {...filtered,contentFilter:{...filtered.contentFilter,enabled:true,siteAutomationRestricted:inventory.siteAutomationRestricted===true||filtered.contentFilter?.siteAutomationRestricted===true,restrictionMatches:inventory.restrictionMatches||filtered.contentFilter?.restrictionMatches||[],...(inventory.siteAutomationRestricted?{notice:'这是页面声明，不是插件故障；可用 read_page / semantic_snapshot 读取已覆盖内容，实际验证码、权限和访问限制仍须遵守。'}:{})}};
 }

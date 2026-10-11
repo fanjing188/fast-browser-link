@@ -117,6 +117,22 @@ class BridgeError(RuntimeError):
                     self.data['obstruction']['closeButton'] = {'binding': {key: binding[key] for key in ('taskId', 'documentId', 'leaseId')}, 'snapshotId': button['snapshotId'], 'ref': button['ref'], 'role': 'button', 'name': button['name'][:80]}
         # 中文注释：只允许固定阶段原因和脱敏当前来源；字段名不会带入网页异常文本。
         if isinstance(data, dict):
+            # 中文注释：框架诊断只含来源和有限几何，不传地址参数、正文或任意异常。
+            from urllib.parse import urlsplit
+            import math
+            frame = data.get('skippedFrame')
+            if isinstance(frame, dict):
+                try:
+                    url = urlsplit(frame.get('origin', ''))
+                    site = f'{url.scheme}://{url.netloc}'
+                    if (frame.get('origin') == 'opaque' or (url.scheme in {'http', 'https'} and url.hostname
+                            and not url.username and not url.password and frame['origin'] == site)):
+                        if all(type(frame.get(k)) in {int, float} and math.isfinite(frame[k]) for k in ('x', 'y', 'width', 'height')):
+                            self.data['skippedFrame'] = {k: frame[k] for k in ('origin', 'x', 'y', 'width', 'height')}
+                except (ValueError, TypeError):
+                    pass
+            if data.get('reasonCode') in {'settings_unavailable', 'document_not_ready', 'inventory_invalid', 'inventory_exception', 'token_limit', 'node_limit', 'invalid_geometry'}:
+                self.data['reasonCode'] = data['reasonCode']
             if isinstance(data.get('stage'), str) and isinstance(data.get('reasonCode'), str) and (data.get('stage'), data.get('reasonCode')) in {('overlay', 'initialization_exception'), ('overlay', 'return_type_invalid'), ('document', 'document_changed')}:
                 self.data.update(stage=data['stage'], reasonCode=data['reasonCode'])
             if code in {'origin_denied', 'tab_out_of_scope'} and isinstance(data.get('currentOrigin'), str):

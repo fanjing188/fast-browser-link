@@ -163,6 +163,18 @@ class ResultPrivacyTests(unittest.TestCase):
         self.assertEqual(result['contentFilter']['unreadFrames'], 1)
         self.assertNotIn(CANARY, json.dumps(result))
 
+    def test_r10_frame_and_restriction_diagnostics_survive_closed_projection(self):
+        page = {'items': [], 'coverage': {'complete': False, 'coveredScopeComplete': True},
+                'skippedFrames': [{'origin': 'https://frame.test', 'x': 500, 'y': 500,
+                                   'width': 2, 'height': 2, 'body': CANARY}],
+                'contentFilter': {'enabled': True, 'notice': '这是页面声明',
+                                  'restrictionMatches': [{'rule': 1, 'location': 'p', 'length': 30, 'text': CANARY}]}}
+        result, _ = self.invoke(True, 'run', {'task_id': 't', 'tab_id': 1, 'action': 'semantic_snapshot'}, page)
+        self.assertTrue(result['coverage']['coveredScopeComplete'])
+        self.assertEqual(result['skippedFrames'][0]['origin'], 'https://frame.test')
+        self.assertEqual(result['contentFilter']['restrictionMatches'][0]['location'], 'p')
+        self.assertNotIn(CANARY, json.dumps(result))
+
     def test_login_fields_and_surfaces_survive_without_values(self):
         # 中文注释：用途和浮层归属穿过公共投影，任意字段值和原始属性仍拒绝。
         field = {'ref': 'r', 'role': 'textbox', 'name': '密码', 'inputType': 'password',

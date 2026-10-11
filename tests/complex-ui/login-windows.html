@@ -8,6 +8,13 @@ body{font:16px system-ui;margin:24px}button,input{display:block;margin:12px 0;pa
 </main><dialog id="modal" aria-label="模态登录"></dialog><div id="popover" popover aria-label="顶层登录"></div><div id="floating" class="floating" aria-label="浮层登录" hidden></div><div id="frame-host"></div>
 <script>
 // 中文注释：统一的本地两步登录页，让不同窗口形态执行相同控件路径；不模拟外站返回或风控绕过。
+// 中文注释：只记浮层状态和事件类型，不读控件值；失败时定位是否发生轻关闭或文档替换。
+window.fixtureDocumentId=crypto.randomUUID();window.fixtureLoginEvents=[];
+for(const type of ['beforetoggle','toggle','focusin','pointerdown'])document.addEventListener(type,event=>{
+ const target=event.target;
+ window.fixtureLoginEvents.push({at:Date.now(),type,tag:target.localName,id:target.id||'',oldState:event.oldState,newState:event.newState,popoverOpen:document.querySelector('#popover')?.matches(':popover-open')});
+ if(window.fixtureLoginEvents.length>100)window.fixtureLoginEvents.shift();
+},true);
 const accountMarkup='<label>账号<input type="email" autocomplete="username" aria-label="账号" required></label><button type="button">下一步</button>';
 const passwordMarkup='<label>密码<input type="password" autocomplete="current-password" aria-label="密码"></label><label>验证码<input autocomplete="one-time-code" aria-label="验证码"></label><button type="button">返回账号</button>';
 function login(root){

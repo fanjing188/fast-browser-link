@@ -6,21 +6,23 @@ import path from 'node:path';
 import {createHash} from 'node:crypto';
 import {openRealSession,openTask} from '../native-v2/real-session.mjs';
 import {CdpClient,fetchJson,waitFor} from '../native-v2/cdp-client.mjs';
-import {oauthSourcePage,oauthProviderPage,oauthDonePage,OAUTH_DONE_MARKER} from './oauth-fixture-page.mjs';
+import {oauthSourcePage,oauthProviderPage,oauthFramePage,oauthDonePage,OAUTH_DONE_MARKER,OAUTH_FIXTURE_ACCOUNTS} from './oauth-fixture-page.mjs';
 import {oauthReturnReadDiagnostics} from '../native-v2/oauth-fixture.mjs';
 
 const fixture=await readFile(new URL('./login-windows.html',import.meta.url),'utf8');
 const completionResponses=new Map();
+const completionAccounts=new Map();
 const server=createServer((request,response)=>{
  const origin=`http://127.0.0.1:${server.address().port}`,url=new URL(request.url,origin);
  if(url.pathname==='/oauth-complete'){
   const flow=url.searchParams.get('flow');
   if(completionResponses.has(flow)){response.writeHead(409);response.end('duplicate completion');return;}
-  completionResponses.set(flow,response);return;
+  completionAccounts.set(flow,url.searchParams.get('account'));completionResponses.set(flow,response);return;
  }
  response.writeHead(200,{'content-type':'text/html; charset=utf-8'});
  if(url.pathname==='/oauth-source')response.end(oauthSourcePage({origin,loginOrigin:origin.replace('127.0.0.1','login.localhost'),manualOrigin:origin.replace('127.0.0.1','manual.localhost'),flow:url.searchParams.get('flow')}));
- else if(url.pathname==='/oauth-provider')response.end(oauthProviderPage());
+ else if(url.pathname==='/oauth-provider')response.end(oauthProviderPage({frameOrigin:origin}));
+ else if(url.pathname==='/oauth-frame')response.end(oauthFramePage);
  else if(url.pathname==='/oauth-done')response.end(oauthDonePage);
  else response.end(fixture);
 });
@@ -41,13 +43,27 @@ try{
  session=await openRealSession({browser,label:'login',headed:true,compactScratch:true,hostRules:'MAP login.localhost 127.0.0.1, MAP manual.localhost 127.0.0.1',oauthProviders:[{origin:loginOrigin,paths:['/oauth-provider']}]});
  await session.enableFullAccess();
  const tab=await openTask(session,{owner:'login-windows',origins:[origin],url:origin,title:'本地登录窗口'});
- const run=async(action,params={})=>verify(await tab.run(action,params));
+ const surfaceTrace=[];
+ const run=async(action,params={})=>{
+  const requestId=tab.nextId(),entry={at:Date.now(),action,requestId,binding:params.binding,snapshotId:params.snapshot_id,ref:params.ref,root:params.options?.root};surfaceTrace.push(entry);
+  if(surfaceTrace.length>40)surfaceTrace.shift();
+  try{
+   const result=await tab.run(action,params,requestId);
+   entry.result={binding:result.binding,snapshotId:result.snapshotId,code:result.code,bridgeCode:result.bridgeCode,coverage:result.coverage,items:result.items?.map(({ref,role,fieldKind})=>({ref,role,fieldKind}))};
+   return verify(result);
+  }catch(error){
+   const diagnostics={requests:structuredClone(surfaceTrace)};
+   try{diagnostics.page=await tab.read(`(()=>{const p=document.querySelector('#popover');return {documentId:window.fixtureDocumentId,readyState:document.readyState,popoverOpen:p?.matches(':popover-open'),visible:!!p?.getClientRects().length,controls:p?.querySelectorAll('input,button').length,events:window.fixtureLoginEvents}})()`);}
+   catch(failure){diagnostics.readError=failure.message;}
+   error.diagnostics=diagnostics;throw error;
+  }
+ };
  const ref=async(name,root=null)=>{
   const snap=await run('semantic_snapshot',{options:{mode:'interactive',query:name,...(root?{root}:{}),budget:5000}});
   const item=snap.items.find(item=>item.name===name);assert.ok(item,`缺少控件 ${name}`);
   return {binding:snap.binding,snapshot_id:snap.snapshotId,ref:item.ref};
  };
- const reset=async()=>{await run('navigate',{url:origin});await tab.read('document.readyState');};
+ const reset=async()=>{surfaceTrace.length=0;await run('navigate',{url:origin});await tab.read('document.readyState');};
  await check('关闭的 dialog、popover、浮层不返回账号框',async()=>{
   const page=await run('page.parse',{options:{sections:['forms','regions']}});
   assert.ok(!page.forms.some(field=>field.fieldKind==='account'));return {forms:page.forms.length};
@@ -333,6 +349,40 @@ try{
   const saved=await persistedTask(handle);assert.ok(!saved.requestHistory.some(row=>row.automatic===true));
   return {mode:'full',automatic:false,confirmationRequired:true};
  }));
+
+ // 中文注释：新临时 profile 默认未开启保护；G 必须先经受信弹窗开启并读回，不能用默认 light DOM 快照冒充部分覆盖。
+ const shield=await session.ui.evaluate(`chrome.runtime.sendMessage({type:'page_content_filter',enabled:true})`);
+ assert.equal(shield.error,undefined,JSON.stringify(shield));assert.equal(shield.result.enabled,true);
+ assert.equal(await session.ui.evaluate(`chrome.runtime.sendMessage({type:'popup_status'}).then(r=>r.result.pageContentFilter)`),true);
+ for(const mode of ['smart','full'])await check(`G ${mode}：带跨源小框架的账号页：邮箱可读、按邮箱选中后登录回源`,()=>withOAuthTask('G-'+mode+'-account',async(handle,flow)=>{
+  await setMode(handle,mode);
+  const opened=await openOnly(handle,'只开授权小窗');await verifyAutoAudit(handle,opened.popupOpened);
+  const popup={...handle,tabId:opened.popupOpened.tabId,run:(action,params={},id)=>handle.run(action,{...params,tab_id:opened.popupOpened.tabId},id)};
+  await waitFor(()=>session.readPage(popup.tabId,'window.fixtureFrameLoaded===true'),10000,{label:'跨源附属框架执行就绪通知'});
+  diagnostics.frameState=await session.readPage(popup.tabId,`(()=>{const f=document.querySelector('iframe'),r=f.getBoundingClientRect();return {parentOrigin:location.origin,frameOrigin:new URL(f.src).origin,opaque:f.contentDocument===null,width:r.width,height:r.height,loaded:window.fixtureFrameLoaded}})()`);
+  diagnostics.shieldEnabled=true;
+  assert.notEqual(diagnostics.frameState.parentOrigin,diagnostics.frameState.frameOrigin);assert.equal(diagnostics.frameState.opaque,true);
+  assert.equal(diagnostics.frameState.width,2);assert.equal(diagnostics.frameState.height,2);
+  const content=await confirmedRun(popup,'semantic_snapshot',{options:{mode:'content',budget:5000}});
+  for(const email of OAUTH_FIXTURE_ACCOUNTS)assert.ok(JSON.stringify(content.items).includes(email));
+  const parsed=await confirmedRun(popup,'page.parse',{options:{sections:['blocks'],budget:5000}});
+  for(const email of OAUTH_FIXTURE_ACCOUNTS)assert.ok(JSON.stringify(parsed.blocks).includes(email));
+  const selected=OAUTH_FIXTURE_ACCOUNTS[1];
+  const account=await confirmedRun(popup,'semantic_snapshot',{options:{query:selected,roles:['button'],budget:5000}});
+  diagnostics.accountRead=account;assert.equal(account.contentFilter.enabled,true);
+  assert.equal(account.coverage.complete,false);assert.equal(account.coverage.coveredScopeComplete,true);
+  assert.equal(account.items.length,1);assert.equal(account.skippedFrames.length,1);assert.equal(account.skippedFrames[0].origin,origin);
+  await confirmedRun(popup,'ref_click',{binding:account.binding,snapshot_id:account.snapshotId,ref:account.items[0].ref});
+  const response=await waitFor(()=>completionResponses.get(flow),10000,{label:'邮箱账号选择的授权请求'});
+  assert.equal(completionAccounts.get(flow),selected);
+  response.writeHead(200,{'content-type':'text/plain'});response.end('authorized');completionResponses.delete(flow);
+  await waitFor(async()=>{const state=await taskState(handle);return state.popupClosed?.returnedTo===handle.tabId;},15000,{label:'账号选择后自动回源'});
+  await waitFor(()=>handle.read('location.pathname==="/oauth-done"&&document.readyState==="complete"'),15000,{label:'账号选择后来源新文档'});
+  const read=await confirmedRun(popup,'semantic_snapshot',{options:{mode:'content',budget:5000}});
+  assert.deepEqual(read.popupClosed,{returnedTo:handle.tabId});assert.ok(JSON.stringify(read.items).includes(OAUTH_DONE_MARKER));
+  return {selectedAccount:selected,popupClosed:read.popupClosed,newDocument:true};
+ }));
+
 }finally{
  for(const response of completionResponses.values())response.destroy();completionResponses.clear();
  await session?.close();await new Promise(resolve=>server.close(resolve));
@@ -340,4 +390,4 @@ try{
 }
 for(const result of results)console.log(`${result.ok?'PASS':'FAIL'} ${result.name}${result.ok?'':': '+result.error}`);
 console.log(JSON.stringify({browser,passed:results.filter(result=>result.ok).length,total:results.length,output}));
-process.exitCode=results.length===(process.argv.includes('--popup-only')?3:23)&&results.every(result=>result.ok)?0:1;
+process.exitCode=results.length===(process.argv.includes('--popup-only')?3:25)&&results.every(result=>result.ok)?0:1;

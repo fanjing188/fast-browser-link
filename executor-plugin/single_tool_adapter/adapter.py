@@ -141,7 +141,7 @@ _MAX_LOCAL_CALLS = 128
 _MAX_RENDER_CHARS = 14_000
 _SEMANTIC_COVERAGE_FIELDS = frozenset({
     "scanned", "matched", "returned", "omitted", "filtered", "truncated", "offset",
-    "complete", "traversalComplete", "scope", "skippedFrames", "unsupportedCanvas", "contentShieldSkippedFrames", "axEnriched", "axOmitted", "axDiscoveryComplete",
+    "complete", "coveredScopeComplete", "traversalComplete", "scope", "skippedFrames", "unsupportedCanvas", "contentShieldSkippedFrames", "axEnriched", "axOmitted", "axDiscoveryComplete",
 })
 
 
@@ -731,6 +731,8 @@ class SingleToolAdapter:
             safe = {key: flags[key] for key in ('enabled', 'siteAutomationRestricted') if type(flags.get(key)) is bool}
             if type(flags.get('removedSegments')) is int and 0 <= flags['removedSegments'] <= 1_000_000:
                 safe['removedSegments'] = flags['removedSegments']
+            if safe.get('siteAutomationRestricted'):
+                safe['notice'] = '这是页面声明，不是插件故障；可用 read_page / semantic_snapshot 读取已覆盖内容，实际验证码、权限和访问限制仍须遵守。'
             result['contentFilter'] = safe
         if isinstance(receipt.get('masked'), list):
             result['masked'] = [{'kind': row['kind'], 'role': row['role'], 'name': '已屏蔽区域'}
@@ -850,7 +852,7 @@ class SingleToolAdapter:
         for key, value in coverage.items():
             if key not in _SEMANTIC_COVERAGE_FIELDS:
                 continue
-            if key in {"complete", "traversalComplete", "axDiscoveryComplete"}:
+            if key in {"complete", "coveredScopeComplete", "traversalComplete", "axDiscoveryComplete"}:
                 if type(value) is bool:
                     safe[key] = value
             elif key == "scope":

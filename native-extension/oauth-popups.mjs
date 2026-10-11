@@ -5,15 +5,8 @@ const denied=()=>Object.assign(Error('POPUP_STALE'),{preDispatch:true});
 const site=url=>{const u=new URL(url);if(!['https:','http:'].includes(u.protocol)||u.username||u.password)throw denied();return u.origin;};
 const identity=tab=>({tabId:tab.id,windowId:tab.windowId,origin:site(tab.url)});
 const same=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
-// 中文注释：仅可信扩展配置可覆盖；社交站点限定授权路径，不能把整个站点视为登录页。
-export const OAUTH_PROVIDERS=Object.freeze([
- {origin:'https://accounts.google.com'}, {origin:'https://appleid.apple.com'},
- {origin:'https://login.microsoftonline.com'}, {origin:'https://login.live.com'},
- {origin:'https://github.com',paths:['/login/oauth/authorize']},
- {origin:'https://www.facebook.com',paths:['/dialog/oauth'],versioned:true},
- {origin:'https://x.com',paths:['/i/oauth2/authorize','/oauth/authorize']},
- {origin:'https://api.twitter.com',paths:['/oauth/authorize','/oauth/authenticate']},
-]);
+import {OAUTH_PROVIDERS} from '../page-semantics/oauth-providers.mjs';
+export {OAUTH_PROVIDERS};
 export function isOAuthProvider(url,providers=OAUTH_PROVIDERS){
  try{const u=new URL(url);return !u.username&&!u.password&&providers.some(row=>row.origin===u.origin&&(!row.paths||row.paths.includes(u.pathname)||row.versioned&&/^\/v\d+(?:\.\d+)?\/dialog\/oauth$/.test(u.pathname)));}catch{return false;}
 }

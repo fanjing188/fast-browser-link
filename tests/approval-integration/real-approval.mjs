@@ -75,6 +75,8 @@ async function run(browser) {
   const buildDeps = JSON.parse(await readFile(path.join(extensionRoot, 'BUILD-DEPS.json'), 'utf8'));
   const canonical = {
     'vendor/page-semantics.mjs': path.join(root, 'page-semantics/index.js'),
+    'vendor/oauth-providers.mjs': path.join(root, 'page-semantics/oauth-providers.mjs'),
+    'vendor/redact.mjs': path.join(root, 'page-semantics/redact.mjs'),
     'vendor/browser-interactions.mjs': path.join(root, 'browser-interactions/index.mjs'),
   };
   for (const [relative, source] of Object.entries(canonical)) {

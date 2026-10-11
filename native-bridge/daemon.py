@@ -160,6 +160,18 @@ def _safe_error_data(data: Any) -> dict:
         value = data.get(key)
         if isinstance(value, str) and re.fullmatch(r'[a-z][a-z0-9_]{0,47}', value):
             safe[key] = value
+    # 中文注释：框架诊断只含来源和有限几何，不传地址参数、正文或任意异常。
+    frame = data.get('skippedFrame')
+    if isinstance(frame, dict):
+        try:
+            url = urlsplit(frame.get('origin', ''))
+            site = f'{url.scheme}://{url.netloc}'
+            if (frame.get('origin') == 'opaque' or (url.scheme in {'http', 'https'} and url.hostname
+                    and not url.username and not url.password and frame['origin'] == site)):
+                if all(type(frame.get(k)) in {int, float} and math.isfinite(frame[k]) for k in ('x', 'y', 'width', 'height')):
+                    safe['skippedFrame'] = {k: frame[k] for k in ('origin', 'x', 'y', 'width', 'height')}
+        except (ValueError, TypeError):
+            pass
     # 中文注释：Cookie 错误仅放行计数和固定失败类别，载荷不会进入通用错误结果。
     # 中文注释：效果错误仅允许固定提示及枚举，不放行任意页面字符串。
     if data.get('effect') in {'observed', 'unobserved'}:

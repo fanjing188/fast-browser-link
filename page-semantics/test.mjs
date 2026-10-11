@@ -14,8 +14,10 @@ try {
  let seq=0;const pending=new Map();ws.addEventListener('message',e=>{const m=JSON.parse(e.data);if(pending.has(m.id)){pending.get(m.id)(m);pending.delete(m.id);}});
  async function cdp(method,params={}){const id=++seq;const p=new Promise(r=>pending.set(id,r));ws.send(JSON.stringify({id,method,params}));const m=await p;if(m.error)throw Error(JSON.stringify(m.error));return m.result;}
  async function run(name,expression){const r=await cdp('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true});if(r.exceptionDetails)throw Error(`${name}: ${r.exceptionDetails.exception?.description || JSON.stringify(r.exceptionDetails)}`);assert.equal(r.result.value?.ok,true,name+': '+JSON.stringify(r.result.value));results.push({name,...r.result.value});console.log('PASS',name);}
- const source=await readFile(new URL('./index.js',import.meta.url),'utf8').catch(()=> '');
- const moduleURL='data:text/javascript;base64,'+Buffer.from(source).toString('base64');
+ const redactor=await readFile(new URL('./redact.mjs',import.meta.url),'utf8');
+ const source=(await readFile(new URL('./index.js',import.meta.url),'utf8')).replace(/^import .*;\n/gm,'');
+ const moduleSource=redactor+'\n'+source;
+ const moduleURL='data:text/javascript;base64,'+Buffer.from(moduleSource).toString('base64');
  const imported=await cdp('Runtime.evaluate',{expression:`import(${JSON.stringify(moduleURL)}).then(m=>{globalThis.createPageSemantics=m.createPageSemantics;})`,awaitPromise:true});
  if(imported.exceptionDetails)throw Error('Browser ESM import failed: '+JSON.stringify(imported.exceptionDetails));
  await run('stable refs reject obsolete snapshot and replacement',`(()=>{
@@ -83,7 +85,7 @@ try {
  const p=createPageSemantics({document,taskId:'t',documentId:'d',leaseId:'l',maxText:30});
  const c=p.snapshot({mode:'content'});check(!JSON.stringify(c).includes('PRIVATE_CSS_HIDDEN'),'CSS-hidden text excluded');
  const t=p.snapshot({mode:'table',budget:3000});check(t.items[0].omittedCells===10&&t.items[0].fragment?.field==='name','table row continuation and cell cap explicit');
- for(const mode of ['interactive','content','table'])for(const budget of [512,600,700,900,3000]){const a=p.snapshot({mode,budget});check(Math.ceil(JSON.stringify(a).length/4)<=budget,'budget matrix');check(!/PRIVATE_INPUT|PRIVATE_TEXTAREA|alice@example.com|SENSITIVE_KEY/.test(JSON.stringify(a)),'redacted before output');check(a.coverage.scope.includes('no iframe/shadow'),'scope caveat');}
+ for(const mode of ['interactive','content','table'])for(const budget of [512,600,700,900,3000]){const a=p.snapshot({mode,budget});check(Math.ceil(JSON.stringify(a).length/4)<=budget,'budget matrix');check(!/PRIVATE_INPUT|PRIVATE_TEXTAREA|SENSITIVE_KEY/.test(JSON.stringify(a)),'redacted before output');check(a.coverage.scope.includes('no iframe/shadow'),'scope caveat');}
  p.revoke();return {ok:true,budgetCases:15};})()`);
  await run('document replacement invalidates prior document binding',`(()=>{
  const frame=document.querySelector('iframe');const fd=frame.contentDocument;fd.body.innerHTML='<button>Frame</button>';

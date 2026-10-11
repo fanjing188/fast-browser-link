@@ -165,6 +165,8 @@ try {
   const deps = JSON.parse(await readFile(path.join(extensionRoot, 'BUILD-DEPS.json'), 'utf8'));
   for (const [relative, source] of Object.entries({
     'vendor/page-semantics.mjs': path.join(root, 'page-semantics/index.js'),
+    'vendor/oauth-providers.mjs': path.join(root, 'page-semantics/oauth-providers.mjs'),
+    'vendor/redact.mjs': path.join(root, 'page-semantics/redact.mjs'),
     'vendor/browser-interactions.mjs': path.join(root, 'browser-interactions/index.mjs'),
   })) {
     const expected = hash(await readFile(source));

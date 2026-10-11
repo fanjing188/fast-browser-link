@@ -1,9 +1,10 @@
 // 中文注释：站点禁止声明与提示注入分开判定；两者均过滤，只有前者设置站点自动化限制。
 export const SITE_AUTOMATION_RESTRICTIONS = [
-  /(?:禁止|不允许|不得|请勿|严禁).{0,20}(?:自动化操作|自动化访问|自动化工具|自动抓取|爬虫|机器人访问)/iu,
-  /(?:自动化操作|自动化访问|自动抓取|爬虫|机器人访问).{0,20}(?:被禁止|不被允许|不可使用)/iu,
-  /\b(?:automated?\s+(?:access|browsing|operations?|tools?|scraping)|automation|bots?|scrapers?)\b.{0,50}\b(?:prohibited|forbidden|not\s+(?:allowed|permitted)|disallowed)\b/iu,
-  /\b(?:no|prohibit(?:ed)?|forbid(?:den)?|do\s+not\s+use)\b.{0,30}\b(?:automation|automated\s+(?:access|tools?|browsing|scraping)|bots?|scrapers?)\b/iu,
+  /(?:^|[。！？.!?;；\n])\s*(?![^。！？.!?;；\n]*(?:功能|介绍|帮助|文档|如何))(?:(?:本(?:网站|平台|站)|本站访问者|用户)\s*)?(?:禁止|不允许|不得|请勿|严禁)(?:任何用户)?(?:使用或部署|使用|部署)?(?:任何形式的)?(?:第三方脚本、)?\s*(?:自动化操作|自动化访问|自动化工具|自动抓取|爬虫|机器人访问)(?=$|[\s。！？.!?;；，,(（]|访问|对|进行|查看公告)/iu,
+  /(?:^|[。！？.!?;；\n])\s*(?:自动化操作|自动化访问|自动抓取|爬虫|机器人访问)(?:在本站)?(?:被禁止|不被允许|不可使用)(?=$|[。！？.!?;；，,\n])/iu,
+  /(?:^|[。！？.!?;；\n])\s*(?:automated?\s+(?:access|browsing|operations?|tools?|scraping)|automation|bots?|scrapers?)\s+(?:(?:is|are)\s+)?(?:strictly\s+)?(?:prohibited|forbidden|not\s+(?:allowed|permitted)|disallowed)(?:\s+(?:on|at|for)\s+(?:this|our)\s+(?:site|website|platform))?\s*(?=$|[。！？.!?;；\n])/iu,
+  /(?:^|[。！？.!?;；\n])\s*(?:(?:visitors?|users?)\s+(?:must\s+not|may\s+not)|do\s+not)\s+use\s+(?:automation|automated\s+(?:access|tools?|browsing|scraping)|bots?|scrapers?)(?:\s+to\s+(?:access|scrape)\s+(?:this|our)\s+(?:site|website|platform))?\s*(?=$|[。！？.!?;；\n])/iu,
+  /(?:^|[。！？.!?;；\n])\s*no\s+(?:automated\s+(?:access|browsing|scraping)|bots?|scrapers?)\s*(?=$|[。！？.!?;；\n])/iu,
 ];
 export const DIRECTIVES = [
   ...SITE_AUTOMATION_RESTRICTIONS,
@@ -20,13 +21,14 @@ export const FILTER_ACTIONS = new Set(['snapshot', 'semantic_snapshot', 'page.ob
 
 export function filterPageResult(action, result) {
   if (!FILTER_ACTIONS.has(action) || !result || result.ok === false) return result;
-  let removed = 0,restricted=false;
+  let removed = 0,restricted=false;const restrictionMatches=[];
   const filterText = value => {
     // 中文注释：完整 URL 与二进制数据不作为自然语言处理；逐句替换以保留相邻正文。
     if (/^(?:https?:|data:|blob:)/iu.test(value)) return value;
-    return value.split(/([。！？.!?;；\n]+)/u).map(part => {
+    return value.split(/([。！？.!?;；\n]+)/u).map((part,index) => {
       const directive=DIRECTIVES.some(rule => rule.test(part));
-      restricted ||= SITE_AUTOMATION_RESTRICTIONS.some(rule => rule.test(part));
+      const ruleIndex=SITE_AUTOMATION_RESTRICTIONS.findIndex(rule=>rule.test(part));
+      if(ruleIndex>=0){restricted=true;if(restrictionMatches.length<8)restrictionMatches.push({rule:ruleIndex,location:`result-segment:${index}`,length:part.length});}
       if (BLOCKER.test(part) || !directive) return part;
       removed++;
       return '[已过滤网页干扰文字]';
@@ -42,5 +44,5 @@ export function filterPageResult(action, result) {
   };
   // 中文注释：脚本只过滤成功返回的值；类型、异常和执行状态不改写。
   const filtered = action === 'js.evaluate' ? {...result, ...(Object.hasOwn(result, 'value') ? {value: visit(result.value, true)} : {})} : visit(result);
-  return {...filtered, contentFilter: {enabled: true, removedSegments: removed+(result.contentFilter?.removedSegments||0), siteAutomationRestricted: restricted||result.contentFilter?.siteAutomationRestricted===true}};
+  return {...filtered, contentFilter: {enabled: true, removedSegments: removed+(result.contentFilter?.removedSegments||0), siteAutomationRestricted: restricted||result.contentFilter?.siteAutomationRestricted===true,restrictionMatches,...(restricted?{notice:'这是页面声明，不是插件故障；可用 read_page / semantic_snapshot 读取已覆盖内容，实际验证码、权限和访问限制仍须遵守。'}:{})}};
 }

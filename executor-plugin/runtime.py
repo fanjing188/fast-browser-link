@@ -281,7 +281,9 @@ def _scalar_fields(names):
 
 _RESULT_POINT = _scalar_fields('x y')
 # 中文注释：保留过滤标记，让 agent 能区分原始内容与经过规则过滤的文本。
-_RESULT_CONTENT_FILTER = _scalar_fields('enabled removedSegments siteAutomationRestricted unreadFrames')
+_RESULT_CONTENT_FILTER = {**_scalar_fields('enabled removedSegments siteAutomationRestricted unreadFrames notice'),
+                          'restrictionMatches': [_scalar_fields('rule location length')]}
+_RESULT_SKIPPED_FRAME = _scalar_fields('origin x y width height')
 # 中文注释：导航就绪与离开任务来源是执行器的明确状态，公共工具不能在投影时丢弃。
 _RESULT_TAB = _scalar_fields('id tabId url title active selected index windowId groupId status pinned ready outOfScope')
 _RESULT_ARTIFACT = _scalar_fields('id taskId sha256 mimeType size')
@@ -306,7 +308,7 @@ _RESULT_SEMANTIC = {
                'context': [_scalar_fields('ref role name index surfaceKind')],
                'targetPath': [_scalar_fields('kind mode frameRef hostRef frameToken documentId')], 'cells': [None]}],
     'removed': [None], 'order': [None], 'resync': _scalar_fields('reason'),
-    'coverage': _scalar_fields('scanned matched returned omitted filtered truncated offset complete traversalComplete scope skippedFrames unsupportedCanvas contentShieldSkippedFrames axDiscoveryComplete axEnriched axOmitted'),
+    'coverage': _scalar_fields('scanned matched returned omitted filtered truncated offset complete traversalComplete scope coveredScopeComplete skippedFrames unsupportedCanvas contentShieldSkippedFrames axDiscoveryComplete axEnriched axOmitted'),
     'budget': _scalar_fields('kind method limit'),
 }
 _RESULT_CAPTURE = {
@@ -381,6 +383,7 @@ _RESULT_ACTIONS = {
 # 中文注释：每个公开页面动作保留固定内容保护状态，不开放规则或任意 metadata。
 for _result_schema in _RESULT_ACTIONS.values():
     _result_schema['contentFilter'] = _RESULT_CONTENT_FILTER
+    _result_schema['skippedFrames'] = [_RESULT_SKIPPED_FRAME]
 
 
 def _project_schema(value, schema):

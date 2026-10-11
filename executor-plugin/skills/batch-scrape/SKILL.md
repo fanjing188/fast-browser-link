@@ -59,7 +59,7 @@ print({'coverage': page['coverage'], 'items': page['items'][:5]})
 
 Use the current owned work tab; with multiple tabs select `use_tab(tab_id)` or pass `tab=`. Do not create an extra tab just to select one.
 
-登录弹窗先确认 `adoptedPopupTabIds`，再 `use_tab` 并按用户指定邮箱读取账号项；`role` 取自快照（可能是 `link`）。用 `click_element` 唯一定位，让执行器核验 `coveredScopeComplete` 下的局部点击，不把 `complete=false` 一律改成整页失败，也不跳过其他覆盖检查。收到 `popupClosed.returnedTo` 后重读源页确认登录；未知写入不重放。详细流程见 `browser-link:use-my-browser`。
+登录弹窗确认 `adoptedPopupTabIds` 后选页读取；其他候选通过 `popup_adopt` 接管。定位失败插件已自动等待、重扫并重试，`coverage` 不完整仍可使用已返回项；仍失败就换描述或记录并跳过该项，继续其他条目。已派发结果未知时先回读核实。
 
 ## JS 传值
 
@@ -118,9 +118,9 @@ For network inspection, use `network_start`, `network_list(capture_id)`, `networ
 
 读动作只等待 DOM 的 `interactive`/`complete`，上限 1.5 秒。导航和新建页最多等待 8 秒；正文已解析且稳定可返回 `partial`。`goto_url()` 回执默认附摘要，可用 `summary=False` 关闭。等具体元素用 `wait_for(selector, ...)`；已有可读回执时不要再叠加 `wait_for_load()`。
 
-`redirected_out_of_scope` 的 `final_origin` 只含来源；用它调用 `browser_shared_open` 新开任务。多台已启用浏览器可在 Hermes 进程环境中设置 `HERMES_BROWSER_DEFAULT=edge`、`chrome` 或具体 instance ID；显式 `instance_id` 优先。
+同一工作页可以跨站导航，继续使用当前任务和标签页。多台已启用浏览器可在 Hermes 进程环境中设置 `HERMES_BROWSER_DEFAULT=edge`、`chrome` 或具体 instance ID；显式 `instance_id` 优先。
 
-`parallel(fn, tabs)` 对每个页执行 `fn(tab)`，结果按输入顺序返回。同站顺序读多页时复用同一标签；需要同时等待至少三张慢页时才并行建页，模型标签最多四张。任一分支失败后汇总 `BrowserError.errors` 与已成功的 `BrowserError.results`，不重试动作；用显式 `tab=` 核实未知结果。同一页的动作仍串行，同一会话仍只能运行一个脚本进程。
+`parallel(fn, tabs)` 对每个页执行 `fn(tab)`，结果按输入顺序返回。同站顺序读多页时复用同一标签；需要同时等待至少三张慢页时才并行建页，模型标签最多四张。任一分支失败后汇总 `BrowserError.errors` 与已成功的 `BrowserError.results`，定位仍失败的条目换描述或跳过；用显式 `tab=` 核实未知写入结果。同一页的动作仍串行，同一会话仍只能运行一个脚本进程。
 
 | 场景 | 标签操作 |
 |---|---|

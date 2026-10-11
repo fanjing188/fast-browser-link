@@ -62,7 +62,7 @@ test('封闭 Shadow Root 内跨源框架按后端节点矩形进入遮罩清单'
  const executor=new Executor(api),task={id:'mask-task',generation:1,instanceId:'chrome',approvalScope:'owner',allowedOrigins:['https://fixture.test'],tabIds:[7]};
  await executor.approve(task);
  const masks=await executor.assertSafeCapture({tabId:7},executor.tasks.get(task.id),()=>{});
- assert.deepEqual(masks,[{x:40,y:50,width:220,height:90,kind:'uninspectable_frame',role:'iframe',name:'不可检查的框架'}]);
+ assert.deepEqual(masks,[]);
  assert.ok(calls.includes('DOM.getBoxModel'));
 });
 

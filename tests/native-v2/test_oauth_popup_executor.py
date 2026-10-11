@@ -140,30 +140,10 @@ class DaemonPopupPeerTests(unittest.TestCase):
         return params,self.daemon._run_task(params)
 
     def prepare_adoption(self):
-        _,catalog=self.catalog('prepare-catalog')
-        params={'owner':'owner','taskId':'task','requestId':'adopt','action':'popup_adopt','tabId':1,
-                'candidateRef':catalog['candidates'][0]['candidateRef']}
-        self.assertEqual(self.daemon._run_task(params)['status'],'approval_required')
-        pending=next(row for row in self.daemon.action_approvals.values() if row['params']['requestId']=='adopt')
-        pending['status']='approved'
-        grant={key:pending[key] for key in ('nonce','digest','expiresAt','generation','modeGeneration','popupScope')}
-        grant.update(taskId='task',request={key:value for key,value in params.items() if key!='owner'})
-        self.rpc(op='grant',approval=grant)
-        return params,pending
-
-    def approve_and_wait(self,pending):
-        # 中文注释：走用户实际批准入口，不能只验证绕过 worker 的内部执行器。
-        pending['status']='approval_required'
-        done=threading.Event()
-        worker=self.daemon._approval_worker
-        def traced_worker(*args):
-            try:worker(*args)
-            finally:done.set()
-        self.daemon._approval_worker=traced_worker
-        decision=self.daemon._dispatch_extension('instance','extension.decide',{
-            'taskId':'task','nonce':pending['nonce'],'digest':pending['digest'],'approve':True})
-        self.assertEqual(decision,{'status':'approved'})
-        self.assertTrue(done.wait(5),'approval worker did not finish')
+        _, catalog = self.catalog('prepare-catalog')
+        return {'owner': 'owner', 'taskId': 'task', 'requestId': 'adopt',
+                'action': 'popup_adopt', 'tabId': 1,
+                'candidateRef': catalog['candidates'][0]['candidateRef']}
 
     def assert_no_popup_success_replay(self,params):
         before=len(self.calls)
@@ -172,60 +152,25 @@ class DaemonPopupPeerTests(unittest.TestCase):
         self.assertFalse(error.exception.data['retryable'])
         self.assertEqual(len(self.calls),before,'never resend adoption to revalidate')
 
-    def assert_unknown_adoption_released(self,enabled):
-        self.rpc(op='settings',enabled=enabled)
-        params,pending=self.prepare_adoption()
-        self.rpc(op='settings',enabled=enabled,toggleAtSend=True)
-        with self.assertRaises(self.module.ProtocolError) as error:
-            self.daemon._run_task(params,_approval=pending)
-        self.assertEqual(error.exception.code,'content_shield_stale')
-        self.assertTrue(error.exception.data['outcomeUnknown'])
-        state=self.rpc(op='state')
-        self.assertEqual(state['leases'],[],state)
-        self.assertTrue(state['revoked'])
-        self.assertEqual(state['overlays'],[])
-        self.assertIn(2,state['overlayUninstalls'])
-        self.assertIn(2,state['detached'])
-        self.assertEqual(state['removed'],[])
-        self.assertEqual([(tab['id'],tab['windowId']) for tab in state['present']],[(1,7),(2,8)])
-        self.assertEqual(self.task['state'],'needs_sync')
-        self.assertEqual(self.daemon.tab_leases,{})
-        self.assertEqual(self.task['adoptedPopupTabIds'],[])
-        self.assertNotIn(2,self.task['agentTabIds'])
-        self.assertFalse(self.rpc(op='vault')['allowed'])
-        private=object.__new__(vault.VaultPrivateService);private.daemon=self.daemon
-        with self.assertRaises(ValueError):
-            private._scope({'sessionId':'session','owner':'owner','taskId':'task','instanceId':'instance',
-                            'generation':1,'modeGeneration':2,'tabId':2,'allowedOrigins':['https://accounts.example.test']})
-        for kind in ('takeover','stop'):
-            control=self.rpc(op='control',kind=kind,host=self.daemon._public_task(self.task))
-            self.assertEqual(control,{'reply':{'state':'unknown'},'calls':[]})
-        releases=[message['params'] for message in self.calls if message['method']=='browser.release']
-        self.assertEqual(releases,[{'taskId':'task','generation':1,'closeAgentTabs':False}])
-        before=len(self.calls)
-        with self.assertRaises(self.module.ProtocolError):self.daemon._run_task(params)
-        self.assertEqual(len(self.calls),before)
-        self.daemon._flush_tasks()
-        saved=self.json.loads(self.daemon.tasks_path.read_text())['tasks'][0]
-        row=next(row for row in saved['requestHistory'] if row.get('action')=='popup_adopt')
-        self.assertEqual(row['state'],'unknown')
-        restarted=self.module.BridgeDaemon(Path(self.temp.name))
-        self.addCleanup(restarted._flush_tasks)
-        restarted._load_tasks()
-        self.assertIn('task',restarted.tasks)
-        with self.assertRaises(self.module.ProtocolError) as replay:restarted._run_task(params)
-        self.assertEqual(replay.exception.code,'request_outcome_unavailable')
-        self.assertEqual(len(self.calls),before)
+    def assert_shield_toggle_allows_adoption(self, enabled):
+        self.rpc(op='settings', enabled=enabled)
+        params = self.prepare_adoption()
+        self.rpc(op='settings', enabled=enabled, toggleAtSend=True)
+        self.assertTrue(self.daemon._run_task(params)['adopted'])
+        self.assertEqual(self.daemon.action_approvals, {})
+        self.assertEqual(self.daemon.tab_leases[('instance', 2)], 'task')
+        self.assertEqual(self.rpc(op='state')['removed'], [])
+        self.assert_no_popup_success_replay(params)
 
-    def test_withheld_adoption_shield_enabling_releases_without_deletion(self):
-        self.assert_unknown_adoption_released(False)
+    def test_shield_enabling_does_not_block_adoption(self):
+        self.assert_shield_toggle_allows_adoption(False)
 
-    def test_withheld_adoption_shield_disabling_releases_without_deletion(self):
-        self.assert_unknown_adoption_released(True)
+    def test_shield_disabling_does_not_block_adoption(self):
+        self.assert_shield_toggle_allows_adoption(True)
 
     def test_successful_popup_actual_background_takeover_and_stop_controls(self):
-        params,pending=self.prepare_adoption()
-        self.assertTrue(self.daemon._run_task(params,_approval=pending)['adopted'])
+        params=self.prepare_adoption()
+        self.assertTrue(self.daemon._run_task(params)['adopted'])
         host=self.daemon._public_task(self.task)
         takeover=self.rpc(op='control',kind='takeover',host=host)
         self.assertEqual(takeover['reply']['state'],'paused')
@@ -257,30 +202,30 @@ class DaemonPopupPeerTests(unittest.TestCase):
         return state
 
     def test_mode_changed_after_successful_adoption_releases_old_qualification(self):
-        params,pending=self.prepare_adoption()
+        params=self.prepare_adoption()
         self.intercept_adoption_receipt(lambda response:self.task.update(modeGeneration=3))
         with self.assertRaises(self.module.ProtocolError) as error:
-            self.daemon._run_task(params,_approval=pending)
+            self.daemon._run_task(params)
         self.assertTrue(error.exception.data['outcomeUnknown'])
         self.assert_released_state()
         self.assertEqual(self.task['state'],'needs_sync')
         self.assertEqual(self.daemon.tab_leases,{})
 
     def test_generation_changed_after_success_releases_only_old_extension_generation(self):
-        params,pending=self.prepare_adoption()
+        params=self.prepare_adoption()
         self.intercept_adoption_receipt(lambda response:self.task.update(generation=2,state='ready'))
-        with self.assertRaises(self.module.ProtocolError):self.daemon._run_task(params,_approval=pending)
+        with self.assertRaises(self.module.ProtocolError):self.daemon._run_task(params)
         self.assert_released_state()
         self.assertEqual((self.task['generation'],self.task['state']),(2,'ready'))
         self.assertEqual(self.daemon.tab_leases,{('instance',1):'task'})
 
     def test_late_success_does_not_revoke_concurrently_renewed_extension_generation(self):
-        params,pending=self.prepare_adoption()
+        params=self.prepare_adoption()
         def renew(response):
             self.rpc(op='renew',generation=2)
             self.task.update(generation=2,state='ready')
         self.intercept_adoption_receipt(renew)
-        with self.assertRaises(self.module.ProtocolError):self.daemon._run_task(params,_approval=pending)
+        with self.assertRaises(self.module.ProtocolError):self.daemon._run_task(params)
         state=self.rpc(op='state')
         self.assertFalse(state['revoked'])
         self.assertEqual(state['generation'],2)
@@ -291,9 +236,9 @@ class DaemonPopupPeerTests(unittest.TestCase):
         self.assertEqual(releases,[{'taskId':'task','generation':1,'closeAgentTabs':False}])
 
     def test_source_lease_revoked_before_success_receipt_cannot_publish_popup(self):
-        params,pending=self.prepare_adoption()
+        params=self.prepare_adoption()
         self.intercept_adoption_receipt(lambda response:self.daemon.tab_leases.pop(('instance',1)))
-        with self.assertRaises(self.module.ProtocolError) as error:self.daemon._run_task(params,_approval=pending)
+        with self.assertRaises(self.module.ProtocolError) as error:self.daemon._run_task(params)
         self.assertEqual(error.exception.code,'invalid_extension_result')
         self.assertTrue(error.exception.data['outcomeUnknown'])
         self.assert_released_state()
@@ -301,7 +246,7 @@ class DaemonPopupPeerTests(unittest.TestCase):
         self.assertNotIn(2,self.task['tabIds'])
 
     def test_adoption_timeout_revokes_and_late_receipt_cannot_revive(self):
-        params,pending=self.prepare_adoption()
+        params=self.prepare_adoption()
         d=self.daemon;extension=d.extensions['instance'];late=[]
         def send(ext,message):
             self.calls.append(message)
@@ -312,7 +257,7 @@ class DaemonPopupPeerTests(unittest.TestCase):
         d._send_extension=send
         original=d._extension_call
         d._extension_call=lambda ext,method,p,timeout=15:original(ext,method,p,timeout=0.01 if method=='browser.execute' else timeout)
-        with self.assertRaises(self.module.ProtocolError) as error:d._run_task(params,_approval=pending)
+        with self.assertRaises(self.module.ProtocolError) as error:d._run_task(params)
         self.assertEqual(error.exception.code,'extension_timeout')
         self.assertTrue(error.exception.data['outcomeUnknown'])
         self.assert_released_state()
@@ -324,23 +269,24 @@ class DaemonPopupPeerTests(unittest.TestCase):
         self.assertEqual(len(self.calls),before)
 
     def test_invalid_adoption_receipt_releases_real_extension_lease(self):
-        params,pending=self.prepare_adoption()
+        params=self.prepare_adoption()
         self.intercept_adoption_receipt(lambda response:response['result'].update(cleanupOwned=True))
-        with self.assertRaises(self.module.ProtocolError) as error:self.daemon._run_task(params,_approval=pending)
+        with self.assertRaises(self.module.ProtocolError) as error:self.daemon._run_task(params)
         self.assertEqual(error.exception.code,'invalid_extension_result')
         self.assertTrue(error.exception.data['outcomeUnknown'])
         self.assert_released_state()
         self.assertEqual(self.task['state'],'needs_sync')
 
     def test_unknown_old_receipt_does_not_revoke_renewed_generation(self):
-        params,pending=self.prepare_adoption()
-        self.rpc(op='settings',enabled=False,toggleAtSend=True)
+        params=self.prepare_adoption()
         def renew(response):
-            self.assertEqual(response['error']['code'],'content_shield_stale')
+            response.pop('result')
+            response['error'] = {'code': 'extension_disconnected', 'message': 'receipt lost',
+                                 'data': {'outcomeUnknown': True}}
             self.rpc(op='renew',generation=2)
             self.task.update(generation=2,state='ready')
         self.intercept_adoption_receipt(renew)
-        with self.assertRaises(self.module.ProtocolError):self.daemon._run_task(params,_approval=pending)
+        with self.assertRaises(self.module.ProtocolError):self.daemon._run_task(params)
         state=self.rpc(op='state')
         self.assertEqual((state['generation'],state['revoked']),(2,False))
         self.assertEqual(state['leases'],[[1,'task']])
@@ -405,7 +351,7 @@ class DaemonPopupPeerTests(unittest.TestCase):
         self.assert_released_state()
 
     def assert_takeover_receipt_failure(self,unpause,error_kind):
-        params,pending=self.prepare_adoption()
+        params=self.prepare_adoption()
         def change(response):
             self.change_takeover_state(unpause)
             if error_kind=='exception':raise RuntimeError('adapter failed after adoption and takeover')
@@ -414,9 +360,9 @@ class DaemonPopupPeerTests(unittest.TestCase):
         self.intercept_adoption_receipt(change)
         if error_kind=='exception':
             with self.assertRaisesRegex(RuntimeError,'adapter failed after adoption and takeover'):
-                self.daemon._run_task(params,_approval=pending)
+                self.daemon._run_task(params)
         else:
-            with self.assertRaises(self.module.ProtocolError) as error:self.daemon._run_task(params,_approval=pending)
+            with self.assertRaises(self.module.ProtocolError) as error:self.daemon._run_task(params)
             self.assertTrue(error.exception.data['outcomeUnknown'])
         self.assert_unknown_takeover_adoption(params)
 
@@ -439,13 +385,13 @@ class DaemonPopupPeerTests(unittest.TestCase):
         self.assert_takeover_receipt_failure(True,'protocol')
 
     def test_unexpected_adoption_exception_does_not_revoke_renewed_generation(self):
-        params,pending=self.prepare_adoption()
+        params=self.prepare_adoption()
         def renew(response):
             self.rpc(op='renew',generation=2)
             self.task.update(generation=2,state='ready')
             raise RuntimeError('adapter failed after generation renewal')
         self.intercept_adoption_receipt(renew)
-        self.approve_and_wait(pending)
+        with self.assertRaises(RuntimeError):self.daemon._run_task(params)
         state=self.rpc(op='state')
         self.assertEqual((state['generation'],state['revoked']),(2,False))
         self.assertEqual(state['leases'],[[1,'task']])
@@ -457,13 +403,13 @@ class DaemonPopupPeerTests(unittest.TestCase):
         self.assert_unknown_adoption_not_replayed(params)
 
     def assert_terminal_adoption_exception(self,final_state):
-        params,pending=self.prepare_adoption()
+        params=self.prepare_adoption()
         self.daemon.cleanup_locks['task']=threading.RLock()
         def finish(response):
             self.daemon._release_task({'owner':'owner','taskId':'task'},final_state,False)
             raise RuntimeError('adapter failed after task termination')
         self.intercept_adoption_receipt(finish)
-        self.approve_and_wait(pending)
+        with self.assertRaises(RuntimeError):self.daemon._run_task(params)
         self.assertEqual((self.task['generation'],self.task['state'],self.task['modeGeneration']),(1,final_state,3))
         self.assertEqual(self.daemon.tab_leases,{})
         self.assert_released_state()
@@ -481,19 +427,19 @@ class DaemonPopupPeerTests(unittest.TestCase):
     def test_unexpected_adoption_exception_preserves_closed_state(self):
         self.assert_terminal_adoption_exception('closed')
 
-    def test_approval_worker_exception_revokes_same_generation_without_duplicate_release(self):
-        params,pending=self.prepare_adoption()
+    def test_direct_exception_revokes_same_generation_without_duplicate_release(self):
+        params=self.prepare_adoption()
         def broken(response):raise RuntimeError('adapter failed after approved adoption')
         self.intercept_adoption_receipt(broken)
-        self.approve_and_wait(pending)
+        with self.assertRaises(RuntimeError):self.daemon._run_task(params)
         self.assert_unknown_takeover_adoption(params)
 
     def test_unexpected_transport_failure_after_adoption_releases_without_replay(self):
-        params,pending=self.prepare_adoption()
+        params=self.prepare_adoption()
         def broken(response):raise RuntimeError('synthetic adapter failed after adoption')
         self.intercept_adoption_receipt(broken)
         with self.assertRaisesRegex(RuntimeError,'synthetic adapter failed'):
-            self.daemon._run_task(params,_approval=pending)
+            self.daemon._run_task(params)
         self.assert_released_state()
         before=len(self.calls)
         with self.assertRaises(self.module.ProtocolError):self.daemon._run_task(params)
@@ -510,8 +456,8 @@ class DaemonPopupPeerTests(unittest.TestCase):
                 self.assert_no_popup_success_replay(params)
 
     def test_adopted_receipt_shield_changes_and_restart_never_replay_success(self):
-        params,pending=self.prepare_adoption()
-        self.assertTrue(self.daemon._run_task(params,_approval=pending)['adopted'])
+        params=self.prepare_adoption()
+        self.assertTrue(self.daemon._run_task(params)['adopted'])
         for enabled in (True,False):
             self.rpc(op='settings',enabled=enabled)
             self.assert_no_popup_success_replay(params)
@@ -529,8 +475,8 @@ class DaemonPopupPeerTests(unittest.TestCase):
         params,_=self.catalog()
         self.assert_no_popup_success_replay(params)
         self.assertEqual(len(self.catalog('fresh-catalog')[1]['candidates']),1)
-        params,pending=self.prepare_adoption()
-        self.assertTrue(self.daemon._run_task(params,_approval=pending)['adopted'])
+        params=self.prepare_adoption()
+        self.assertTrue(self.daemon._run_task(params)['adopted'])
         self.assert_no_popup_success_replay(params)
         self.assertEqual(self.daemon._operation_status({'owner':'owner','taskId':'task','requestId':'adopt'})['state'],'confirmed')
 

@@ -324,10 +324,6 @@ export function createAutomationOverlay({document:doc=globalThis.document,taskId
     stale_reference:'页面引用已失效，请重新解析并核对当前状态',select_option_missing:'未找到指定选项，请重新读取选项列表',
     invalid_target_state:'控件状态无法核验，请核对实际状态，不要直接重试',
     execution_denied:'安全检查未通过，请核对目标和授权',
-    content_shield_uninspectable:'页面有无法检查的框架或封闭组件，本次操作已拒绝，请人工核对',
-    content_shield_changed:'操作期间页面保护状态发生变化，请核对实际结果，不要重复提交',
-    content_shield_unavailable:'页面内容保护状态无法确认，请检查扩展连接和设置',
-    content_shield_unsupported:'此操作不支持当前内容保护模式',
     origin_denied:'目标网站不在任务授权范围',permission_denied:'浏览器权限不足',instance_unavailable:'浏览器已断开'};
    const available=[...recentRows];
    const next=steps.slice(-5).map(row=>{
@@ -340,8 +336,7 @@ export function createAutomationOverlay({document:doc=globalThis.document,taskId
     const duration=Number(row.durationMs);
     let text=`${describeStep(row)} · ${state==='succeeded'?'成功':state==='pending'?'等待确认':state==='unknown'?'结果不确定':'失败'}`;
     if(failed){
-     const readChanged=code==='content_shield_changed'&&['snapshot','semantic_snapshot','page.parse','page.observe','official.ready_state','frame_catalog'].includes(row.action);
-     const explanation=readChanged?'读取期间页面或保护状态发生变化，本次未返回内容，请重新读取':Object.hasOwn(explanations,code)?explanations[code]:'请核对页面状态，不要重复提交';
+     const explanation=Object.hasOwn(explanations,code)?explanations[code]:'请核对页面状态，不要重复提交';
      text+=`（${explanation}）`;
     }
     if(localTime)text+=` · ${localTime}`;

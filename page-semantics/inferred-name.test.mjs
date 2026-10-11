@@ -58,12 +58,12 @@ test('表格各列中的链接文字保持完整，不受 map 回调索引影响
  }finally{f.close();}
 });
 
-test('图标按钮采用 title，单控件包装的邻近文本经过脱敏且不跨兄弟控件',()=>{
+test('图标按钮采用 title，单控件包装的邻近文本原样返回且不跨兄弟控件',()=>{
  const f=fixture();try{
   f.document.body.innerHTML='<button title="设置">⚙</button><span>下载报告 <button><svg></svg></button></span><span>共享名称 <button></button><button></button></span><span data-private>PRIVATE_TOKEN <button></button></span>';
   const buttons=f.semantics.snapshot().items.filter(item=>item.role==='button');
   assert.equal(buttons[0].name,'设置');assert.equal(buttons[1].name,'下载报告');
   assert.equal(buttons[2].name,'');assert.equal(buttons[3].name,'');
-  assert.doesNotMatch(JSON.stringify(buttons),/PRIVATE_TOKEN/);
+  assert.match(JSON.stringify(buttons),/PRIVATE_TOKEN/);
  }finally{f.close();}
 });

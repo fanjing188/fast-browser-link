@@ -1,4 +1,3 @@
-import {validateShieldRules} from './content-shield.mjs';
 import {NativeWorkspaces,registerWorkspaceStartup} from './workspace-adapter.mjs';
 // 中文注释：顶层同步注册浏览器启动撤权，不能等 connect 或 ready 完成后注册。
 registerWorkspaceStartup(chrome);
@@ -12,14 +11,6 @@ import {createApprovalNotifier,showPanelNotification,clearPanelNotification} fro
 let bridge=null,connected=false,connecting=false,lastError='尚未连接本地桥';
 let notifier=null,approvalInstance=null,approvalRefresh=Promise.resolve();
 let connectedInstanceId=null,connectedGeneration=null;
-// 中文注释：发送边界也校验完整设置，不能把损坏的开关或规则当成过滤关闭。
-async function readContentFilter(){return (await readContentShield()).enabled;}
-// 中文注释：一次读取开关和规则，校验失败不按关闭处理。
-async function readContentShield(){
- const value=await chrome.storage.local.get(['pageContentFilter','pageContentShieldRules']);
- if(value.pageContentFilter!==undefined&&typeof value.pageContentFilter!=='boolean')throw Error('CONTENT_SHIELD_UNAVAILABLE');
- return {enabled:value.pageContentFilter===true,rules:validateShieldRules(value.pageContentShieldRules===undefined?{}:value.pageContentShieldRules)};
-}
 // Hermes asks us to show the authorization management UI. A toolbar popup
 // cannot be opened reliably from a background request, so open the same page
 // as a centered, focused extension window instead.
@@ -146,7 +137,7 @@ async function performOverlayCommand({taskId,generation,tabId,origin:site,kind})
 // 中文注释：下载事件只报告已归属任务的元信息；未连接本地桥时不认领，文件留在默认暂存位置。
 const reportDownload=p=>{const current=bridge;if(!current||!connected)return Promise.resolve();return current.request('extension.download_event',p).catch(()=>{});};
 // 中文注释：已存在的订阅也必须遵循当前开关；设置读失败时不推送原始事件。
-const pushCdpEvents=async p=>{try{if((await readContentShield()).enabled)return;}catch{return;}const current=bridge;if(!current||!connected)return;return current.request('extension.cdp_events',p).catch(()=>{});};
+const pushCdpEvents=async p=>{const current=bridge;if(!current||!connected)return;return current.request('extension.cdp_events',p).catch(()=>{});};
 const executor=new Executor(chrome,p=>bridge?.request('extension.tab_event',p).catch(()=>{}),{onPopupAdopt:async p=>{
   const current=bridge;if(!current||!connected)throw Error('POPUP_STALE');
   try{await current.request('extension.popup_adopted',p);}
@@ -155,7 +146,7 @@ const executor=new Executor(chrome,p=>bridge?.request('extension.tab_event',p).c
    const t=executor.tasks.get(p.taskId);if(t?.generation===p.generation){t.revoked=true;void executor.release({taskId:p.taskId,generation:p.generation,closeAgentTabs:false}).catch(()=>{});}
    void current.request('extension.stop',{taskId:p.taskId,generation:p.generation}).catch(()=>{});throw error;
   }
- },onOverlayCommand:overlayCommand,onDownloadEvent:reportDownload,onCdpEvents:pushCdpEvents,onContentShield:readContentShield,
+ },onOverlayCommand:overlayCommand,onDownloadEvent:reportDownload,onCdpEvents:pushCdpEvents,
  // 中文注释：系统通知只说明需要登录，不携带网站、任务或账号信息。
  onSignInRedirect:()=>void showPanelNotification(chrome,'hermes-browser-sign-in','任务页面跳到了第三方登录页。请在该标签页亲自选择账号并完成登录，完成后任务会自动继续。')});
 // 中文注释：镜像状态变化只刷新源扩展确认面板，弹窗不保留复制结果。
@@ -309,7 +300,7 @@ async function connect(){if(bridge||connecting)return;connecting=true;try{
  void cloud.connect(instanceId,/Edg/.test(navigator.userAgent)?'Edge':'Chrome');
  if(!executor.workspaces)executor.workspaces=new NativeWorkspaces(chrome,instanceId,id=>executor.leases.has(id));
  await executor.workspaces.manager.reconcile();
- const port=chrome.runtime.connectNative('com.hermes.browser_link');const current=new Bridge(port,executor,changed,{onConsentStatus:()=>consent.readStatus(),onAccessRequest:openAccessManagementRequest,onContentFilter:readContentFilter,onCookieMirror:(method,p)=>cookieMirror.handle(method,p),onCookieDisconnect:()=>{cookieMirror.disconnect();}});bridge=current;
+ const port=chrome.runtime.connectNative('com.hermes.browser_link');const current=new Bridge(port,executor,changed,{onConsentStatus:()=>consent.readStatus(),onAccessRequest:openAccessManagementRequest,onCookieMirror:(method,p)=>cookieMirror.handle(method,p),onCookieDisconnect:()=>{cookieMirror.disconnect();}});bridge=current;
  port.onDisconnect.addListener(()=>{if(bridge!==current)return;const wasConnected=connected;lastError=chrome.runtime.lastError?.message||'本地桥已断开；操作不会自动重放';connected=false;connectedInstanceId=null;connectedGeneration=null;if(accessWindow)accessWindow.requestId=null;bridge=null;current.close();const old=notifier;notifier=null;approvalInstance=null;old?.dispose().catch(()=>{});disconnectBarrier=executor.disconnect().catch(()=>{});
   // 中文注释：本地桥意外断开（如 daemon 重启）后很快重连一次；在途动作不重放，其余仍靠 30 秒定时重连兜底。
   // 握手前就断开（如开发同步维护中宿主直接退出）不快速重试，等 30 秒定时重连，避免反复拉起宿主进程。
@@ -385,24 +376,6 @@ chrome.runtime.onMessage.addListener((m,sender,respond)=>{
   if(url.protocol!=='https:'||url.origin!==site||url.username||url.password)throw Error('云端网址未确认');
   await chrome.tabs.create({url:site});return {opened:true};
  }
- // 中文注释：此分支位于 isUiSender 校验之后，网页和 native 请求不能切换过滤设置。
- if(m.type==='page_content_filter'){
-  if(typeof m.enabled!=='boolean')throw Error('无效的过滤设置');
-  await chrome.storage.local.set({pageContentFilter:m.enabled});
-  const enabled=await readContentFilter();
-  chrome.runtime.sendMessage({type:'changed'}).catch(()=>{});
-  return {enabled};
- }
- // 中文注释：屏蔽规则入口位于受信 sender 校验之后，保存后逐项读回核实。
- if(m.type==='page_content_shield_read')return {rules:(await readContentShield()).rules};
- if(m.type==='page_content_shield_save'){
-  const rules=validateShieldRules(m.rules);
-  await chrome.storage.local.set({pageContentShieldRules:rules});
-  const saved=(await readContentShield()).rules;
-  if(JSON.stringify(saved)!==JSON.stringify(rules))throw Error('屏蔽区域保存未确认');
-  chrome.runtime.sendMessage({type:'changed'}).catch(()=>{});
-  return {rules:saved};
- }
  // 中文注释：弹窗仅能打开已有镜像确认请求，不能列站点、发起或轮询复制。
  if(m.type==='cookie_mirror_pending'){await refreshApprovals();const pending=notifier?.pending().find(r=>r.kind==='cookie_mirror');if(pending)await notifier.openPending(pending.id);return {opened:!!pending};}
  // 中文注释：主要链接仅由桌面受保护路由设置，弹窗不再提供写入入口。
@@ -411,7 +384,7 @@ chrome.runtime.onMessage.addListener((m,sender,respond)=>{
  // 中文注释：弹窗只读取当前浏览器的任务摘要和实际归属页，不返回输入或日志正文。
  if(m.type==='popup_status'){
   // 中文注释：弹窗状态版本与 Native 握手共用当前扩展清单。
-  const base={connected,browserFullConsentStatus:await consent.readStatus(),pageContentFilter:await readContentFilter(),browser:/Edg/.test(navigator.userAgent)?'Edge':'Chrome',instanceId:connectedInstanceId,cloud:cloud.view(),observedAt:Date.now(),version:chrome.runtime.getManifest().version};
+  const base={connected,browserFullConsentStatus:await consent.readStatus(),browser:/Edg/.test(navigator.userAgent)?'Edge':'Chrome',instanceId:connectedInstanceId,cloud:cloud.view(),observedAt:Date.now(),version:chrome.runtime.getManifest().version};
   if(!connected||!bridge)return {...base,tasks:[],page:null};
   const tasks=await bridge.request('extension.tasks');
   const active=(await chrome.tabs.query({active:true,currentWindow:true}))[0];

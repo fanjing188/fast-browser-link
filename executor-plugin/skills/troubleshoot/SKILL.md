@@ -1,65 +1,22 @@
 ---
 name: troubleshoot
-description: What to do when the browser plugin returns an error or status code (not connected, not authorized, confirmation needed, sensitive field, unknown outcome, site not approved, page still loading). Read this when a browser action fails.
+description: Handle browser connection errors, failed element recovery, incomplete coverage and uncertain action results while continuing the remaining task.
 ---
 
-# When a browser action fails
+# Browser errors
 
-Check `code` (or `bridgeCode`) and `outcome_unknown` in the result. If `outcome_unknown=true`, **never retry** — verify the page first.
+定位失败由插件内部等待页面稳定、重扫 frame 和 Shadow DOM、重新定位，最多恢复三轮。读取结果中的 `coverage` 描述未读范围，不代表整个页面不可用。
 
-| Status / error | Meaning | What to do |
-|---|---|---|
-| `no_browser`, `instance_unavailable`, `extension_disconnected` | The browser extension is not connected | Ask the user to enable the Hermes extension and check that the Hermes "Browser connections" (浏览器连接) page shows *Connected* (已连接), then try again |
-| `task_paused` | The user has taken over the work tab | Wait for the user to click "Resume" (退出接管), check the task state, re-read the page; old refs are invalid |
-| `browser_choice_required` | Several browsers are connected | Show the list to the user or pass `instance_id` |
-| `awaiting_authorization`, `pending_approval`, `invalid_state` | The task is not authorized yet | Check browser connection authorization in the extension and wait for task preparation with `browser_shared_get` until `ready`; Desktop has no action-request or mode-switch button |
-| `approval_required` | An independent special confirmation is pending | Tell the user; for requests other than `popup_adopt`, query with the same `request_id` and arguments according to the returned contract. Popup adoption follows the read-only flow below |
-| `user_input_required`, `sensitive_target` | Password / payment / one-time-code field | The browser asked the user to fill it. Do not fill it or ask for the value. After the user clicks "I've filled it" (我已填写), query again with the same arguments to get `completed_by_user` |
-| `approval_denied`, `user_input_declined` | The user refused | Not executed. Tell the user and ask whether to try another way; do not work around it |
-| `approval_expired` | The confirmation timed out | Not executed. Only with the user's agreement, start again with a **new** `request_id` |
-| `approval_consumed` | A legacy one-use execution permit was already consumed; this is not a selectable approval mode | Not executed. Start a new request with a new `request_id` if the user still wants another run |
-| `origin_denied` | The site is outside the task's scope | Call `browser_shared_open(url=<new site>)` to create a task for it (authorized automatically when full access is on) |
-| `foreign_tab`, `tab_required` | The tab is not this task's, or none was given | Use the returned `tab_id`; for a new page use `new_tab` or `browser_shared_open` |
-| `stale_reference`, `document_changed` | The page changed | Take a new snapshot, then act |
-| `reference_target_missing`, `reference_target_ambiguous` | Same-document relocation had zero or several matches | Take a new snapshot and narrow role, name or region; do not guess |
-| `target_disabled`, `target_hidden`, `target_zero_size`, `target_out_of_viewport` | Control state or geometry prevents safe interaction | Expand, enable or scroll only when the page explicitly permits it; then read again |
-| `page_not_ready` | The page is still loading or was just replaced | Wait a few seconds and read the **same tab** again; do not reopen the URL or open a new tab |
-| `target_occluded`, `target_unstable`, `ambiguous_target`, `incomplete_target_scope` | The target is covered, moving, not unique or not fully read | Nothing was dispatched. Re-read and inspect the obstruction; choose any close action explicitly, then retry with a fresh reference |
-| `outcome_unknown`, `extension_timeout`, `request_outcome_unavailable` | The action may have happened | Do not retry. Read the page once (snapshot, or `reconcile()` in a script) and decide |
-| `needs_sync` | The task was frozen after a disconnect | Verify the page state, then `browser_shared_resume(task_id)`; the user may need to authorize again |
-| `binding_missing`, `session_identity_required` | This session is not bound to a task | `browser_shared_open`, or `browser_shared_get` a ready task |
-| `browser_access_required` | Task access is unavailable or the task ended | Check the task state and create a fresh task if needed |
-| `credential_mode_conflict` | A credential was filled on this page, so script/CDP execution is blocked (or the reverse) | Use semantic actions on this page, or continue in a fresh page |
-| `tab_out_of_scope` | The work tab left the approved sites and is frozen | Navigate it back to an approved site, or `browser_shared_open` the new site |
-| `redirected_out_of_scope` | The page committed a redirect to another origin; nothing was dispatched there | Use `final_origin` with `browser_shared_open` to create a new task |
-| `dialog_open` | A JavaScript dialog is blocking the page | Handle it with the `dialog` action (or `browser_dialog`), then continue |
-| `unsupported_operation` | Not available through the shared browser (for example `browser_snapshot(full=true)`) | Use snapshots, screenshots or `browser_shared_script` instead |
+恢复后仍失败时，检查 `recovery.strategies`、`recovery.candidates` 和 `recovery.screenshotPath`。换名称、角色或选择器重新找；无法处理的条目记录原因后跳过，继续其他条目，不因单个元素失败停止整个任务。
 
-## Popup adoption after approval
+`recovery.selected` 说明最终候选，`otherCandidates` 是其余匹配数量，`locator` 和 `clickMethod` 说明采用的定位与点击方式。
 
-`content_shield_uninspectable` 不等于账号不可选：先保留错误的 `skippedFrame` / `reasonCode` 和覆盖信息，用结构读取核对目标。账号项可能是 ARIA link/button；按新快照中的实际角色和用户指定邮箱唯一定位，执行器只允许不与不可读框架重叠的主文档目标。仍拒绝就停止，不关闭保护或改用 JS/CDP/坐标绕过。`outcome_unknown=true` 时只读核实，不再次点击。
+只有确定尚未派发的动作会重试。`outcomeUnknown=true` 或 `outcome_unknown=true` 表示可能已经执行；先读取页面核实业务结果，不重复提交。确认已完成就继续后续步骤，不能确认则记录该项结果未知并继续独立条目。
 
-For login clicks, check `popupOpened` and `popupNextStep`: smart/full-mode provider authorization pages are automatically adopted; select the returned tab and re-read. Passwords, codes and 2FA remain user `manual_input`. `popupClosed.returnedTo` reports return to the source; read it fresh. For non-provider `popup_adopt`, never resend the action for a cached receipt. Keep the original same-script catalog candidate. `wait_pending(tab=source)` is read-only: it queries the ledger/current scope and returns `state=confirmed`, not `adopted` or `tabId`.
+同一任务页可以跨站导航。使用任务自己的 `tab_id`，不同任务或会话不能共用租约。`foreign_tab` 时选择本任务的页；`task_paused` 时等待用户恢复；连接断开时检查扩展与本地桥连接。停止和撤销仍使当前任务失效。
 
-For single tools, use `browser_shared_get` to check the original/current generation and `adoptedPopupTabIds`; select the known candidate with `browser_shared_use_tab`, then re-read the page. Scripts use `use_tab(candidate['tabId'])` and fresh `read_page`. Metadata is not access proof. Rejected, unknown, expired, revoked or changed-scope requests must not replay.
+JavaScript 对话框会阻塞页面脚本；用 `dialog` 处理后继续。`unsupported_operation` 表示当前接口不支持该动作，应换受支持的接口。
 
-## "I approved, but nothing happened in the browser"
+点击成功但 `effect=unobserved` 表示已点中、页面没有可见变化；读页面确认即可，不要重复点。点击后页面跳转时回执带 `navigation` 和 `url`，直接在同一工作页读取新页面。
 
-1. Ask the user to bring the browser window to the front and check that the extension is enabled.
-2. On the Hermes Browser connections page, click "Enable access / Manage access" (开启访问 / 管理访问) again; the extension opens a centered authorization window.
-3. If no window appears, ask the user to click the Hermes extension icon in the toolbar and act in its popup. The authorization state shown on the Browser connections page is the source of truth.
-
-## Installation and new capability errors
-
-任务 `state=closed` 或 `open_tabs=0` 不证明浏览器已清理。若 `cleanupState=unknown/failed`（如 `browser_offline`、`no_journal`），用 `browser_shared_close(task_id, cleanup_action='status')` 查询并如实报告。只有实际核实无残留后，维护人员才可按项目文档用 `tasks:ack` 登记；不要直接改台账或因没有回执而宣称成功。
-
-Use `browser_shared_doctor` for a read-only installation/connection check. It never starts or repairs the service. Use `browser_shared_reference` to inspect the chosen connected instance.
-
-- `draft_not_verified` / `draft_changed`: run a new real trial with a result assertion before activation.
-- `draft_conflict`: define a fresh draft against the current active tool.
-- `store_busy`: another operation owns the store; inspect its result before making another call.
-- `network_capture_stale`: start a new capture; do not reuse old seq/cursors.
-- `network_entry_unavailable`: the entry was evicted or never existed; list current requests.
-- `outcome_unknown` / `result_truncated` / `invalid_result`: inspect business state; do not automatically replay the workflow.
-
-- `operation_incomplete`: the Python process exited but an action still awaits approval or manual input. Continue the original request with `wait_pending`; do not activate the draft or issue the action again.
+登录弹窗用 `popup_catalog` 查候选、`popup_adopt` 接管，再选返回的 `tabId` 读取。收到 `popupClosed.returnedTo` 后回读源页。密码、支付、验证码字段（`inputRequired: vault_or_user`）不能直接填写，走凭据工具或交给用户。

@@ -11,8 +11,8 @@ test('independent MV3 has no content script and popup preserves task protections
  assert.doesNotMatch(m.description,/智能审批|smart[- ]approval/i);assert.match(m.description,/连接授权后直接执行/);
  const ui=await readFile(new URL('popup.html',root),'utf8');
  assert.match(ui,/连接状态/);assert.match(ui,/任务页访问/);assert.match(ui,/id="version-label"/);
- assert.match(ui,/id="takeover"[^>]*>接管/);assert.match(ui,/id="stop-task"[^>]*>停止/);assert.match(ui,/凭据保护/);
- assert.match(ui,/Cookie 镜像和弹出页接入另行确认/);assert.match(ui,/id="filter-toggle"[^>]*role="switch"/);
+ assert.match(ui,/id="takeover"[^>]*>接管/);assert.match(ui,/id="stop-task"[^>]*>停止/);assert.match(ui,/密码输入值不回显/);
+ assert.doesNotMatch(ui,/id="filter-toggle"/);
  assert.doesNotMatch(ui,/id="(?:cookie-mirror|cursor-toggle|shield-settings|consent-toggle|browser-full-consent|access-toggle)"/);
  assert.doesNotMatch(ui,/智能审批|浏览器权限|日志|id="tasks"/);assert.match(ui,/popup.mjs/);
  const bg=await readFile(new URL('background.mjs',root),'utf8');assert.match(bg,/com.hermes.browser_link/);
@@ -53,9 +53,7 @@ test('real helper extracts and verifies the current package before native E2E',a
  assert.doesNotMatch(manifest.description,/智能审批|smart[- ]approval/i);
  for(const relative of ['docs/usage.md','browser-link/skills/troubleshoot/SKILL.md']){
   const guidance=await readFile(path.join(result.packageRoot,relative),'utf8');
-  assert.match(guidance,/popup_adopt[^\n]*never resend/i,relative);
-  assert.match(guidance,/wait_pending[^\n]*read-only/i,relative);
-  assert.match(guidance,/browser_shared_get[^\n]*generation[^\n]*adoptedPopupTabIds/,relative);
-  assert.match(guidance,/known candidate[^\n]*re-read/i,relative);
+  assert.match(guidance,/recovery/,relative);assert.match(guidance,/popup_adopt/,relative);
  }
+
 }finally{await rm(work,{recursive:true,force:true});}});

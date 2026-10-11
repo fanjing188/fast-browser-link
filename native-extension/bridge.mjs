@@ -1,10 +1,9 @@
 import {RequestLedger} from './request-ledger.mjs';
-import {filterPageResult} from './content-filter.mjs';
 export const isUiSender=(sender,id)=>sender?.id===id&&sender?.url===`chrome-extension://${id}/popup.html`;
 const sameValues=(a,b)=>Array.isArray(a)&&Array.isArray(b)&&a.length===b.length&&JSON.stringify([...a].sort())===JSON.stringify([...b].sort());
 function executionError(error,message){
  // 中文注释：滚动会触发页面副作用，不归入只读动作，丢失回执时禁止自动重试。
- const readOnly=['browser.assess','browser.popup_prepare','browser.read_origin','browser.cleanup_status'].includes(message.method)||['browser.cdp_targets','browser.cdp_version','browser.cdp_chunk','browser.cdp_subscribe'].includes(message.method)||(message.method==='browser.execute'&&['tabs','snapshot','page.observe','page.parse','semantic_snapshot','frame_catalog','screenshot','interaction.capture','interaction.bounds','official.ready_state','cdp.events','network.inspect','images','console'].includes(message.params?.action));
+ const readOnly=['browser.assess','browser.popup_prepare','browser.read_origin','browser.cleanup_status'].includes(message.method)||['browser.cdp_targets','browser.cdp_version','browser.cdp_chunk','browser.cdp_subscribe'].includes(message.method)||(message.method==='browser.execute'&&['popup_catalog','tabs','snapshot','page.observe','page.parse','semantic_snapshot','frame_catalog','screenshot','interaction.capture','interaction.bounds','official.ready_state','cdp.events','network.inspect','images','console'].includes(message.params?.action));
  // CDP exception descriptions contain `Error: CODE` followed by a stack.
  // Match only the complete first-line reason against the allowlists below;
  // never search stack frames or expose arbitrary page exception text.
@@ -18,9 +17,6 @@ function executionError(error,message){
  else if(reason==='CLICK_NO_EFFECT'){code='click_no_effect';text='输入已派发，但在观察期限内没有效果；请先读取页面核对。';}
  else if(reason==='TASK_PAUSED'||reason==='task paused'){code='task_paused';text='用户已接管，任务已暂停；请等待用户继续，不会自动重试。';}
  else if(error?.code==='workspace_unknown'){code='workspace_unknown';text='Workspace ownership or operation outcome is uncertain.';}
- else if(/^CONTENT_SHIELD_(?:UNAVAILABLE|INVALID_RULES|UNSUPPORTED|STALE|CHANGED|UNINSPECTABLE|UNSUPPORTED_VIEWPORT|BLOCKER_OVERLAP|RENDER_UNSUPPORTED)$/.test(reason)){
-  code=reason.toLowerCase();text=reason==='CONTENT_SHIELD_UNINSPECTABLE'?'存在无法检查的区域；改用 read_page / semantic_snapshot 读取主文档，或经来源授权后单独打开 iframe 地址。':'页面内容保护未能确认；请重读后再操作，写入结果未知时不要重放。';
- }
  else if(reason==='SCREENSHOT_TIMEOUT'){code='screenshot_timeout';text='截图超时，未返回截图；请核对页面状态。';}
  else if(reason==='SCREENSHOT_TARGET_MISSING'){code='element_timeout';text='截图目标未唯一找到；请重新读取页面并缩小名称或选择器范围。';}
  else if(reason==='CAPTURE_SENSITIVE_BLOCKED'){code='capture_sensitive_blocked';text='敏感字段遮罩无法确认；请隐藏该字段或让用户手动截图后重试。';}
@@ -130,16 +126,8 @@ function executionError(error,message){
  // 中文注释：仅附固定阶段码与合法 origin，任何路径、查询和网页异常文本都不转发。
  let currentOrigin;try{const url=new URL(error?.currentOrigin);if(['http:','https:'].includes(url.protocol)&&!url.username&&!url.password)currentOrigin=url.origin;}catch{}
  const stage = code==='document_changed'||code==='overlay_frame_changed'?{stage:'document',reasonCode:'document_changed'}:code==='overlay_injection_failed'&&error?.stage==='overlay'&&['initialization_exception','return_type_invalid'].includes(error?.reasonCode)?{stage:'overlay',reasonCode:error.reasonCode}:{};
- const shieldReason=['settings_unavailable','document_not_ready','inventory_invalid','inventory_exception','token_limit','node_limit','invalid_geometry'].includes(error?.reasonCode)?error.reasonCode:null;
- let skippedFrame;
- if(code==='content_shield_uninspectable'&&error?.skippedFrame){
-  const f=error.skippedFrame;let origin;try{origin=new URL(f.origin).origin;}catch{origin='opaque';}
-  if([f.x,f.y,f.width,f.height].every(Number.isFinite)){skippedFrame={origin,x:f.x,y:f.y,width:f.width,height:f.height};text+=` 未覆盖 frame：${origin} (${f.width}x${f.height})；用 root 限定不与它重叠的主文档区域，并以完整名称唯一定位。`;}
- }
- const actionConfirmed=error?.actionConfirmed===true&&code.startsWith('content_shield_');
- return {code,message:text,data:{outcomeUnknown:!actionConfirmed&&code!=='cdp_error'&&!readOnly&&!filePreDispatch&&!refusedBeforeDispatch&&error?.preDispatch!==true,retryable:readOnly&&['document_changed','stale_reference','stale_screenshot','screenshot_expired','page_not_ready','overlay_frame_changed','overlay_injection_failed'].includes(code),
-  ...(actionConfirmed?{actionConfirmed:true}:{}),
-  ...stage,...(shieldReason?{reasonCode:shieldReason}:{}),...(skippedFrame?{skippedFrame}:{}),
+ return {code,message:text,data:{outcomeUnknown:code!=='cdp_error'&&!readOnly&&!filePreDispatch&&!refusedBeforeDispatch&&error?.preDispatch!==true,retryable:readOnly&&['document_changed','stale_reference','stale_screenshot','screenshot_expired','page_not_ready','overlay_frame_changed','overlay_injection_failed'].includes(code),
+  ...stage,...(error?.recovery?{recovery:error.recovery}:{}),
   ...(code==='click_no_effect'?{effect:'unobserved',suggestion:'输入已派发但未观察到效果；请读取目标页核对，检查按钮状态或改用页面支持的操作，不要反复重试。'}:{}),
   ...(['origin_denied','tab_out_of_scope'].includes(code)&&currentOrigin?{currentOrigin,scopeHint:'同站用 goto_url，新站用 browser_shared_open。'}:{}),
   ...(candidates?{candidates}:{}),
@@ -184,7 +172,6 @@ export class Bridge {
   this.ledger=new RequestLedger();this.port=port;this.executor=executor;this.pending=new Map();this.seen=new Map();this.privateSeen=new Set();this.onChanged=onChanged;this.closed=false;this.approvalBarrier=Promise.resolve();
   this.onConsentStatus=typeof handlers.onConsentStatus==='function'?handlers.onConsentStatus:async()=>'unknown';
   // 中文注释：配置由可信弹窗保存；发送前读取，缓存重放也使用当前开关。
-  this.onContentFilter=handlers.onContentFilter||(async()=>false);
   this.onAccessRequest=typeof handlers.onAccessRequest==='function'?handlers.onAccessRequest:async()=>{throw Error('unsupported');};
   // 中文注释：Cookie 请求在账本前分流，禁止缓存 Cookie 载荷、指纹或结果。
   this.onCookieMirror=handlers.onCookieMirror;this.onCookieDisconnect=handlers.onCookieDisconnect;
@@ -208,22 +195,9 @@ export class Bridge {
  }
  send(message) {if(!this.closed)this.port.postMessage(message);}
  async sendResult(request,response) {
-  if(response.error||!['browser.execute','browser.status'].includes(request.method)){this.send(response);return;}
-  try {
-   const enabled=await this.onContentFilter();
-   // 中文注释：已按 DOM 文本块处理的输出不能再次全字段正则匹配，否则会把相邻正常段落误拼成公告。
-   if(this.executor.shieldResponse){const result=await this.executor.shieldResponse(request,response.result);this.send({...response,result:enabled&&result?.contentFilter?.enabled!==true?filterPageResult(request.params?.action,result):result});return;}
-   this.send(enabled?{...response,result:filterPageResult(request.params.action,response.result)}:response);
-  } catch(error) {
-   if(/^CONTENT_SHIELD_/.test(error?.message||'')&&error.message!=='CONTENT_SHIELD_STALE'){this.send({id:response.id,error:executionError(error,request)});return;}
-   if(error?.message==='CONTENT_SHIELD_STALE'){
-    const data={outcomeUnknown:request.params.action==='popup_adopt',retryable:false};
-    this.send({id:response.id,error:{code:'content_shield_stale',message:'屏蔽设置或页面已变化，请核对结果；不要重放写入。',data}});return;
-   }
-   // 中文注释：配置读取失败时不泄露未过滤正文，也不把已执行的脚本报告为未执行。
-   const outcomeUnknown=['js.evaluate','popup_adopt'].includes(request.params.action);
-   this.send({id:response.id,error:{code:'content_filter_unavailable',message:'Content filter settings could not be read; result withheld.',data:{outcomeUnknown,retryable:!outcomeUnknown}}});
-  }
+  if(response.error||!this.executor.response){this.send(response);return;}
+  try{this.send({...response,result:await this.executor.response(request,response.result)});}
+  catch(error){this.send({id:response.id,error:executionError(error,request)});}
  }
  validateApproval(request,result) {
   if(!result||result.id!==request.taskId||(request.generation!==undefined&&result.generation!==request.generation)||!Number.isInteger(result.generation)||!sameValues(result.tabIds,request.tabIds)||!sameValues(result.allowedOrigins,request.allowedOrigins))throw Error('approval response mismatch');
@@ -300,7 +274,6 @@ export class Bridge {
     catch(e){return {id:m.id,error:executionError(e,m)};}
    })().then(async r=>{this.gatewayInflight--;
     // 中文注释：原始请求执行期间用户可能开启过滤；发送前再检查，读失败也不交付原图。
-    if(!r.error)try{if(await this.onContentFilter()){this.send({id:m.id,error:{code:'content_shield_unsupported',message:'过滤开启时拒绝原始 CDP 输出。'}});return;}}catch{this.send({id:m.id,error:{code:'content_filter_unavailable',message:'过滤设置无法读取，输出已拒绝。'}});return;}
     this.send(r);});
    return;
   }

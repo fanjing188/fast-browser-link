@@ -40,13 +40,13 @@ try{
    assert.equal(await tab.read(`document.getElementById(${JSON.stringify(id)}).checked`),true);return result;
   });
  }
- await check('被弹层遮挡的单选仍拒绝',async()=>{
+ await check('被弹层遮挡的单选自动处理后选中',async()=>{
   await tab.read(`(()=>{const d=document.createElement('div');d.id='modal';d.style='position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:9999';document.body.append(d);document.getElementById('freemium').checked=false;return true;})()`);
   const page=await snap('Freemium',['radio']);const item=page.items.find(row=>row.name==='Freemium');
   const result=await tab.run('ref_set_checked',{binding:page.binding,snapshot_id:page.snapshotId,ref:item.ref,checked:true});
   await tab.read(`document.getElementById('modal').remove()`);
-  assert.equal(result?.code??result?.error,'target_occluded',JSON.stringify(result));
-  assert.equal(await tab.read(`document.getElementById('freemium').checked`),false);return result.code;
+  assert.equal(result?.error,undefined,JSON.stringify(result));
+  assert.equal(await tab.read(`document.getElementById('freemium').checked`),true);return result.recovery;
  });
  const exportRoot=await realpath(await mkdtemp('/tmp/bl142-export-'));process.env.HERMES_BROWSER_EXPORT_ROOTS=exportRoot;
  const script=async code=>{const value=await helperCall('script',session.work,tab.owner,tab.task.id,code);assert.equal(value?.exit_code,0,(value.stderr||JSON.stringify(value)).slice(-400));return value.stdout.trim();};
@@ -88,11 +88,12 @@ try{
   const r=JSON.parse(await tab.read(`JSON.stringify(document.querySelector('input[type=image]').getBoundingClientRect())`));
   assert.ok(r.bottom>0&&r.top<await tab.read('innerHeight'),`name rect ${JSON.stringify(r)}`);return {top:Math.round(r.top)};
  });
- await check('公共截图回执 masked 含两类且不含值',async()=>{
+ // 中文注释：1.11.0 起框架不再遮罩，只保留密码类敏感字段遮罩。
+ await check('公共截图回执 masked 只遮敏感字段且不含值',async()=>{
   await tab.read(`document.getElementById('closed-frame-host').scrollIntoView({block:'end'})`);
   const shot=await tab.run('screenshot');assert.equal(shot?.error,undefined,JSON.stringify(shot).slice(0,300));
   const kinds=(shot.masked||[]).map(row=>row.kind);
-  assert.ok(kinds.includes('sensitive_field')&&kinds.includes('uninspectable_frame'),JSON.stringify(shot.masked));
+  assert.ok(kinds.includes('sensitive_field')&&!kinds.includes('uninspectable_frame'),JSON.stringify(shot.masked));
   const text=JSON.stringify(shot.masked||null);assert.ok(!text.includes('synthetic'));
   return shot.masked;
  });

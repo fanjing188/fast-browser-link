@@ -192,6 +192,21 @@ try{
     assert.ok(dynamic.result,JSON.stringify(dynamic));assert.match(JSON.stringify(dynamic.result.items),/禁止爬虫功能介绍/);
    }
    await page.evaluate('clearInterval(window.r10Timer)');
+   // 中文注释：只在临时夹具的保护隔离世界制造异常，验证真实 CDP 类型/堆栈投影，不读取个人页面。
+   await ui.evaluate(`(async()=>{const target={tabId:${tab}};const tree=await testExecutor.api.debugger.sendCommand(target,'Page.getFrameTree');const world=await testExecutor.api.debugger.sendCommand(target,'Page.createIsolatedWorld',{frameId:tree.frameTree.frame.id,worldName:'hermes-content-shield'});window.inventoryWorld=world.executionContextId;await testExecutor.api.debugger.sendCommand(target,'Runtime.evaluate',{contextId:inventoryWorld,expression:'globalThis.savedComputedStyle=getComputedStyle;globalThis.getComputedStyle=()=>{throw new TypeError("PRIVATE_INVENTORY_CANARY")};'});})()`);
+   let diagnostic;
+   try{
+    diagnostic=await ui.evaluate(`readProtected('page.parse',{options:{sections:['blocks','forms','collections'],maxScan:12000}})`);
+    assert.equal(diagnostic.error?.code,'content_shield_unavailable');
+    assert.equal(diagnostic.error.data.reasonCode,'inventory_type_error');assert.equal(diagnostic.error.data.stage,'shield_style');
+    assert.equal(diagnostic.error.data.retryable,false);assert.equal(diagnostic.error.data.outcomeUnknown,false);
+    assert.equal(diagnostic.result,undefined);assert.doesNotMatch(JSON.stringify(diagnostic),/PRIVATE_INVENTORY_CANARY|stackTrace/);
+   }finally{
+    await ui.evaluate(`testExecutor.api.debugger.sendCommand({tabId:${tab}},'Runtime.evaluate',{contextId:inventoryWorld,expression:'globalThis.getComputedStyle=savedComputedStyle;delete globalThis.savedComputedStyle;'})`);
+   }
+   await writeFile(path.join(output,`${name}-inventory-diagnostic.json`),JSON.stringify(diagnostic,null,2));
+   const recovered=await ui.evaluate(`readProtected('page.parse',{options:{sections:['blocks','forms','collections'],maxScan:12000}})`);
+   assert.ok(recovered.result,JSON.stringify(recovered));assert.equal(recovered.result.contentFilter.enabled,true);
    results.push({browser:name,passed:true,r10Scenarios:3,productDescriptionsPreserved:true,dynamicStructuredReads:5,opaqueFrameDiagnostics:true,noManualRules:true,popupSimplified:true,manifestVersionShown:true,persistentCursor:true,intermediateCursorX:moving,cursorPauseResume:true,reducedMotion:true,textRedacted:true,pngPixelChecks:2,dpr:2,domLayoutFocusUnchanged:true,disabledRestoresScreenshot:true,ancestorFilterRefused:true,closedShadowRead:true,sameOriginFrameClosedShadow:true,inlinePrivacy:true,nativeOptionPrivacy:true,slotName:true,virtualGridIndices:true,scopedAccessibility:true,sameNameReferenceClick:true,hiddenSandboxReadFillCapture:true,closedShadowTextRedacted:true,closedShadowPixelMasked:true,opaqueFramePartialRead:true,opaqueFrameCaptureRefused:true,wrappedAriaTable:true,portalOptions:true,scopedSchema:true,iconNames:true,displayContents:true});
   }finally{
    // 中文注释：浏览器主进程退出后子进程可能仍在收尾，只对本次临时 profile 有界重试清理。

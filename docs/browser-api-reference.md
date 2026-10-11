@@ -2,6 +2,10 @@
 
 由 `python3 scripts/generate-browser-reference.py` 从实际 helper 和工具 schema 生成。不要手工编辑。
 
+## Page output and recovery
+
+页面内容原样返回，仅密码输入值不回显。coverage 表示未读范围。同一任务页可跨站；任务与会话标签租约仍隔离。定位失败插件已自动等待、重扫 frame/Shadow DOM 并最多恢复三轮。recovery 包含 triggered、rounds、locator、clickMethod、selected、otherCandidates；失败时另含 strategies、candidates 和 screenshotPath。仍失败就换描述重找或跳过该项继续，不停整个任务。已派发结果未知时先回读核实，不重复执行。
+
 ## Task lifecycle
 
 每轮 `on_session_end(completed=True)` 默认立即关闭工作页；显式设置宽限时，同会话再次调用任意 `browser_shared_*` 取消计时。失败、中断和成功映射 owner 的 `agent_loop_stopped(session_key)` 立即按 handoff 结束。
@@ -158,19 +162,19 @@ Wait until document.readyState reaches ``until``; returns the final state.  The 
 
 ### `wait_for_element(name, *, role=None, root=None, exact=True, timeout=10.0, tab=None, action=None)`
 
-等待唯一且未禁用的元素，返回本次快照和引用；不自动点击。
+等待可用元素，同名候选按可见性排序，返回快照和引用。
 
 扩展能力：`browser_core_v1`。
 
 ### `click_element(name, *, mode='pointer', tab=None, **options)`
 
-按名称/角色点击一次；effect=observed 表示观察到效果，无效果抛 click_no_effect。
+按名称/角色点击一次；effect=observed 表示观察到效果；effect=unobserved 表示已点击但未见页面变化，先读页面核对。
 
 扩展能力：`browser_core_v1`。
 
 ### `fill_element(name, text, tab=None, **options)`
 
-按名称/角色定位后填写一次；敏感字段仍转人工处理。
+按名称/角色定位后填写，定位失败由插件自动恢复。
 
 扩展能力：`browser_core_v1`。
 
@@ -212,7 +216,7 @@ Wait until document.readyState reaches ``until``; returns the final state.  The 
 
 ### `ref_press(snapshot, ref, key, *, tab=None)`
 
-在当前语义目标上派发受限按键，输入前仍须通过敏感字段预审。
+在当前语义目标上派发按键；已派发结果未知时先回读核实。
 
 扩展能力：`browser_core_v1`。
 
@@ -1248,7 +1252,7 @@ Wait for the same approval/manual-input request (max 300 s). Ordinary requests r
 
 ```json
 {
-  "description": "同一页两步以上时，在本会话已就绪的任务中运行一次 Python 脚本并读回核对（填表、翻页、提取、保存）。脚本内可用 new_tab、goto_url、read_page、wait_for_element、click_element、fill_element、scroll、semantic_snapshot、screenshot、reconcile、wait_pending 等函数，连接授权后普通动作直接执行，仍校验任务归属、来源与租约，敏感操作保留独立确认。page_text/read_page 返回 dict，读 elements/items 字段，不能切片 dict；wait_for timeout 上限 60 秒，先检查 satisfied。JS 用 evaluate(function, arguments) 传值。stdout 只打印目标项、coverage、计数和文件路径，大提取物保存在脚本工作区。用法与模板见技能 browser-link:batch-scrape。",
+  "description": "同一页两步以上时，在本会话已就绪的任务中运行一次 Python 脚本并读回核对（填表、翻页、提取、保存）。脚本内可用 new_tab、goto_url、read_page、wait_for_element、click_element、fill_element、scroll、semantic_snapshot、screenshot、reconcile、wait_pending 等函数，连接授权后普通动作直接执行，仍校验任务归属与租约；同一页可跨站，定位失败自动恢复。page_text/read_page 返回 dict，读 elements/items 字段，不能切片 dict；wait_for timeout 上限 60 秒，先检查 satisfied。JS 用 evaluate(function, arguments) 传值。stdout 只打印目标项、coverage、计数和文件路径，大提取物保存在脚本工作区。用法与模板见技能 browser-link:batch-scrape。",
   "parameters": {
     "type": "object",
     "properties": {
@@ -1426,7 +1430,7 @@ Wait for the same approval/manual-input request (max 300 s). Ordinary requests r
 
 ```json
 {
-  "description": "运行已验证的网站工具；连接授权后普通动作直接执行，沿用当前任务、来源、租约和敏感操作独立确认。access 标签不授予权限。结果未知时不重放。",
+  "description": "运行已验证的网站工具；连接授权后普通动作直接执行，沿用当前任务和租约，定位失败自动恢复；仍失败可换描述或跳过该项继续。access 标签不授予权限。结果未知时不重放。",
   "parameters": {
     "type": "object",
     "properties": {

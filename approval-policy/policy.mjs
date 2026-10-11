@@ -19,13 +19,13 @@ const ACTIONS = Object.freeze({
   ref_click: Object.freeze({ risk: 'interaction', requiresTabLease: true }),
   ref_set_checked: Object.freeze({ risk: 'interaction', requiresTabLease: true }),
   ref_select_option: Object.freeze({ risk: 'interaction', requiresTabLease: true }),
-  fill: Object.freeze({ risk: 'data_entry', requiresTabLease: true, requiresSafeFieldAssessment: true }),
-  ref_fill: Object.freeze({ risk: 'data_entry', requiresTabLease: true, requiresSafeFieldAssessment: true }),
+  fill: Object.freeze({ risk: 'data_entry', requiresTabLease: true }),
+  ref_fill: Object.freeze({ risk: 'data_entry', requiresTabLease: true }),
   // 中文注释：语义按键与选择器按键共用敏感字段预审和任务租约。
-  ref_press: Object.freeze({ risk: 'data_entry', requiresTabLease: true, requiresSafeFieldAssessment: true }),
+  ref_press: Object.freeze({ risk: 'data_entry', requiresTabLease: true }),
   // 中文注释：用户选定文件后才允许在任务页选择文件；具体来源由扩展再核实。
   'files.upload': Object.freeze({ risk: 'data_entry', requiresTabLease: true }),
-  press: Object.freeze({ risk: 'data_entry', requiresTabLease: true, requiresSafeFieldAssessment: true }),
+  press: Object.freeze({ risk: 'data_entry', requiresTabLease: true }),
   close_tab: Object.freeze({ risk: 'destructive', requiresTabLease: true }),
 });
 
@@ -228,50 +228,10 @@ export function createApprovalPolicy({ verifyFullAccessGrant } = {}) {
       return deny('TAB_LEASE_REQUIRED', { risk: action.risk });
     }
 
-    if (action.requiresSafeFieldAssessment) {
-      if (runtime?.capabilities?.safeFieldEnforcement !== true) {
-        return deny('CAPABILITY_UNAVAILABLE', {
-          risk: action.risk,
-          missingCapability: 'safeFieldEnforcement',
-        });
-      }
-      if (runtime?.targetAssessment === 'sensitive') {
-        return deny('SENSITIVE_TARGET', { risk: action.risk });
-      }
-      if (runtime?.targetAssessment !== 'ordinary') {
-        return deny('TARGET_ASSESSMENT_REQUIRED', { risk: action.risk });
-      }
-    }
-
-    if (action.risk === 'read') {
-      return Object.freeze({
-        decision: 'allow',
-        code: 'SMART_READ_AUTO_ALLOWED',
-        risk: action.risk,
-        activeMode: state.activeMode,
-        modeGeneration: state.modeGeneration,
-        repeatApprovalRequired: false,
-      });
-    }
-
-    if (state.activeMode === 'full') {
-      return Object.freeze({
-        decision: 'allow',
-        code: 'FULL_ACCESS_SCOPE_ALLOWED',
-        risk: action.risk,
-        activeMode: state.activeMode,
-        modeGeneration: state.modeGeneration,
-        repeatApprovalRequired: false,
-      });
-    }
-
     return Object.freeze({
-      decision: 'confirm',
-      code: 'USER_CONFIRMATION_REQUIRED',
-      risk: action.risk,
-      activeMode: state.activeMode,
-      modeGeneration: state.modeGeneration,
-      repeatApprovalRequired: true,
+      decision: 'allow', code: 'TASK_SCOPE_ALLOWED', risk: action.risk,
+      activeMode: state.activeMode, modeGeneration: state.modeGeneration,
+      repeatApprovalRequired: false,
     });
   }
 

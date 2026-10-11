@@ -22,15 +22,15 @@ test('page cursor rejects document change and budget never asserts completeness'
  const f=fixture('<main>'+Array.from({length:40},(_,i)=>`<p>段落 ${i} ${'内容 '.repeat(10)}</p>`).join('')+'</main>');
  try{const a=f.parser.parse({sections:['blocks'],budget:700});assert(a.nextCursor);assert.equal(a.status,'partial');const b=f.parser.parse({sections:['blocks'],budget:700,cursor:a.nextCursor});assert(b.coverage.offset>0);f.dom.window.document.querySelector('p').textContent='变化';assert.throws(()=>f.parser.parse({sections:['blocks'],budget:700,cursor:b.nextCursor}),/PARSE_CURSOR_STALE/);}finally{f.close();}
 });
-test('hidden and private content never becomes extracted evidence',()=>{
+test('hidden content is excluded while data-private and labeled text remain readable',()=>{
  const f=fixture('<main><p hidden>HIDDEN</p><p data-private>PRIVATE</p><p>token="SECRET"</p></main>');
- try{const r=f.parser.parse();const s=JSON.stringify(r);assert(!s.includes('HIDDEN'));assert(!s.includes('PRIVATE'));assert(!s.includes('SECRET'));assert(s.includes('[redacted]'));}finally{f.close();}
+ try{const r=f.parser.parse();const s=JSON.stringify(r);assert(!s.includes('HIDDEN'));assert(s.includes('PRIVATE'));assert(s.includes('SECRET'));assert(!s.includes('[redacted]'));}finally{f.close();}
 });
 
 // 中文注释：正文分块不能漏掉混合文本，也不能把分散在 inline 标签中的秘密拼回输出。
-test('mixed div text and inline secrets are read as one redacted block',()=>{
+test('mixed div text and inline labeled values are read intact',()=>{
  const f=fixture('<main><div>你好 <span>世界</span></div><div><span>token=</span><span>VERYSECRET</span></div><select aria-label="规格"><option value="private-id">公开选项</option></select></main>');
- try{const r=f.parser.parse();assert(r.blocks.some(b=>b.text.includes('你好')&&b.text.includes('世界')));assert(!JSON.stringify(r).includes('VERYSECRET'));assert(r.forms[0].options.some(o=>o.text==='公开选项'));assert(!JSON.stringify(r).includes('private-id'));}finally{f.close();}
+ try{const r=f.parser.parse();assert(r.blocks.some(b=>b.text.includes('你好')&&b.text.includes('世界')));assert(JSON.stringify(r).includes('VERYSECRET'));assert(r.forms[0].options.some(o=>o.text==='公开选项'));assert(!JSON.stringify(r).includes('private-id'));}finally{f.close();}
 });
 
 // 中文注释：显式 headers 优先于几何推断，行表头不能污染后续行。
@@ -53,6 +53,9 @@ test('组合树 schema 读取 Shadow 字段，普通 DOM 和非组合模式保�
   shadow.innerHTML='<h2>Shadow</h2><h2 hidden>隐藏</h2><h2 data-private>私密</h2>';
   const schema={record:'article',fields:{title:{selector:'h2',required:true}}};
   let result=f.parser.parse({composed:true,root:'#record',sections:[],schema});
+  assert.equal(result.records[0].states.title.status,'ambiguous');
+  shadow.querySelector('[data-private]').remove();
+  result=f.parser.parse({composed:true,root:'#record',sections:[],schema});
   assert.equal(result.records[0].fields.title,'Shadow');assert.equal(result.records[0].states.title.status,'ok');assert.equal(result.records[0].valid,true);
   assert.equal(result.records[0].sources.title.targetPath[0].kind,'shadow');
   assert.equal(f.parser.parse({composed:false,sections:[],schema}).records[0].states.title.status,'missing');
@@ -79,7 +82,7 @@ test('组合树 schema 包含同源 iframe 字段，排除其他记录中的 ifr
   assert.equal(result.records[0].sources.title.targetPath[0].kind,'frame');
   assert.equal(f.parser.parse({composed:false,sections:[],schema}).records[0].states.title.status,'missing');
   frames[0].setAttribute('data-private','');
-  assert.equal(f.parser.parse({composed:true,sections:[],schema}).records[0].states.title.status,'missing');
+  assert.equal(f.parser.parse({composed:true,sections:[],schema}).records[0].fields.title,'Frame 0');
  }finally{f.close();}
 });
 
@@ -119,12 +122,12 @@ test('最小嵌套 iframe 字段与记录、根、可见性和隐私边界',()=>
   assert.equal(f.parser.parse({...options,composed:false}).records[0].states.title.status,'missing');
   for(const node of [outer,inner,title])for(const attribute of ['hidden','data-private']){
    node.setAttribute(attribute,'');
-   const excluded=f.parser.parse(options);assert.equal(excluded.records[0].states.title.status,'missing');assert.equal(excluded.records[0].valid,false);
-   assert(!JSON.stringify(excluded).includes('Nested title'));assert(!JSON.stringify(excluded).includes('Other title'));
+   const excluded=f.parser.parse(options);assert.equal(excluded.records[0].states.title.status,attribute==='hidden'?'missing':'ok');assert.equal(excluded.records[0].valid,attribute!=='hidden');
+   assert.equal(JSON.stringify(excluded).includes('Nested title'),attribute!=='hidden');assert(!JSON.stringify(excluded).includes('Other title'));
    node.removeAttribute(attribute);
   }
   for(const attribute of ['hidden','data-private']){
-   record.setAttribute(attribute,'');assert.deepEqual(f.parser.parse(options).records,[]);record.removeAttribute(attribute);
+   record.setAttribute(attribute,'');assert.equal(f.parser.parse(options).records.length,attribute==='hidden'?0:1);record.removeAttribute(attribute);
   }
   title.remove();const absent=f.parser.parse(options);assert.equal(absent.records[0].states.title.status,'missing');assert.equal(absent.records[0].valid,false);
  }finally{f.close();}
@@ -141,7 +144,7 @@ test('最小选定组合框读取 iframe 选项，非组合及隐藏私密选项
   assert.deepEqual(r.forms[0].options,[{text:'Frame option',selected:true}]);
   assert.deepEqual(f.parser.parse({...options,composed:false}).forms[0].options,[]);
   for(const node of [frame,option])for(const attribute of ['hidden','data-private']){
-   node.setAttribute(attribute,'');assert.deepEqual(f.parser.parse(options).forms[0].options,[]);node.removeAttribute(attribute);
+   node.setAttribute(attribute,'');assert.deepEqual(f.parser.parse(options).forms[0].options,attribute==='hidden'?[]:[{text:'Frame option',selected:true}]);node.removeAttribute(attribute);
   }
  }finally{f.close();}
 });
@@ -151,7 +154,7 @@ test('组合框选项包含 Shadow 子树，排除其他控件和隐藏或私密
  try{
   const shadow=f.dom.window.document.querySelector('#combo').attachShadow({mode:'open'});
   shadow.innerHTML='<div role="option" aria-selected="true">公开选项</div><div role="option" hidden>隐藏选项</div><div role="option" data-private>私密选项</div>';
-  assert.deepEqual(f.parser.parse({composed:true,sections:['forms']}).forms[0].options,[{text:'公开选项',selected:true}]);
+  assert.deepEqual(f.parser.parse({composed:true,sections:['forms']}).forms[0].options,[{text:'公开选项',selected:true},{text:'私密选项',selected:false}]);
   assert.deepEqual(f.parser.parse({composed:false,sections:['forms']}).forms[0].options,[]);
  }finally{f.close();}
 });
@@ -181,10 +184,10 @@ test('包装层中的 ARIA treegrid 单元格保留表头关联及嵌套表格�
  const f=fixture('<div role="treegrid"><div role="row"><div><span role="columnheader">名称</span><span role="columnheader">数量</span></div></div><div role="row"><div><span role="gridcell">设备</span><span role="gridcell">2</span><span role="gridcell" hidden>隐藏</span><span role="gridcell" data-private>私密</span></div><div role="grid"><div role="row"><span role="gridcell">子表</span></div></div></div></div>');
  try{
   const result=f.parser.parse({sections:['tables']});
-  assert.deepEqual(result.tables.map(row=>row.cells.map(cell=>cell.text)),[['名称','数量'],['设备','2'],['子表']]);
-  assert.deepEqual(result.tables[1].cells.map(cell=>cell.headerRefs),result.tables[0].cells.map(cell=>[cell.sourceRef]));
+  assert.deepEqual(result.tables.map(row=>row.cells.map(cell=>cell.text)),[['名称','数量'],['设备','2','私密'],['子表']]);
+  assert.deepEqual(result.tables[1].cells.map(cell=>cell.headerRefs),[...result.tables[0].cells.map(cell=>[cell.sourceRef]),[]]);
   const snapshot=f.semantics.snapshot({mode:'table'});
-  assert.deepEqual(snapshot.items.map(row=>row.cells),[['名称','数量'],['设备','2'],['子表']]);
+  assert.deepEqual(snapshot.items.map(row=>row.cells),[['名称','数量'],['设备','2','私密'],['子表']]);
   const limited=f.parser.parse({sections:['tables'],maxScan:3});
   assert.equal(limited.coverage.traversalComplete,false);assert.deepEqual(limited.tables[0].cells,[]);
  }finally{f.close();}
@@ -195,7 +198,7 @@ test('portal 组合框读取受控选项，排除其他列表与隐藏私密选�
  const f=fixture('<div id="combo" role="combobox" aria-label="地区" aria-controls="choices" aria-owns="choices"></div><div id="choices" role="listbox"><div role="option" aria-selected="true">中国</div><div role="option">英国</div><div role="option" hidden>隐藏</div><div role="option" data-private>私密</div></div><div role="listbox"><div role="option">无关选项</div></div>');
  try{
   const r=f.parser.parse({sections:['forms']});
-  assert.deepEqual(r.forms.find(field=>field.label==='地区').options,[{text:'中国',selected:true},{text:'英国',selected:false}]);
+  assert.deepEqual(r.forms.find(field=>field.label==='地区').options,[{text:'中国',selected:true},{text:'英国',selected:false},{text:'私密',selected:false}]);
   const narrow=f.parser.parse({root:'#combo',sections:['forms']});
   assert.deepEqual(narrow.forms[0].options,[]);assert(narrow.warnings.includes('options_outside_scope'));assert.equal(narrow.status,'partial');
  }finally{f.close();}
@@ -212,9 +215,9 @@ test('schema 的 :scope 子选择器按每条记录解释',()=>{
 });
 
 // 中文注释：脱敏单位必须覆盖整个 inline 段落，选项文字也必须遵守祖先隐私边界。
-test('跨节点秘密先整体脱敏，隐藏 optgroup 与私密 option 均排除',()=>{
+test('跨节点文本完整保留，隐藏 optgroup 排除，data-private option 可读',()=>{
  const f=fixture('<main><p><span>to</span><b>ken=</b><span>INLINE_SECRET_CANARY</span></p><select aria-label="规格"><option>公开</option><option data-private>PRIVATE_OPTION_CANARY</option><optgroup hidden><option>HIDDEN_OPTION_CANARY</option></optgroup><optgroup style="display:none"><option>CSS_OPTION_CANARY</option></optgroup></select></main>');
- try{const r=f.parser.parse();assert(r.blocks.some(b=>b.text==='token=[redacted]'));assert(!JSON.stringify(r).includes('_CANARY'));assert.deepEqual(r.forms[0].options,[{text:'公开',selected:true}]);}finally{f.close();}
+ try{const r=f.parser.parse();assert(r.blocks.some(b=>b.text==='token=INLINE_SECRET_CANARY'));assert(!JSON.stringify(r).includes('HIDDEN_OPTION_CANARY'));assert(!JSON.stringify(r).includes('CSS_OPTION_CANARY'));assert.deepEqual(r.forms[0].options,[{text:'公开',selected:true},{text:'PRIVATE_OPTION_CANARY',selected:false}]);}finally{f.close();}
 });
 
 // 中文注释：虚拟表格索引保留业务坐标，声明总量不能误当已读取的记录数。
@@ -255,7 +258,7 @@ test('Shadow 登录浮层解析自定义提交按钮且排除隐藏或私密的�
   // 中文注释：固定本地测试 HTML，不包含网页或用户提供的字符串。
   f.dom.window.document.querySelector('#host').attachShadow({mode:'open'}).innerHTML='<div role="alertdialog" aria-modal="true"><input autocomplete="username" aria-label="账号"><div role="button" tabindex="0">继续</div></div>';
   const page=f.parser.parse({composed:true,sections:['regions','forms']});
-  assert.deepEqual(page.forms.map(field=>field.label),['账号','继续']);
+  assert.deepEqual(page.forms.map(field=>field.label),['账号','继续','私密账号']);
   assert.equal(page.regions[0].surfaceKind,'modal');
   assert.ok(page.forms[1].actions.includes('click'));assert.equal(page.forms[1].surfaceRef,page.regions[0].sourceRef);
   assert.equal(page.forms[0].targetPath[0].kind,'shadow');

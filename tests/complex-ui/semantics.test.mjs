@@ -131,7 +131,7 @@ test('滚动后可重新读取新列表项；折叠按钮有可操作引用；ca
 });
 
 // 中文注释：图标按钮复用可访问名称规则，隐藏与私密图标不能提供名称。
-test('图片 alt、SVG title 和 tooltip 可命名图标按钮并保留脱敏',()=>{
+test('图片 alt、SVG title 和 tooltip 可命名图标按钮且原样返回',()=>{
  const f=setup();try{
   f.document.body.innerHTML='<button id="image"><img alt="下载报告"></button><button id="svg"><svg><title>展开菜单</title></svg></button><button title="账户 alice@example.com"></button><button><img alt="PRIVATE_ICON" data-private></button>';
   f.dom.window.SVGElement.prototype.getClientRects=()=>[{}];
@@ -139,7 +139,7 @@ test('图片 alt、SVG title 和 tooltip 可命名图标按钮并保留脱敏',(
   assert.equal(page.items.find(item=>item.name==='下载报告').nameSource,'descendant');
   assert.equal(page.items.find(item=>item.name==='展开菜单').nameSource,'descendant');
   assert.equal(page.items.find(item=>item.name==='账户 alice@example.com').nameSource,'title');
-  assert(!JSON.stringify(page).includes('PRIVATE_ICON'));
+  assert(JSON.stringify(page).includes('PRIVATE_ICON'));
   assert.equal(f.semantics.resolve(token(page,page.items.find(item=>item.name==='下载报告'))).id,'image');
  }finally{f.close();}
 });
@@ -155,7 +155,7 @@ test('display contents 的文字和 Shadow 子控件仍可解析',()=>{
   const page=f.semantics.snapshot({composed:true});
   assert.deepEqual(page.items.map(item=>item.name),['保存内容','Shadow 操作']);
   host.setAttribute('data-private','');
-  assert(!JSON.stringify(f.semantics.snapshot({composed:true})).includes('Shadow 操作'));
+  assert(JSON.stringify(f.semantics.snapshot({composed:true})).includes('Shadow 操作'));
  }finally{f.close();}
 });
 
@@ -172,11 +172,11 @@ test('slot 命名和记录上下文保留同名按钮的独立引用',()=>{
 });
 
 // 中文注释：AX 名称只可写回当前快照节点，隐私子内容和状态变化不能被 AX 缓存绕过。
-test('局部 AX 补充脱敏且拒绝私密标签，DOM 变化使其失效',()=>{
+test('局部 AX 补充原样返回标签，DOM 变化使其失效',()=>{
  const f=setup();try{
   f.document.body.innerHTML='<button id="ax"></button><button id="private" aria-labelledby="secret"></button><span id="secret" data-private>PRIVATE_CANARY</span>';
   let page=f.semantics.snapshot();const ax=page.items.find(i=>!i.name&&f.semantics.resolve(token(page,i)).id==='ax'),privateItem=page.items.find(i=>f.semantics.resolve(token(page,i)).id==='private');
-  assert.equal(f.semantics.accessibilityNode(token(page,privateItem)),null);
+  assert.equal(f.semantics.accessibilityNode(token(page,privateItem)),f.document.querySelector('#private'));
   f.semantics.applyAccessibility({...page.binding,snapshotId:page.snapshotId},[{ref:ax.ref,name:'打开 alice@example.com',states:{expanded:false}}]);
   page=f.semantics.snapshot();assert(page.items.some(i=>i.name==='打开 alice@example.com'&&i.nameSource==='accessibility'));
   f.document.querySelector('#ax').textContent='更新名称';assert(!f.semantics.snapshot().items.some(i=>i.nameSource==='accessibility'));
@@ -195,11 +195,11 @@ test('虚拟行回收改变逻辑索引时拒绝旧引用',()=>{
 });
 
 // 中文注释：私密插槽不能通过 light DOM 扫描泄露其分配节点。
-test('私密 slot 同时排除分配的控件和文字',()=>{
+test('data-private slot 返回分配的控件和文字',()=>{
  const f=setup();try{
   f.document.body.innerHTML='<div id="host"><button slot="label">PRIVATE_SLOT_CANARY</button></div>';
   f.document.querySelector('#host').attachShadow({mode:'open'}).innerHTML='<slot name="label" data-private></slot>';
-  assert(!JSON.stringify(f.semantics.snapshot({composed:true})).includes('PRIVATE_SLOT_CANARY'));
+  assert(JSON.stringify(f.semantics.snapshot({composed:true})).includes('PRIVATE_SLOT_CANARY'));
  }finally{f.close();}
 });
 

@@ -380,9 +380,16 @@ _RESULT_ACTIONS = {
 }
 
 
-# 中文注释：每个公开页面动作保留固定内容保护状态，不开放规则或任意 metadata。
+# 中文注释：成功和失败回执使用同一恢复诊断结构，不公开内部截图字节或任意元数据。
+_RESULT_RECOVERY = {
+    **_scalar_fields('triggered rounds locator clickMethod otherCandidates screenshotPath screenshotError'),
+    'selected': {**_scalar_fields('role name ref'), 'rect': _scalar_fields('x y width height')},
+    'strategies': [_scalar_fields('round scanned matched locator')],
+    'candidates': [{**_scalar_fields('role name method'), 'rect': _scalar_fields('x y width height')}],
+    'observation': _RESULT_SEMANTIC,
+}
 for _result_schema in _RESULT_ACTIONS.values():
-    _result_schema['contentFilter'] = _RESULT_CONTENT_FILTER
+    _result_schema['recovery'] = _RESULT_RECOVERY
     _result_schema['skippedFrames'] = [_RESULT_SKIPPED_FRAME]
 
 
@@ -421,6 +428,8 @@ _PUBLIC_ERROR_CODES = _UNKNOWN_ERROR_CODES | frozenset('''
     UNSUPPORTED_SHADOW_DOM SELECTOR_NOT_UNIQUE UNSUPPORTED_DRAG_MODE INVALID_STEPS
     SCOPE_MISMATCH TYPE_DENIED INVALID_DIGEST IDEMPOTENCY_CONFLICT ACTION_FAILED
     TASK_NOT_FOUND INVALID_STATE GENERATION_MISMATCH REQUEST_ID_CONFLICT
+    REFERENCE_TARGET_MISSING REFERENCE_TARGET_AMBIGUOUS TARGET_UNSTABLE TARGET_UNAVAILABLE
+    DOCUMENT_CHANGED STALE_REFERENCE ELEMENT_TIMEOUT EXECUTION_DENIED PAGE_NOT_READY
 '''.split())
 
 
@@ -432,7 +441,16 @@ def _fixed_result_error():
 def _project_tool_result(tool_name, args, value):
     if isinstance(value, dict) and (value.get('error') or value.get('outcome_unknown') is True
                                    or value.get('status') in ('unknown', 'outcome_unknown', 'needs_sync')):
-        return _fixed_result_error()
+        error = _fixed_result_error()
+        if isinstance(value.get('recovery'), dict):
+            error['recovery'] = _project_schema(value['recovery'], _RESULT_RECOVERY)
+            if type(value.get('outcome_unknown')) is bool:
+                error['outcome_unknown'] = value['outcome_unknown']
+            if not error['outcome_unknown']:
+                code = value.get('code')
+                error['code'] = code if isinstance(code, str) and code.upper() in _PUBLIC_ERROR_CODES else 'ACTION_FAILED'
+                error['error'] = '本项未完成；查看 recovery，换描述或跳过后继续。'
+        return error
     if tool_name == 'browser_shared_cookie_mirror':
         # 中文注释：采用闭合类型白名单；不允许不明字符串塞入计数或原因字段泄露值。
         import re

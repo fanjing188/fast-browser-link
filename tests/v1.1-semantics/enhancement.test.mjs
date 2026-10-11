@@ -12,26 +12,26 @@ function fixture(html, limits = {}) {
 }
 const token = (page,item) => ({...page.binding,snapshotId:page.snapshotId,ref:item.ref});
 
-test('removes nonprinting C0/C1 noise before redaction without discarding multilingual graphemes', () => {
+test('text preserves multilingual graphemes and labeled values', () => {
   const good='👩‍💻 हिन्दी café العربية 中文';
   const f=fixture(`<p>Start \u0000\u0001\u001b\u007f\u0085 ${good} token=SE\u0002CRET End</p>`);
   try {
     const page=f.semantics.snapshot({mode:'content'});
-    assert.equal(page.items[0].name,`Start ${good} token=[redacted]`);
-    assert.equal(page.items[0].name.includes(' End'),false,'unquoted credential tails are ambiguous, not separators');
+    assert.equal(page.items[0].name,f.document.querySelector('p').textContent.replace(/\s+/g,' ').trim());
+    assert.equal(page.items[0].name.includes(' End'),true);
     assert.equal(page.coverage.complete,true);
     assert.equal(f.semantics.resolve(token(page,page.items[0])).localName,'p');
   } finally {f.close();}
 });
 
-test('redaction preserves suffix text only after a complete quoted credential and separator', () => {
+test('quoted and unquoted labeled values preserve suffix text', () => {
   const f=fixture('<p>token="private value | still private" | safe suffix</p><p>token=private value | ambiguous tail</p><p>token="unterminated private suffix</p>');
   try {
     const page=f.semantics.snapshot({mode:'content'});
     assert.deepEqual(page.items.map(item=>item.name),[
-      'token=[redacted] | safe suffix',
-      'token=[redacted]',
-      'token=[redacted]',
+      'token="private value | still private" | safe suffix',
+      'token=private value | ambiguous tail',
+      'token="unterminated private suffix',
     ]);
   } finally {f.close();}
 });
@@ -49,12 +49,12 @@ test('opt-in composed view finds open shadow controls and resolves exact duplica
     assert.equal(page.items[0].name,'Save');
     assert.equal(page.items[1].name,'Save');
     assert.equal(f.semantics.resolve(token(page,page.items[1])),shadow.querySelector('#shadow'));
-    assert.equal(page.items[2].name,'token=[redacted]');
+    assert.equal(page.items[2].name,'token=HIDDEN');
     assert.match(page.coverage.scope,/open-shadow/);
   } finally {f.close();}
 });
 
-test('shadow labels stay inside their root and a private or hidden host suppresses descendants', () => {
+test('shadow labels stay inside their root and only a hidden host suppresses descendants', () => {
   const f=fixture('<span id="title">Wrong</span><div id="host"></div><div data-private id="private"></div>');
   try {
     const a=f.document.querySelector('#host').attachShadow({mode:'open'});
@@ -62,10 +62,10 @@ test('shadow labels stay inside their root and a private or hidden host suppress
     const b=f.document.querySelector('#private').attachShadow({mode:'open'});
     b.innerHTML='<button>SECRET_HOST</button>';
     const first=f.semantics.snapshot({composed:true});
-    assert.deepEqual(first.items.map(x=>x.name),['Correct']);
+    assert.deepEqual(first.items.map(x=>x.name),['Correct','SECRET_HOST']);
     f.document.querySelector('#host').hidden=true;
     const second=f.semantics.snapshot({composed:true});
-    assert.equal(second.items.length,0);
+    assert.deepEqual(second.items.map(x=>x.name),['SECRET_HOST']);
   } finally {f.close();}
 });
 

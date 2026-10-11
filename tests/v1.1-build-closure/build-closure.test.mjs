@@ -39,7 +39,7 @@ const sourceCopies = [
   'interaction-highlight.mjs',
   'official-actions.mjs',
   'downloads.mjs',
-  'page-runtime.mjs', 'network-evidence.mjs', 'content-filter.mjs', 'content-shield.mjs',
+  'page-runtime.mjs', 'network-evidence.mjs', 'target-recovery.mjs', 'password-values.mjs',
   'cdp-policy.mjs',
   'page-observers.mjs',
   // 中文注释：有界页面观察是 1.4.4 起的运行依赖，必须逐字复制并校验哈希。

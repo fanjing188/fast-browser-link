@@ -165,9 +165,8 @@ try{
    const popupRun=(action,params={})=>session.rpc(tab.owner,'run',{task_id:tab.task.id,tab_id:candidate.tabId,request_id:tab.nextId(),action,...params});
    const before=await popupRun('semantic_snapshot');assert.equal(before.code,'foreign_tab');
    const id=tab.nextId(),args={candidate_ref:candidate.candidateRef};
-   assert.equal((await tab.run('popup_adopt',args,id)).status,'approval_required');
-   await session.approvePanel('approve',loginOrigin);
-   // 中文注释：接管由批准回调执行；读回双方授权，不靠重复动作取得一次性回执。
+   // 中文注释：1.11.0 起接管不再弹审批，直接执行；读回双方授权，不靠重复动作取得一次性回执。
+   const adoptedNow=await tab.run('popup_adopt',args,id);assert.equal(adoptedNow.error,undefined,JSON.stringify(adoptedNow));
    const current=await waitFor(async()=>{
     const value=verify(await session.rpc(tab.owner,'get',{task_id:tab.task.id}));
     return value.adoptedPopupTabIds?.includes(candidate.tabId)?value:null;
@@ -303,17 +302,15 @@ try{
    return audit;
   }));
  }
- await check('C smart 非白名单：只发现候选，人工确认后才获得租约',()=>withOAuthTask('C-manual',async handle=>{
-  await setMode(handle,'smart');const result=await openOnly(handle,'只开非白名单小窗');
+ // 中文注释：1.11.0 起非白名单小窗由 popup_adopt 直接接管，不再弹人工确认。
+ for(const mode of ['smart','full'])await check(`C ${mode} 非白名单：popup_adopt 直接接管`,()=>withOAuthTask('C-'+mode+'-adopt',async handle=>{
+  await setMode(handle,mode);const result=await openOnly(handle,'只开非白名单小窗');
   assert.equal(result.popupOpened.origin,manualOrigin);
-  const current=await taskState(handle);assert.ok(!current.adoptedPopupTabIds?.includes(result.popupOpened.tabId));
-  const before=await session.rpc(handle.owner,'run',{task_id:handle.task.id,tab_id:result.popupOpened.tabId,request_id:handle.nextId(),action:'semantic_snapshot'});assert.equal(before.code,'foreign_tab');
   const catalog=verify(await handle.run('popup_catalog')),candidate=catalog.candidates.find(row=>row.candidateRef===result.popupOpened.candidateRef);assert.ok(candidate);
-  assert.equal((await handle.run('popup_adopt',{candidate_ref:candidate.candidateRef})).status,'approval_required');
-  await session.approvePanel('approve',manualOrigin);
-  await waitFor(async()=>{const state=await taskState(handle);return state.adoptedPopupTabIds?.includes(candidate.tabId);},10000,{label:'非白名单人工确认授权'});
-  const saved=await persistedTask(handle);assert.ok(!saved.requestHistory.some(row=>row.automatic===true));
-  return {manual:true,tabId:candidate.tabId};
+  const adopted=await handle.run('popup_adopt',{candidate_ref:candidate.candidateRef});assert.equal(adopted.error,undefined,JSON.stringify(adopted));
+  await waitFor(async()=>{const state=await taskState(handle);return state.adoptedPopupTabIds?.includes(candidate.tabId);},10000,{label:'非白名单直接接管'});
+  const read=await session.rpc(handle.owner,'run',{task_id:handle.task.id,tab_id:candidate.tabId,request_id:handle.nextId(),action:'semantic_snapshot'});assert.equal(read.error,undefined,JSON.stringify(read).slice(0,300));
+  return {adopted:true,tabId:candidate.tabId};
  }));
  for(const mode of ['smart','full'])await check(`D ${mode}：站点关闭登录页后回源读取新文档且不报 stale`,()=>withOAuthTask('D-'+mode+'-close',async(handle,flow)=>{
   await setMode(handle,mode);const sourceSnapshot=await confirmedRun(handle,'semantic_snapshot',{options:{mode:'content',budget:5000}});
@@ -339,21 +336,9 @@ try{
   const result=await openOnly(handle,'只开授权小窗'),current=await taskState(handle);assert.equal(current.activeMode,'full');
   return verifyAutoAudit(handle,result.popupOpened);
  }));
- await check('F full 非白名单：全部访问也必须明确确认',()=>withOAuthTask('F-full-manual',async handle=>{
-  const result=await openOnly(handle,'只开非白名单小窗'),current=await taskState(handle);assert.equal(current.activeMode,'full');
-  assert.ok(!current.adoptedPopupTabIds?.includes(result.popupOpened.tabId));
-  const catalog=verify(await handle.run('popup_catalog')),candidate=catalog.candidates.find(row=>row.candidateRef===result.popupOpened.candidateRef);assert.ok(candidate);
-  assert.equal((await handle.run('popup_adopt',{candidate_ref:candidate.candidateRef})).status,'approval_required');
-  await session.approvePanel('reject',manualOrigin);
-  assert.ok(!(await taskState(handle)).adoptedPopupTabIds?.includes(candidate.tabId));
-  const saved=await persistedTask(handle);assert.ok(!saved.requestHistory.some(row=>row.automatic===true));
-  return {mode:'full',automatic:false,confirmationRequired:true};
- }));
 
  // 中文注释：新临时 profile 默认未开启保护；G 必须先经受信弹窗开启并读回，不能用默认 light DOM 快照冒充部分覆盖。
- const shield=await session.ui.evaluate(`chrome.runtime.sendMessage({type:'page_content_filter',enabled:true})`);
- assert.equal(shield.error,undefined,JSON.stringify(shield));assert.equal(shield.result.enabled,true);
- assert.equal(await session.ui.evaluate(`chrome.runtime.sendMessage({type:'popup_status'}).then(r=>r.result.pageContentFilter)`),true);
+ // 中文注释：1.11.0 起内容保护已移除，不再先开启保护开关。
  for(const [scenario,accountRole] of [['G',null],['H','link'],['I','button']])for(const mode of ['smart','full'])await check(`${scenario} ${mode}：带跨源小框架的${accountRole?'ARIA '+accountRole:'原生按钮'}账号页：邮箱可读、按邮箱选中后登录回源`,()=>withOAuthTask(scenario+'-'+mode+'-account',async(handle,flow)=>{
   await setMode(handle,mode);
   const opened=await openOnly(handle,'只开授权小窗');await verifyAutoAudit(handle,opened.popupOpened);
@@ -370,9 +355,10 @@ try{
   for(const email of OAUTH_FIXTURE_ACCOUNTS)assert.ok(JSON.stringify(parsed.blocks).includes(email));
   const selected=OAUTH_FIXTURE_ACCOUNTS[1];
   const account=await confirmedRun(popup,'semantic_snapshot',{options:{query:selected,roles:[accountRole||'button'],budget:5000}});
-  diagnostics.accountRead=account;assert.equal(account.contentFilter.enabled,true);
-  assert.equal(account.coverage.complete,false);assert.equal(account.coverage.coveredScopeComplete,true);
-  assert.equal(account.items.length,1);assert.equal(account.skippedFrames.length,1);assert.equal(account.skippedFrames[0].origin,origin);
+  diagnostics.accountRead=account;
+  // 中文注释：1.11.0 起跨源小框架可经 CDP 读取，覆盖完整，不再跳过。
+  assert.equal(account.coverage.complete,true,JSON.stringify(account.coverage));
+  assert.equal(account.items.length,1,JSON.stringify(account.items));
   await confirmedRun(popup,'ref_click',{binding:account.binding,snapshot_id:account.snapshotId,ref:account.items[0].ref});
   const response=await waitFor(()=>completionResponses.get(flow),10000,{label:'邮箱账号选择的授权请求'});
   assert.equal(completionAccounts.get(flow),selected);

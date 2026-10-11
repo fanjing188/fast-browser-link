@@ -1,9 +1,9 @@
+import {omitPasswordValues} from './password-values.mjs';
 // 中文注释：任务页面运行时（JavaScript / CDP）；只使用现有任务与浏览器访问授权。
 // 与凭据填写在同一页面互斥。隔离执行世界不等于只读沙箱，结果不做秘密过滤承诺。
 import {cdpMethodAllowed,scrubCdpEvent} from './cdp-policy.mjs';
 import {NetworkEvidence} from './network-evidence.mjs';
 import {debuggerTargetId} from './official-actions.mjs';
-import {filterPageResult} from './content-filter.mjs';
 
 export const MAX_JS_RESULT_CHARS=256*1024;
 export const MAX_EXPRESSION_CHARS=100000;
@@ -49,7 +49,6 @@ export class PageRuntime{
  }
  assert(t,p){
   this.assertAccess(t);
-  if(t.credentialTabs?.has(p.tabId))throw fail('CREDENTIAL_MODE_CONFLICT');
   if(this.executor.leases.get(p.tabId)!==t.id)throw fail('tab lease denied');
   const state=t.execution??=( {tabs:new Set(),subscriptions:new Map(),buffers:new Map(),worlds:new Map(),scripts:new Map()} );
   state.tabs.add(p.tabId);
@@ -57,21 +56,8 @@ export class PageRuntime{
   return state;
  }
  // 中文注释：网关缓存的 target 不能代替实时来源校验；跳转尚未提交也先阻断。
- async assertTargetScope(t,p,guard,target={tabId:p.tabId},{allFrames=false}={}){
-  this.assert(t,p);
-  const tab=await this.executor.api.tabs.get(p.tabId);guard();
-  if(t.offScopeTabs?.has(p.tabId))throw fail('TAB_OUT_OF_SCOPE');
-  const allowed=url=>{
-   if(url==='about:blank'&&t.officialBlank?.has(p.tabId)&&!target.sessionId)return;
-   try{this.executor.allowed(t,url);}catch{throw fail('TAB_OUT_OF_SCOPE');}
-  };
-  allowed(tab.url);
-  if(tab.pendingUrl)allowed(tab.pendingUrl);
-  if(target.sessionId||allFrames){
-   // 中文注释：顶层页面仍须属于任务；额外子框架来源由本次调试命令审批说明承载。
-   const tree=await this.executor.api.debugger.sendCommand(target,'Page.getFrameTree',{});guard();
-   if(!target.sessionId)allowed(tree?.frameTree?.frame?.url);
-  }
+ async assertTargetScope(t,p,guard){
+  this.assert(t,p);guard();
  }
  async frameTarget(t,p,guard){
   const target={tabId:p.tabId};
@@ -113,19 +99,20 @@ export class PageRuntime{
     arguments:[{value:p.arguments}],returnByValue:false,awaitPromise:true,userGesture:false,objectGroup:'hermes-page-runtime'});
   })().then(async response=>{
    check();
-   const after=await this.frameTarget(t,p,check);
-   if(after.frame.loaderId!==frame.loaderId)throw fail('DOCUMENT_CHANGED',{outcomeUnknown:true});
+   let coverage={complete:true,scope:'execution_result'};
+   try{const after=await this.frameTarget(t,p,check);if(after.frame.loaderId!==frame.loaderId)coverage={complete:false,scope:'execution_result',missing:['document_changed']};}
+   catch{check();coverage={complete:false,scope:'execution_result',missing:['frame_unavailable']};}
    if(response.exceptionDetails){
     const details=response.exceptionDetails;
     // 中文注释：只保留异常类型和经页面文字过滤的首行；语法错误确定没有执行。
     const type=String(details.exception?.className||'Error').slice(0,80);
     const raw=String(details.exception?.description||details.text||'Uncaught').split(/\r?\n/,1)[0].slice(0,200);
-    const text=filterPageResult('js.evaluate',{ok:true,value:raw}).value;
+    const text=raw;
     const syntax=type==='SyntaxError';
     return {ok:false,code:syntax?'js_syntax_error':'js_exception',outcomeUnknown:!syntax,
-     exception:{type,text,lineNumber:details.lineNumber,columnNumber:details.columnNumber},world};
+     exception:{type,text,lineNumber:details.lineNumber,columnNumber:details.columnNumber},world,coverage};
    }
-   return {ok:true,world,...await this.remoteValue(target,response.result,check)};
+   return {ok:true,world,coverage,...await this.remoteValue(target,response.result,check)};
   });
   // 中文注释：结果序列化也会执行页面代码，必须包含在同一期限内；超时后迟到回执不能继续处理。
   let timer;
@@ -215,7 +202,8 @@ export class PageRuntime{
   // 中文注释：派发期间离站时丢弃结果；动作可能已发生，不能标记为未派发。
   try{await this.assertTargetScope(t,p,guard,target,{allFrames:true});}catch(error){error.preDispatch=false;error.outcomeUnknown=true;throw error;}
   if(!gateway)this.subscribe(t,p.tabId,target.sessionId||null,'buffer');
-  return this.maybeChunk(result,t);
+  const safe=['Page.captureScreenshot','Page.printToPDF'].includes(p.method)?result:omitPasswordValues(result,await this.executor.collectPasswords(t,p));
+  return this.maybeChunk(safe,t);
   }finally{
    // 中文注释：只关闭本次派发的窗口；并发新窗口不会被迟到的 finally 收回。
    if(inputWindow){
@@ -277,7 +265,7 @@ export class PageRuntime{
  // 中文注释：只转发已授权任务页（含其子会话）且已订阅的事件；缓冲有上限，溢出如实计数。
  observe(source,method,params){
   const tabId=source?.tabId,t=this.executor.tasks.get(this.executor.leases.get(tabId));
-  if(!t||t.revoked||t.offScopeTabs?.has(tabId))return;
+  if(!t||t.revoked)return;
   const resources=this.state(t);if(!resources)return;
   this.network.observe(t,source,method,params);
   const sub=resources.subscriptions.get(`${tabId}|${source.sessionId||''}`);if(!sub)return;
@@ -296,7 +284,18 @@ export class PageRuntime{
   this.flushTimer=null;
   const batch=this.pending.splice(0,200),dropped=this.dropped||0;this.dropped=0;
   if(!batch.length&&!dropped)return;
-  try{await this.pushEvents({events:batch,dropped});}catch{}
+  const passwords=new Map(),events=[];
+  for(const row of batch){
+   const t=this.executor.tasks.get(row.taskId);
+   if(!t||t.revoked||t.generation!==row.generation||this.executor.leases.get(row.tabId)!==t.id)continue;
+   const key=`${row.taskId}:${row.tabId}`;
+   if(!passwords.has(key)){
+    try{passwords.set(key,await this.executor.collectPasswords(t,row));}catch{passwords.set(key,t.passwordValues?.get(row.tabId)||new Set());}
+   }
+   if(t.revoked||this.executor.leases.get(row.tabId)!==t.id)continue;
+   events.push({...row,params:omitPasswordValues(row.params,passwords.get(key))});
+  }
+  try{await this.pushEvents({events,dropped});}catch{}
   if(this.pending.length&&!this.flushTimer)this.flushTimer=setTimeout(()=>this.flush(),30);
  }
  drain(t,p,max=200){
@@ -323,7 +322,6 @@ export class PageRuntime{
    const sessions=await this.executor.ensureFrameSessions(t,tabId,guard);
    for(const [targetId,child] of sessions.sessions){
     let site=null;try{site=new URL(child.url).origin;}catch{}
-    if(!t.allowedOrigins.includes(site))continue;
     rows.push({targetId,type:'iframe',url:child.url,title:'',tabId,childSessionId:child.sessionId,attached:true});
    }
   }

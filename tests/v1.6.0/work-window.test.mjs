@@ -157,9 +157,10 @@ test('Shadow DOM 内变化也返回 observed',async()=>{
   assert.equal(result.effect,'observed');
  }finally{f.dom.window.close()}
 });
-test('合成点击无效果抛 click_no_effect，装饰变化不算网页效果',async()=>{
+test('合成点击无效果按成功返回 effect=unobserved 并附提示，装饰变化不算网页效果',async()=>{
  const f=effectFixture();try{
-  await assert.rejects(f.run(async()=>{const host=f.dom.window.document.createElement('div');host.setAttribute('data-hermes-automation-overlay','');f.dom.window.document.body.append(host);return {clicked:true,kind:'dom-synthetic',effect:'unverified'};}),e=>e.code==='CLICK_NO_EFFECT'&&e.effect==='unobserved'&&e.suggestion===NO_EFFECT_HINT&&e.outcomeUnknown===true);
+  const r=await f.run(async()=>{const host=f.dom.window.document.createElement('div');host.setAttribute('data-hermes-automation-overlay','');f.dom.window.document.body.append(host);return {clicked:true,kind:'dom-synthetic',effect:'unverified'};});
+  assert.equal(r.clicked,true);assert.equal(r.effect,'unobserved');assert.equal(r.suggestion,NO_EFFECT_HINT);
   assert.equal(f.listeners.size,0);
  }finally{f.dom.window.close()}
 });

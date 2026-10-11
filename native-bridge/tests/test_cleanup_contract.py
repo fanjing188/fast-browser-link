@@ -398,10 +398,10 @@ class CleanupContractTests(unittest.TestCase):
         self.assertEqual(task['outOfScopeTabIds'], [4])
         self.daemon._dispatch_extension('browser', 'extension.tab_event', dict(base, documentGeneration=4, url='https://example.test/back'))
         self.assertEqual(task['outOfScopeTabIds'], [])
-        # An unapproved URL reported directly is still a hard scope violation.
-        with self.assertRaises(ProtocolError):
-            self.daemon._dispatch_extension('browser', 'extension.tab_event', dict(base, documentGeneration=5, url='https://evil.test/'))
-        self.assertEqual(task['state'], 'needs_sync')
+        # 中文注释：同一租约页面跨站导航不会撤销任务。
+        self.daemon._dispatch_extension('browser', 'extension.tab_event', dict(base, documentGeneration=5, url='https://other.test/'))
+        self.assertEqual(task['state'], 'ready')
+        self.assertIn('https://other.test', task['allowedOrigins'])
 
     def test_created_popup_tracks_only_matching_generation_and_owned_opener(self):
         task = self.daemon.tasks[self.task['id']]

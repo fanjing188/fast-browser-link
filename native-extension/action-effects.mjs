@@ -43,6 +43,9 @@ export async function observeInputEffect({api,target,contextId,frameId,guard,wor
   if(navigation){try{const url=new URL(params.frame?.url||params.url);if(['http:','https:'].includes(url.protocol))navigation.origin=url.origin;}catch{}}
  };
  await api.debugger.sendCommand(target,'Network.enable');guard();
+ // 中文注释：记录点击前网址；跨站跳转会换进程，导航事件可能收不到，靠网址变化确认。
+ const tabUrl=async()=>{try{const tab=await api.tabs?.get?.(target.tabId);return tab?.pendingUrl||tab?.url||null;}catch{return null;}};
+ const startUrl=frameId?null:await tabUrl();
  api.debugger.onEvent.addListener(event);
  let armed=false;
  try{
@@ -50,7 +53,11 @@ export async function observeInputEffect({api,target,contextId,frameId,guard,wor
   let result;
   try{result=await work(markDispatched);guard();}
   catch(error){
-   // 中文注释：只有本次指针已开始派发且对应框架出现导航事件，才用导航确认；绝不重新点击。
+   // 中文注释：点击后页面被替换（上下文销毁）且网址已变，按点击成功并已跳转返回；绝不重新点击。
+   if(!navigation&&error?.preDispatch!==true&&startUrl&&/Execution context was destroyed|Inspected target navigated|Cannot find context|Frame with the given id was not found|No frame for given id|PAGE_NOT_READY|navigation timeout/i.test(String(error?.message||''))){
+    const now=await tabUrl();
+    if(now&&now!==startUrl){try{const url=new URL(now);navigation={kind:'document',...(['http:','https:'].includes(url.protocol)?{origin:url.origin}:{})};}catch{navigation={kind:'document'};}}
+   }
    if(!navigation||error?.preDispatch===true)throw error;
    guard();return {clicked:true,kind:'trusted-input',delivery:'confirmed',effect:'observed',outcomeUnknown:false,navigation};
   }
@@ -64,6 +71,7 @@ export async function observeInputEffect({api,target,contextId,frameId,guard,wor
    guard();if(Date.now()>=deadline)break;
    await new Promise(resolve=>setTimeout(resolve,60));
   }while(Date.now()<=deadline);
-  throw Object.assign(Error('CLICK_NO_EFFECT'),{code:'CLICK_NO_EFFECT',effect:'unobserved',suggestion:NO_EFFECT_HINT,outcomeUnknown:true});
+  // 中文注释：输入已送达但页面无可见变化（如只改脚本变量）时按成功返回并附提示，不当作错误让调用方停下；不补发。
+  return {...result,effect:'unobserved',suggestion:NO_EFFECT_HINT};
  }finally{api.debugger.onEvent.removeListener(event);if(armed)await probe('clear').catch(()=>{});}
 }

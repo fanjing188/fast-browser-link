@@ -8,8 +8,6 @@ let uncertainControl = null
 let busy = false
 let revision = 0
 // 中文注释：过滤偏好可在本地桥断线时设置，与浏览器访问授权分开。
-let filterEnabled = false
-let filterKnown = false
 // 中文注释：版本以当前加载的扩展为准，不使用后台硬编码版本。
 $('#version-label').textContent = `v${chrome.runtime.getManifest().version}`
 
@@ -27,10 +25,6 @@ function render() {
   $('#connect').hidden = known && connected || busy
   $('#connection-card').hidden = known && connected
   $('#access-detail').textContent = !known ? '连接状态待确认。' : connected ? '已连接 · 任务页可由 Hermes 直接访问。' : '未连接 · 确认连接后才能直接访问任务页。'
-  $('#filter-toggle').setAttribute('aria-checked', String(filterEnabled))
-  $('#filter-toggle').disabled = busy || !filterKnown
-  // 中文注释：主流程明确显示自动匹配，额外选择器不是使用前提。
-  $('#filter-detail').textContent = !filterKnown ? '设置状态待确认' : filterEnabled ? '已开启 · 自动识别明确禁令与干扰，保留邮箱和正常内容' : '已关闭 · 返回原始页面内容'
   renderWork()
   // 中文注释：云端区域复用同一状态快照，避免增加本地桥轮询和任务查询。
   window.dispatchEvent(new CustomEvent('browser-link-status',{detail:known?statusData?.cloud:null}))
@@ -46,8 +40,6 @@ async function refresh() {
     known = true
     statusData = result
     connected = result.connected === true
-    filterEnabled = result.pageContentFilter === true
-    filterKnown = true
     if(uncertainControl){
       const task=statusData.tasks?.find(t=>t.id===uncertainControl.taskId)
       if(!task||['cancelled','closed'].includes(task.state)||task.generation!==uncertainControl.generation||uncertainControl.kind==='takeover'&&task.state==='paused'||uncertainControl.kind==='resume'&&['paused','ready','running'].includes(task.state))uncertainControl=null
@@ -56,35 +48,13 @@ async function refresh() {
   } catch {
     if (token !== revision) return
     known = false
-    filterKnown = false
     $('#error').textContent = '连接状态暂时无法读取。'
     $('#error').hidden = false
   } finally { refreshing = false }
   render()
 }
 
-// 中文注释：保存后以后台持久化读回结果为准，失败时不显示为已生效。
-async function setContentFilter() {
-  if (busy || !filterKnown) return
-  const enabled = !filterEnabled
-  busy = true
-  ++revision
-  render()
-  try {
-    const result = await call({type: 'page_content_filter', enabled})
-    if (result.enabled !== enabled) throw Error('过滤状态未确认')
-    filterEnabled = enabled
-    $('#error').hidden = true
-  } catch {
-    filterKnown = false
-    $('#error').textContent = '无法核实过滤设置，请稍后重试。'
-    $('#error').hidden = false
-  } finally {
-    busy = false
-    render()
-  }
-}
-$('#filter-toggle').addEventListener('click', () => void setContentFilter())
+
 
 // 中文注释：只控制已确认的当前页；任务切换后不会复用旧的停止请求。
 function renderWork(){

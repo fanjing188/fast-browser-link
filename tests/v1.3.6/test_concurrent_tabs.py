@@ -190,10 +190,12 @@ class ConcurrentTabsTests(unittest.TestCase):
         self.assertEqual(self.task.get('retiredAgentTabs', {}), {})
         self.assertEqual(self.task['state'], 'ready')
 
-    def test_generation_change_and_origin_denial_remain_fenced(self):
-        with self.assertRaises(daemon_module.ProtocolError):
-            self.run_action('foreign', url='https://evil.test/')
-        self.assertEqual(len(self.rpc('inspect', {})['creates']), 0)
+    def test_cross_origin_navigation_is_allowed(self):
+        self.run_action('foreign', url='https://other.test/')
+        self.assertEqual(len(self.rpc('inspect', {})['creates']), 1)
+        self.assertIn('https://other.test', self.task['allowedOrigins'])
+
+    def test_generation_change_remains_fenced(self):
         call = self.daemon._extension_call
         def changed(ext, method, params, **kwargs):
             result = call(ext, method, params, **kwargs)

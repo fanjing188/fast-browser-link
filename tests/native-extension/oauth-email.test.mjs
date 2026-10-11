@@ -46,8 +46,8 @@ test('provider pages preserve all other secret redaction and never read password
  try{
   Object.defineProperty(f.dom.window.document.querySelector('input'),'value',{get(){throw Error('must not read password');}});
   const text=JSON.stringify([f.semantics.snapshot({mode:'content'}),f.parser.parse()]);
-  assert.ok(text.includes(email));assert.ok(text.includes('[number]'));assert.ok(text.includes('[redacted]'));
-  for(const value of ['4111','SECRET_KEY','SECRET_BEARER','SECRET_PASSWORD'])assert.ok(!text.includes(value));
+  assert.ok(text.includes(email));assert.ok(text.includes('4111'));assert.ok(text.includes('SECRET_KEY'));assert.ok(text.includes('SECRET_BEARER'));
+  for(const value of ['SECRET_PASSWORD'])assert.ok(!text.includes(value));
  }finally{f.close();}
 });
 test('isolated-world reads show emails independently of provider configuration',async()=>{
@@ -105,7 +105,7 @@ test('legacy snapshot/page_text uses the same account-email and other-secret pol
    globalThis.document=f.dom.window.document;globalThis.location=f.dom.window.location;
    const page=pageAction('snapshot',null,null,null,[origin]);
    assert.equal(page.elements[0].text,email);
-   assert.equal(page.elements[1].text,'[number]');assert.equal(page.elements[2].text,'Bearer [redacted]');
+   assert.equal(page.elements[1].text,'4111111111111111');assert.equal(page.elements[2].text,'Bearer SECRET_BEARER');
   }finally{f.close();}
  }}finally{globalThis.document=oldDocument;globalThis.location=oldLocation;}
 });

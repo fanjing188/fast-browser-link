@@ -100,6 +100,12 @@ class BridgeError(RuntimeError):
             # 中文注释：镜像错误与页面错误分开处理，不放行候选、遮挡或任意诊断文本。
             self.data.update(safe_summary(data))
             return
+        if isinstance(data, dict) and isinstance(data.get('recovery'), dict):
+            recovery = data['recovery']
+            if len(json.dumps(recovery)) <= 32768:
+                self.data['recovery'] = {key: recovery[key] for key in (
+                    'triggered', 'rounds', 'locator', 'clickMethod', 'strategies', 'selected',
+                    'otherCandidates', 'candidates', 'observation', 'screenshotPath', 'screenshotError') if key in recovery}
         # 中文注释：仅转发固定形状的脱敏候选和遮挡摘要；不转发网页异常原文。
         if isinstance(data, dict) and code in {'reference_target_missing', 'reference_target_ambiguous'}:
             rows = data.get('candidates')
@@ -131,8 +137,11 @@ class BridgeError(RuntimeError):
                             self.data['skippedFrame'] = {k: frame[k] for k in ('origin', 'x', 'y', 'width', 'height')}
                 except (ValueError, TypeError):
                     pass
-            if data.get('reasonCode') in {'settings_unavailable', 'document_not_ready', 'inventory_invalid', 'inventory_exception', 'token_limit', 'node_limit', 'invalid_geometry'}:
+            shield_exceptions = {'inventory_exception', 'inventory_type_error', 'inventory_range_error', 'inventory_reference_error', 'inventory_syntax_error', 'inventory_security_error', 'inventory_invalid_state'}
+            if data.get('reasonCode') in shield_exceptions | {'settings_unavailable', 'document_not_ready', 'inventory_invalid', 'token_limit', 'node_limit', 'invalid_geometry'}:
                 self.data['reasonCode'] = data['reasonCode']
+            if code == 'content_shield_unavailable' and data.get('reasonCode') in shield_exceptions and isinstance(data.get('stage'), str) and data['stage'] in {'shield_inventory', 'shield_index', 'shield_style', 'shield_text', 'shield_visit', 'shield_walk', 'shield_tokens', 'shield_geometry', 'shield_sensitive'}:
+                self.data['stage'] = data['stage']
             if isinstance(data.get('stage'), str) and isinstance(data.get('reasonCode'), str) and (data.get('stage'), data.get('reasonCode')) in {('overlay', 'initialization_exception'), ('overlay', 'return_type_invalid'), ('document', 'document_changed')}:
                 self.data.update(stage=data['stage'], reasonCode=data['reasonCode'])
             if code in {'origin_denied', 'tab_out_of_scope'} and isinstance(data.get('currentOrigin'), str):

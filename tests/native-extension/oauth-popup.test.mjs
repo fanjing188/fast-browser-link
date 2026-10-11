@@ -102,6 +102,8 @@ for(const change of ['paused','revoked','expired','source navigated'])test(`queu
 function publicBridge(f,onContentFilter=async()=>true){
  let deliver;
  const bridge=new Bridge({onMessage:{addListener(){}},postMessage:message=>deliver(message)},f.executor,()=>{},{onContentFilter});
+ const response=f.executor.response.bind(f.executor);bridge.beforeResponse=onContentFilter;
+ f.executor.response=async(request,result)=>{await bridge.beforeResponse();return response(request,result);};
  const request=params=>({id:params.requestId,sequence:1,method:'browser.execute',params});
  const send=message=>new Promise(resolve=>{deliver=resolve;bridge.receive(message);});
  return {bridge,request,send};
@@ -117,7 +119,7 @@ test('public popup catalog delivers only identity metadata with content shieldin
  assert.equal(f.executor.leases.has(2),false);
 });
 
-for(const action of ['popup_catalog','popup_adopt'])for(const enabled of [false,true])test(`public ${action} refuses a shield toggle before delivery without replaying`,async()=>{
+for(const action of ['popup_catalog','popup_adopt'])for(const enabled of [false,true])test(`public ${action} ignores obsolete shield settings without replaying`,async()=>{
  let settings={enabled,rules:{}};
  const f=await fixture({onContentShield:async()=>settings});
  await f.executor.withSpawnScope(f.executor.tasks.get('a'),1,async()=>{});await f.create();
@@ -126,10 +128,9 @@ for(const action of ['popup_catalog','popup_adopt'])for(const enabled of [false,
  let executions=0;const execute=f.executor.execute.bind(f.executor);
  f.executor.execute=async p=>{executions++;return execute(p);};
  const message=b.request(command),first=await b.send(message);
- assert.equal(first.error?.code,'content_shield_stale');
- assert.equal(first.error.data.outcomeUnknown,action==='popup_adopt');assert.equal(first.error.data.retryable,false);
+ assert.equal(first.error,undefined);assert.ok(first.result);
  // Keep the changed setting for replay: only sending is repeated, never adoption.
- b.bridge.onContentFilter=async()=>settings.enabled;
+ b.bridge.beforeResponse=async()=>settings.enabled;
  assert.deepEqual(await b.send(message),first);assert.equal(executions,1);
  assert.equal(f.executor.leases.get(2),action==='popup_adopt'?'a':undefined);
 });
@@ -140,7 +141,7 @@ for(const action of ['popup_catalog','popup_adopt'])for(const [name,revoke] of [
  ['mode generation',f=>{const t=f.executor.tasks.get('a');t.policy={...t.policy,modeGeneration:t.policy.modeGeneration+1};}],
  ['source lease',f=>{f.executor.leases.delete(1);}],
  ['release',f=>{f.executor.tasks.get('a').revoked=true;}],
- ['receipt registration',f=>{f.executor.shieldResults=new WeakMap();}],
+ ['receipt registration',f=>{f.executor.receipts=new WeakMap();}],
 ])test(`public ${action} refuses ${name} revocation at send and replay with shielding off`,async()=>{
  const f=await fixture({onContentShield:async()=>({enabled:false,rules:{}})});
  await f.executor.withSpawnScope(f.executor.tasks.get('a'),1,async()=>{});await f.create();
@@ -148,8 +149,8 @@ for(const action of ['popup_catalog','popup_adopt'])for(const [name,revoke] of [
  let executions=0;const execute=f.executor.execute.bind(f.executor);
  f.executor.execute=async p=>{executions++;return execute(p);};
  const message=b.request(command),first=await b.send(message);
- assert.equal(first.error?.code,'content_shield_stale');assert.equal(first.error.data.outcomeUnknown,action==='popup_adopt');
- b.bridge.onContentFilter=async()=>false;assert.deepEqual(await b.send(message),first);assert.equal(executions,1);
+ assert.ok(['popup_stale','permission_denied'].includes(first.error?.code));assert.equal(first.error.data.outcomeUnknown,action==='popup_adopt');
+ b.bridge.beforeResponse=async()=>false;assert.deepEqual(await b.send(message),first);assert.equal(executions,1);
 });
 
 test('public adopted popup receipt is fenced by its target lease',async()=>{
@@ -157,18 +158,11 @@ test('public adopted popup receipt is fenced by its target lease',async()=>{
  await f.executor.withSpawnScope(f.executor.tasks.get('a'),1,async()=>{});await f.create();
  const b=publicBridge(f,async()=>{f.executor.leases.set(2,'other');return true;});
  const response=await b.send(b.request(await approved(f)));
- assert.equal(response.error?.code,'content_shield_stale');assert.equal(response.error.data.outcomeUnknown,true);
+ assert.equal(response.error?.code,'popup_stale');assert.equal(response.error.data.outcomeUnknown,true);
  assert.equal(f.executor.leases.get(2),'other');
 });
 
-test('public adoption withholds unavailable filter settings as unknown and never replays',async()=>{
- const f=await fixture({onContentShield:async()=>({enabled:true,rules:{}})});
- await f.executor.withSpawnScope(f.executor.tasks.get('a'),1,async()=>{});await f.create();
- const b=publicBridge(f,async()=>{throw Error('settings offline');}),message=b.request(await approved(f));
- const first=await b.send(message);
- assert.equal(first.error?.code,'content_filter_unavailable');assert.equal(first.error.data.outcomeUnknown,true);assert.equal(first.error.data.retryable,false);
- assert.equal(f.executor.leases.get(2),'a');assert.deepEqual(await b.send(message),first);
-});
+
 
 test('adoption initializes the existing overlay before publishing the popup lease',async()=>{
  const f=await fixture(),t=f.executor.tasks.get('a');await f.executor.withSpawnScope(t,1,async()=>{});await f.create();
@@ -201,7 +195,7 @@ for(const failure of ['attach','unsupported','initialization','update'])test(`ad
  assert.ok(!t.allowedOrigins.includes('https://accounts.example.test'));assert.equal(f.executor.attached.has(2),false);
  assert.equal(t.overlays?.has(2)||false,false);assert.equal(f.listeners.size,0);assert.deepEqual(f.mutations,[]);
  await assert.rejects(f.executor.vault.scope({taskId:'a',generation:1,modeGeneration:1,instanceId:t.instanceId,tabId:2}),/tab lease denied/);
- await assert.rejects(f.executor.execute(command),/approval mismatch|POPUP_STALE/);
+ await assert.rejects(f.executor.execute(command),/overlay injection failed|POPUP_STALE/);
 });
 
 for(const [name,change] of [
@@ -211,7 +205,6 @@ for(const [name,change] of [
  ['target document',f=>{f.executor.docs.set(2,1);} ],
  ['source window',f=>{f.tabs.get(1).windowId=99;}],
  ['source origin',f=>{f.tabs.get(1).url='https://changed.test/';}],
- ['approval expiry',null],
 ])test(`overlay initialization rechecks ${name} before adoption publishes authority`,async()=>{
  const f=await fixture(),t=f.executor.tasks.get('a');await f.executor.withSpawnScope(t,1,async()=>{});await f.create();
  const command=await approved(f),send=f.executor.api.debugger.sendCommand;
@@ -240,7 +233,7 @@ for(const enabled of [false,true])test(`public adoption delivers and replays its
  assert.deepEqual(await b.send(message),first);assert.equal(executions,1);
  // Cached successful receipts must be revalidated after actual lease revocation.
  await f.executor.release({taskId:'a',generation:1,closeAgentTabs:true});
- const stale=await b.send(message);assert.equal(stale.error?.code,'content_shield_stale');assert.equal(stale.error.data.outcomeUnknown,true);
+ const stale=await b.send(message);assert.equal(stale.error?.code,'permission_denied');assert.equal(stale.error.data.outcomeUnknown,true);
  assert.equal(executions,1);assert.equal(f.executor.leases.has(2),false);assert.deepEqual(f.mutations,[]);
  assert.equal(t.overlays.has(2),false);assert.ok(!t.agentTabs.has(2));assert.equal(f.tabs.get(2).windowId,8);assert.equal(f.tabs.get(2).openerTabId,1);
  await assert.rejects(f.executor.vault.scope({taskId:'a',generation:1,modeGeneration:1,instanceId:t.instanceId,tabId:2}),/stale generation/);
@@ -386,15 +379,7 @@ test('source changing during popup window inspection cannot cross the adoption f
  await assert.rejects(f.executor.execute(command));assert.ok(!t.tabIds.has(2));
 });
 
-test('confirmation expiring while waiting for the source lock is not adopted',async()=>{
- const f=await fixture(),t=f.executor.tasks.get('a');await f.executor.withSpawnScope(t,1,async()=>{});await f.create();
- const command=await approved(f),grant=f.executor.actionGrants.get(command.approval.nonce);
- let entered,release;const started=new Promise(resolve=>entered=resolve),gate=new Promise(resolve=>release=resolve);
- const blocker=f.executor.lock(1,async()=>{entered();await gate;});await started;
- const operation=f.executor.execute(command);await Promise.resolve();await Promise.resolve();
- grant.expiresAt=0;release();await blocker;
- await assert.rejects(operation);assert.ok(!t.tabIds.has(2));
-});
+
 
 test('source document changing during the final target readback cannot acquire a lease',async()=>{
  const f=await fixture(),t=f.executor.tasks.get('a');await f.executor.withSpawnScope(t,1,async()=>{});await f.create();
@@ -467,13 +452,12 @@ for(const change of ['expired','window','revoked','source navigation'])test(`lat
  release();await created;assert.equal(f.executor.popups.candidates.size,0);
 });
 
-test('full mode still requires exact confirmation; adoption preserves existing opener without cleanup ownership',async()=>{
+test('default adoption needs no confirmation; adoption preserves existing opener without cleanup ownership',async()=>{
  const f=await fixture(),t=f.executor.tasks.get('a');
  f.executor.setMode({...trustedTask(),modeGeneration:2,activeMode:'full'});
  await f.executor.withSpawnScope(t,1,async()=>{});await f.create();
  const catalog=await f.executor.execute(f.command('popup_catalog',{modeGeneration:2}));
  const command=f.command('popup_adopt',{modeGeneration:2,candidateRef:catalog.candidates[0].candidateRef});
- await assert.rejects(f.executor.execute(command),/confirmation required/);
  const scope=await f.executor.preparePopup(command),nonce=randomUUID(),digest='test-digest';
  const {generation,modeGeneration,allowedOrigins,...request}=command;
  f.executor.approveAction({taskId:'a',generation,modeGeneration,request,nonce,digest,popupScope:scope,expiresAt:Date.now()/1000+120});
@@ -483,7 +467,7 @@ test('full mode still requires exact confirmation; adoption preserves existing o
  assert.ok(t.adoptedPopupTabs.has(2));assert.ok(!t.agentTabs.has(2));
  assert.ok(t.allowedOrigins.includes('https://accounts.example.test'));
  assert.equal(f.tabs.get(2).openerTabId,1);assert.deepEqual(f.mutations,[]);
- await assert.rejects(f.executor.execute({...command,popupScope:scope,approval:{nonce,digest}}),/approval mismatch|POPUP_STALE/);
+ await assert.rejects(f.executor.execute({...command,popupScope:scope,approval:{nonce,digest}}),/overlay injection failed|POPUP_STALE/);
 });
 
 // 中文注释：浏览器输入以合成回执替代；执行器的源页锁、接管、浮层和结果边界保持真实。
@@ -503,12 +487,12 @@ for(const action of ['click','ref_click','interaction.click'])test(`${action} re
  assert.ok(!JSON.stringify(result).includes('canary'));
 });
 
-for(const mode of ['smart','full'])test(`${mode} non-provider and social-site ordinary pages retain manual confirmation`,async()=>{
+for(const mode of ['smart','full'])test(`${mode} non-provider and social-site ordinary pages can be adopted without confirmation`,async()=>{
  for(const url of ['https://accounts.example.test/login','https://github.com/user/repo','https://x.com/home','https://accounts.google.com.evil.test/login','http://accounts.google.com/login']){
   const f=await fixture(),t=f.executor.tasks.get('a');if(mode==='full')f.executor.setMode({...trustedTask(),modeGeneration:2,activeMode:mode});await f.executor.withSpawnScope(t,1,async()=>{});await f.create(2,{url});
   const row=[...f.executor.popups.candidates.values()][0];await row.autoWork;
   assert.equal(f.executor.leases.has(2),false);
-  await assert.rejects(f.executor.execute(f.command('popup_adopt',{modeGeneration:t.policy.modeGeneration,candidateRef:row.candidateRef})),/confirmation required/);
+  assert.equal((await f.executor.execute(f.command('popup_adopt',{modeGeneration:t.policy.modeGeneration,candidateRef:row.candidateRef}))).adopted,true);
  }
 });
 
@@ -656,7 +640,7 @@ test('shielded public snapshot returns the fresh source after popup close withou
 });
 
 
-for(const scenario of ['old candidate','pre-existing tab','foreign opener','foreign target lease','no popup'])test(`popup effect excludes ${scenario} and preserves CLICK_NO_EFFECT`,async()=>{
+for(const scenario of ['old candidate','pre-existing tab','foreign opener','foreign target lease','no popup'])test(`popup effect excludes ${scenario} and reports effect unobserved`,async()=>{
  const f=await fixture({workspace:true}),t=f.executor.tasks.get('a'),command=f.command('click');
  if(scenario==='old candidate'){
   await f.executor.withSpawnScope(t,1,async()=>{});await f.create();
@@ -670,13 +654,14 @@ for(const scenario of ['old candidate','pre-existing tab','foreign opener','fore
   return send(target,method,p);
  };
  let dispatches=0;
- await assert.rejects(f.executor.observeClickEffect(t,command,{
+ const unobserved=await f.executor.observeClickEffect(t,command,{
   api:f.executor.api,target:{tabId:1},contextId:1,guard:f.executor.popupGuard(t,command),timeoutMs:20,
   work:()=>f.executor.withSpawnScope(t,1,async()=>{
    dispatches++;
    if(!['old candidate','no popup'].includes(scenario))await f.create(2,{openerTabId:scenario==='foreign opener'?9:1});
    return {clicked:true,kind:'dom-synthetic',effect:'unverified'};
   }),
- }),error=>error.code==='CLICK_NO_EFFECT'&&error.outcomeUnknown===true);
+ });
+ assert.equal(unobserved.effect,'unobserved');
  assert.equal(dispatches,1);assert.equal(f.executor.leases.get(2),scenario==='foreign target lease'?'peer':undefined);
 });

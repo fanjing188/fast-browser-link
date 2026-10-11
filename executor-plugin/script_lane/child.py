@@ -24,7 +24,7 @@ from pathlib import Path
 class BrowserError(RuntimeError):
     """A browser action failed. ``outcome_unknown`` means do not replay it."""
 
-    def __init__(self, message, code=None, outcome_unknown=True, final_origin=None, candidates=None, obstruction=None, current_origin=None, stage=None, reason_code=None, effect=None, suggestion=None, skipped_frame=None):
+    def __init__(self, message, code=None, outcome_unknown=True, final_origin=None, candidates=None, obstruction=None, current_origin=None, stage=None, reason_code=None, effect=None, suggestion=None, skipped_frame=None, recovery=None):
         super().__init__(message)
         self.code = code
         self.outcome_unknown = outcome_unknown
@@ -36,6 +36,7 @@ class BrowserError(RuntimeError):
         # 中文注释：无效果错误向脚本公开固定字段。
         self.effect, self.suggestion = effect, suggestion
         self.skipped_frame = skipped_frame
+        self.recovery = recovery
 
     def __str__(self):
         # 中文注释：异常首行保留可信错误码，便于从脚本回溯区分拒绝与未知结果。
@@ -44,13 +45,10 @@ class BrowserError(RuntimeError):
             message += f' 请用 {self.final_origin} 新开任务。'
         if self.code in {'origin_denied', 'tab_out_of_scope'}:
             message += f' 当前来源：{self.current_origin or "unavailable"}；同站用 goto_url，新站用 browser_shared_open。'
-        if self.code == 'content_shield_uninspectable':
-            message += ' 改用 read_page / semantic_snapshot 读取主文档，或经授权后单独打开 iframe 地址。'
-            if self.skipped_frame:
-                f = self.skipped_frame
-                message += f" 未覆盖 frame：{f['origin']} ({f['width']}x{f['height']})；用 root 限定不重叠区域，并以完整名称唯一定位。"
         if self.reason_code:
             message += f' 原因：{self.reason_code}。'
+        if self.recovery:
+            message += ' 恢复详情：' + json.dumps(self.recovery, ensure_ascii=False)
         return f'BrowserError[{self.code}]: {message}' if self.code else message
 
 
@@ -147,7 +145,7 @@ def _call(op, args):
                candidates=reply.get('candidates') if code in {'reference_target_missing', 'reference_target_ambiguous', 'element_timeout'} else None,
                obstruction=reply.get('obstruction') if code == 'target_occluded' else None,
                current_origin=reply.get('currentOrigin'), stage=reply.get('stage'), reason_code=reply.get('reasonCode'),
-               effect=reply.get('effect'), suggestion=reply.get('suggestion'), skipped_frame=reply.get('skippedFrame'))
+               effect=reply.get('effect'), suggestion=reply.get('suggestion'), skipped_frame=reply.get('skippedFrame'), recovery=reply.get('recovery'))
 
 
 def parallel(fn, tabs):
@@ -496,7 +494,7 @@ def _normalized_accessible_name(value):
 
 
 def wait_for_element(name, *, role=None, root=None, exact=True, timeout=10.0, tab=None, action=None):
-    """等待唯一且未禁用的元素，返回本次快照和引用；不自动点击。"""
+    """等待可用元素，同名候选按可见性排序，返回快照和引用。"""
     if (not isinstance(name, str) or not name.strip() or len(name) > 2000
             or type(exact) is not bool or (role is not None and
                 (not isinstance(role, str) or not role or len(role) > 100))
@@ -539,23 +537,10 @@ def wait_for_element(name, *, role=None, root=None, exact=True, timeout=10.0, ta
         suggestions = [{'role': item.get('role', ''), 'name': item['name'][:80]}
                        for candidate in nearest for item in candidates
                        if _normalized_accessible_name(item['name']) == candidate][:3]
-        # 中文注释：仅主文档完整、唯一的原生引用可进入派发前几何复核；未读框架不被当作已覆盖。
-        if coverage.get('complete') is not True:
-            scoped = (action == 'click' and coverage.get('coveredScopeComplete') is True
-                      and coverage.get('contentShieldSkippedFrames', 0) > 0
-                      and len(matches) == 1 and isinstance(page.get('skippedFrames'), list)
-                      and bool(page['skippedFrames'])
-                      and not any(part.get('kind') == 'frame' for part in matches[0].get('targetPath', [])))
-            if not scoped:
-                frames = ', '.join(f"{frame.get('origin', 'opaque')} ({frame.get('width')}x{frame.get('height')})"
-                                   for frame in page.get('skippedFrames', [])[:8])
-                raise BrowserError('目标范围不完整；用 root 限定主文档账号列表，并以完整邮箱、role 唯一定位；'
-                                   '若目标在 iframe 内，请单独打开其地址。未覆盖 frame：' + (frames or '未确认'),
-                                   code='incomplete_target_scope', outcome_unknown=False)
-        if len(matches) > 1:
-            raise BrowserError('multiple matching elements; specify a narrower root; candidates: ' +
-                               ', '.join(row['name'] for row in suggestions),
-                               code='ambiguous_target', outcome_unknown=False, candidates=suggestions)
+        # 中文注释：覆盖率只描述缺口；同名候选优先选择可见、在视口内且无遮挡的目标。
+        matches.sort(key=lambda item: (item.get('visible') is not False,
+                                      item.get('inViewport') is True,
+                                      item.get('occluded') is False), reverse=True)
         if action == 'fill' and rejected and not matches:
             reason = ('target_disabled' if all(item.get('disabled') or item.get('busy') for item in rejected)
                       else 'target_readonly' if all(item.get('readonly') for item in rejected) else 'target_not_actionable')
@@ -564,7 +549,7 @@ def wait_for_element(name, *, role=None, root=None, exact=True, timeout=10.0, ta
         if matches and not matches[0].get('disabled') and not matches[0].get('busy'):
             if not isinstance(matches[0].get('ref'), str) or not matches[0]['ref']:
                 raise BrowserError('missing element reference', code='invalid_receipt', outcome_unknown=False)
-            return {'snapshot': page, 'ref': matches[0]['ref']}
+            return {'snapshot': page, 'ref': matches[0]['ref'], 'recovery': {'selected': matches[0], 'otherCandidates': len(matches)-1}}
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             if len(suggestions) < 3:
@@ -584,20 +569,26 @@ def wait_for_element(name, *, role=None, root=None, exact=True, timeout=10.0, ta
         time.sleep(min(0.25, remaining))
 
 
+def _selection_result(result, target):
+    if isinstance(result, dict):
+        result['recovery'] = {**target.get('recovery', {}), **result.get('recovery', {})}
+    return result
+
+
 @_tab_scoped
 def click_element(name, *, mode='pointer', tab=None, **options):
-    """按名称/角色点击一次；effect=observed 表示观察到效果，无效果抛 click_no_effect。"""
+    """按名称/角色点击一次；effect=observed 表示观察到效果；effect=unobserved 表示已点击但未见页面变化，先读页面核对。"""
     target = wait_for_element(name, action='click', **options)
-    return ref_click(target['snapshot'], target['ref'], mode=mode)
+    return _selection_result(ref_click(target['snapshot'], target['ref'], mode=mode), target)
 
 
 @_tab_scoped
 def fill_element(name, text, tab=None, **options):
-    """按名称/角色定位后填写一次；敏感字段仍转人工处理。"""
+    """按名称/角色定位后填写，定位失败由插件自动恢复。"""
     if not isinstance(text, str):
         raise BrowserError('text must be a string', code='invalid_params', outcome_unknown=False)
     target = wait_for_element(name, action='fill', **options)
-    return ref_fill(target['snapshot'], target['ref'], text)
+    return _selection_result(ref_fill(target['snapshot'], target['ref'], text), target)
 
 
 @_tab_scoped
@@ -645,7 +636,7 @@ def ref_fill(snapshot, ref, text, *, tab=None):
 
 @_tab_scoped
 def ref_press(snapshot, ref, key, *, tab=None):
-    """在当前语义目标上派发受限按键，输入前仍须通过敏感字段预审。"""
+    """在当前语义目标上派发按键；已派发结果未知时先回读核实。"""
     if key not in ('Enter', 'Tab', 'Escape', 'ArrowDown', 'ArrowUp'):
         raise BrowserError('invalid key', code='invalid_params', outcome_unknown=False)
     params = {'binding': snapshot['binding'], 'snapshotId': snapshot['snapshotId'], 'ref': ref, 'key': key}

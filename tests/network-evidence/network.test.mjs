@@ -15,11 +15,11 @@ function fixture(){
 }
 test('summary then detail pages one cached JSON without credentials',async()=>{
  const f=fixture(),{captureId}=await f.inspect({operation:'start'});f.request('one');f.finish('one');
- const list=await f.inspect({operation:'list',captureId});assert.equal(list.entries.length,1);assert.equal(list.entries[0].url,'https://example.test/api');
+ const list=await f.inspect({operation:'list',captureId});assert.equal(list.entries.length,1);assert.equal(list.entries[0].url,'https://example.test/api?token=PRIVATE');
  assert.equal(f.calls.includes('Network.getResponseBody'),false);
  const first=await f.inspect({operation:'detail',captureId,seq:1,maxChars:200});assert.equal(first.body.nextStart,200);
  const rest=await f.inspect({operation:'detail',captureId,seq:1,start:200,maxChars:20000});
- assert.ok(!(first.body.text+rest.body.text).includes('PRIVATE'));assert.equal(f.calls.filter(x=>x==='Network.getResponseBody').length,1);
+ assert.ok((first.body.text+rest.body.text).includes('PRIVATE'));assert.equal(f.calls.filter(x=>x==='Network.getResponseBody').length,1);
  assert.equal((await f.inspect({operation:'list',captureId,afterSequence:list.cursor})).entries.length,0);
 });
 test('updates are visible after list cursor and page limits advance',async()=>{
@@ -54,7 +54,7 @@ test('document replacement preserves captures; leaving scope or closing clears t
  await executor.tabEvent(7,'navigated','https://example.test/next');
  assert.equal(task.execution.network.get(7),capture);
  await executor.tabEvent(7,'navigated','https://outside.test/');
- assert.equal(task.execution.network.has(7),false);
+ assert.equal(task.execution.network.has(7),true);
  task.execution.network.set(7,capture);
  await executor.tabEvent(7,'closed');
  assert.equal(task.execution.network.has(7),false);
@@ -81,5 +81,6 @@ for(const change of ['revoke','navigate'])test(`network detail rejects ${change}
   if(change==='revoke'){task.revoked=true;executor.pageRuntime.clear(task);}
   else await executor.tabEvent(7,'navigated','https://outside.test/');
  };
- await assert.rejects(execute({operation:'detail',captureId,seq:1}),change==='revoke'?/stale generation/:/NETWORK_CAPTURE_STALE/);
+ if(change==='revoke')await assert.rejects(execute({operation:'detail',captureId,seq:1}),/stale generation/);
+ else assert.equal((await execute({operation:'detail',captureId,seq:1})).body.text,'{"rows":[1]}');
 });

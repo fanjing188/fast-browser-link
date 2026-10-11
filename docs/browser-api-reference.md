@@ -6,6 +6,8 @@
 
 页面内容原样返回，仅密码输入值不回显。coverage 表示未读范围。同一任务页可跨站；任务与会话标签租约仍隔离。定位失败插件已自动等待、重扫 frame/Shadow DOM 并最多恢复三轮。recovery 包含 triggered、rounds、locator、clickMethod、selected、otherCandidates；失败时另含 strategies、candidates 和 screenshotPath。仍失败就换描述重找或跳过该项继续，不停整个任务。已派发结果未知时先回读核实，不重复执行。
 
+动作 helper 可显式传 `after={"root":"#result","mode":"interactive","budget":3000}`；省略时回执保持原样。root 默认 body，mode 可为 interactive/content/table，budget 为 512–6000（默认 3000）。返回 observation 使用 semantic_snapshot 格式；失败只返回 observation.error，不改变 delivery/effect，也不重发动作。导航或文档替换后重新校验并生成 binding；旧引用不可沿用。
+
 ## Task lifecycle
 
 每轮 `on_session_end(completed=True)` 默认立即关闭工作页；显式设置宽限时，同会话再次调用任意 `browser_shared_*` 取消计时。失败、中断和成功映射 owner 的 `agent_loop_stopped(session_key)` 立即按 handoff 结束。
@@ -166,13 +168,13 @@ Wait until document.readyState reaches ``until``; returns the final state.  The 
 
 扩展能力：`browser_core_v1`。
 
-### `click_element(name, *, mode='pointer', tab=None, **options)`
+### `click_element(name, *, mode='pointer', after=None, tab=None, **options)`
 
 按名称/角色点击一次；effect=observed 表示观察到效果；effect=unobserved 表示已点击但未见页面变化，先读页面核对。
 
 扩展能力：`browser_core_v1`。
 
-### `fill_element(name, text, tab=None, **options)`
+### `fill_element(name, text, tab=None, *, after=None, **options)`
 
 按名称/角色定位后填写，定位失败由插件自动恢复。
 
@@ -184,49 +186,49 @@ Wait until document.readyState reaches ``until``; returns the final state.  The 
 
 扩展能力：`browser_core_v1`。
 
-### `click(selector, *, tab=None)`
+### `click(selector, *, after=None, tab=None)`
 
 
 
 扩展能力：`browser_core_v1`。
 
-### `fill(selector, text, *, tab=None)`
+### `fill(selector, text, *, after=None, tab=None)`
 
 
 
 扩展能力：`browser_core_v1`。
 
-### `press(selector, key, *, tab=None)`
+### `press(selector, key, *, after=None, tab=None)`
 
 
 
 扩展能力：`browser_core_v1`。
 
-### `ref_click(snapshot, ref, *, mode='pointer', tab=None)`
+### `ref_click(snapshot, ref, *, mode='pointer', after=None, tab=None)`
 
 按语义引用点击一次；依据实际送达回执区分交付方式。
 
 扩展能力：`browser_core_v1`。
 
-### `ref_fill(snapshot, ref, text, *, tab=None)`
+### `ref_fill(snapshot, ref, text, *, after=None, tab=None)`
 
 
 
 扩展能力：`browser_core_v1`。
 
-### `ref_press(snapshot, ref, key, *, tab=None)`
+### `ref_press(snapshot, ref, key, *, after=None, tab=None)`
 
 在当前语义目标上派发按键；已派发结果未知时先回读核实。
 
 扩展能力：`browser_core_v1`。
 
-### `ref_set_checked(snapshot, ref, checked, *, tab=None)`
+### `ref_set_checked(snapshot, ref, checked, *, after=None, tab=None)`
 
 设置当前语义引用的复选状态；结果由页面状态回读确认。
 
 扩展能力：`browser_core_v1`。
 
-### `ref_select_option(snapshot, ref, values, *, by='value', tab=None)`
+### `ref_select_option(snapshot, ref, values, *, by='value', after=None, tab=None)`
 
 按 value、Unicode 标签或零基 index 选择原生选项，并由页面状态回读确认。
 
@@ -620,6 +622,31 @@ Wait for the same approval/manual-input request (max 300 s). Ordinary requests r
         "type": "string",
         "minLength": 1,
         "maxLength": 128
+      },
+      "after": {
+        "type": "object",
+        "properties": {
+          "root": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "interactive",
+              "content",
+              "table"
+            ]
+          },
+          "budget": {
+            "type": "integer",
+            "minimum": 512,
+            "maximum": 6000
+          }
+        },
+        "required": [],
+        "additionalProperties": false
       },
       "options": {
         "type": "object",

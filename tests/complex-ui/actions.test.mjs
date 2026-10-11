@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {JSDOM} from 'jsdom';
+import {fillThroughInput} from './editable-fixture.mjs';
 import {Executor,semanticWorldDeclaration} from '../../native-extension/core.mjs';
 const html=readFileSync(new URL('./fixture.html',import.meta.url),'utf8');
 function setup(){
@@ -79,7 +80,9 @@ test('实际 CDP 安装后填写各阶段保留资格检查和敏感拒绝，不
    if(allowed===true){
     assert.equal((await api.call('assess_ref_fill',token)).targetAssessment,'ordinary');
     assert.equal((await api.call('prepare_ref_fill',token)).code,'HIGHLIGHT_UNAVAILABLE');
-    assert.equal((await api.call('ref_fill',{...token,text:'测试填写'})).verified,true);assert.equal(events,1);
+    const payload={...token,text:'测试填写'};
+    const result=tag==='div'?(await fillThroughInput(f,payload)).result:await api.call('ref_fill',payload);
+    assert.equal(result.verified,true);assert.equal(events,1);
    }else{
     if(allowed==='sensitive')assert.equal((await api.call('assess_ref_fill',token)).fieldKind,'password');
     else await assert.rejects(api.call('assess_ref_fill',token),/TARGET_NOT_ACTIONABLE/);
@@ -134,14 +137,14 @@ test('实际安装的同源 frame 指针保留缩放、边框换算及无效变�
  }finally{f.close();}
 });
 
-test('受控输入与富文本填写派发事件并核对读回值，回执不含输入内容',()=>{
+test('受控输入与富文本填写派发事件并核对读回值，回执不含输入内容',async()=>{
  const f=setup();try{
   let events=0;f.document.querySelector('#controlled').addEventListener('input',()=>events++);
   const input=f.find('受控输入',['textbox']);const result=f.call('ref_fill',{...input,text:'私有测试值'});
   assert.equal(result.verified,true);assert.equal(events,1);assert.equal(f.document.querySelector('#controlled').value,'私有测试值');
   assert.doesNotMatch(JSON.stringify(result),/私有测试值/);
   const editor=f.find('正文',['textbox']);f.setHit(f.document.querySelector('#editor'));
-  const rich=f.call('ref_fill',{...editor,text:'编辑内容'});assert.equal(rich.verified,true);
+  const {result:rich}=await fillThroughInput(f,{...editor,text:'编辑内容'});assert.equal(rich.verified,true);
   assert.equal(f.document.querySelector('#editor').textContent,'编辑内容');
  }finally{f.close();}
 });
@@ -152,6 +155,7 @@ test('公共 ref_fill 拒绝把已移除的 iframe 输入框接替到另一同�
   f.document.body.innerHTML='<iframe></iframe><iframe></iframe>';
   const frames=[...f.document.querySelectorAll('iframe')];
   for(const frame of frames){
+   frame.contentWindow.HTMLElement.prototype.getBoundingClientRect=()=>({left:20,top:20,right:120,bottom:50,width:100,height:30});
    frame.contentWindow.HTMLElement.prototype.getClientRects=()=>[{}];
    frame.contentDocument.body.innerHTML='<input id="field" aria-label="字段">';
   }

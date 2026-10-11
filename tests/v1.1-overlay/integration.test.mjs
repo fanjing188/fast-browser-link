@@ -192,6 +192,7 @@ test('stop intent fences new local actions while trusted host readback is pendin
 
 test('overlay host is absent from legacy snapshot and semantic traversal, while unchanged accessible identity retains refs',()=>{
  const dom=new JSDOM('<!doctype html><button id="real" aria-label="Before">Before</button><div data-hermes-automation-overlay><button>Stop</button></div>',{url});
+ dom.window.HTMLElement.prototype.getBoundingClientRect=()=>({left:20,top:20,right:120,bottom:50,width:100,height:30});
  const {window}=dom,doc=window.document;Object.defineProperty(window.HTMLElement.prototype,'getClientRects',{value(){return [{width:1,height:1}]}});
  const old={document:globalThis.document,location:globalThis.location};globalThis.document=doc;globalThis.location=window.location;
  try{

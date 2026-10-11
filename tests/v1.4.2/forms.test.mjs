@@ -8,6 +8,7 @@ import {inspectPage,Executor,semanticWorldDeclaration,maskCapturePng} from '../.
 function page(markup){
  const dom=new JSDOM(markup,{url:'https://fixture.test/',pretendToBeVisual:true});
  const {document}=dom.window;
+ dom.window.HTMLElement.prototype.getBoundingClientRect=()=>({left:20,top:20,right:120,bottom:50,width:100,height:30});
  dom.window.HTMLElement.prototype.getClientRects=function(){return this.style.display==='none'?[]:[this.getBoundingClientRect()];};
  dom.window.HTMLElement.prototype.getBoundingClientRect=function(){
   const top=this.id==='submit-below'?1200:10;

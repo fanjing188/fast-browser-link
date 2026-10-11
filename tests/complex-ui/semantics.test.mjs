@@ -9,6 +9,7 @@ function setup(options={}){
  const dom=new JSDOM(html,{url:'https://fixture.example.test/',pretendToBeVisual:true});
  const {document}=dom.window;
  // 中文注释：离线 DOM 没有排版引擎，仅模拟可见矩形；真实命中由独立浏览器脚本验收。
+ dom.window.HTMLElement.prototype.getBoundingClientRect=()=>({left:20,top:20,right:120,bottom:50,width:100,height:30});
  dom.window.HTMLElement.prototype.getClientRects=()=>[{width:100,height:20}];
  const semantics=createPageSemantics({document,taskId:'task',documentId:'loader',leaseId:'lease',...options});
  return {dom,document,semantics,close(){semantics.revoke();dom.window.close();}};
@@ -20,7 +21,7 @@ test('引用重定位隔离两个同源 iframe，保留原 frame 内唯一替换
  const f=setup();try{
   f.document.body.innerHTML='<iframe></iframe><iframe></iframe>';
   const frames=[...f.document.querySelectorAll('iframe')];
-  for(const frame of frames){frame.contentWindow.HTMLElement.prototype.getClientRects=()=>[{}];frame.contentDocument.body.innerHTML='<button id="save">Save</button>';}
+  for(const frame of frames){frame.contentWindow.HTMLElement.prototype.getBoundingClientRect=()=>({left:20,top:20,right:120,bottom:50,width:100,height:30});frame.contentWindow.HTMLElement.prototype.getClientRects=()=>[{}];frame.contentDocument.body.innerHTML='<button id="save">Save</button>';}
   const page=f.semantics.snapshot({composed:true}),old=token(page,page.items[0]);
   assert.equal(f.semantics.resolve(old),frames[0].contentDocument.querySelector('button'));
   frames[0].contentDocument.querySelector('button').remove();
@@ -54,6 +55,7 @@ test('引用拒绝 frame 文档替换、移除、重挂及 Shadow 宿主重挂�
   const f=setup();try{
    f.document.body.innerHTML='<section><iframe></iframe><div></div></section><aside></aside>';
    const frame=f.document.querySelector('iframe'),host=f.document.querySelector('div'),aside=f.document.querySelector('aside');
+ frame.contentWindow.HTMLElement.prototype.getBoundingClientRect=()=>({left:20,top:20,right:120,bottom:50,width:100,height:30});
    frame.contentWindow.HTMLElement.prototype.getClientRects=()=>[{}];
    const root=change.includes('shadow')?host.attachShadow({mode:'open'}):frame.contentDocument.body;
    root.innerHTML='<button id="save">Save</button>';
@@ -96,7 +98,9 @@ test('嵌套开放 Shadow DOM 和同源 iframe 可读取并解析引用',()=>{
   const inner=f.document.createElement('span');outer.append(inner);
   const root=inner.attachShadow({mode:'open'});root.innerHTML='<button>深层操作</button><input aria-label="深层输入">';
   const frame=f.document.querySelector('#inner');frame.contentDocument.body.innerHTML='<iframe title="二层"></iframe>';
+ frame.contentDocument.defaultView.HTMLElement.prototype.getBoundingClientRect=()=>({left:20,top:20,right:120,bottom:50,width:100,height:30});
   frame.contentDocument.defaultView.HTMLElement.prototype.getClientRects=()=>[{width:100,height:20}];
+ frame.contentDocument.querySelector('iframe').contentDocument.defaultView.HTMLElement.prototype.getBoundingClientRect=()=>({left:20,top:20,right:120,bottom:50,width:100,height:30});
   frame.contentDocument.querySelector('iframe').contentDocument.defaultView.HTMLElement.prototype.getClientRects=()=>[{width:100,height:20}];
   frame.contentDocument.querySelector('iframe').contentDocument.body.innerHTML='<button>框架操作</button>';
   const page=f.semantics.snapshot({composed:true,budget:8000});
@@ -151,6 +155,7 @@ test('display contents 的文字和 Shadow 子控件仍可解析',()=>{
   const host=f.document.querySelector('#contents');
   host.attachShadow({mode:'open'}).innerHTML='<button>Shadow 操作</button>';
   const rects=f.dom.window.HTMLElement.prototype.getClientRects;
+ f.dom.window.HTMLElement.prototype.getBoundingClientRect=()=>({left:20,top:20,right:120,bottom:50,width:100,height:30});
   f.dom.window.HTMLElement.prototype.getClientRects=function(){return this.style.display==='contents'?[]:rects.call(this);};
   const page=f.semantics.snapshot({composed:true});
   assert.deepEqual(page.items.map(item=>item.name),['保存内容','Shadow 操作']);

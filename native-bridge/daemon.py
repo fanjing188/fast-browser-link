@@ -2521,6 +2521,15 @@ class BridgeDaemon:
         }.get(action, set())
         if action == "ref_click":
             optional = optional | {"frameToken"}
+        if action in {"click", "fill", "press", "ref_click", "ref_fill", "ref_press", "ref_set_checked", "ref_select_option"}:
+            optional = optional | {"after"}
+        if "after" in params:
+            after = params["after"]
+            if (not isinstance(after, dict) or set(after) - {"root", "mode", "budget"} or
+                    not isinstance(after.get("root", "body"), str) or not 1 <= len(after.get("root", "body")) <= 4096 or
+                    not isinstance(after.get("mode", "interactive"), str) or after.get("mode", "interactive") not in {"interactive", "content", "table"} or
+                    type(after.get("budget", 3000)) is not int or not 512 <= after.get("budget", 3000) <= 6000):
+                raise ProtocolError("invalid_params", "invalid action observation")
         if set(params) - common - required - optional or required - set(params):
             raise ProtocolError("invalid_params", "invalid action arguments")
         if "clickMode" in params:

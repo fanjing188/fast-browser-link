@@ -323,6 +323,14 @@ class HostBridge:
                 elif op == 'resume_pending' and args == []:
                     value = selected.resume_pending()
                 elif op == 'run' and isinstance(args, list) and len(args) == 2 and isinstance(args[0], str) and isinstance(args[1], dict):
+                    # 中文注释：after 只读取指定根和模式，预算有界；不允许脚本借回读扩展动作参数。
+                    after = args[1].get('after')
+                    if 'after' in args[1] and (args[0] not in {'click', 'fill', 'press', 'ref_click', 'ref_fill', 'ref_press', 'ref_set_checked', 'ref_select_option'} or
+                            not isinstance(after, dict) or set(after) - {'root', 'mode', 'budget'} or
+                            not isinstance(after.get('root', 'body'), str) or not 1 <= len(after.get('root', 'body')) <= 4096 or
+                            not isinstance(after.get('mode', 'interactive'), str) or after.get('mode', 'interactive') not in {'interactive', 'content', 'table'} or
+                            type(after.get('budget', 3000)) is not int or not 512 <= after.get('budget', 3000) <= 6000):
+                        raise BridgeDenied('invalid native helper request')
                     value = selected.run(args[0], args[1])
                 elif op == 'downloads' and args == []:
                     value = selected.downloads()

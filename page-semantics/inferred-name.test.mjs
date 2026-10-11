@@ -5,6 +5,7 @@ import {createPageSemantics} from './index.js';
 
 function fixture(){
  const dom=new JSDOM('<main><div id="row" style="cursor:pointer"><span>原会话 batch1</span><button style="display:none" title="置顶">☆</button><button style="display:none" title="改名">✎</button><button style="display:none" title="删除">×</button></div></main>',{pretendToBeVisual:true});
+ dom.window.HTMLElement.prototype.getBoundingClientRect=()=>({left:20,top:20,right:120,bottom:50,width:100,height:30});
  dom.window.HTMLElement.prototype.getClientRects=()=>[{width:240,height:38}];
  const document=dom.window.document,semantics=createPageSemantics({document,taskId:'task',documentId:'doc',leaseId:'lease'});
  return {document,semantics,row:document.querySelector('#row'),close(){semantics.revoke();dom.window.close();}};

@@ -58,7 +58,7 @@ const nativeModules = ['browser-workspaces/index.mjs', 'browser-diagnostics/js/d
 const diagnosticsPackage = 'browser-diagnostics/python/browser_diagnostics';
 const diagnosticsFiles = ['__init__.py', 'schema.py', 'runtime.py', 'sink.py'];
 const inputs = ['package.json','package-lock.json','cloud-link/site/package.json','cloud-link/site/package-lock.json','executor-plugin','native-bridge','native-extension', 'cloud-link', 'browser-workspaces', 'browser-diagnostics', ...modules,
-  'CHANGELOG.md','docs'];
+  'CHANGELOG.md','docs','THIRD_PARTY_NOTICES.md','third-party/licenses/hermes-agent-MIT.txt'];
 async function sourceSnapshot() {
   const entries = {};
   async function visit(relative) {
@@ -222,6 +222,10 @@ try {
   await mkdir(output); // existing target is always refused
   outputCreated = true;
   await copyTree(path.join(source,'executor-plugin'),path.join(output,'browser-link'));
+  // 中文注释：Executor 自带语义模块也保留 Hermes 归属；许可同时纳入候选来源快照。
+  await mkdir(path.join(output,'browser-link/third-party/licenses'),{recursive:true});
+  for(const file of ['THIRD_PARTY_NOTICES.md','third-party/licenses/hermes-agent-MIT.txt'])
+    await copyFile(path.join(source,file),path.join(output,'browser-link',file));
   // 中文注释：自动更新组件携带相同安装器，下载新包后仍用当前可信代码校验及事务升级。
   for (const name of ['install-cli.py','install-executor.py']) {
     await copyFile(path.join(source,'scripts',name),path.join(output,'browser-link/maintenance',name));

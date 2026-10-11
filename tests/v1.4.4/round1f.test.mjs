@@ -12,6 +12,7 @@ import {Bridge} from '../../native-extension/bridge.mjs';
 
 function fixture(html){
  const dom=new JSDOM(`<!doctype html><head></head><body>${html}</body>`,{url:'https://fixture.test/',pretendToBeVisual:true});
+ dom.window.HTMLElement.prototype.getBoundingClientRect=()=>({left:20,top:20,right:120,bottom:50,width:100,height:30});
  dom.window.HTMLElement.prototype.getClientRects=function(){return this.style.display==='none'?[]:[{x:0,y:0,width:100,height:20}];};
  const semantics=createPageSemantics({document:dom.window.document,taskId:'t',documentId:'d',leaseId:'l'});
  return {dom,semantics,close(){semantics.revoke();dom.window.close();}};

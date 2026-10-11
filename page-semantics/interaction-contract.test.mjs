@@ -5,6 +5,7 @@ import {createPageSemantics} from './index.js';
 
 function fixture(html,options={}){
  const dom=new JSDOM(html,{pretendToBeVisual:true});
+ dom.window.HTMLElement.prototype.getBoundingClientRect=()=>({left:20,top:20,right:120,bottom:50,width:100,height:30});
  dom.window.HTMLElement.prototype.getClientRects=()=>[{width:100,height:30}];
  const document=dom.window.document,semantics=createPageSemantics({document,taskId:'t',documentId:'d',leaseId:'l',...options});
  return {document,semantics,close(){semantics.revoke();dom.window.close();}};
@@ -48,7 +49,7 @@ test('只读和受限制输入不声明填写能力，角色本身不赋予编�
  }finally{f.close();}
 });
 test('动作清单改变参与增量快照，重新解析反映当前能力',()=>{
- const f=fixture('<input aria-label="姓名">');try{
+ const f=fixture('<input aria-label="姓名">'+Array.from({length:8},(_,i)=>`<button>保留项${i}</button>`).join(''));try{
   const first=f.semantics.snapshot(),field=f.document.querySelector('input');
   field.setAttribute('aria-readonly','true');
   const next=f.semantics.snapshot({baselineId:first.snapshotId});

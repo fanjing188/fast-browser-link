@@ -7,15 +7,15 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
   maxScan=Math.min(maxScan,100000); maxItems=Math.min(maxItems,1000); maxText=Math.min(maxText,2000);
   const binding=Object.freeze({taskId,documentId,leaseId});
   const instance=Array.from(globalThis.crypto.getRandomValues(new Uint32Array(4)),n=>n.toString(16)).join('-');
-  const documentIds=new WeakMap([[doc,documentId]]);let childDocumentSequence=0;
-  const identityFor=other=>{if(!documentIds.has(other))documentIds.set(other,`${instance}:document:${++childDocumentSequence}`);return documentIds.get(other);};
+  const docIds=new WeakMap([[doc,documentId]]);let childDocumentSequence=0;
+  const identityFor=other=>{if(!docIds.has(other))docIds.set(other,`${instance}:document:${++childDocumentSequence}`);return docIds.get(other);};
   const refs=new WeakMap(); let sequence=0n,generation=0n,currentId;
-  let active=new Map(), baseline=null, cursorState=null, epoch=0, revoked=false, frameDocuments=new Map();
-  const savedSnapshots=new Map();
+  let active=new Map(), baseline=null, cursorState=null, epoch=0, revoked=false, frameDocs=new Map();
+  const snapshots=new Map();
   // 中文注释：无障碍补充只保存在真实节点上，任何 DOM epoch 变化都会使其失效。
-  const accessibilityNames=new WeakMap();
+  const axNames=new WeakMap();
   // 中文注释：样式和上下文缓存只活在一次同步解析内，下一次读或动作必定重新计算。
-  let styles=new WeakMap(),contextNames=new WeakMap(),surfaces=new WeakMap();
+  let styles=new WeakMap(),contexts=new WeakMap(),surfaces=new WeakMap();
   const computed=node=>{if(!styles.has(node))styles.set(node,node.ownerDocument.defaultView.getComputedStyle(node));return styles.get(node);};
   const documentRoot=doc.documentElement;
   const isOverlay=node=>{
@@ -32,15 +32,15 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
   const observer=new doc.defaultView.MutationObserver(changed);
   observer.observe(doc,{subtree:true,childList:true,attributes:true,characterData:true});
   function sync(){
-    styles=new WeakMap();contextNames=new WeakMap();surfaces=new WeakMap();
+    styles=new WeakMap();contexts=new WeakMap();surfaces=new WeakMap();
     changed(observer.takeRecords());
     if(revoked)throw new Error('LEASE_REVOKED');if(Date.now()>=expiresAt)throw new Error('LEASE_EXPIRED');if(doc.documentElement!==documentRoot)throw new Error('DOCUMENT_REPLACED');
-    for(const [frame,state] of frameDocuments){
+    for(const [frame,state] of frameDocs){
       let current;try{current=frame.contentDocument;}catch{current=null;}
       if(!frame.isConnected || current!==state.document || current?.documentElement!==state.root)epoch++;
     }
   }
-  function revoke(){revoked=true;active.clear();savedSnapshots.clear();frameDocuments.clear();baseline=null;cursorState=null;observer.disconnect();}
+  function revoke(){revoked=true;active.clear();snapshots.clear();frameDocs.clear();baseline=null;cursorState=null;observer.disconnect();}
   function stats(){return {activeRefs:active.size,baselineItems:baseline?.items.length||0,cursors:cursorState?1:0,maxItems,maxScan,maxText};}
   // 中文注释：复用合法 HTML 编辑属性形式，空值和纯文本模式与 true 使用相同解析链路。
   const editable='[contenteditable="true" i],[contenteditable=""],[contenteditable="plaintext-only" i]';
@@ -243,32 +243,83 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
     }
     return cells;
   }
-  function visible(node,viewport){
-    if(isOverlay(node))return false;
+  // 本段改编自 NousResearch/hermes-agent 的 preview-act/visibility.ts:53-143。
+  // Copyright (c) 2025 Nous Research；MIT，完整许可见 third-party/licenses/hermes-agent-MIT.txt。
+  // 中文注释：沿用组合祖先和本次样式缓存；视觉限制只用于交互，不改变正文读取。
+  function visible(n,vp,act=false,l=true){
+    if(isOverlay(n))return false;
     // 中文注释：插槽隐私和隐藏状态同样约束被分配的 light DOM 节点，包括宿主提供的封闭根。
-    const shadow=node.parentElement&&shadowRootOf(node.parentElement);
-    const assigned=node.assignedSlot||(shadow&&Array.from(shadow.querySelectorAll('slot')).find(slot=>slot.assignedNodes().includes(node)));
-    if(assigned&&!visible(assigned,false))return false;
-    let ancestor=node;
-    while(ancestor){
-      for(let element=ancestor;element;element=element.parentElement){
-        if(element.matches('[hidden],[aria-hidden="true"],[inert]'))return false;
-        const style=computed(element);
-        if(style.display==='none'||(element===ancestor && (style.visibility==='hidden'||style.visibility==='collapse')))return false;
+    const sh=n.parentElement&&shadowRootOf(n.parentElement),slot=n.assignedSlot||(sh&&Array.from(sh.querySelectorAll('slot')).find(slot=>slot.assignedNodes().includes(n)));
+    if(slot&&!visible(slot,false,act))return false;
+    let a=n;
+    while(a){
+      for(let el=a;el;el=el.parentElement){
+        if(el.matches('[hidden],[aria-hidden="true"],[inert]'))return false;
+        const s=computed(el);
+        if(act&&(s.opacity==='0'||s.clip&&s.clip!=='auto'||(s.clipPath||'').includes('inset(50%')||el===n&&el.checkVisibility?.({checkOpacity:true,checkVisibilityCSS:true})===false))return false;
+        if((el!==n||l)&&(s.display==='none'||el===a&&['hidden','collapse'].includes(s.visibility)))return false;
       }
       // 中文注释：display:contents 没有自身矩形，但其正文和子控件仍参与布局。
-      if(!ancestor.getClientRects().length&&computed(ancestor).display!=='contents')return false;
-      const root=ancestor.getRootNode();
-      ancestor=root.host || (ancestor.ownerDocument!==doc ? ancestor.ownerDocument.defaultView?.frameElement : null);
+      if((a!==n||l)&&!a.getClientRects().length&&computed(a).display!=='contents')return false;
+      a=a.getRootNode().host || (a.ownerDocument!==doc ? a.ownerDocument.defaultView?.frameElement : null);
     }
-    if(!viewport)return true;
-    let current=node;
-    while(current){
-      const view=current.ownerDocument.defaultView,r=current.getBoundingClientRect();
-      if(!(r.bottom>0&&r.right>0&&r.top<view.innerHeight&&r.left<view.innerWidth))return false;
-      current=current.ownerDocument===doc?null:view.frameElement;
+    if(!vp)return true;
+    let cur=n;
+    while(cur){
+      const v=cur.ownerDocument.defaultView,r=cur.getBoundingClientRect();
+      if(!(r.bottom>0&&r.right>0&&r.top<v.innerHeight&&r.left<v.innerWidth))return false;
+      cur=cur.ownerDocument===doc?null:v.frameElement;
     }
     return true;
+  }
+  function interactionVisibility(n){
+    // 中文注释：逐层还原滚动内容坐标；fixed 不加窗口滚动，容器外中心不参与遮挡命中。
+    const geo=(el,p)=>{
+      const r=el.getBoundingClientRect(),d=el.ownerDocument,v=d.defaultView;
+      if(!p&&!(visible(el,false,true)&&Math.min(r.width,r.height)>=3))return false;
+      let x=r.right,y=r.bottom,ok=true;
+      for(let a=el;a&&a!==d.scrollingElement;a=a.assignedSlot||a.parentElement||a.getRootNode().host){
+        const s=computed(a);
+        if(a!==el){
+          const b=a.getBoundingClientRect();x+=a.scrollLeft||0;y+=a.scrollTop||0;
+          for(const [e,pt,lo,len,ov] of [[x,p?.x,b.left+a.clientLeft,a.clientWidth,s.overflowX],[y,p?.y,b.top+a.clientTop,a.clientHeight,s.overflowY]]){
+            if(len&&/^(auto|scroll|hidden|clip)$/.test(ov)){
+              if(e<=lo)return false;
+              if(p)ok&&=pt>=lo&&pt<lo+len;
+            }
+          }
+        }
+        if(s.position==='fixed')return p?ok:x>0&&y>0;
+      }
+      return p?ok:x+v.scrollX>0&&y+v.scrollY>0;
+    };
+    let el=n;
+    if(!geo(n)){
+      // 中文注释：透明或 sr-only 的原生勾选控件仍可通过可见关联标签操作。
+      el=visible(n,false,false,false)&&n.localName==='input'&&['checkbox','radio'].includes(n.type)?Array.from(n.labels||[]).find(el=>geo(el)):null;
+      if(!el)return {visible:false};
+    }
+    const r=el.getBoundingClientRect();let p={x:r.left+r.width/2,y:r.top+r.height/2},cur=el,iv=true,oc=false;
+    while(cur){
+      const d=cur.ownerDocument,v=d.defaultView,rt=cur.getRootNode();
+      const ok=iv&&p.x>=0&&p.y>=0&&p.x<v.innerWidth&&p.y<v.innerHeight&&geo(cur,p);
+      iv&&=ok;
+      if(ok){
+        const ctx=rt.host&&(rt.elementsFromPoint||rt.elementFromPoint)?rt:d;
+        if(ctx.elementsFromPoint||ctx.elementFromPoint){
+          // 中文注释：穿过插件浮层检查首个网页元素，避免浮层掩盖网页自身的遮挡。
+          const hit=ctx.elementsFromPoint?ctx.elementsFromPoint(p.x,p.y).find(hit=>!isOverlay(hit)):ctx.elementFromPoint(p.x,p.y);
+          if(!isOverlay(hit)&&(!hit||!cur.contains(hit)&&!hit.contains(cur)))oc=true;
+        }
+      }
+      if(rt.host){cur=rt.host;continue;}
+      const f=d!==doc?v.frameElement:null;
+      if(!f)break;
+      const b=f.getBoundingClientRect(),sx=b.width/f.offsetWidth,sy=b.height/f.offsetHeight;
+      if(!Number.isFinite(sx)||!Number.isFinite(sy)){iv=false;break;}
+      p={x:b.left+(f.clientLeft+p.x)*sx,y:b.top+(f.clientTop+p.y)*sy};cur=f;
+    }
+    return {visible:true,inViewport:iv,occluded:oc,target:el};
   }
   function* composedElements(scope,coverage){
     const stack=[scope];
@@ -280,7 +331,7 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
         if(!visible(node,false))continue;
         let child;try{child=node.contentDocument;}catch{child=null;}
         if(child?.body && child.documentElement){
-          frameDocuments.set(node,{document:child,root:child.documentElement});
+          frameDocs.set(node,{document:child,root:child.documentElement});
           observer.observe(child,{subtree:true,childList:true,attributes:true,characterData:true});
           stack.push(child.body);
         }else coverage.skippedFrames++;
@@ -321,7 +372,7 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
     }
     const placeholder=!content && node.matches('input,textarea')?node.getAttribute('placeholder'):null;
     const result={ref:ref(node),role:r,name:clip(content||placeholder||''),...inputMetadata(node)};
-    const ax=accessibilityNames.get(node);
+    const ax=axNames.get(node);
     if(ax?.epoch===epoch){const currentState={role:r};controlState(node,currentState);if(ax.signature===JSON.stringify(currentState)){result.name=clip(ax.name);result.nameSource='accessibility';if(ax.role)result.role=ax.role;Object.assign(result,ax.states);}}
     // 中文注释：上下文只保留有语义的区域和记录，不给容器创建可操作引用。
     const context=[];
@@ -329,14 +380,14 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
     for(let parent=node===scope?null:contextParent(node);parent&&context.length<6;parent=contextParent(parent)){
       const surface=surfaceMetadata(parent);
       if(!surface.surfaceKind&&!parent.matches('main,nav,section,article,li,fieldset,dialog,[role=region],[role=dialog],[role=row],[role=listitem],[role=group],[role=listbox],[role=tablist],[role=menu]')){if(parent===scope)break;continue;}
-      if(!contextNames.has(parent)){
+      if(!contexts.has(parent)){
         // 中文注释：区域只采用自己的直接标题，避免拿内部另一条记录的标题命名整个区域。
         const heading=Array.from(parent.children).find(child=>child.matches('legend,h1,h2,h3,h4,h5,h6'));
         const label=parent.getAttribute('aria-label')|| (heading&&visible(heading,false)?text(heading):parent.matches('li,article,[role=row],[role=listitem]')?text(parent):'');
         const rowIndex=Number(parent.getAttribute('aria-rowindex')||parent.getAttribute('aria-posinset'));
-        contextNames.set(parent,{ref:ref(parent),role:parent.getAttribute('role')||parent.localName,name:clip(label).slice(0,120),...surface,...(Number.isSafeInteger(rowIndex)&&rowIndex>0?{index:rowIndex}:{})});
+        contexts.set(parent,{ref:ref(parent),role:parent.getAttribute('role')||parent.localName,name:clip(label).slice(0,120),...surface,...(Number.isSafeInteger(rowIndex)&&rowIndex>0?{index:rowIndex}:{})});
       }
-      const entry=contextNames.get(parent);
+      const entry=contexts.get(parent);
       if(entry.surfaceKind||entry.name||parent.localName!=='section'||parent===scope)context.unshift(entry);
       if(parent===scope)break;
     }
@@ -415,7 +466,7 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
       if(value.role&&!['button','link','tab','treeitem','menuitem','menuitemcheckbox','menuitemradio','checkbox','radio','switch'].includes(value.role))throw Error('INVALID_OPTIONS');
       if(value.states&&Object.entries(value.states).some(([key,state])=>!['expanded','selected','checked','disabled','readonly','required','busy'].includes(key)||typeof state!=='boolean'&&!(key==='checked'&&state==='mixed')))throw Error('INVALID_OPTIONS');
       const node=accessibilityNode({...token,ref:value.ref});
-      if(node){const signature={role:role(node)};controlState(node,signature);accessibilityNames.set(node,{name:redact(value.name),role:value.role,states:value.states||{},signature:JSON.stringify(signature),epoch});}
+      if(node){const signature={role:role(node)};controlState(node,signature);axNames.set(node,{name:redact(value.name),role:value.role,states:value.states||{},signature:JSON.stringify(signature),epoch});}
     }
   }
   function snapshot(options={}){
@@ -441,7 +492,7 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
     // 中文注释：标题沿用语义快照的脱敏与网页内容过滤，再进入打开回执摘要。
     const output={version:2,title:clip(doc.title||''),binding,snapshotId:currentId,kind:'full',mode,items:[],nextCursor:null,resync,coverage:{scanned:0,matched:0,returned:0,omitted:0,filtered:0,truncated:0,offset,complete:true,traversalComplete:true,scope:composed?'light-dom + open-shadow + accessible same-origin-frame; closed-shadow/cross-origin-frame excluded':'light-dom; no iframe/shadow traversal',unsupportedCanvas:0,...(composed?{skippedFrames:0}:{})},budget:{kind:'estimated',method:'ceil(JSON.stringify(response).length/4)',limit:budget}};
     observer.disconnect();observer.observe(doc,{subtree:true,childList:true,attributes:true,characterData:true});
-    frameDocuments=new Map();
+    frameDocs=new Map();
     const candidates=[];let pendingFragment=false;const walker=doc.createTreeWalker(scope,1);
     const nodes=composed?composedElements(scope,output.coverage):(function*(){let node=scope;do{yield node;}while((node=walker.nextNode()));})();
     for(const node of nodes){
@@ -451,8 +502,10 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
       if(node.localName==='canvas'&&visible(node,false))output.coverage.unsupportedCanvas++;
       if(!node.matches(selectors[mode]))continue;
       if(mode==='interactive' && !node.matches(`button,a[href],input,select,textarea,summary,${editable},[tabindex]`) && !interactiveRoles.has(role(node)))continue;
-      if(!visible(node,viewport) || (mode==='interactive' && node.matches('input[type="hidden"]'))){output.coverage.filtered++;continue;}
+      const visibility=mode==='interactive'?interactionVisibility(node):null;
+      if(visibility?visibility.visible===false||!visible(visibility.target,viewport)||node.matches('input[type="hidden"]'):!visible(node,viewport)){output.coverage.filtered++;continue;}
       const value=mode==='interactive'?item(node,scope):fullItem(node,mode);
+      if(visibility?.occluded)Object.assign(value,{blocked:'occluded',actionable:false});
       if((roles.length && !roles.includes(value.role)) || (query && !value.name.toLocaleLowerCase().includes(redact(query).toLocaleLowerCase()))){output.coverage.filtered++;continue;}
       if(seenKeys?.has(stableKey(node,value)))continue;
       output.coverage.matched++;if(value.truncated)output.coverage.truncated++;
@@ -486,8 +539,10 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
     if(baselineId && !resync){
       const previous=new Map(baseline.items.map(i=>[itemKey(i),JSON.stringify(i)]));const now=new Set(materialized.map(itemKey));
       const delta={...output,kind:'delta',baselineId,items:materialized.filter(i=>previous.get(itemKey(i))!==JSON.stringify(i)),removed:baseline.items.filter(i=>!now.has(itemKey(i))).map(itemKey),order:materialized.map(itemKey)};
-      if(Math.ceil(JSON.stringify(delta).length/4)<=budget)Object.assign(output,delta);
-      else {output.resync={reason:'delta_budget'};while(Math.ceil(JSON.stringify(output).length/4)>budget && output.items.length){output.items.pop();update();}}
+      // 中文注释：保留现有补丁协议，只在 UTF-8 字节数严格更小时采用 delta。
+      const bytes=value=>new TextEncoder().encode(JSON.stringify(value)).byteLength;
+      if(Math.ceil(JSON.stringify(delta).length/4)<=budget&&bytes(delta)<bytes(output))Object.assign(output,delta);
+      else if(Math.ceil(JSON.stringify(delta).length/4)>budget){output.resync={reason:'delta_budget'};while(Math.ceil(JSON.stringify(output).length/4)>budget && output.items.length){output.items.pop();update();}}
     }
     const records=new Map();
     for(const c of candidates.slice(0,materialized.length)){
@@ -495,8 +550,8 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
       const box=c.node.getBoundingClientRect();
       records.set(c.value.ref,{node:c.node,value:c.value,key:stableKey(c.node,c.value),scope:targetScope(c.node),rect:{x:box.left,y:box.top,width:box.width,height:box.height}});
     }
-    savedSnapshots.set(currentId,{records,mode,epoch,root:scope});
-    while(savedSnapshots.size>5)savedSnapshots.delete(savedSnapshots.keys().next().value);
+    snapshots.set(currentId,{records,mode,epoch,root:scope});
+    while(snapshots.size>5)snapshots.delete(snapshots.keys().next().value);
     if(output.nextCursor){const last=candidates[materialized.length-1];cursorState={id:output.nextCursor,fingerprint,epoch,offset:last.nextOffset,fragmentOffset:last.nextFragment,
       seenMode:!!seenKeys,seen:[...(seenKeys||[]),...candidates.slice(0,materialized.length).map(c=>stableKey(c.node,c.value))].slice(-1000)};}
     baseline={id:currentId,key,items:JSON.parse(JSON.stringify(materialized))};
@@ -504,14 +559,15 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
   }
   function recoveryHint(token){
     if(!token||Object.keys(binding).some(key=>token[key]!==binding[key]))throw Error('BINDING_MISMATCH');
-    const record=savedSnapshots.get(token.snapshotId)?.records.get(token.ref);
+    const record=snapshots.get(token.snapshotId)?.records.get(token.ref);
     return record?{role:record.value.role,name:record.value.name,rect:record.rect}:null;
   }
   function resolve(token){
     sync();
     if(!token || Object.keys(binding).some(k=>token[k]!==binding[k]))throw new Error('BINDING_MISMATCH');
-    const savedSnapshot=savedSnapshots.get(token.snapshotId),record=savedSnapshot?.records.get(token.ref);
+    const savedSnapshot=snapshots.get(token.snapshotId),record=savedSnapshot?.records.get(token.ref);
     if(!record)throw new Error('STALE_REF');
+    const shown=n=>visible(n,false)||savedSnapshot.mode==='interactive'&&interactionVisibility(n).visible;
     let node=record.node;lastRelocated=record.relocated===true;
     const root=record.scope[0],owner=root.ownerDocument||root,currentScope=targetScope(root);
     if(owner.documentElement!==record.scope[1])throw new Error('DOCUMENT_REPLACED');
@@ -519,7 +575,7 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
     // 中文注释：重定位不能越过调用者选定的根；根被替换时旧引用失效。
     const within=node=>{for(let n=node;n;n=n.parentElement||n.getRootNode().host||n.ownerDocument.defaultView?.frameElement)if(n===savedSnapshot.root)return true;return false;};
     if(!savedSnapshot.root.isConnected)throw new Error('STALE_REF');
-    const saved=record.value;
+    const {blocked:_blocked,actionable:_actionable,...saved}=record.value;
     let current;
     if(node.isConnected && saved?.fragment){
       const value=fullItem(node),part=fragments(value)?.[saved.fragment.part];
@@ -527,7 +583,7 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
     } else if(node.isConnected)current=savedSnapshot.mode==='interactive'?item(node,savedSnapshot.root):fullItem(node);
     // 中文注释：同一真实控件沿用结构身份，周边进度文本不作废引用；AX 和正文片段仍严格比较。
     const identity=value=>JSON.stringify({...value,context:value.context?.map(({name:_name,...entry})=>entry)});
-    if(node.isConnected&&within(node)&&visible(node,false)&&(JSON.stringify(current)===JSON.stringify(saved)||savedSnapshot.mode==='interactive'&&saved.nameSource!=='accessibility'&&stableKey(node,current)===record.key&&identity(current)===identity(saved)))return node;
+    if(node.isConnected&&within(node)&&shown(node)&&(JSON.stringify(current)===JSON.stringify(saved)||savedSnapshot.mode==='interactive'&&saved.nameSource!=='accessibility'&&stableKey(node,current)===record.key&&identity(current)===identity(saved)))return node;
     // 中文注释：只遍历原作用域的普通子树，不进入其他 frame 或 Shadow 树。
     const matches=[],candidates=[],scope=root===doc?savedSnapshot.root:root.host?root:owner.body;
     const walker=owner.createTreeWalker(scope,1);
@@ -535,7 +591,7 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
     for(let candidate=scope;candidate;candidate=walker.nextNode()){
       if(++scanned>maxScan)throw new Error('STALE_REF');
       if(matches.length>5)break;
-      if(!within(candidate)||!candidate.matches?.(selectors[savedSnapshot.mode])||!visible(candidate,false))continue;
+      if(!within(candidate)||!candidate.matches?.(selectors[savedSnapshot.mode])||!shown(candidate))continue;
       const description=savedSnapshot.mode==='interactive'?item(candidate,savedSnapshot.root):fullItem(candidate);
       if(description.role===saved.role&&candidates.length<5)candidates.push({role:description.role,name:description.name.slice(0,80)});
       if(stableKey(candidate,description)===record.key)matches.push(candidate);
@@ -557,5 +613,5 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
     source:node=>({sourceRef:ref(node),documentId:identityFor(node.ownerDocument),targetPath:item(node).targetPath||[]}),
     scan:function*(scope,composed,coverage){if(composed)yield* composedElements(scope,coverage);else{const walker=doc.createTreeWalker(scope,1);yield scope;let n;while((n=walker.nextNode()))yield n;}}
   });
-  return {snapshot,resolve,recoveryHint,relocation,revoke,stats,parsingContext,accessibilityNode,applyAccessibility,interaction};
+  return {snapshot,resolve,recoveryHint,relocation,revoke,stats,parsingContext,accessibilityNode,applyAccessibility,interaction,interactionVisibility};
 }

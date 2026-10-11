@@ -29,7 +29,7 @@
   <section id="page-task" class="page-task" aria-label="当前页面任务" hidden><span id="operation" role="status"></span><div class="page-controls"><button id="takeover" type="button">接管</button><button id="stop-task" class="danger" type="button">停止</button></div></section>
   <!-- 中文注释：模拟鼠标固定启用，Cookie 镜像只在 Hermes 插件页提供；弹窗只保留自动屏蔽开关。 -->
     <section class="access-row" aria-labelledby="filter-label">
-      <div><h2 id="filter-label">自动屏蔽网页干扰</h2><p id="filter-help" class="detail">用内置正则自动识别公告和网页指令，屏蔽对应文本块及截图区域，无须配置网站或选择器。保留验证和错误提示。</p><p id="filter-detail" class="detail" aria-live="polite"></p></div>
+      <div><h2 id="filter-label">自动屏蔽网页干扰</h2><p id="filter-help" class="detail">屏蔽明确的访问禁令和提示注入，保留工具功能介绍、邮箱、验证和错误提示。结构读取可返回主文档及未读框架说明，截图与脚本保持严格检查。无须配置网站或选择器。</p><p id="filter-detail" class="detail" aria-live="polite"></p></div>
       <button id="filter-toggle" class="switch" type="button" role="switch" aria-checked="false" aria-labelledby="filter-label" aria-describedby="filter-help" disabled><span></span></button>
     </section>
   <p id="error" role="alert" hidden></p>

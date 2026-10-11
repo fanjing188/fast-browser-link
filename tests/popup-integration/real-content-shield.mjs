@@ -177,7 +177,22 @@ try{
    const narrowRead=await ui.evaluate(`readProtected('semantic_snapshot',{options:{root:'#complex',composed:true,budget:10000}})`);
    assert.ok(narrowRead.result,JSON.stringify(narrowRead));assert.equal(narrowRead.result.coverage.complete,true);assert.equal(narrowRead.result.contentFilter.unreadFrames,undefined);
    const opaqueCapture=await ui.evaluate(`readProtected('screenshot')`);assert.equal(opaqueCapture.error?.code,'content_shield_uninspectable');assert.equal(opaqueCapture.result,undefined);
-   results.push({browser:name,passed:true,noManualRules:true,popupSimplified:true,manifestVersionShown:true,persistentCursor:true,intermediateCursorX:moving,cursorPauseResume:true,reducedMotion:true,textRedacted:true,pngPixelChecks:2,dpr:2,domLayoutFocusUnchanged:true,disabledRestoresScreenshot:true,ancestorFilterRefused:true,closedShadowRead:true,sameOriginFrameClosedShadow:true,inlinePrivacy:true,nativeOptionPrivacy:true,slotName:true,virtualGridIndices:true,scopedAccessibility:true,sameNameReferenceClick:true,hiddenSandboxReadFillCapture:true,closedShadowTextRedacted:true,closedShadowPixelMasked:true,opaqueFramePartialRead:true,opaqueFrameCaptureRefused:true,wrappedAriaTable:true,portalOptions:true,scopedSchema:true,iconNames:true,displayContents:true});
+   assert.equal(partial.result.skippedFrames[0].origin,origin.replace('127.0.0.1','localhost'));
+   assert.ok(partial.result.skippedFrames[0].width>0);assert.ok(partial.result.skippedFrames[0].height>0);
+   const opaqueJs=await ui.evaluate(`readProtected('js.evaluate',{expression:'document.body.textContent'})`);
+   assert.equal(opaqueJs.error?.code,'content_shield_uninspectable');assert.match(opaqueJs.error.message,/read_page/);
+   // 中文注释：R10 的三项独立合成场景仍走生产 Executor→Bridge，不操作外部网站。
+   await page.evaluate(`for(const id of ['opaque-frame','private','notice','closed-component','same-origin-frame'])document.getElementById(id).remove();document.body.insertAdjacentHTML('beforeend','<section id="seo-product"><p>禁止爬虫功能介绍</p><p>No bot detection limits for our crawler</p><p>Our automated tools detect forbidden links</p></section>')`);
+   const product=await ui.evaluate(`readProtected('semantic_snapshot',{options:{root:'#seo-product',mode:'content',budget:5000}})`);
+   assert.ok(product.result,JSON.stringify(product));assert.equal(product.result.contentFilter.siteAutomationRestricted,false);
+   assert.match(JSON.stringify(product.result.items),/禁止爬虫功能介绍/);
+   await page.evaluate(`document.body.insertAdjacentHTML('beforeend','<p id="r10-notice" style="position:absolute;top:500px">Automated access is prohibited.</p>');window.r10Timer=setInterval(()=>{const n=document.querySelector('#r10-notice');n.style.left=(Date.now()%100)+'px'},10)`);
+   for(let attempt=0;attempt<5;attempt++){
+    const dynamic=await ui.evaluate(`readProtected('semantic_snapshot',{options:{root:'#seo-product',mode:'content',budget:5000}})`);
+    assert.ok(dynamic.result,JSON.stringify(dynamic));assert.match(JSON.stringify(dynamic.result.items),/禁止爬虫功能介绍/);
+   }
+   await page.evaluate('clearInterval(window.r10Timer)');
+   results.push({browser:name,passed:true,r10Scenarios:3,productDescriptionsPreserved:true,dynamicStructuredReads:5,opaqueFrameDiagnostics:true,noManualRules:true,popupSimplified:true,manifestVersionShown:true,persistentCursor:true,intermediateCursorX:moving,cursorPauseResume:true,reducedMotion:true,textRedacted:true,pngPixelChecks:2,dpr:2,domLayoutFocusUnchanged:true,disabledRestoresScreenshot:true,ancestorFilterRefused:true,closedShadowRead:true,sameOriginFrameClosedShadow:true,inlinePrivacy:true,nativeOptionPrivacy:true,slotName:true,virtualGridIndices:true,scopedAccessibility:true,sameNameReferenceClick:true,hiddenSandboxReadFillCapture:true,closedShadowTextRedacted:true,closedShadowPixelMasked:true,opaqueFramePartialRead:true,opaqueFrameCaptureRefused:true,wrappedAriaTable:true,portalOptions:true,scopedSchema:true,iconNames:true,displayContents:true});
   }finally{
    // 中文注释：浏览器主进程退出后子进程可能仍在收尾，只对本次临时 profile 有界重试清理。
    ui?.close();page?.close();browser?.close();proc.kill('SIGTERM');await new Promise(resolve=>proc.exitCode!==null?resolve():proc.once('exit',resolve));await rm(profile,{recursive:true,force:true,maxRetries:3,retryDelay:100});

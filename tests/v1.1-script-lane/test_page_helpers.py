@@ -76,6 +76,27 @@ class PageHelpersTests(unittest.TestCase):
             self.assertEqual(caught.exception.code, 'incomplete_target_scope')
             self.assertEqual(call.call_count, 1)
 
+    def test_r10_unique_main_document_account_with_opaque_frame_dispatches_once(self):
+        page = snapshot([button(name='synthetic-target@example.test')], False)
+        page['coverage'].update(coveredScopeComplete=True, contentShieldSkippedFrames=1)
+        page['skippedFrames'] = [{'origin': 'https://frame.test', 'x': 500, 'y': 500, 'width': 1, 'height': 1}]
+        with patch.object(child, '_call', side_effect=[page, {'clicked': True}]) as call:
+            self.assertTrue(child.click_element('synthetic-target@example.test')['clicked'])
+            self.assertEqual(call.call_count, 2)
+
+    def test_r10_incomplete_scope_does_not_allow_truncation_ambiguity_or_frame_targets(self):
+        for covered, items in [(False, [button()]), (True, [button(), button('two')]),
+                               (True, [button(targetPath=[{'kind': 'frame'}])])]:
+            page = snapshot(items, False)
+            page['coverage'].update(coveredScopeComplete=covered, contentShieldSkippedFrames=1)
+            page['skippedFrames'] = [{'origin': 'https://frame.test', 'width': 2, 'height': 2}]
+            with self.subTest(covered=covered, items=items), patch.object(child, '_call', return_value=page) as call:
+                with self.assertRaises(child.BrowserError) as caught:
+                    child.click_element('继续')
+                self.assertEqual(caught.exception.code, 'incomplete_target_scope')
+                self.assertIn('https://frame.test (2x2)', str(caught.exception))
+                self.assertEqual(call.call_count, 1)
+
     def test_dynamic_element_waits_only_on_reads(self):
         with patch.object(child, '_call', side_effect=[snapshot([]), snapshot([button(disabled=True)]),
                                                       snapshot([button(busy=True)]), snapshot([button()])]) as call, patch.object(child.time, 'sleep'):

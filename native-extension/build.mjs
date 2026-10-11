@@ -24,6 +24,8 @@ const dependencies = {
   'vendor/approval-policy.mjs': path.join(repo, 'approval-policy/policy.mjs'),
   'vendor/page-parser.mjs': path.join(repo, 'page-semantics/parser.mjs'),
   'vendor/page-semantics.mjs': path.join(repo, 'page-semantics/index.js'),
+  'vendor/oauth-providers.mjs': path.join(repo, 'page-semantics/oauth-providers.mjs'),
+  'vendor/redact.mjs': path.join(repo, 'page-semantics/redact.mjs'),
   'vendor/browser-interactions.mjs': path.join(repo, 'browser-interactions/index.mjs'),
 };
 await mkdir(path.join(dest, 'vendor'), {recursive: true});
@@ -38,11 +40,14 @@ for (const [relative, canonical] of Object.entries(dependencies)) {
 }
 
 const sourceCore = await readFile(path.join(source, 'core.mjs'), 'utf8');
+await writeFile(path.join(dest,'oauth-popups.mjs'),(await readFile(path.join(source,'oauth-popups.mjs'),'utf8'))
+  .replace("from '../page-semantics/oauth-providers.mjs'", "from './vendor/oauth-providers.mjs'"));
 const builtCore = sourceCore
   .replace("from '../page-semantics/parser.mjs'", "from './vendor/page-parser.mjs'")
   .replace("from '../browser-diagnostics/js/diagnostics.mjs'", "from './vendor/browser-diagnostics.mjs'")
   .replace("from '../approval-policy/policy.mjs'", "from './vendor/approval-policy.mjs'")
   .replace("from '../page-semantics/index.js'", "from './vendor/page-semantics.mjs'")
+  .replace("from '../page-semantics/redact.mjs'", "from './vendor/redact.mjs'")
   .replace("from '../browser-interactions/index.mjs'", "from './vendor/browser-interactions.mjs'");
 if (builtCore === sourceCore || /\.\.\/(page-semantics|browser-interactions|approval-policy)/.test(builtCore)) {
   throw Error('native dependency import rewrite failed');

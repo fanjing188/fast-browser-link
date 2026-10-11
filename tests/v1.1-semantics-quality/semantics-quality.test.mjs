@@ -188,7 +188,6 @@ runQualityTest('sensitive strings are redacted before fragment splitting', () =>
       passwordValue: wire.includes('CAPTURE_SENTINEL_PASSWORD'),
       tokenValue: wire.includes('CAPTURE_SENTINEL_TOKEN'),
       bearerValue: wire.includes('CAPTURE_SENTINEL_BEARER'),
-      email: wire.includes('alice@example.com'),
       cardNumber: wire.includes('4111111111111111'),
     };
     reports.sensitiveFragmentRedaction = {
@@ -196,7 +195,7 @@ runQualityTest('sensitive strings are redacted before fragment splitting', () =>
       reconstructedRedactedCharacters: reconstructed.length,
       returnedFragments: items.length,
       leakChecks,
-      redactionMarkers: ['password=[redacted]', 'token=[redacted]', 'Bearer [redacted]', '[email]', '[number]'],
+      redactionMarkers: ['password=[redacted]', 'token=[redacted]', 'Bearer [redacted]', '[number]'],
       ...responseMetrics(pages, api.calls),
     };
 
@@ -206,7 +205,8 @@ runQualityTest('sensitive strings are redacted before fragment splitting', () =>
     assert.ok(reconstructed.includes('password=[redacted]'));
     assert.ok(reconstructed.includes('token=[redacted]'));
     assert.ok(reconstructed.includes('Bearer [redacted]'));
-    assert.ok(reconstructed.includes('[email]'));
+    // 中文注释：邮箱位于未加引号的密码之后，仍属于不确定的秘密值，不放开秘密边界。
+    assert.ok(!reconstructed.includes('alice@example.com'));
     assert.ok(reconstructed.includes('[number]'));
     assert.equal(pages.at(-1).nextCursor, null);
 
@@ -214,8 +214,8 @@ runQualityTest('sensitive strings are redacted before fragment splitting', () =>
       rawInputCharacters: raw.length,
       reconstructedRedactedCharacters: reconstructed.length,
       returnedFragments: items.length,
-      sensitiveLeakDetected: /CAPTURE_SENTINEL|alice@example\.com|4111111111111111/.test(wire),
-      redactionMarkers: ['password=[redacted]', 'token=[redacted]', 'Bearer [redacted]', '[email]', '[number]'],
+      sensitiveLeakDetected: /CAPTURE_SENTINEL|4111111111111111/.test(wire),
+      redactionMarkers: ['password=[redacted]', 'token=[redacted]', 'Bearer [redacted]', '[number]'],
       ...responseMetrics(pages, api.calls),
     };
   } finally {f.close();}

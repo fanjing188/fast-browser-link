@@ -13,6 +13,8 @@ const root = path.resolve(import.meta.dirname, '../..');
 // 中文注释：构建验收只使用系统临时目录，避免写入实际 Hermes 安装。
 const scratch = await realpath(tmpdir());
 const dependencyFiles = [
+  'page-semantics/oauth-providers.mjs',
+  'page-semantics/redact.mjs',
   'browser-workspaces/index.mjs',
   'browser-diagnostics/js/diagnostics.mjs',
   'approval-policy/policy.mjs',
@@ -59,6 +61,8 @@ const vendorSources = {
   'vendor/approval-policy.mjs': 'approval-policy/policy.mjs',
   'vendor/page-parser.mjs': 'page-semantics/parser.mjs',
   'vendor/page-semantics.mjs': 'page-semantics/index.js',
+  'vendor/oauth-providers.mjs': 'page-semantics/oauth-providers.mjs',
+  'vendor/redact.mjs': 'page-semantics/redact.mjs',
   'vendor/browser-interactions.mjs': 'browser-interactions/index.mjs',
 };
 const sha256 = data => createHash('sha256').update(data).digest('hex');
@@ -173,7 +177,8 @@ async function assertBuildContents(sourceRoot, output) {
 
   for (const relative of sourceCopies) {
     const staged = await readFile(path.join(output, relative));
-    const source = await readFile(path.join(sourceRoot, 'native-extension', relative));
+    const rawSource = await readFile(path.join(sourceRoot, 'native-extension', relative));
+    const source = relative==='oauth-popups.mjs'?Buffer.from(rawSource.toString().replace("from '../page-semantics/oauth-providers.mjs'", "from './vendor/oauth-providers.mjs'")):rawSource;
     assert.deepEqual(staged, source, `${relative} source`);
     assert.equal(sha256(staged), sha256(source), `${relative} source hash`);
   }
@@ -183,6 +188,7 @@ async function assertBuildContents(sourceRoot, output) {
     .replace("from '../approval-policy/policy.mjs'", "from './vendor/approval-policy.mjs'")
     .replace("from '../page-semantics/parser.mjs'", "from './vendor/page-parser.mjs'")
     .replace("from '../page-semantics/index.js'", "from './vendor/page-semantics.mjs'")
+    .replace("from '../page-semantics/redact.mjs'", "from './vendor/redact.mjs'")
     .replace("from '../browser-interactions/index.mjs'", "from './vendor/browser-interactions.mjs'");
   assert.equal(await readFile(path.join(output, 'core.mjs'), 'utf8'), expectedCore);
   const expectedAdapter = (await readFile(path.join(sourceRoot, 'native-extension/workspace-adapter.mjs'), 'utf8'))

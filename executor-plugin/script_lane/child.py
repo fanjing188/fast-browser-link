@@ -24,7 +24,7 @@ from pathlib import Path
 class BrowserError(RuntimeError):
     """A browser action failed. ``outcome_unknown`` means do not replay it."""
 
-    def __init__(self, message, code=None, outcome_unknown=True, final_origin=None, candidates=None, obstruction=None, current_origin=None, stage=None, reason_code=None, effect=None, suggestion=None):
+    def __init__(self, message, code=None, outcome_unknown=True, final_origin=None, candidates=None, obstruction=None, current_origin=None, stage=None, reason_code=None, effect=None, suggestion=None, skipped_frame=None):
         super().__init__(message)
         self.code = code
         self.outcome_unknown = outcome_unknown
@@ -35,6 +35,7 @@ class BrowserError(RuntimeError):
         self.current_origin, self.stage, self.reason_code = current_origin, stage, reason_code
         # 中文注释：无效果错误向脚本公开固定字段。
         self.effect, self.suggestion = effect, suggestion
+        self.skipped_frame = skipped_frame
 
     def __str__(self):
         # 中文注释：异常首行保留可信错误码，便于从脚本回溯区分拒绝与未知结果。
@@ -43,6 +44,13 @@ class BrowserError(RuntimeError):
             message += f' 请用 {self.final_origin} 新开任务。'
         if self.code in {'origin_denied', 'tab_out_of_scope'}:
             message += f' 当前来源：{self.current_origin or "unavailable"}；同站用 goto_url，新站用 browser_shared_open。'
+        if self.code == 'content_shield_uninspectable':
+            message += ' 改用 read_page / semantic_snapshot 读取主文档，或经授权后单独打开 iframe 地址。'
+            if self.skipped_frame:
+                f = self.skipped_frame
+                message += f" 未覆盖 frame：{f['origin']} ({f['width']}x{f['height']})；用 root 限定不重叠区域，并以完整名称唯一定位。"
+        if self.reason_code:
+            message += f' 原因：{self.reason_code}。'
         return f'BrowserError[{self.code}]: {message}' if self.code else message
 
 
@@ -139,7 +147,7 @@ def _call(op, args):
                candidates=reply.get('candidates') if code in {'reference_target_missing', 'reference_target_ambiguous', 'element_timeout'} else None,
                obstruction=reply.get('obstruction') if code == 'target_occluded' else None,
                current_origin=reply.get('currentOrigin'), stage=reply.get('stage'), reason_code=reply.get('reasonCode'),
-               effect=reply.get('effect'), suggestion=reply.get('suggestion'))
+               effect=reply.get('effect'), suggestion=reply.get('suggestion'), skipped_frame=reply.get('skippedFrame'))
 
 
 def parallel(fn, tabs):
@@ -509,10 +517,7 @@ def wait_for_element(name, *, role=None, root=None, exact=True, timeout=10.0, ta
                 or not isinstance(page.get('items'), list)
                 or not isinstance(page.get('binding'), dict) or not page.get('snapshotId')):
             raise BrowserError('invalid semantic snapshot', code='invalid_receipt', outcome_unknown=False)
-        # 中文注释：预算截断或未遍历完整时不能推断唯一目标，要求缩小区域。
-        if page.get('coverage', {}).get('complete') is not True:
-            raise BrowserError('narrow the root or query before selecting a target',
-                               code='incomplete_target_scope', outcome_unknown=False)
+        coverage = page.get('coverage', {})
         normalized = _normalized_accessible_name(name)
         candidates = [item for item in page['items'] if isinstance(item, dict)
                       and isinstance(item.get('name'), str) and (role is None or item.get('role') == role)]
@@ -534,6 +539,19 @@ def wait_for_element(name, *, role=None, root=None, exact=True, timeout=10.0, ta
         suggestions = [{'role': item.get('role', ''), 'name': item['name'][:80]}
                        for candidate in nearest for item in candidates
                        if _normalized_accessible_name(item['name']) == candidate][:3]
+        # 中文注释：仅主文档完整、唯一的原生引用可进入派发前几何复核；未读框架不被当作已覆盖。
+        if coverage.get('complete') is not True:
+            scoped = (action == 'click' and coverage.get('coveredScopeComplete') is True
+                      and coverage.get('contentShieldSkippedFrames', 0) > 0
+                      and len(matches) == 1 and isinstance(page.get('skippedFrames'), list)
+                      and bool(page['skippedFrames'])
+                      and not any(part.get('kind') == 'frame' for part in matches[0].get('targetPath', [])))
+            if not scoped:
+                frames = ', '.join(f"{frame.get('origin', 'opaque')} ({frame.get('width')}x{frame.get('height')})"
+                                   for frame in page.get('skippedFrames', [])[:8])
+                raise BrowserError('目标范围不完整；用 root 限定主文档账号列表，并以完整邮箱、role 唯一定位；'
+                                   '若目标在 iframe 内，请单独打开其地址。未覆盖 frame：' + (frames or '未确认'),
+                                   code='incomplete_target_scope', outcome_unknown=False)
         if len(matches) > 1:
             raise BrowserError('multiple matching elements; specify a narrower root; candidates: ' +
                                ', '.join(row['name'] for row in suggestions),

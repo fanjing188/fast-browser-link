@@ -30,7 +30,7 @@ function render() {
   $('#filter-toggle').setAttribute('aria-checked', String(filterEnabled))
   $('#filter-toggle').disabled = busy || !filterKnown
   // 中文注释：主流程明确显示自动匹配，额外选择器不是使用前提。
-  $('#filter-detail').textContent = !filterKnown ? '设置状态待确认' : filterEnabled ? '已开启 · 自动识别并屏蔽文本块及截图' : '已关闭 · 返回原始页面内容'
+  $('#filter-detail').textContent = !filterKnown ? '设置状态待确认' : filterEnabled ? '已开启 · 自动识别明确禁令与干扰，保留邮箱和正常内容' : '已关闭 · 返回原始页面内容'
   renderWork()
   // 中文注释：云端区域复用同一状态快照，避免增加本地桥轮询和任务查询。
   window.dispatchEvent(new CustomEvent('browser-link-status',{detail:known?statusData?.cloud:null}))

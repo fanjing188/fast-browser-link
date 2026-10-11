@@ -126,9 +126,37 @@ test('completion waits for the local authorization server and the page itself po
   let finish,closed=0;const messages=[],requests=[];
   dom.window.fetch=async url=>{requests.push(url);return new Promise(resolve=>finish=resolve);};
   dom.window.opener={postMessage:(...args)=>messages.push(args)};dom.window.close=()=>closed++;
-  dom.window.document.querySelector('button').click();
+  dom.window.document.querySelector('#complete').click();
   assert.deepEqual(requests,['/oauth-complete?flow=flow']);assert.equal(closed,0);assert.equal(messages.length,0);
   finish({ok:true});await new Promise(resolve=>setImmediate(resolve));
   assert.equal(messages.length,1);assert.equal(messages[0][1],'http://127.0.0.1:9000');assert.equal(messages[0][0].flow,'flow');assert.equal(closed,1);
  }finally{dispose();}
+});
+test('choosing the target synthetic account sends its email once and closes only after local authorization',async()=>{
+ const dom=new JSDOM(oauthProviderPage(),{url:'http://login.localhost:9000/oauth-provider?flow=flow&source=http%3A%2F%2F127.0.0.1%3A9000',runScripts:'dangerously'});
+ const dispose=dom.window.close.bind(dom.window);
+ try{
+  let finish,closed=0;const requests=[],messages=[];
+  dom.window.fetch=async url=>{requests.push(url);return new Promise(resolve=>finish=resolve);};
+  dom.window.opener={postMessage:(...args)=>messages.push(args)};dom.window.close=()=>closed++;
+  dom.window.document.querySelectorAll('.account')[1].click();
+  assert.deepEqual(requests,['/oauth-complete?flow=flow&account=synthetic-target%40example.test']);
+  assert.equal(dom.window.fixtureAccountClicks,1);assert.equal(closed,0);assert.equal(messages.length,0);
+  finish({ok:true});await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(closed,1);assert.equal(messages[0][1],'http://127.0.0.1:9000');
+ }finally{dispose();}
+});
+
+test('R11 provider waits for an authenticated frame readiness message from its distinct origin',()=>{
+ const origin='http://login.localhost:9000',frameOrigin='http://127.0.0.1:9000';
+ const dom=new JSDOM(oauthProviderPage({frameOrigin}),{url:origin+'/oauth-provider',runScripts:'dangerously'});
+ try{
+  const frame=dom.window.document.querySelector('iframe');
+  assert.notEqual(new URL(frame.src).origin,origin);assert.equal(frame.style.width,'2px');
+  assert.equal(dom.window.fixtureFrameLoaded,false);
+  const notify=(source,site)=>dom.window.dispatchEvent(new dom.window.MessageEvent('message',{data:'fixture-frame-ready',source,origin:site}));
+  notify(frame.contentWindow,origin);assert.equal(dom.window.fixtureFrameLoaded,false);
+  notify(dom.window,frameOrigin);assert.equal(dom.window.fixtureFrameLoaded,false);
+  notify(frame.contentWindow,frameOrigin);assert.equal(dom.window.fixtureFrameLoaded,true);
+ }finally{dom.window.close();}
 });

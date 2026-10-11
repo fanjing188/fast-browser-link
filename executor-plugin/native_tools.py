@@ -180,6 +180,7 @@ PUBLIC_ACTIONS = frozenset({
 _run_schema = TOOL_SCHEMAS['browser_shared_run']['parameters']
 TOOL_SCHEMAS['browser_shared_run']['description'] += ' 点击第三方登录后查看 popupOpened 和 popupNextStep；smart/full（连接授权后的全部访问）模式下内置身份提供方授权页由本任务新打开时自动接管，直接 browser_shared_use_tab 到 popupOpened.tabId 并重读页面选账号。密码、验证码、2FA 用 manual_input 请用户亲自填写。弹窗关闭时 popupClosed.returnedTo 指向源页，返回后重读，不复用旧引用。白名单外弹窗即使全部访问也必须明确确认，仍需 popup_catalog 保留候选、popup_adopt 等待用户确认；脚本 wait_pending 只读查账本，返回 state=confirmed，不重发接管，再 use_tab 到已确认候选并读取；单工具用 browser_shared_get 核对 generation 与 adoptedPopupTabIds 后选页重读。不得另开登录网址替代原弹窗，不自动移动或关闭，不授予清理权；未知或变化的授权不能重放。'
 TOOL_SCHEMAS['browser_shared_run']['description'] += (
+    ' 所有网站的结构读取显示真实邮箱，便于找联系人或选账号；卡号、密钥、Bearer 和密码保护不变。'
     ' semantic_snapshot 不接受 sections/maxScan/schema；需要 regions/blocks/forms/collections 等分区时用 page.parse。'
     ' 页面执行：连接授权后 js.evaluate / cdp.send / cdp.events 直接执行，不逐项确认。'
     '发生过凭据填写的页面不能运行任意 JS/CDP。原始脚本结果不做字段级脱敏。'
@@ -694,6 +695,7 @@ def make_tool_handler(tool_name, profile_runtime, *, host_bridge=None, backend_c
             }
             # 中文注释：保护错误用固定说明，不建议工具关闭过滤，也不泄露规则/原文。
             messages.update({reason: '页面内容保护无法确认，本次输出已拒绝；请核对保护状态或使用受支持入口。' for reason in _CONTENT_SHIELD_CODES})
+            messages['content_shield_uninspectable'] = '存在无法检查的区域；改用 read_page / semantic_snapshot 读取主文档，或经授权后单独打开 iframe 地址。'
             # 只展示扩展定义的高亮阶段错误码，不展示网页异常内容。
             if code.startswith('interaction_highlight_') or code in {
                     'overlay_injection_failed', 'overlay_scope_stale', 'overlay_frame_changed'}:
@@ -743,7 +745,7 @@ def make_tool_handler(tool_name, profile_runtime, *, host_bridge=None, backend_c
             if code in {'click_no_effect', 'accessibility_unavailable'} or code in _CONTENT_SHIELD_CODES:
                 result['code'] = code
             # 中文注释：只转发 client 已校验的固定诊断字段。
-            for key in ('currentOrigin', 'scopeHint', 'stage', 'reasonCode', 'effect', 'suggestion'):
+            for key in ('currentOrigin', 'scopeHint', 'stage', 'reasonCode', 'effect', 'suggestion', 'skippedFrame'):
                 if key in data:
                     result[key] = data[key]
             # 中文注释：工作页停在第三方登录页时，回到原站会打断登录；改为请用户亲自登录并等待自动恢复。

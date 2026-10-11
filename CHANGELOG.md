@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.10.2 — 2026-10-11
+
+- 所有网站的读取结果显示真实邮箱，不再替换为 `[email]`（外链联系人、登录账号选择都需要）；卡号、`key=`/`Bearer` 令牌和密码框值仍遮挡。
+- 登录账号选择页（如 Google）里有不可检查的跨源小 iframe 时，主文档里唯一命中、且不与该 iframe 重叠的账号项可以直接点击；目标有歧义或可能落在未覆盖区域时仍拒绝，并返回 iframe 来源和尺寸。（真实 NextBigProduct「Continue with Google」实测发现）
+- 自动屏蔽网页干扰：只对成句、明确面向访问者的禁止自动化声明设置站点限制，工具站介绍自家“爬虫/自动化/bot”功能不再被误判；命中时说明“这是页面声明，不是插件故障”，并给出可继续的读取方式。提示注入过滤不变。
+- 结构读取（semantic_snapshot / read_page 等）遇到页面动态变化时最多自动重读 2 次，减少 `content_shield_stale` / `content_shield_changed`；写操作、脚本、截图不自动重放。
+- `content_shield_unavailable` 增加具体 `reasonCode`；页面 DOM 尚未就绪时在读取内部等待后重读。
+- 跨源 iframe 不可检查时，结构读取返回主文档内容和 `skippedFrames`（来源与尺寸），不整体失败；js.evaluate / 截图维持严格策略并提示改用结构读取。
+- CDP 仅新增放行只读几何方法 `Page.getLayoutMetrics`、`DOM.getBoxModel`。
+
 ## 1.10.1 — 2026-10-11
 
 - 修复 1.10.0 授权弹窗自动接管在实际使用中不生效：连接授权后任务默认处于 full 模式，此前自动接管只在 smart 模式触发。现在 Google、Apple、Microsoft、GitHub、Facebook、X 的授权页弹窗在 smart 和 full 模式下都自动接管并记审计；其他来源的弹窗在两种模式下仍需确认；密码、验证码、2FA 仍由用户亲自填写。（真实 NextBigProduct「Continue with Google」实测发现）

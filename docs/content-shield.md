@@ -16,7 +16,7 @@
 
 浏览器弹窗只显示自动屏蔽开关，不再展示网站/选择器配置。已保存的额外规则仍沿用原有校验和输出保护；开关未设置时的默认值及已有偏好不变。
 
-规则保存在本扩展的 `chrome.storage.local`，后台规则读写仍只接受受信的 `popup.html` 发起者。不提供 Agent 工具写入、开关关闭或规则查询接口。规则和原文不会进入 Agent 审计信息、错误候选或诊断日志。
+规则保存在本扩展的 `chrome.storage.local`，后台规则读写仍只接受受信的 `popup.html` 发起者。不提供 Agent 工具写入、开关关闭或规则查询接口。规则和原文不会进入 Agent 审计信息、错误候选或诊断日志；命中诊断仅返回规则序号、块标签/字段类型与字符长度。
 
 ## 输出行为
 
@@ -29,7 +29,7 @@
 | 官方 browser_vision 适配 | 已有适配转到上述 screenshot/interaction.capture，使用相同保护 |
 | interaction.bounds 与其他正常动作返回 | 统一在执行器出口清理读到的区域内容 |
 | tabs | 移除未探测的网页标题，保留标签页和授权信息 |
-| cdp.send、cdp.events、network.inspect、images、console、dialog | 明确拒绝；这些入口的完整输出尚未实现可靠脱敏 |
+| cdp.send、cdp.events、network.inspect、images、console、dialog | 仅 cdp.send 的 Page.getLayoutMetrics、DOM.getBoxModel 两种几何读取可用；其余明确拒绝 |
 | browser.cdp 及其 targets/version/activate/close/subscribe/chunk 网关 | 明确拒绝原始通道；已有事件订阅停止推送，设置读失败也不推送 |
 | browser.status | 移除网页标题汇总，当前设置也保护旧缓存；保留页面标识和控制状态 |
 | 来源、凭据、批准与任务生命周期 | 保留原有身份、授权与固定状态字段；不提供网页正文读取的新通道 |
@@ -39,7 +39,7 @@
 ## 拒绝与边界
 
 - 每次操作和发送/回放都读取当前设置。设置读失败、规则无效、设置在执行中变化，均不返回未经确认的页面内容。
-- 新的结构读取（snapshot、semantic_snapshot、page.observe、page.parse、official.ready_state、frame_catalog）在前后文档标识不一致时，丢弃旧结果并最多重新读取一次，重新执行全部保护检查。保护设置变化、单次审批凭证、显式 frameToken、cursor/baselineId 读取、截图、脚本和写入动作不自动重试；框架持续变化仍拒绝输出。缓存回放不会重新执行操作。步骤面板对结构读取提示重新读取，写入动作仍提示核对实际结果、不要重复提交。
+- 新的结构读取（snapshot、semantic_snapshot、page.observe、page.parse、official.ready_state、frame_catalog）在前后文档标识不一致时，丢弃旧结果并最多重新读取两次（采集与发送阶段共用额度，80/160ms 退避），重新执行全部保护检查。保护设置变化、单次审批凭证、显式 frameToken、cursor/baselineId 读取、截图、脚本和写入动作不自动重试；框架持续变化仍拒绝输出。结构读取缓存失去文档身份时可在同一额度内刷新；写入缓存绝不重放。步骤面板对结构读取提示重新读取，写入动作仍提示核对实际结果、不要重复提交。
 - 文档、URL、视口、滚动、DPR、文本、遮罩位置在截图检查中变化时拒绝图片。不会回退原图。旧结果的设置或页面检查不一致时返回 `content_shield_stale`，须用新请求读取；不会为重放重新执行脚本或动作。
 - 同源 iframe、开放及通过 CDP 确认的封闭 Shadow DOM 参与遍历，包括同源 iframe 内的封闭组件。封闭组件超过 200 个、节点解析失败、视觉缩放/偏移、未知几何和扫描上限失败会拒绝相关输出。iframe 内命中规则时遮住最外层宿主框架，以免局部坐标错误。
 - snapshot、semantic_snapshot、page.observe、page.parse、official.ready_state 和 frame_catalog 可跳过不可读取 iframe，继续返回可访问 DOM；结果带 `contentFilter.unreadFrames`，已有 `coverage.complete` 置为 false，page.parse 还返回 `status:partial` 与 `unread_frames` 警告。不会返回被跳过框架的内部正文，也不会因此获得框架动作权限。截图、任意脚本、复杂控件和显式子框架操作仍保留不可检查框架的拒绝边界。
@@ -59,6 +59,8 @@
 
 `npm run build` 后可手动运行 `node tests/popup-integration/real-content-shield.mjs --output=/绝对路径/独立证据目录`。该脚本只使用 Chrome、Edge 的独立临时 profile 和本地测试页，仅打开开关，确认未保存任何网站/选择器规则；同时核对精简弹窗、manifest 版本、持续任务鼠标及实际移动中间位置、接管恢复和减少动态效果。覆盖默认正则自动定位、生产 Executor→Bridge、实际 PNG 全区域不透明像素、DPR=2、正常内容与阻塞提示、过滤关闭、祖先滤镜拒绝，以及 DOM、布局和焦点不变。它不连接个人安装的 native daemon，不能代替个人环境全链验收。
 
-个人安装与实际 Chrome/Edge 验收由 Hermes 完成。此次扩展之外还修改 Python 插件的封闭结果投影、公共保护错误分类和官方适配元数据转发，以保留站点约束/遮罩审计并移除隐藏标注引用；daemon、版本和默认偏好不变。替换候选后须 reload 扩展并重启或重新加载 Hermes 插件运行时；不新增 daemon 代码或专门的 daemon 重启要求。若采用整个安装包升级，仍遵循安装流程本身既有的重启要求。
+个人安装与实际 Chrome/Edge 验收由 Hermes 完成。此次扩展之外还修改 Python 插件的封闭结果投影、公共保护错误分类和官方适配元数据转发，以保留站点约束/遮罩审计并移除隐藏标注引用；第10轮还为 daemon/client 的封闭错误投影补充 origin/尺寸及固定原因码；发布版本和默认偏好不变。将来安装候选后须 reload 扩展，并按既有安装流程重新加载 Hermes 插件与 bridge，确保新投影生效；本轮没有操作个人安装或运行中进程。若采用整个安装包升级，仍遵循安装流程本身既有的重启要求。
 
 实际浏览器验收需分别检查：默认中英文公告、指定 selector 和子孙/ARIA/alt、父级汇总和 JS 原样值、普通/selector/ref/annotation/交互及官方截图、不透明遮罩、真实阻塞保留、滚动/缩放/导航/动态修改、同源 iframe/open Shadow、未知框架拒绝、旧请求回放、过滤关闭和未授权规则写入拒绝。必须解码实际 PNG/JPEG 对照像素，并确认 DOM、布局、焦点和用户看到的页面没有被内容屏蔽功能修改。
+
+第10轮：邮箱在所有网站的结构读取及兼容快照中保留。站点限制仅匹配明确成句的访问禁令，正常工具介绍不触发；`contentFilter.notice` 说明它是页面声明而非插件故障，并建议结构读取。结构读取返回 `skippedFrames`（origin/x/y/width/height），仍标记不完整；`coveredScopeComplete` 仅说明已覆盖主文档的扫描、预算、游标均完整，不能宣称 iframe 已读。唯一主文档账号可继续原生点击前的引用、几何和命中复核；重叠框架或歧义仍拒绝。保护不可用的 `reasonCode` 区分设置、文档未就绪、库存异常/格式、扫描/词表上限和几何错误，仅文档未就绪有界等待。

@@ -138,7 +138,7 @@ test('图片 alt、SVG title 和 tooltip 可命名图标按钮并保留脱敏',(
   const page=f.semantics.snapshot();
   assert.equal(page.items.find(item=>item.name==='下载报告').nameSource,'descendant');
   assert.equal(page.items.find(item=>item.name==='展开菜单').nameSource,'descendant');
-  assert.equal(page.items.find(item=>item.name==='账户 [email]').nameSource,'title');
+  assert.equal(page.items.find(item=>item.name==='账户 alice@example.com').nameSource,'title');
   assert(!JSON.stringify(page).includes('PRIVATE_ICON'));
   assert.equal(f.semantics.resolve(token(page,page.items.find(item=>item.name==='下载报告'))).id,'image');
  }finally{f.close();}
@@ -178,7 +178,7 @@ test('局部 AX 补充脱敏且拒绝私密标签，DOM 变化使其失效',()=>
   let page=f.semantics.snapshot();const ax=page.items.find(i=>!i.name&&f.semantics.resolve(token(page,i)).id==='ax'),privateItem=page.items.find(i=>f.semantics.resolve(token(page,i)).id==='private');
   assert.equal(f.semantics.accessibilityNode(token(page,privateItem)),null);
   f.semantics.applyAccessibility({...page.binding,snapshotId:page.snapshotId},[{ref:ax.ref,name:'打开 alice@example.com',states:{expanded:false}}]);
-  page=f.semantics.snapshot();assert(page.items.some(i=>i.name==='打开 [email]'&&i.nameSource==='accessibility'));
+  page=f.semantics.snapshot();assert(page.items.some(i=>i.name==='打开 alice@example.com'&&i.nameSource==='accessibility'));
   f.document.querySelector('#ax').textContent='更新名称';assert(!f.semantics.snapshot().items.some(i=>i.nameSource==='accessibility'));
  }finally{f.close();}
 });
@@ -265,5 +265,16 @@ test('多层组件包装内的虚拟记录换索引仍拒绝旧引用',()=>{
   const page=f.semantics.snapshot(),old=token(page,page.items[0]);
   f.document.querySelector('[role="row"]').setAttribute('aria-rowindex','2');
   assert.throws(()=>f.semantics.resolve(old),/REF_TARGET_MISSING/);
+ }finally{f.close();}
+});
+
+test('R11 hidden account after a snapshot produces missing-target diagnostics, not a binding mismatch',()=>{
+ const f=setup();try{
+  f.document.body.innerHTML='<div id="popover" popover style="display:block"><input type="email" aria-label="账号"></div>';
+  const page=f.semantics.snapshot({root:'#popover',query:'账号'}),account=page.items[0];assert.ok(account);
+  f.document.querySelector('#popover').style.display='none';
+  assert.throws(()=>f.semantics.resolve(token(page,account)),error=>{
+   const [code,encoded]=error.message.split('|');assert.equal(code,'REF_TARGET_MISSING');assert.deepEqual(JSON.parse(decodeURIComponent(encoded)),[]);return true;
+  });
  }finally{f.close();}
 });

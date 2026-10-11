@@ -45,11 +45,11 @@ test('an unquoted pipe is part of an ambiguous secret, not a safe boundary', () 
   } finally {f.close();}
 });
 
-test('a redacted PII marker does not make arbitrary text after a secret safe', () => {
+test('an email after an ambiguous secret does not make trailing text safe', () => {
   const f = fixture('Safe prefix | password=PII_SECRET; alice@example.com; SAFE_SUFFIX');
   try {
     const output = content(f);
-    assert.equal(output, 'Safe prefix | password=[redacted] [email]');
+    assert.equal(output, 'Safe prefix | password=[redacted]');
     assert.ok(!output.includes('PII_SECRET'));
     assert.ok(!output.includes('SAFE_SUFFIX'));
   } finally {f.close();}

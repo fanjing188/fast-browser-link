@@ -56,3 +56,7 @@ Notifications can be denied by browser or operating-system settings. The panel a
 ## Extension identity and installation packages
 
 The extension ID is `dhioigkigkkhceflkkkmoljhdaefjohb`. The manifest `key` is a public key used to keep that ID stable, not a secret. The installer checks the derived identity and the exact Native Messaging origin allowlist; upgrade preserves both checks. `SHA256SUMS.json` verifies file integrity, not publisher identity. These checks run inside the installer and do not require users to compare IDs during installation.
+
+### Email visibility
+
+Structured page reads and legacy snapshots preserve email addresses on all sites for contact discovery and account selection. Card numbers, labeled credentials, Bearer credentials and password-field protections remain in place. Emails inside an ambiguous credential value or an explicitly shielded region remain protected by that region/value boundary. Uninspectable frames are identified only by origin and geometry; structural reads do not expose their content.

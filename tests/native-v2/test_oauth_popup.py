@@ -17,6 +17,18 @@ assert SPEC is not None and SPEC.loader is not None
 m=importlib.util.module_from_spec(SPEC);sys.modules[SPEC.name]=m;SPEC.loader.exec_module(m)
 
 class PopupTests(unittest.TestCase):
+    def test_r10_shield_diagnostics_survive_daemon_and_client_without_page_data(self):
+        frame = {'origin': 'https://frame.test', 'x': 10, 'y': 10, 'width': 2, 'height': 2, 'body': 'PRIVATE_CANARY'}
+        safe = m.ProtocolError('content_shield_uninspectable', 'fixed', {'skippedFrame': frame, 'reasonCode': 'document_not_ready'}).data
+        error = BridgeError('content_shield_uninspectable', 'fixed', safe)
+        self.assertEqual(error.data['skippedFrame']['origin'], 'https://frame.test')
+        self.assertEqual(error.data['reasonCode'], 'document_not_ready')
+        self.assertNotIn('PRIVATE_CANARY', str(error.data))
+        for origin in ['https://frame.test/path?secret=value', 'https://user:secret@frame.test']:
+            frame['origin'] = origin
+            self.assertNotIn('skippedFrame', m.ProtocolError('content_shield_uninspectable', 'fixed', {'skippedFrame': frame}).data)
+            self.assertNotIn('skippedFrame', BridgeError('content_shield_uninspectable', 'fixed', {'skippedFrame': frame}).data)
+
     def test_semantic_option_fields_survive_client_without_untrusted_values(self):
         error=BridgeError('invalid_params','untrusted',{'fields':['sections','PRIVATE_CANARY',{},[]],'outcomeUnknown':False})
         self.assertEqual(error.code,'invalid_params')

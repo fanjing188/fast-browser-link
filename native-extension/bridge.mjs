@@ -18,7 +18,9 @@ function executionError(error,message){
  else if(reason==='CLICK_NO_EFFECT'){code='click_no_effect';text='输入已派发，但在观察期限内没有效果；请先读取页面核对。';}
  else if(reason==='TASK_PAUSED'||reason==='task paused'){code='task_paused';text='用户已接管，任务已暂停；请等待用户继续，不会自动重试。';}
  else if(error?.code==='workspace_unknown'){code='workspace_unknown';text='Workspace ownership or operation outcome is uncertain.';}
- else if(/^CONTENT_SHIELD_(?:UNAVAILABLE|INVALID_RULES|UNSUPPORTED|STALE|CHANGED|UNINSPECTABLE|UNSUPPORTED_VIEWPORT|BLOCKER_OVERLAP|RENDER_UNSUPPORTED)$/.test(reason)){code=reason.toLowerCase();text='页面内容保护未能确认，本次输出已拒绝；请核对保护状态后重新读取，写入结果未知时不要重试。';}
+ else if(/^CONTENT_SHIELD_(?:UNAVAILABLE|INVALID_RULES|UNSUPPORTED|STALE|CHANGED|UNINSPECTABLE|UNSUPPORTED_VIEWPORT|BLOCKER_OVERLAP|RENDER_UNSUPPORTED)$/.test(reason)){
+  code=reason.toLowerCase();text=reason==='CONTENT_SHIELD_UNINSPECTABLE'?'存在无法检查的区域；改用 read_page / semantic_snapshot 读取主文档，或经来源授权后单独打开 iframe 地址。':'页面内容保护未能确认；请重读后再操作，写入结果未知时不要重放。';
+ }
  else if(reason==='SCREENSHOT_TIMEOUT'){code='screenshot_timeout';text='截图超时，未返回截图；请核对页面状态。';}
  else if(reason==='SCREENSHOT_TARGET_MISSING'){code='element_timeout';text='截图目标未唯一找到；请重新读取页面并缩小名称或选择器范围。';}
  else if(reason==='CAPTURE_SENSITIVE_BLOCKED'){code='capture_sensitive_blocked';text='敏感字段遮罩无法确认；请隐藏该字段或让用户手动截图后重试。';}
@@ -128,10 +130,16 @@ function executionError(error,message){
  // 中文注释：仅附固定阶段码与合法 origin，任何路径、查询和网页异常文本都不转发。
  let currentOrigin;try{const url=new URL(error?.currentOrigin);if(['http:','https:'].includes(url.protocol)&&!url.username&&!url.password)currentOrigin=url.origin;}catch{}
  const stage = code==='document_changed'||code==='overlay_frame_changed'?{stage:'document',reasonCode:'document_changed'}:code==='overlay_injection_failed'&&error?.stage==='overlay'&&['initialization_exception','return_type_invalid'].includes(error?.reasonCode)?{stage:'overlay',reasonCode:error.reasonCode}:{};
+ const shieldReason=['settings_unavailable','document_not_ready','inventory_invalid','inventory_exception','token_limit','node_limit','invalid_geometry'].includes(error?.reasonCode)?error.reasonCode:null;
+ let skippedFrame;
+ if(code==='content_shield_uninspectable'&&error?.skippedFrame){
+  const f=error.skippedFrame;let origin;try{origin=new URL(f.origin).origin;}catch{origin='opaque';}
+  if([f.x,f.y,f.width,f.height].every(Number.isFinite)){skippedFrame={origin,x:f.x,y:f.y,width:f.width,height:f.height};text+=` 未覆盖 frame：${origin} (${f.width}x${f.height})；用 root 限定不与它重叠的主文档区域，并以完整名称唯一定位。`;}
+ }
  const actionConfirmed=error?.actionConfirmed===true&&code.startsWith('content_shield_');
  return {code,message:text,data:{outcomeUnknown:!actionConfirmed&&code!=='cdp_error'&&!readOnly&&!filePreDispatch&&!refusedBeforeDispatch&&error?.preDispatch!==true,retryable:readOnly&&['document_changed','stale_reference','stale_screenshot','screenshot_expired','page_not_ready','overlay_frame_changed','overlay_injection_failed'].includes(code),
   ...(actionConfirmed?{actionConfirmed:true}:{}),
-  ...stage,
+  ...stage,...(shieldReason?{reasonCode:shieldReason}:{}),...(skippedFrame?{skippedFrame}:{}),
   ...(code==='click_no_effect'?{effect:'unobserved',suggestion:'输入已派发但未观察到效果；请读取目标页核对，检查按钮状态或改用页面支持的操作，不要反复重试。'}:{}),
   ...(['origin_denied','tab_out_of_scope'].includes(code)&&currentOrigin?{currentOrigin,scopeHint:'同站用 goto_url，新站用 browser_shared_open。'}:{}),
   ...(candidates?{candidates}:{}),
@@ -207,6 +215,7 @@ export class Bridge {
    if(this.executor.shieldResponse){const result=await this.executor.shieldResponse(request,response.result);this.send({...response,result:enabled&&result?.contentFilter?.enabled!==true?filterPageResult(request.params?.action,result):result});return;}
    this.send(enabled?{...response,result:filterPageResult(request.params.action,response.result)}:response);
   } catch(error) {
+   if(/^CONTENT_SHIELD_/.test(error?.message||'')&&error.message!=='CONTENT_SHIELD_STALE'){this.send({id:response.id,error:executionError(error,request)});return;}
    if(error?.message==='CONTENT_SHIELD_STALE'){
     const data={outcomeUnknown:request.params.action==='popup_adopt',retryable:false};
     this.send({id:response.id,error:{code:'content_shield_stale',message:'屏蔽设置或页面已变化，请核对结果；不要重放写入。',data}});return;

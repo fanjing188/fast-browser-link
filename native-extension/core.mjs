@@ -4,6 +4,8 @@ import {validateShieldRules,collectShield,redactShieldResult} from './content-sh
 const SHIELD_SETTINGS=Symbol('content shield settings');
 const SHIELD_WRITE_TARGET=Symbol('content shield write target');
 const SHIELD_DOCUMENT_CHANGED=Symbol('content shield document changed');
+const SHIELD_READ_RETRIES=Symbol('content shield read retries');
+const SHIELD_GEOMETRY_METHODS=new Set(['Page.getLayoutMetrics','DOM.getBoxModel']);
 // 中文注释：这些结构读取只返回可访问 DOM；不可读取的子框架必须在覆盖率中明确报告。
 const STRUCTURED_PAGE_READS=new Set(['snapshot','semantic_snapshot','page.parse','page.observe','official.ready_state','frame_catalog']);
 // 中文注释：这些出口只返回固定 DOM/图像结果；隐藏框架不参与渲染，任意脚本与业务 JSON 不适用。
@@ -16,6 +18,7 @@ import {DiagnosticEventBuffer,observeAction} from '../browser-diagnostics/js/dia
 import {NativeWorkspaces,groupTitle} from './workspace-adapter.mjs';
 import {createApprovalPolicy,POLICY_VERSION} from '../approval-policy/policy.mjs';
 import {createPageSemantics} from '../page-semantics/index.js';
+import {createPageTextRedactor} from '../page-semantics/redact.mjs';
 import {createPageParser} from '../page-semantics/parser.mjs';
 import {createAutomationOverlay,stepLabels} from './automation-overlay.mjs';
 import {createInteractionHighlight} from './interaction-highlight.mjs';
@@ -139,7 +142,8 @@ export function classifySensitiveField(e){
 // 中文注释：注入函数保留原函数头（诊断与测试按函数名识别），在函数体开头内联共用敏感判定。
 function withSensitiveClassifier(fn){
  const source=fn.toString(),body=source.indexOf('{');
- return `${source.slice(0,body+1)}const classifySensitiveField=(${classifySensitiveField.toString()});const fileUploadVisualTarget=(${fileUploadVisualTarget.toString()});${source.slice(body+1)}`;
+ const reading=fn===pageAction?`const createPageTextRedactor=(${createPageTextRedactor.toString()});`:'';
+ return `${source.slice(0,body+1)}const classifySensitiveField=(${classifySensitiveField.toString()});const fileUploadVisualTarget=(${fileUploadVisualTarget.toString()});${reading}${source.slice(body+1)}`;
 }
 
 // 中文注释：文件输入仍是唯一派发目标；只选择页面上关联且可见的区域绘制高亮。
@@ -156,14 +160,16 @@ export function fileUploadVisualTarget(input){
 }
 
 // 中文注释：导出同一份页面执行函数供真实浏览器验收，避免测试复制动作实现。
+const serializedFunction=fn=>fn.toString().replace(/^function [^(]+/,'function');
 export const semanticWorldDeclaration=`function(op,p){
- const createPageSemantics=${createPageSemantics.toString().replace(/^\s*\/\/[^\n]*\n/gm,'')};
- const createPageParser=${createPageParser.toString().replace(/^\s*\/\/[^\n]*\n/gm,'')};
+ const createPageTextRedactor=${serializedFunction(createPageTextRedactor)};
+ const createPageSemantics=${serializedFunction(createPageSemantics).replace(/^\s*\/\/[^\n]*\n/gm,'')};
+ const createPageParser=${serializedFunction(createPageParser).replace(/^\s*\/\/[^\n]*\n/gm,'')};
  const same=(a,b)=>a&&b&&a.taskId===b.taskId&&a.documentId===b.documentId&&a.leaseId===b.leaseId;
  // 中文注释：扩展重载后旧隔离世界还可能存在；实现版本变化必须撤销旧引用并重新创建语义实例。
- const make=()=>({version:8,binding:p.binding,semantics:createPageSemantics({document,taskId:p.binding.taskId,documentId:p.binding.documentId,leaseId:p.binding.leaseId,classifyField:classifySensitiveField,
+ const make=()=>({version:9,binding:p.binding,semantics:createPageSemantics({document,...p.binding,classifyField:classifySensitiveField,
   shadowRootOf:node=>node.shadowRoot||globalThis.__hermesClosedShadowRoots?.get(node)||null})});
- const classifySensitiveField=${classifySensitiveField.toString()};
+ const classifySensitiveField=${serializedFunction(classifySensitiveField)};
  const sensitive=e=>classifySensitiveField(e)!==null;
  const fieldKind=e=>classifySensitiveField(e)||'sensitive';
  // 中文注释：遮挡时改点关联 label。
@@ -253,13 +259,13 @@ export const semanticWorldDeclaration=`function(op,p){
  };
  let state=globalThis.__hermesNativeSemanticsV2;
  if(op==='semantic_snapshot'||op==='page.parse'){
-  if(!state||state.version!==8||!same(state.binding,p.binding)){try{state?.semantics.revoke();}catch{}state=make();globalThis.__hermesNativeSemanticsV2=state;}
+  if(!state||state.version!==9||!same(state.binding,p.binding)){try{state?.semantics.revoke();}catch{}state=make();globalThis.__hermesNativeSemanticsV2=state;}
   try{if(op==='page.parse'){state.parser??=createPageParser(state.semantics.parsingContext());return state.parser.parse(p.options||{});}return state.semantics.snapshot(p.options||{});}catch(error){
    if(error?.message!=='DOCUMENT_REPLACED')throw error;
    try{state.semantics.revoke();}catch{}state=make();globalThis.__hermesNativeSemanticsV2=state;if(op==='page.parse'){state.parser=createPageParser(state.semantics.parsingContext());return state.parser.parse(p.options||{});}return state.semantics.snapshot(p.options||{});
   }
  }
- if(!state||state.version!==8||!same(state.binding,p.binding))throw Error('BINDING_MISMATCH');
+ if(!state||state.version!==9||!same(state.binding,p.binding))throw Error('BINDING_MISMATCH');
  const semantics=state.semantics,token={...p.binding,snapshotId:p.snapshotId,ref:p.ref},highlightBinding=p.highlightBinding;
  // 中文注释：只有宿主内部 CDP 查询使用节点对象，模型工具不会公开这两个操作。
  if(op==='accessibility_node')return semantics.accessibilityNode(token);
@@ -622,7 +628,11 @@ export function pageAction(action,selector,text,key,allowedOrigins,highlightBind
  const overlay=e=>!!e?.closest?.('[data-hermes-automation-overlay]');
  const sensitive=e=>classifySensitiveField(e)!==null;
  if(!allowedOrigins.includes(location.origin))throw Error('origin denied');
- if(action==='snapshot')return {url:location.href,title:document.title,elements:[...document.querySelectorAll('a,button,input,textarea,select,[role=button]')].filter(e=>!overlay(e)).slice(0,300).map(e=>({tag:e.tagName,text:sensitive(e)?'[REDACTED]':(e.innerText||e.getAttribute('aria-label')||'').slice(0,300),sensitive:sensitive(e)}))};
+ if(action==='snapshot'){
+  const redact=createPageTextRedactor();
+  const clean=value=>{const raw=String(value||'');return redact(raw.length>300?raw.slice(0,300).replace(/\S+$/u,''):raw);};
+  return {url:location.href,title:clean(document.title),elements:[...document.querySelectorAll('a,button,input,textarea,select,[role=button]')].filter(e=>!overlay(e)).slice(0,300).map(e=>({tag:e.tagName,text:sensitive(e)?'[REDACTED]':clean(e.innerText||e.getAttribute('aria-label')||''),sensitive:sensitive(e)}))};
+ }
  // 中文注释：官方 browser_press 作用于当前焦点；页面无焦点元素时按键落到 body，与浏览器默认行为一致。
  const e=selector===':focus'&&action!=='fill'?document.querySelector(':focus')||document.body:document.querySelector(selector);
  if(!e)throw Error('target not found');
@@ -1506,7 +1516,7 @@ export class Executor {
  async shieldSettings(){
   if(!this.onContentShield)return {enabled:false,rules:{}};
   try{const value=await this.onContentShield();if(typeof value?.enabled!=='boolean')throw Error();return {enabled:value.enabled,rules:validateShieldRules(value.rules)};}
-  catch{throw Object.assign(Error('CONTENT_SHIELD_UNAVAILABLE'),{preDispatch:true});}
+  catch{throw Object.assign(Error('CONTENT_SHIELD_UNAVAILABLE'),{preDispatch:true,reasonCode:'settings_unavailable'});}
  }
  // 中文注释：原生目标复用可视标签；语义引用和 CDP 生成私有目标证明，模型不能传入 backendNodeId 授权。
  async shieldWriteTarget(t,p,target,tree,guard){
@@ -1552,10 +1562,14 @@ export class Executor {
    arguments:[{value:{selectors:settings.rules[origin(tab.url)]||[],directiveSources:DIRECTIVES.map(rule=>rule.source),restrictionSources:SITE_AUTOMATION_RESTRICTIONS.map(rule=>rule.source),blockerSource:BLOCKER.source,forCapture:['screenshot','interaction.capture'].includes(p.action),allowHiddenFrames:HIDDEN_FRAME_OUTPUTS.has(p.action)&&!p.options?.frameToken,allowOpaqueFrames:STRUCTURED_PAGE_READS.has(p.action)&&!p.options?.frameToken,readRoot:['semantic_snapshot','page.parse'].includes(p.action)&&!p.options?.frameToken?p.options?.root??null:null}},targetObjectId?{objectId:targetObjectId}:{value:null}],returnByValue:true});guard();
   }finally{if(targetObjectId)await this.api.debugger.sendCommand(target,'Runtime.releaseObject',{objectId:targetObjectId});}
   if(response.exceptionDetails){
-   const reason=String(response.exceptionDetails.exception?.description||'').split('\n',1)[0].replace(/^Error: /,'');
-   throw Error(/^CONTENT_SHIELD_(?:UNAVAILABLE|UNINSPECTABLE|UNSUPPORTED_VIEWPORT|BLOCKER_OVERLAP|RENDER_UNSUPPORTED)$/.test(reason)?reason:'CONTENT_SHIELD_UNAVAILABLE');
+   const [reason,detail]=String(response.exceptionDetails.exception?.description||'').split('\n',1)[0].replace(/^Error: /,'').split('|');
+   const error=Error(/^CONTENT_SHIELD_(?:UNAVAILABLE|UNINSPECTABLE|UNSUPPORTED_VIEWPORT|BLOCKER_OVERLAP|RENDER_UNSUPPORTED)$/.test(reason)?reason:'CONTENT_SHIELD_UNAVAILABLE');
+   if(['token_limit','node_limit','invalid_geometry'].includes(detail))error.reasonCode=detail;
+   else if(reason==='CONTENT_SHIELD_UNINSPECTABLE'&&detail){try{error.skippedFrame=JSON.parse(decodeURIComponent(detail));}catch{}}
+   else if(reason!=='CONTENT_SHIELD_UNINSPECTABLE')error.reasonCode='inventory_exception';
+   throw error;
   }
-  if(!Array.isArray(response.result?.value?.tokens)||!Array.isArray(response.result?.value?.rects))throw Error('CONTENT_SHIELD_UNAVAILABLE');
+  if(!Array.isArray(response.result?.value?.tokens)||!Array.isArray(response.result?.value?.rects))throw Object.assign(Error('CONTENT_SHIELD_UNAVAILABLE'),{reasonCode:'inventory_invalid'});
   const inventory=response.result.value;
   if(writeTarget&&inventory.writeTargetVerified!==true)throw Error('CONTENT_SHIELD_UNINSPECTABLE');
   inventory.writeTarget=writeTarget;
@@ -1566,22 +1580,23 @@ export class Executor {
  async performProtected(t,p){
   const settings=await this.shieldSettings();
   const refreshable=STRUCTURED_PAGE_READS.has(p.action)&&!p.approval&&!p.frameToken&&!p.options?.frameToken&&!p.options?.cursor&&!p.options?.baselineId;
-  for(let attempt=0;attempt<2;attempt++){
-   try{return await this.performProtectedAttempt(t,p,settings);}
+  for(let attempt=p[SHIELD_READ_RETRIES]||0;attempt<3;attempt++){
+   try{const result=await this.performProtectedAttempt(t,p,settings);const meta=this.shieldResults.get(result);if(meta)meta.readRetries=attempt;return result;}
    catch(error){
     // 中文注释：仅重新执行无副作用的新结构读取，丢弃旧结果；设置变化、写入和截图继续拒绝。
-    if(attempt||!refreshable||(!error[SHIELD_DOCUMENT_CHANGED]&&!isTransientLoadError(error)))throw error;
+    if(attempt===2||!refreshable||(!error[SHIELD_DOCUMENT_CHANGED]&&error.message!=='CONTENT_SHIELD_CHANGED'&&error.reasonCode!=='document_not_ready'&&!isTransientLoadError(error)))throw error;
     this.check(t,p);
     if(t.paused||t.pauseRequested)throw Object.assign(Error('task paused'),{code:'TASK_PAUSED',preDispatch:true});
     if(JSON.stringify(settings)!==JSON.stringify(await this.shieldSettings()))throw error;
-    await new Promise(resolve=>setTimeout(resolve,80));
+    await new Promise(resolve=>setTimeout(resolve,80*(attempt+1)));
    }
   }
  }
  async performProtectedAttempt(t,p,settings){
-  if(settings.enabled&&['cdp.send','cdp.events','network.inspect','images','console','dialog'].includes(p.action))throw Object.assign(Error('CONTENT_SHIELD_UNSUPPORTED'),{preDispatch:true});
+  const geometry=p.action==='cdp.send'&&SHIELD_GEOMETRY_METHODS.has(p.method);
+  if(settings.enabled&&!geometry&&['cdp.send','cdp.events','network.inspect','images','console','dialog'].includes(p.action))throw Object.assign(Error('CONTENT_SHIELD_UNSUPPORTED'),{preDispatch:true});
   const scoped={...p,[SHIELD_SETTINGS]:settings};
-  const inspect=settings.enabled&&Number.isInteger(p.tabId)&&!['navigate','back','official.goto_url'].includes(p.action);
+  const inspect=settings.enabled&&!geometry&&Number.isInteger(p.tabId)&&!['navigate','back','official.goto_url'].includes(p.action);
   let before=null;
   try{if(inspect)before=await this.shieldInventory(t,p,settings);}catch(error){error.preDispatch=true;throw error;}
   scoped[SHIELD_WRITE_TARGET]=before?.writeTarget;
@@ -1617,23 +1632,18 @@ export class Executor {
    after=await this.shieldInventory(t,p,settings,before.writeTarget);
    if(before.document!==after.document)throw Object.assign(Error('CONTENT_SHIELD_CHANGED'),{[SHIELD_DOCUMENT_CHANGED]:true});
    if(image&&capture?.inventory!==JSON.stringify(after))throw Error('CONTENT_SHIELD_CHANGED');
-   const inventory={tokens:[...new Set([...before.tokens,...after.tokens])],siteAutomationRestricted:before.siteAutomationRestricted||after.siteAutomationRestricted,image};
+   const inventory={tokens:[...new Set([...before.tokens,...after.tokens])],siteAutomationRestricted:before.siteAutomationRestricted||after.siteAutomationRestricted,restrictionMatches:after.restrictionMatches,image};
    // 中文注释：DOM 输出使用实际文本块判定，不能再对父汇总拼接文字重新匹配；脚本自建返回值单独过滤。
    result=redactShieldResult(result,inventory);
    // 中文注释：部分读取保留已有结果，不能把跳过的框架误报为完整页面。
-   const unreadFrames=Math.max(before.skippedFrames||0,after.skippedFrames||0);
-   if(unreadFrames&&STRUCTURED_PAGE_READS.has(p.action)){
-    result={...result,contentFilter:{...result.contentFilter,unreadFrames},
-     ...(result.coverage?{coverage:{...result.coverage,complete:false,contentShieldSkippedFrames:unreadFrames}}:{}),
-     ...(p.action==='page.parse'?{status:'partial',warnings:[...new Set([...(result.warnings||[]),'unread_frames'])]}:{})};
-   }
+   result=this.shieldCoverage(result,p,after,before);
    if(p.action==='js.evaluate')result=filterPageResult(p.action,result);
   }else if(settings.enabled){
    // 中文注释：标签页标题可能汇总被屏蔽元素；没有页面探测的清单只返回授权标识与来源。
    if(p.action==='tabs')result=result.map(({title:_title,...row})=>row);
    else result=filterPageResult(p.action,result);
   }
-  if(result&&typeof result==='object')this.shieldResults.set(result,{settings:JSON.stringify(settings),tabId:p.tabId,document:before?.document,writeTarget:before?.writeTarget,actionConfirmed:confirmedClick,...(before&&!before.writeTarget?{inventory:JSON.stringify(after)}: {})});
+  if(result&&typeof result==='object')this.shieldResults.set(result,{settings:JSON.stringify(settings),tabId:p.tabId,document:before?.document,writeTarget:before?.writeTarget,actionConfirmed:confirmedClick,...(before&&!before.writeTarget&&!STRUCTURED_PAGE_READS.has(p.action)?{inventory:JSON.stringify(after)}: {})});
   return result;
   }catch(error){
    // 中文注释：发送前保护失败也作废交互截图身份，不留下未交付图片的可操作坐标。
@@ -1646,6 +1656,18 @@ export class Executor {
    throw error;
   }
  }
+ // 中文注释：结构覆盖率在采集与发送出口共用；只证明已扫描范围，不把未知框架算作已读。
+ shieldCoverage(result,p,inventory,previous={}){
+  if(!STRUCTURED_PAGE_READS.has(p.action))return result;
+  const unreadFrames=Math.max(previous.skippedFrames||0,inventory.skippedFrames||0);
+  if(!unreadFrames)return result;
+  const frames=[...new Map([...(previous.skippedFrameDetails||[]),...(inventory.skippedFrameDetails||[])].map(frame=>[JSON.stringify(frame),frame])).values()];
+  const c=result.coverage;
+  const covered=c?.traversalComplete===true&&c.omitted===0&&c.truncated===0&&c.offset===0&&c.axDiscoveryComplete!==false&&!c.axOmitted&&!result.nextCursor&&!p.options?.cursor&&!p.options?.baselineId&&(c.skippedFrames||0)<=unreadFrames;
+  return {...result,skippedFrames:frames,contentFilter:{...result.contentFilter,unreadFrames},
+   ...(c?{coverage:{...c,complete:false,coveredScopeComplete:covered,contentShieldSkippedFrames:unreadFrames}}:{}),
+   ...(p.action==='page.parse'?{status:'partial',warnings:[...new Set([...(result.warnings||[]),'unread_frames'])]}:{})};
+ }
  // 中文注释：弹窗回执只有执行器身份元数据，仍登记保护设置，发送/回放不能绕过复核。
  async popupReceipt(t,p,work){
   const settings=await this.shieldSettings();
@@ -1654,6 +1676,20 @@ export class Executor {
   return result;
  }
  async shieldResponse(request,result){
+  const p=request.params;
+  const refreshable=request.method==='browser.execute'&&STRUCTURED_PAGE_READS.has(p?.action)&&!p.approval&&!p.frameToken&&!p.options?.frameToken&&!p.options?.cursor&&!p.options?.baselineId;
+  for(;;){
+   try{return await this.shieldResponseAttempt(request,result);}
+   catch(error){
+    const prior=this.shieldResults.get(result),attempt=prior?.readRetries||0;
+    // 中文注释：只刷新文档变化导致的结构读取；设置变更和写入回放绝不自动执行。
+    if(attempt===2||!refreshable||!prior?.document||!['CONTENT_SHIELD_STALE','CONTENT_SHIELD_CHANGED'].includes(error.message)||prior.settings!==JSON.stringify(await this.shieldSettings()))throw error;
+    await new Promise(resolve=>setTimeout(resolve,80*(attempt+1)));
+    result=await this.execute({...p,[SHIELD_READ_RETRIES]:attempt+1});
+   }
+  }
+ }
+ async shieldResponseAttempt(request,result){
   const settings=await this.shieldSettings(),prior=result&&typeof result==='object'?this.shieldResults.get(result):null;
   // 中文注释：输出仍拒绝；确认事实只来自执行器自己的动作元数据，不从页面返回值推断。
   const rejected=code=>Object.assign(Error(code),prior?.actionConfirmed?{actionConfirmed:true,preDispatch:false}:{});
@@ -1671,11 +1707,11 @@ export class Executor {
    const params=Number.isInteger(prior.returnedTabId)?{...request.params,tabId:prior.returnedTabId}:request.params;
    if(Number.isInteger(prior.returnedTabId)&&(t?.popupReturns?.get(request.params.tabId)!==prior.returnedTabId||this.leases.get(prior.returnedTabId)!==t.id))throw rejected('CONTENT_SHIELD_STALE');
    try{inventory=await this.shieldInventory(t,params,settings,prior.writeTarget);}
-   catch(error){if(/^CONTENT_SHIELD_(?:UNINSPECTABLE|UNAVAILABLE|CHANGED)$/.test(error?.message))throw rejected(error.message);throw error;}
+   catch(error){if(/^CONTENT_SHIELD_(?:UNINSPECTABLE|UNAVAILABLE|CHANGED)$/.test(error?.message))throw Object.assign(rejected(error.message),{reasonCode:error.reasonCode,skippedFrame:error.skippedFrame});throw error;}
    if(prior.document!==inventory.document)throw rejected('CONTENT_SHIELD_STALE');
    // 中文注释：已处理截图仍含旧像素；DOM、位置或文本变化不能回放旧图。
    if(prior.inventory&&prior.inventory!==JSON.stringify(inventory))throw rejected('CONTENT_SHIELD_STALE');
-   return redactShieldResult(result,{...inventory,image:['screenshot','interaction.capture'].includes(request.params.action)});
+   return this.shieldCoverage(redactShieldResult(result,{...inventory,image:['screenshot','interaction.capture'].includes(request.params.action)}),params,inventory);
   }
   return result;
  }
@@ -2504,7 +2540,7 @@ export class Executor {
   let world=executionContextId?{executionContextId}:await createWorld();guard();
   const key=()=>JSON.stringify([target.tabId,target.sessionId,world.executionContextId]);
   const install=async()=>{const installed=await this.api.debugger.sendCommand(target,'Runtime.callFunctionOn',{executionContextId:world.executionContextId,functionDeclaration:`function(){globalThis.__hermesSemanticLibrary={version:1,call:(${semanticWorldDeclaration})};return true;}`,returnByValue:true});guard();if(installed.exceptionDetails||installed.result?.value!==true)throw Object.assign(Error('SEMANTIC_LIBRARY_UNAVAILABLE'),{preDispatch:true});this.semanticWorlds.add(key());};
-  const invoke=()=>this.api.debugger.sendCommand(target,'Runtime.callFunctionOn',{executionContextId:world.executionContextId,functionDeclaration:op==='page.observe'?`function(op,p){const library=globalThis.__hermesSemanticLibrary;if(library?.version!==1)return {hermesSemanticMissing:true};const state=globalThis.__hermesNativeSemanticsV2;if(!state||state.version!==8||JSON.stringify(state.binding)!==JSON.stringify(p.binding))library.call('semantic_snapshot',{binding:p.binding,options:{root:'head',mode:'content',budget:512}});return (${observePage.toString()})(globalThis.__hermesNativeSemanticsV2.semantics.parsingContext(),p.options);}`:'function(op,p){const library=globalThis.__hermesSemanticLibrary;return library?.version===1?library.call(op,p):{hermesSemanticMissing:true};}',arguments:[{value:op},{value:payload}],returnByValue:true,awaitPromise:true});
+  const invoke=()=>this.api.debugger.sendCommand(target,'Runtime.callFunctionOn',{executionContextId:world.executionContextId,functionDeclaration:op==='page.observe'?`function(op,p){const library=globalThis.__hermesSemanticLibrary;if(library?.version!==1)return {hermesSemanticMissing:true};const state=globalThis.__hermesNativeSemanticsV2;if(!state||state.version!==9||JSON.stringify(state.binding)!==JSON.stringify(p.binding))library.call('semantic_snapshot',{binding:p.binding,options:{root:'head',mode:'content',budget:512}});return (${observePage.toString()})(globalThis.__hermesNativeSemanticsV2.semantics.parsingContext(),p.options);}`:'function(op,p){const library=globalThis.__hermesSemanticLibrary;return library?.version===1?library.call(op,p):{hermesSemanticMissing:true};}',arguments:[{value:op},{value:payload}],returnByValue:true,awaitPromise:true});
   let result;
   try{if(!this.semanticWorlds.has(key()))await install();result=await invoke();}
   catch(error){
@@ -2532,7 +2568,7 @@ export class Executor {
  async exposeClosedShadowRoots(target,frameId,guard,executionContextId=null,includeFrameDocuments=false){
   const contextId=executionContextId||(await this.api.debugger.sendCommand(target,'Page.createIsolatedWorld',{frameId,worldName:'hermes-native-semantics-v2',grantUniveralAccess:false})).executionContextId;guard();
   const {root}=await this.api.debugger.sendCommand(target,'DOM.getDocument',{depth:-1,pierce:true});guard();
-  if(!root)throw Error('CONTENT_SHIELD_UNAVAILABLE');
+  if(!root)throw Object.assign(Error('CONTENT_SHIELD_UNAVAILABLE'),{reasonCode:'document_not_ready'});
   const closed=[],stack=[root];
   while(stack.length){
    const node=stack.pop();

@@ -93,7 +93,7 @@ function shieldFixture({enabled=true,selectors=['#private']}={}){
  w.HTMLElement.prototype.getBoundingClientRect=function(){return {x:10,y:10,width:40,height:20,top:10,left:10,bottom:30,right:50};};
  w.HTMLElement.prototype.getClientRects=function(){return [this.getBoundingClientRect()];};
  let settings={enabled,rules:{[shieldOrigin]:selectors}};
- const api={tabs:{get:async()=>({id:1,url:shieldOrigin,windowId:1})},debugger:{attach:async()=>{},detach:async()=>{},onEvent:{addListener(){}},onDetach:{addListener(){}},sendCommand:async(_,method,p={})=>{
+ const api={tabs:{get:async()=>({id:1,url:shieldOrigin,windowId:1})},debugger:{attach:async()=>{},detach:async()=>{},onEvent:{addListener(){},removeListener(){}},onDetach:{addListener(){},removeListener(){}},sendCommand:async(_,method,p={})=>{
   calls.push([method,p]);
   if(method==='Page.getFrameTree')return {frameTree:{frame:{id:'main',url:shieldOrigin,loaderId:'doc'}}};
   if(method==='DOM.getDocument')return {root:{nodeName:'HTML',children:[]}};
@@ -655,11 +655,11 @@ for(const action of ['snapshot','semantic_snapshot','page.parse','page.observe',
   assert.equal((await f.e.shieldResponse({method:'browser.execute',params:p},result)).items[0].name,'当前正文');
  }finally{f.dom.window.close();}
 });
-test('框架持续变化只重新读取一次，仍拒绝交付结果',async()=>{
+test('框架持续变化最多重新读取两次，仍拒绝交付结果',async()=>{
  const f=changingFrameFixture();try{
   await f.e.approve(f.task);f.e.setMode({...f.task,modeGeneration:2,activeMode:'full'});
   const perform=f.e.performSettled;f.e.performSettled=async()=>{const result=await perform();f.change();return result;};
-  await assert.rejects(f.e.execute(f.request('semantic_snapshot')),/CONTENT_SHIELD_CHANGED/);assert.equal(f.reads(),2);
+  await assert.rejects(f.e.execute(f.request('semantic_snapshot')),/CONTENT_SHIELD_CHANGED/);assert.equal(f.reads(),3);
  }finally{f.dom.window.close();}
 });
 for(const action of ['ref_click','ref_fill','js.evaluate','screenshot'])test(`${action} 的文档变化不自动重新执行`,async()=>{
@@ -713,5 +713,158 @@ test('真实语义解析在框架变化后交付新正文，Bridge 回放不再�
   const result=await call();assert.equal(result.error,undefined,JSON.stringify(result));assert.equal(reads,2);
   assert.match(JSON.stringify(result.result),/刷新后的公开正文/);assert.doesNotMatch(JSON.stringify(result.result),new RegExp(secret));
   assert.deepEqual(await call(),result);assert.equal(reads,2);
+ }finally{f.dom.window.close();}
+});
+
+for(const text of ['禁止爬虫功能介绍','No bot detection limits for our crawler','Our automated tools detect forbidden links','帮助：如何禁止爬虫访问日志'])test(`R10 product descriptions are not visitor prohibitions: ${text}`,()=>{
+ const result=filterPageResult('snapshot',{text});assert.equal(result.contentFilter.siteAutomationRestricted,false);assert.equal(result.text,text);
+});
+test('R10 restriction diagnostics contain bounded location and reading guidance',()=>{
+ const result=filterPageResult('snapshot',{text:'Automated access is prohibited.'});
+ assert.equal(result.contentFilter.siteAutomationRestricted,true);
+ assert.ok(result.contentFilter.restrictionMatches[0].length>0);
+ assert.match(result.contentFilter.notice,/页面声明/);
+ assert.match(result.contentFilter.notice,/read_page/);
+});
+test('R10 structured result survives timer and mask geometry changes at delivery',async()=>{
+ const f=shieldFixture();await f.e.approve(f.task);f.e.setMode({...f.task,modeGeneration:2,activeMode:'full'});
+ try{
+  const params={...f.request('semantic_snapshot'),options:{mode:'content',budget:8000}},result=await f.e.execute(params);
+  f.w.document.querySelector('#private').getBoundingClientRect=()=>({x:80,y:30,width:40,height:20});
+  const delivered=await f.e.shieldResponse({method:'browser.execute',params},result);
+  assert.ok(delivered);assert.doesNotMatch(JSON.stringify(delivered),new RegExp(secret));
+ }finally{f.dom.window.close();}
+});
+test('R10 structured reads retry two transient pending navigations; writes never replay',async()=>{
+ for(const action of ['semantic_snapshot','ref_click','js.evaluate']){
+  const f=shieldFixture();let calls=0;
+  f.e.performProtectedAttempt=async()=>{if(++calls<3)throw Error('CONTENT_SHIELD_CHANGED');return {ok:true};};
+  f.e.check=()=>{};
+  try{if(action==='semantic_snapshot'){assert.deepEqual(await f.e.performProtected({},f.request(action)),{ok:true});assert.equal(calls,3);}
+   else{await assert.rejects(f.e.performProtected({},f.request(action)),/CONTENT_SHIELD_CHANGED/);assert.equal(calls,1);}
+  }finally{f.dom.window.close();}
+ }
+});
+test('R10 unavailable inventory reports a specific readiness reason',async()=>{
+ const f=shieldFixture();await f.e.approve(f.task);f.e.setMode({...f.task,modeGeneration:2,activeMode:'full'});
+ const send=f.e.api.debugger.sendCommand;
+ f.e.api.debugger.sendCommand=async(t,m,p)=>m==='DOM.getDocument'?{}:send(t,m,p);
+ try{await assert.rejects(f.e.execute(f.request('semantic_snapshot')),error=>error.reasonCode==='document_not_ready');}finally{f.dom.window.close();}
+});
+test('R10 opaque frame metadata preserves main document selection scope',async()=>{
+ const f=shieldFixture({selectors:[]});f.w.document.body.innerHTML='<main><button>synthetic-target@example.test</button><iframe src="https://frame.test/private?secret=hidden"></iframe></main>';
+ Object.defineProperty(f.w.document.querySelector('iframe'),'contentDocument',{get:()=>null});
+ await f.e.approve(f.task);f.e.setMode({...f.task,modeGeneration:2,activeMode:'full'});
+ try{
+  const result=await f.e.execute({...f.request('semantic_snapshot'),options:{query:'synthetic-target',composed:true,budget:8000}});
+  assert.equal(result.coverage.complete,false);assert.equal(result.coverage.coveredScopeComplete,true);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.skippedFrames)),[{origin:'https://frame.test',x:10,y:10,width:40,height:20}]);
+  assert.doesNotMatch(JSON.stringify(result.skippedFrames),/private|secret/);
+ }finally{f.dom.window.close();}
+});
+test('R10 geometry-only CDP succeeds while body and mutation methods remain denied',async()=>{
+ const f=shieldFixture();await f.e.approve(f.task);f.e.setMode({...f.task,modeGeneration:2,activeMode:'full'});
+ try{
+  for(const method of ['Page.getLayoutMetrics','DOM.getBoxModel'])assert.ok(await f.e.execute({...f.request('cdp.send'),method,params:{}}));
+  for(const method of ['DOM.getOuterHTML','Runtime.evaluate','DOM.setNodeValue'])await assert.rejects(f.e.execute({...f.request('cdp.send'),method,params:{}}),/CONTENT_SHIELD_UNSUPPORTED/);
+ }finally{f.dom.window.close();}
+});
+
+test('R10 document replacement at delivery refreshes structured output with a finite limit',async()=>{
+ const f=shieldFixture();await f.e.approve(f.task);f.e.setMode({...f.task,modeGeneration:2,activeMode:'full'});
+ try{
+  const params={...f.request('semantic_snapshot'),options:{mode:'content',budget:8000}},result=await f.e.execute(params);
+  const send=f.e.api.debugger.sendCommand;
+  f.e.api.debugger.sendCommand=async(t,m,p)=>{const response=await send(t,m,p);if(m==='Page.getFrameTree')response.frameTree.frame.loaderId='new-doc';return response;};
+  f.w.document.querySelector('button:not(#private button)').textContent='NEW_DOCUMENT';
+  const delivered=await f.e.shieldResponse({method:'browser.execute',params},result);
+  assert.notEqual(delivered.snapshotId,result.snapshotId);
+ }finally{f.dom.window.close();}
+});
+
+test('R10 waits for DOM readiness inside the structured read',async()=>{
+ const f=shieldFixture();await f.e.approve(f.task);f.e.setMode({...f.task,modeGeneration:2,activeMode:'full'});
+ let pending=2;const send=f.e.api.debugger.sendCommand;
+ f.e.api.debugger.sendCommand=async(t,m,p)=>m==='DOM.getDocument'&&pending-->0?{}:send(t,m,p);
+ try{assert.ok((await f.e.execute({...f.request('semantic_snapshot'),options:{budget:8000}})).items);assert.ok(pending<0);}
+ finally{f.dom.window.close();}
+});
+test('R10 account target with a small cross-origin frame is allowed only without overlap',()=>{
+ const f=shieldFixture({selectors:[]});f.w.document.body.innerHTML='<main><button>synthetic-target@example.test</button></main><iframe src="https://frame.test/private?secret=hidden"></iframe>';
+ const frame=f.w.document.querySelector('iframe'),account=f.w.document.querySelector('button');Object.defineProperty(frame,'contentDocument',{get:()=>null});
+ const inspect=()=>f.w.eval(`(${targetedShieldDeclaration})`)({selectors:[],directiveSources:[],restrictionSources:[]},account);
+ try{
+  frame.getBoundingClientRect=()=>({x:500,y:500,width:2,height:2});assert.equal(inspect().writeTargetVerified,true);
+  frame.getBoundingClientRect=()=>({x:12,y:12,width:2,height:2});
+  assert.throws(inspect,error=>{const [code,encoded]=error.message.split('|');assert.equal(code,'CONTENT_SHIELD_UNINSPECTABLE');assert.deepEqual(JSON.parse(decodeURIComponent(encoded)),{origin:'https://frame.test',x:12,y:12,width:2,height:2});return true;});
+ }finally{f.dom.window.close();}
+});
+test('R10 collection and delivery share a maximum of two structured retries',async()=>{
+ const f=shieldFixture();await f.e.approve(f.task);f.e.setMode({...f.task,modeGeneration:2,activeMode:'full'});
+ const perform=f.e.performProtectedAttempt.bind(f.e);let attempts=0;
+ f.e.performProtectedAttempt=async(...args)=>{if(++attempts===1)throw Error('CONTENT_SHIELD_CHANGED');return perform(...args);};
+ try{
+  const params={...f.request('semantic_snapshot'),options:{budget:8000}},result=await f.e.execute(params);
+  f.e.shieldResponseAttempt=async()=>{throw Error('CONTENT_SHIELD_STALE');};
+  await assert.rejects(f.e.shieldResponse({method:'browser.execute',params},result),/CONTENT_SHIELD_STALE/);assert.equal(attempts,3);
+ }finally{f.dom.window.close();}
+});
+
+for(const placement of ['light','open','closed','frame-closed'])for(const notice of ['禁止自动化操作','自动化操作被禁止','Automated access is prohibited'])test(`R11 ${placement} prohibition next to inline control still shields the entire notice block: ${notice}`,async()=>{
+ const f=shieldFixture({selectors:[]}),closed=[];
+ f.w.document.body.innerHTML='<button>PUBLIC_NEIGHBOR</button>';
+ let doc=f.w.document;
+ if(placement==='frame-closed'){
+  const frame=doc.createElement('iframe');doc.body.append(frame);doc=frame.contentDocument;
+  doc.defaultView.HTMLElement.prototype.getClientRects=()=>[{width:100,height:30}];
+ }
+ let root=doc.body;
+ if(placement!=='light'){
+  const host=doc.createElement('div');root.append(host);root=host.attachShadow({mode:placement==='open'?'open':'closed'});
+  if(placement!=='open')closed.push(root);
+ }
+ root.insertAdjacentHTML?root.insertAdjacentHTML('beforeend',`<section><span>${notice}</span><button aria-label="CLOSED_PRIVATE_CANARY">CLOSED_PRIVATE_CANARY</button></section>`):root.innerHTML=`<section><span>${notice}</span><button aria-label="CLOSED_PRIVATE_CANARY">CLOSED_PRIVATE_CANARY</button></section>`;
+ const send=f.e.api.debugger.sendCommand;
+ f.e.api.debugger.sendCommand=async(t,m,p)=>{
+  if(m==='DOM.getDocument')return {root:{nodeName:'HTML',children:closed.map((_,i)=>({shadowRoots:[{shadowRootType:'closed',backendNodeId:90+i}]}))}};
+  if(m==='DOM.resolveNode')return {object:{objectId:'closed-'+(p.backendNodeId-90)}};
+  if(m==='Runtime.callFunctionOn'&&p.objectId?.startsWith('closed-'))return {result:{value:f.w.eval(`(${p.functionDeclaration})`).call(closed[Number(p.objectId.slice(7))])}};
+  return send(t,m,p);
+ };
+ await f.e.approve(f.task);f.e.setMode({...f.task,modeGeneration:2,activeMode:'full'});
+ try{
+  const params={...f.request('semantic_snapshot'),options:{composed:true,budget:8000}};
+  const result=await f.e.shieldResponse({method:'browser.execute',params},await f.e.execute(params));
+  assert.doesNotMatch(JSON.stringify(result),/CLOSED_PRIVATE_CANARY|禁止自动化操作|自动化操作被禁止|Automated access is prohibited/);
+  assert.ok(result.items.some(item=>item.name==='[已屏蔽区域]'&&!item.ref));
+  assert.ok(result.items.some(item=>item.name==='PUBLIC_NEIGHBOR'&&item.ref));
+ }finally{f.dom.window.close();}
+});
+
+test('R11 default light DOM read counts an opaque 2px frame only when shielding is enabled',async()=>{
+ const f=shieldFixture({enabled:false,selectors:[]});f.w.document.body.innerHTML='<button>Account</button><iframe src="https://frame.test/ready"></iframe>';
+ const frame=f.w.document.querySelector('iframe');Object.defineProperty(frame,'contentDocument',{get:()=>null});
+ frame.getBoundingClientRect=()=>({x:800,y:600,width:2,height:2});
+ await f.e.approve(f.task);f.e.setMode({...f.task,modeGeneration:2,activeMode:'full'});
+ try{
+  const p={...f.request('semantic_snapshot'),options:{query:'Account',budget:5000}};
+  const off=await f.e.execute(p);assert.equal(off.coverage.complete,true);assert.equal(off.skippedFrames,undefined);
+  f.settings({enabled:true,rules:{}});
+  const on=await f.e.execute(p);assert.equal(on.coverage.complete,false);assert.equal(on.coverage.coveredScopeComplete,true);
+  assert.deepEqual(JSON.parse(JSON.stringify(on.skippedFrames)),[{origin:'https://frame.test',x:800,y:600,width:2,height:2}]);
+ }finally{f.dom.window.close();}
+});
+test('R11 delivery reread returns references bound to the new document and rejects old binding',async()=>{
+ const f=shieldFixture({selectors:[]});f.w.document.body.innerHTML='<button>Account</button>';
+ await f.e.approve(f.task);f.e.setMode({...f.task,modeGeneration:2,activeMode:'full'});
+ try{
+  const params={...f.request('semantic_snapshot'),options:{query:'Account',budget:5000}},old=await f.e.execute(params);
+  const send=f.e.api.debugger.sendCommand;
+  f.e.api.debugger.sendCommand=async(t,m,p)=>{const response=await send(t,m,p);if(m==='Page.getFrameTree')response.frameTree.frame.loaderId='r11-new-doc';return response;};
+  const fresh=await f.e.shieldResponse({method:'browser.execute',params},old);
+  assert.equal(fresh.binding.documentId,'r11-new-doc');assert.notEqual(fresh.snapshotId,old.snapshotId);
+  const token=page=>({binding:page.binding,snapshotId:page.snapshotId,ref:page.items[0].ref});
+  assert.equal(f.w.__hermesSemanticLibrary.call('ref_relocation',token(fresh)).relocated,false);
+  assert.throws(()=>f.w.__hermesSemanticLibrary.call('ref_relocation',token(old)),/BINDING_MISMATCH/);
  }finally{f.dom.window.close();}
 });

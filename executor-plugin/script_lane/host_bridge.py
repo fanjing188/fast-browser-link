@@ -411,7 +411,7 @@ class HostBridge:
                 data = getattr(exc, 'data', None)
                 # 中文注释：上游 client 已过滤这些固定诊断字段，不回显页面内容。
                 if isinstance(data, dict):
-                    reply.update({key: data[key] for key in ('currentOrigin', 'scopeHint', 'stage', 'reasonCode', 'effect', 'suggestion') if key in data})
+                    reply.update({key: data[key] for key in ('currentOrigin', 'scopeHint', 'stage', 'reasonCode', 'effect', 'suggestion', 'skippedFrame') if key in data})
                 if isinstance(data, dict) and code in {'reference_target_missing', 'reference_target_ambiguous', 'element_timeout'} and isinstance(data.get('candidates'), list):
                     reply['candidates'] = [{'role': row['role'][:40], 'name': row['name'][:80]}
                                            for row in data['candidates'][:5] if isinstance(row, dict)

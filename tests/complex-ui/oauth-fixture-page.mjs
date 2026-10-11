@@ -15,14 +15,25 @@ export function oauthSourcePage({origin,loginOrigin,manualOrigin,flow}){
  });
  </script></html>`;
 }
-export function oauthProviderPage(){
- return `<!doctype html><html lang="zh"><title>本地模拟身份提供方</title><button id="complete">完成本地授权</button><script>
+export function oauthProviderPage({frameOrigin="http://127.0.0.1:9000"}={}){
+ return `<!doctype html><html lang="zh"><title>本地模拟身份提供方</title><main id="accounts"><ul>${OAUTH_FIXTURE_ACCOUNTS.map(email=>`<li><button class="account" data-email="${email}">${email}</button></li>`).join('')}</ul><button id="complete">完成本地授权</button></main><iframe title="账号页附属框架" src="${attribute(frameOrigin+'/oauth-frame')}" style="position:fixed;right:0;bottom:0;width:2px;height:2px;border:0"></iframe><script>
  const flow=new URLSearchParams(location.search).get('flow'),source=new URLSearchParams(location.search).get('source');
- document.querySelector('#complete').onclick=()=>fetch('/oauth-complete?flow='+encodeURIComponent(flow)).then(response=>{
+ window.fixtureAccountClicks=0;window.fixtureChosenAccount=null;window.fixtureFrameLoaded=false;
+ const frame=document.querySelector('iframe');
+ addEventListener('message',event=>{
+  if(event.source===frame.contentWindow&&event.origin===${JSON.stringify(frameOrigin)}&&event.data==='fixture-frame-ready')window.fixtureFrameLoaded=true;
+ });
+ const complete=()=>fetch('/oauth-complete?flow='+encodeURIComponent(flow)+(window.fixtureChosenAccount?'&account='+encodeURIComponent(window.fixtureChosenAccount):'')).then(response=>{
   if(!response.ok)throw Error('fixture authorization failed');
   opener.postMessage({type:'fixture-oauth-complete',flow},source);window.close();
  });
+ document.querySelector('#complete').onclick=complete;
+ for(const button of document.querySelectorAll('.account'))button.onclick=()=>{window.fixtureAccountClicks++;window.fixtureChosenAccount=button.dataset.email;return complete();};
  </script></html>`;
 }
+export const OAUTH_FIXTURE_ACCOUNTS=Object.freeze(['synthetic-one@example.test','synthetic-target@example.test','synthetic-three@example.test']);
 export const OAUTH_DONE_MARKER='OAUTH_CONTINUITY_NEW_DOCUMENT';
 export const oauthDonePage=`<!doctype html><html lang="zh"><title>本地授权完成</title><main><p>${OAUTH_DONE_MARKER}</p></main></html>`;
+
+// 中文注释：仅通知本地合成框架已执行脚本；无账号或凭据，父页核对 source 与 origin。
+export const oauthFramePage=`<!doctype html><p>附属框架</p><script>parent.postMessage('fixture-frame-ready','*')</script>`;

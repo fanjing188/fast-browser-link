@@ -57,6 +57,7 @@ NODE_TESTS = (
     'tests/native-extension/oauth-popup.test.mjs',
     # 中文注释：临时完整链路 OAuth 配置只测文件、真实模式校验和离线页面，不启动浏览器。
     'tests/native-extension/oauth-fixture.test.mjs',
+    'tests/native-extension/oauth-email.test.mjs',
     'tests/native-extension/oauth-popup-approval.test.mjs',
     # 中文注释：核心范围/隐私回归仅用合成 API；打包回归只构建并解压到 scratch，不安装或启动浏览器。
     'tests/native-extension/core.test.mjs',

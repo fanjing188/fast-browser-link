@@ -44,6 +44,8 @@ async function runOAuthFixture() {
   await executor.withSpawnScope(executor.tasks.get('task'),1,async()=>{});
   const popup = {id:2,openerTabId:1,windowId:8,url:'https://accounts.example.test/login?synthetic=only'};
   tabs.set(2,popup);await executor.tabCreated(popup);
+  // 中文注释：等待候选自动检查结束，再验证非白名单直接接管。
+  await Promise.all([...executor.popups.candidates.values()].map(row=>row.autoWork));
   const bridge = new Bridge({onMessage:{addListener(){}},postMessage:m=>deliver(m)},executor,()=>{},
     {onContentFilter:async()=>{if(toggleAtSend){toggleAtSend=false;settings={...settings,enabled:!settings.enabled};}return settings.enabled;}});
   const source = await fs.readFile(new URL('../../native-extension/background.mjs',import.meta.url),'utf8');

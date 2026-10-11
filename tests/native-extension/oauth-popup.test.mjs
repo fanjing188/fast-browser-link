@@ -4,7 +4,6 @@ import assert from 'node:assert/strict';
 import {Executor} from '../../native-extension/core.mjs';
 import {Bridge} from '../../native-extension/bridge.mjs';
 import {trustedTask,workspaceFixture} from './workspace-fixture.mjs';
-import {randomUUID} from 'node:crypto';
 import {JSDOM} from 'jsdom';
 
 async function fixture({workspace=false,...options}={}){
@@ -123,7 +122,7 @@ for(const action of ['popup_catalog','popup_adopt'])for(const enabled of [false,
  let settings={enabled,rules:{}};
  const f=await fixture({onContentShield:async()=>settings});
  await f.executor.withSpawnScope(f.executor.tasks.get('a'),1,async()=>{});await f.create();
- const command=action==='popup_adopt'?await approved(f):f.command(action);
+ const command=action==='popup_adopt'?await prepared(f):f.command(action);
  const b=publicBridge(f,async()=>{settings={...settings,enabled:!enabled};return settings.enabled;});
  let executions=0;const execute=f.executor.execute.bind(f.executor);
  f.executor.execute=async p=>{executions++;return execute(p);};
@@ -145,7 +144,7 @@ for(const action of ['popup_catalog','popup_adopt'])for(const [name,revoke] of [
 ])test(`public ${action} refuses ${name} revocation at send and replay with shielding off`,async()=>{
  const f=await fixture({onContentShield:async()=>({enabled:false,rules:{}})});
  await f.executor.withSpawnScope(f.executor.tasks.get('a'),1,async()=>{});await f.create();
- const command=action==='popup_adopt'?await approved(f):f.command(action),b=publicBridge(f,async()=>{revoke(f);return false;});
+ const command=action==='popup_adopt'?await prepared(f):f.command(action),b=publicBridge(f,async()=>{revoke(f);return false;});
  let executions=0;const execute=f.executor.execute.bind(f.executor);
  f.executor.execute=async p=>{executions++;return execute(p);};
  const message=b.request(command),first=await b.send(message);
@@ -157,7 +156,7 @@ test('public adopted popup receipt is fenced by its target lease',async()=>{
  const f=await fixture({onContentShield:async()=>({enabled:true,rules:{}})});
  await f.executor.withSpawnScope(f.executor.tasks.get('a'),1,async()=>{});await f.create();
  const b=publicBridge(f,async()=>{f.executor.leases.set(2,'other');return true;});
- const response=await b.send(b.request(await approved(f)));
+ const response=await b.send(b.request(await prepared(f)));
  assert.equal(response.error?.code,'popup_stale');assert.equal(response.error.data.outcomeUnknown,true);
  assert.equal(f.executor.leases.get(2),'other');
 });
@@ -166,7 +165,7 @@ test('public adopted popup receipt is fenced by its target lease',async()=>{
 
 test('adoption initializes the existing overlay before publishing the popup lease',async()=>{
  const f=await fixture(),t=f.executor.tasks.get('a');await f.executor.withSpawnScope(t,1,async()=>{});await f.create();
- const command=await approved(f),send=f.executor.api.debugger.sendCommand;
+ const command=await prepared(f),send=f.executor.api.debugger.sendCommand;
  f.executor.api.debugger.sendCommand=async(target,method,params)=>{
   if(target.tabId===2&&['Runtime.callFunctionOn','Page.getFrameTree','Page.createIsolatedWorld','Runtime.addBinding'].includes(method)){assert.equal(f.executor.leases.has(2),false);assert.equal(t.tabIds.has(2),false);}
   return send(target,method,params);
@@ -181,7 +180,7 @@ test('adoption initializes the existing overlay before publishing the popup leas
 
 for(const failure of ['attach','unsupported','initialization','update'])test(`adoption ${failure} failure cannot authorize an uncontrolled popup`,async()=>{
  const f=await fixture(),t=f.executor.tasks.get('a');await f.executor.withSpawnScope(t,1,async()=>{});await f.create();
- const command=await approved(f),send=f.executor.api.debugger.sendCommand;
+ const command=await prepared(f),send=f.executor.api.debugger.sendCommand;
  if(failure==='attach')f.executor.api.debugger.attach=async()=>{throw Error('busy');};
  if(failure==='unsupported')delete f.executor.api.debugger.onEvent;
  f.executor.api.debugger.sendCommand=async(target,method,p)=>{
@@ -207,12 +206,11 @@ for(const [name,change] of [
  ['source origin',f=>{f.tabs.get(1).url='https://changed.test/';}],
 ])test(`overlay initialization rechecks ${name} before adoption publishes authority`,async()=>{
  const f=await fixture(),t=f.executor.tasks.get('a');await f.executor.withSpawnScope(t,1,async()=>{});await f.create();
- const command=await approved(f),send=f.executor.api.debugger.sendCommand;
- const grant=f.executor.actionGrants.get(command.approval.nonce);
+ const command=await prepared(f),send=f.executor.api.debugger.sendCommand;
  f.executor.api.debugger.sendCommand=async(target,method,p)=>{
   const result=await send(target,method,p);
   if(method==='Runtime.callFunctionOn'&&p.arguments?.[0]?.value==='update'){
-   if(name==='approval expiry')grant.expiresAt=0;else change(f,command);
+   change(f,command);
   }
   return result;
  };
@@ -225,7 +223,7 @@ for(const [name,change] of [
 for(const enabled of [false,true])test(`public adoption delivers and replays its receipt with shield ${enabled}`,async()=>{
  const f=await fixture({onContentShield:async()=>({enabled,rules:{}})}),t=f.executor.tasks.get('a');
  await f.executor.withSpawnScope(t,1,async()=>{});await f.create();
- const b=publicBridge(f,async()=>enabled),message=b.request(await approved(f));
+ const b=publicBridge(f,async()=>enabled),message=b.request(await prepared(f));
  let executions=0;const execute=f.executor.execute.bind(f.executor);
  f.executor.execute=async p=>{executions++;return execute(p);};
  const first=await b.send(message);
@@ -257,7 +255,7 @@ test('adopted popup mounts a persistent cursor, veil and takeover/stop controls 
   return send(target,method,p);
  };
  try{
-  const b=publicBridge(f),response=await b.send(b.request(await approved(f)));
+  const b=publicBridge(f),response=await b.send(b.request(await prepared(f)));
   assert.equal(response.error,undefined);assert.equal(response.result.adopted,true);
   const host=dom.window.document.querySelector('[data-hermes-automation-overlay]');assert.ok(host);
   assert.equal(host.style.pointerEvents,'auto');assert.ok(shadow.querySelector('[data-role="veil"]'));
@@ -272,7 +270,7 @@ test('adopted popup mounts a persistent cursor, veil and takeover/stop controls 
 
 test('popup document replacement without a leased-tab event cannot publish an old overlay',async()=>{
  const f=await fixture(),t=f.executor.tasks.get('a');await f.executor.withSpawnScope(t,1,async()=>{});await f.create();
- const command=await approved(f),send=f.executor.api.debugger.sendCommand;let replaced=false;
+ const command=await prepared(f),send=f.executor.api.debugger.sendCommand;let replaced=false;
  f.executor.api.debugger.sendCommand=async(target,method,p)=>{
   const result=await send(target,method,p);
   if(method==='Runtime.callFunctionOn'&&p.arguments?.[0]?.value==='update')replaced=true;
@@ -285,7 +283,7 @@ test('popup document replacement without a leased-tab event cannot publish an ol
 
 test('timed-out popup initialization is fenced even if the isolated-world receipt arrives late',{timeout:10000},async()=>{
  const f=await fixture(),t=f.executor.tasks.get('a');await f.executor.withSpawnScope(t,1,async()=>{});await f.create();
- const command=await approved(f),send=f.executor.api.debugger.sendCommand;
+ const command=await prepared(f),send=f.executor.api.debugger.sendCommand;
  let entered,complete;const started=new Promise(resolve=>entered=resolve),gate=new Promise(resolve=>complete=resolve);
  f.executor.api.debugger.sendCommand=async(target,method,p)=>{
   if(target.tabId===2&&method==='Runtime.callFunctionOn'&&typeof p.arguments?.[0]?.value==='object'){entered();await gate;}
@@ -310,7 +308,7 @@ test('real workspace cleanup deletes owned work tabs but never an adopted origin
  const open=f.command('new_tab',{modeGeneration:2,url:'https://example.com/'});delete open.tabId;
  const owned=await f.executor.execute(open);assert.ok(t.agentTabs.has(owned.tabId));
  await f.executor.withSpawnScope(t,1,async()=>{});await f.create();
- const result=await f.executor.execute(await approved(f));assert.equal(result.cleanupOwned,false);assert.ok(!t.agentTabs.has(2));
+ const result=await f.executor.execute(await prepared(f));assert.equal(result.cleanupOwned,false);assert.ok(!t.agentTabs.has(2));
  f.executor.api.debugger.getTargets=async()=>[{id:'original-popup-target',tabId:2,type:'page',url:f.tabs.get(2).url}];
  const bridge=publicBridge(f,async()=>false);
  const close=await bridge.send({id:'close-original-popup',method:'browser.cdp_close',params:{taskId:'a',generation:1,modeGeneration:2,targetId:'original-popup-target'}});
@@ -321,19 +319,19 @@ test('real workspace cleanup deletes owned work tabs but never an adopted origin
  await assert.rejects(f.executor.vault.scope({taskId:'a',generation:1,modeGeneration:2,instanceId:t.instanceId,tabId:2}),/stale generation/);
 });
 
-async function approved(f){
+async function prepared(f){
  const currentModeGeneration=f.executor.tasks.get('a').policy.modeGeneration;
  const [candidate]=(await f.executor.execute(f.command('popup_catalog',{modeGeneration:currentModeGeneration}))).candidates;
  const command=f.command('popup_adopt',{modeGeneration:currentModeGeneration,candidateRef:candidate.candidateRef});
- const popupScope=await f.executor.preparePopup(command),nonce=randomUUID(),digest='test';
- const {generation,modeGeneration,allowedOrigins,...request}=command;
- f.executor.approveAction({taskId:'a',generation,modeGeneration,request,nonce,digest,popupScope,expiresAt:Date.now()/1000+120});
- return {...command,popupScope,approval:{nonce,digest}};
+ const popupScope=await f.executor.preparePopup(command);
+ assert.deepEqual(Object.keys(popupScope).sort(),['candidate','source']);
+ assert.equal(f.executor.actionGrants.size,0);
+ return {...command,popupScope};
 }
 
 test('adopted popup retains Vault eligibility and script conflict without acquiring cleanup authority',async()=>{
  const f=await fixture(),t=f.executor.tasks.get('a');await f.executor.withSpawnScope(t,1,async()=>{});await f.create();
- await f.executor.execute(await approved(f));
+ await f.executor.execute(await prepared(f));
  f.executor.api.debugger={attach:async()=>{},detach:async()=>{}};
  f.executor.ensureOverlay=async()=>({contextId:1});
  const p={taskId:'a',generation:1,modeGeneration:1,instanceId:t.instanceId,tabId:2};
@@ -353,9 +351,9 @@ for(const [name,change] of [
  ['target leased',f=>{f.executor.leases.set(2,'other');}],
  ['candidate expired',f=>{for(const row of f.executor.popups.candidates.values())row.expiresAt=0;}],
  ['task paused',f=>{f.executor.tasks.get('a').paused=true;}],
-])test(`confirmation fails closed when ${name} changes`,async()=>{
+])test(`adoption fails closed when ${name} changes`,async()=>{
  const f=await fixture(),t=f.executor.tasks.get('a');await f.executor.withSpawnScope(t,1,async()=>{});await f.create();
- const command=await approved(f);change(f);
+ const command=await prepared(f);change(f);
  await assert.rejects(f.executor.execute(command));
  assert.ok(!t.tabIds.has(2));assert.ok(!t.allowedOrigins.includes('https://accounts.example.test'));assert.deepEqual(f.mutations,[]);
 });
@@ -374,7 +372,7 @@ test('catalog excludes old personal and unrelated pages while including same-win
 
 test('source changing during popup window inspection cannot cross the adoption fence',async()=>{
  const f=await fixture(),t=f.executor.tasks.get('a');await f.executor.withSpawnScope(t,1,async()=>{});await f.create();
- const command=await approved(f),getWindow=f.executor.api.windows.get;
+ const command=await prepared(f),getWindow=f.executor.api.windows.get;
  f.executor.api.windows.get=async id=>{const result=await getWindow(id);f.tabs.get(1).url='https://changed.test/';return result;};
  await assert.rejects(f.executor.execute(command));assert.ok(!t.tabIds.has(2));
 });
@@ -383,7 +381,7 @@ test('source changing during popup window inspection cannot cross the adoption f
 
 test('source document changing during the final target readback cannot acquire a lease',async()=>{
  const f=await fixture(),t=f.executor.tasks.get('a');await f.executor.withSpawnScope(t,1,async()=>{});await f.create();
- const command=await approved(f),get=f.executor.api.tabs.get;let targetReads=0;
+ const command=await prepared(f),get=f.executor.api.tabs.get;let targetReads=0;
  f.executor.api.tabs.get=async id=>{
   const tab=await get(id);
   if(id===2&&++targetReads===2){f.tabs.get(1).url='https://changed.test/';f.executor.docs.set(1,1);}
@@ -393,9 +391,9 @@ test('source document changing during the final target readback cannot acquire a
  assert.ok(!t.tabIds.has(2));assert.equal(f.executor.leases.has(2),false);
 });
 
-test('source navigation invalidates popup approval before asynchronous page cleanup',async()=>{
+test('source navigation invalidates popup adoption before asynchronous page cleanup',async()=>{
  const f=await fixture(),t=f.executor.tasks.get('a');await f.executor.withSpawnScope(t,1,async()=>{});await f.create();
- const command=await approved(f);let release;
+ const command=await prepared(f);let release;
  const gate=new Promise(resolve=>release=resolve);f.executor.closeTabResources=async()=>gate;
  const navigation=f.executor.tabEvent(1,'navigated','https://changed.test/');
  try{await assert.rejects(f.executor.execute(command),/POPUP_STALE/);assert.equal(f.executor.leases.has(2),false);}
@@ -458,16 +456,15 @@ test('default adoption needs no confirmation; adoption preserves existing opener
  await f.executor.withSpawnScope(t,1,async()=>{});await f.create();
  const catalog=await f.executor.execute(f.command('popup_catalog',{modeGeneration:2}));
  const command=f.command('popup_adopt',{modeGeneration:2,candidateRef:catalog.candidates[0].candidateRef});
- const scope=await f.executor.preparePopup(command),nonce=randomUUID(),digest='test-digest';
- const {generation,modeGeneration,allowedOrigins,...request}=command;
- f.executor.approveAction({taskId:'a',generation,modeGeneration,request,nonce,digest,popupScope:scope,expiresAt:Date.now()/1000+120});
- const adopted=await f.executor.execute({...command,popupScope:scope,approval:{nonce,digest}});
+ const scope=await f.executor.preparePopup(command);
+ const adopted=await f.executor.execute({...command,popupScope:scope});
+ assert.equal(f.executor.actionGrants.size,0);
  assert.equal(adopted.tabId,2);assert.equal(adopted.adopted,true);
  assert.equal(f.executor.leases.get(2),'a');assert.ok(t.tabIds.has(2));
  assert.ok(t.adoptedPopupTabs.has(2));assert.ok(!t.agentTabs.has(2));
  assert.ok(t.allowedOrigins.includes('https://accounts.example.test'));
  assert.equal(f.tabs.get(2).openerTabId,1);assert.deepEqual(f.mutations,[]);
- await assert.rejects(f.executor.execute({...command,popupScope:scope,approval:{nonce,digest}}),/overlay injection failed|POPUP_STALE/);
+ await assert.rejects(f.executor.execute({...command,popupScope:scope}),/overlay injection failed|POPUP_STALE/);
 });
 
 // 中文注释：浏览器输入以合成回执替代；执行器的源页锁、接管、浮层和结果边界保持真实。

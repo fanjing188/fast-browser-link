@@ -84,18 +84,17 @@ class ClickModeTests(unittest.TestCase):
         self.assertFalse(worker.is_alive())
         self.assertEqual(self.calls[-1][2]['clickMode'], 'open_link_in_task_tab')
 
-    def test_mode_is_bound_to_approval_and_request_id_without_replay(self):
+    def test_mode_is_bound_to_request_id_without_replay(self):
         self.task['activeMode'] = 'smart'
         args = self.args(clickMode='open_link_in_task_tab')
         pending = self.invoke(args)
-        self.assertEqual(pending['status'], 'approval_required')
-        approval = self.daemon._dispatch_extension('instance-v2', 'extension.approvals', {})[0]
-        self.assertEqual(approval['request']['clickMode'], 'open_link_in_task_tab')
-        self.assertEqual(self.invoke(args)['digest'], pending['digest'])
+        self.assertEqual(pending, self.response)
+        self.assertEqual(self.calls[-1][2]['clickMode'], 'open_link_in_task_tab')
+        self.assertEqual(self.invoke(args), pending)
         changed = dict(args)
         del changed['clickMode']
         self.assertEqual(self.invoke(changed)['bridgeCode'], 'request_id_conflict')
-        self.assertEqual(self.calls, [])
+        self.assertEqual(len(self.calls), 1)
 
     def test_success_is_cached_and_popup_metadata_alone_does_not_grant_ownership(self):
         args = self.args(clickMode='open_link_in_task_tab')
@@ -147,12 +146,12 @@ class ClickModeTests(unittest.TestCase):
         self.assertEqual(len(self.calls), 1)
         self.assertEqual(self.task['agentTabIds'], [])
 
-    def test_child_frame_write_waits_for_smart_approval_and_runs_in_full(self):
+    def test_child_frame_write_runs_in_smart_and_full(self):
         args = self.args('ref_click', frame_token='opaque-frame')
         self.task['activeMode'] = 'smart'
         pending = self.invoke(args)
-        self.assertEqual(pending.get('status'), 'approval_required')
-        self.assertEqual(self.calls, [])
+        self.assertEqual(pending, self.response)
+        self.assertEqual(self.calls[-1][2]['frameToken'], 'opaque-frame')
         self.task['activeMode'] = 'full'
         args['request_id'] = 'full-frame'
         self.response = {'clicked': True, 'kind': 'trusted-input'}

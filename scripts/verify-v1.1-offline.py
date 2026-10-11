@@ -255,6 +255,8 @@ REVIEWED_RUNNER_PATHS = (
     'tests/v1.1-lint-scope/lint-scope.test.mjs',
     'tests/v1.1-access-review/test_access_request_timeout.py',
     'tests/v1.1-highlight-deadline/deadline.test.mjs',
+    'tests/v1.11.0/test_recovery_protocol.py',
+    'tests/v1.11.0/test_after_protocol.py',
 )
 REVIEWED_RUNNER_CLASSIFICATIONS = {
     'tests/v1.1-approval-notify/test_site_read.py': 'pure-offline; in-process daemon and synthetic extension site-read approvals',
@@ -307,6 +309,8 @@ REVIEWED_RUNNER_CLASSIFICATIONS = {
     'tests/v1.1-lint-scope/lint-scope.test.mjs': 'pure-offline; ESLint API reads exact source and lintText negative control; no cache/fix',
     'tests/v1.1-access-review/test_access_request_timeout.py': 'pure-offline; in-process daemon with synthetic extension record; temporary directory under scratch',
     'tests/v1.1-highlight-deadline/deadline.test.mjs': 'pure-offline; jsdom and synthetic debugger API; no browser, subprocess or network',
+    'tests/v1.11.0/test_recovery_protocol.py': 'pure-offline; recovery diagnostics through client and public tool projection with synthetic results',
+    'tests/v1.11.0/test_after_protocol.py': 'pure-offline; after-observation wire, helper and projection with synthetic peer; no browser',
 }
 SUPPLEMENTAL_RUNNER_PATHS = (
     'tests/v1.1-ui-acceptance/popup.test.mjs',

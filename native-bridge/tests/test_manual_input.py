@@ -111,12 +111,50 @@ class ManualInputTests(unittest.TestCase):
                 result = self.fill(request_id=f"fill-{kind}")
                 self.assertEqual(result["fieldKind"], kind if kind != "bogus" else "sensitive")
 
-    def test_ordinary_field_keeps_the_normal_approval_flow(self):
+    def test_selector_and_ref_sensitive_inputs_keep_manual_flow(self):
+        for action in ('fill', 'press', 'ref_fill', 'ref_press'):
+            with self.subTest(action=action):
+                target = {'selector':'#password'} if not action.startswith('ref_') else {
+                    'binding':{'taskId':'task-a','documentId':'doc','leaseId':'lease'},
+                    'snapshotId':'snapshot','ref':'password'}
+                payload = {'text':'model-guess'} if action.endswith('fill') else {'key':'Enter'}
+                params = {'owner':'owner-a','taskId':'task-a','requestId':action,'action':action,'tabId':7,**target,**payload}
+                pending = self.daemon._dispatch_client('shared.run', params)
+                self.assertEqual(pending['status'], 'user_input_required')
+                self.assertEqual(self.executed, [])
+                approval = next(row for row in self.approvals() if row['request']['requestId'] == action)
+                self.assertNotIn('text', approval['request'])
+                self.daemon._dispatch_extension('browser-a', 'extension.decide', {
+                    'taskId':'task-a','nonce':approval['nonce'],'digest':approval['digest'],'approve':True})
+                self.assertEqual(self.daemon._dispatch_client('shared.run', params)['status'], 'completed_by_user')
+                self.assertEqual(self.executed, [])
+
+    def test_assessment_races_do_not_register_manual_input_or_dispatch(self):
+        for change in ('pause', 'generation', 'mode', 'lease', 'revoke'):
+            with self.subTest(change=change):
+                self.seed()
+                self.daemon.tasks['task-a'].pop('accessRevoked', None)
+                def assess(_extension, method, params, **_):
+                    self.assertEqual(method, 'browser.assess')
+                    self.assertNotIn('text', params)
+                    task = self.daemon.tasks['task-a']
+                    if change == 'pause': task['state'] = 'paused'
+                    if change == 'generation': task['generation'] += 1
+                    if change == 'mode': task['modeGeneration'] += 1
+                    if change == 'lease': self.daemon.tab_leases[('browser-a',7)] = 'other'
+                    if change == 'revoke': task['accessRevoked'] = True
+                    return dict(self.assessment)
+                self.daemon._extension_call = assess
+                with self.assertRaises(ProtocolError): self.fill(request_id='race-' + change)
+                self.assertEqual(self.daemon.action_approvals, {})
+                self.assertEqual(self.executed, [])
+
+    def test_ordinary_field_executes_without_approval(self):
         self.assessment = {"targetAssessment": "ordinary"}
         result = self.fill()
-        self.assertEqual(result["status"], "approval_required")
-        self.assertEqual(self.approvals()[0]["kind"], "action")
-        self.assertIn("text", self.approvals()[0]["request"])
+        self.assertTrue(result["filled"])
+        self.assertEqual(self.approvals(), [])
+        self.assertEqual(len(self.executed), 1)
 
 
 if __name__ == "__main__":

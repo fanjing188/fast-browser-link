@@ -562,9 +562,11 @@ class GateNegativeControls(unittest.TestCase):
             'tests/v1.1-runtime-performance/test_journal_recovery.py',
         }
         # 中文注释：V1.3 新增受审阅的脚本 runner，保留显式清单与数量校验；1.8.5 后加入 version-set 回归。
-        self.assertEqual(len(steps), 50)
-        self.assertEqual(len(gate.REVIEWED_RUNNER_PATHS), 50)
-        self.assertEqual(len(set(gate.REVIEWED_RUNNER_PATHS)), 50)
+        # 中文注释：1.11.1 登记 tests/v1.11.0 的定位恢复与动作后回读两个 Python runner，清单增加两项。
+        self.assertEqual(len(steps), 52)
+        self.assertEqual(len(gate.REVIEWED_RUNNER_PATHS), 52)
+        self.assertEqual(len(set(gate.REVIEWED_RUNNER_PATHS)), 52)
+        self.assertTrue({'tests/v1.11.0/test_recovery_protocol.py','tests/v1.11.0/test_after_protocol.py'}.issubset(set(gate.REVIEWED_RUNNER_PATHS)))
         self.assertTrue(latest_delta.issubset(set(gate.REVIEWED_RUNNER_PATHS)))
         self.assertTrue(current_delta.issubset(set(gate.REVIEWED_RUNNER_PATHS)))
         # 中文注释：最终合并新增的三个 runner 必须明确登记且实际执行。
@@ -573,7 +575,8 @@ class GateNegativeControls(unittest.TestCase):
         # 中文注释：镜像 Node/Python 两个离线文件也纳入发现与固定清单核对。
         # 中文注释：新增自动更新固定 runner 后，审阅允许清单增加一项。
         # 中文注释：version-set 回归登记后允许清单再增加一项。
-        self.assertEqual(len(gate.known_v11_runner_paths()), 91)
+        self.assertEqual(len(gate.known_v11_runner_paths()), 94)
+        self.assertIn('tests/v1.11.0/recovery.test.mjs', gate.known_v11_runner_paths())
         # 中文注释：1.5.1 桌面 API 与交互均登记，真实浏览器脚本不进入离线门禁。
         # 中文注释：后台审批 runner 登记后显式清单增加一项。
         # 中文注释：1.5.2 临时安装、升级回滚和卸载 runner 进入显式门禁。

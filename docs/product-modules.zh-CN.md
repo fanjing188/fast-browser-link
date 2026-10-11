@@ -30,7 +30,7 @@
 
 从已授权源页调用 `popup_catalog(tab=source)`，再点击登录入口；后续目录只返回 30 秒观察期内新建、有对应 opener 的独立 popup 元数据，不读取其页面，也不返回 OAuth URL 的查询参数。Edge 的新建事件缺少 opener 时只补读这张刚创建的标签，不扫描已有窗口。
 
-选择候选后用 `popup_adopt(candidate_ref, tab=source)` 请求接管。即使全部访问也必须在扩展确认具体源页、目标来源和窗口；批准后保持原窗口与 opener，不另开登录网址。脚本须保留同一源页会话本次 `popup_catalog` 返回的 candidate；捕获 `ApprovalRequired` 后调用 `wait_pending(tab=source)`，只查询动作账本和当前任务 scope，返回 `state=confirmed` 等 `operation_status` 字段，不返回或合成 `adopted` / `tabId` 成功回执。然后显式 `use_tab(candidate["tabId"])` 并重新 `read_page`，由新读取校验当前页面权限；账本和元数据不能代替它。单步工具批准后用 `browser_shared_get` 核对当前代次及 `adoptedPopupTabIds`，再选择已知候选页读取。禁止重发接管取得缓存或复核；popup 成功回执只交付一次，后续独立目录读取使用新请求编号。源页文档、来源、窗口、租约或候选身份变更时拒绝接管；拒绝、过期、撤权、代次变化不会返回旧成功，未知结果不重放。普通敏感输入的同请求结果查询合同不变。
+选择候选后用 `popup_adopt(candidate_ref, tab=source)` 直接接管登录弹窗，无需确认（含白名单外及已发现的现有窗口）。保持原窗口与 opener，不另开登录网址。脚本保留同一源页 `popup_catalog` 返回的 candidate，接管后显式 `use_tab(回执["tabId"])` 并重新 `read_page` 核验当前权限和页面内容；单步工具同样选择返回的标签并重读。成功回执只交付一次，禁止重发接管取得缓存或复核，独立目录读取使用新请求编号。源页文档、来源、窗口、租约、代次或候选身份变更时仍拒绝接管；未知结果不重放。收到 `popupClosed.returnedTo` 后重读源页。普通敏感输入的预审与同请求结果查询合同不变。
 
 接管授予操作权及目标来源，不授予自动删除权：任务结束会撤权，保留原登录小窗。最小化的小窗可以继续解析和普通字段操作；打开新小窗仍受浏览器用户激活及 popup 拦截规则限制，不伪造激活、不绕过拦截。页面浮层的层级、原生窗口置顶与焦点不会扩大权限。
 

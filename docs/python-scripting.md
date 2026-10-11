@@ -72,7 +72,7 @@ JavaScript and CDP use the task’s existing browser access. No extra enable cal
 
 | Helper | Description |
 |---|---|
-| `wait_pending(timeout_s=20, tab=source)` | Wait for the original approval/manual-input request (max 300 s); ordinary requests return their receipt, popup adoption returns only confirmed ledger fields after current-scope checks, never a cached adoption receipt |
+| `wait_pending(timeout_s=20, tab=source)` | Wait for the original approval/manual-input request (max 300 s); sensitive manual input returns its receipt. Login-window adoption runs directly without confirmation |
 | `reconcile()` | After an unknown outcome, read the page to decide; never replays the action |
 | `operation_status(request_id=None)` | Read the daemon's request ledger: `awaiting_approval`, `awaiting_human`, `dispatched`, `confirmed`, `rejected` or `unknown` |
 | `reconnect(timeout_s=30)` | After a disconnect, re-verify the task, instance, generation and work tab (read-only) |
@@ -80,17 +80,13 @@ JavaScript and CDP use the task’s existing browser access. No extra enable cal
 
 `ApprovalRequired` and `UserInputRequired` (subclasses of `BrowserError`) are raised for independent special confirmations or sensitive-field manual entry; ordinary reads and writes do not require action approval. Ordinary sensitive requests keep their same-request result query and return the original receipt (manual entry returns `completed_by_user`); calling the action again creates a second request.
 
-Popup adoption is one-shot: never resend `popup_adopt` to retrieve or verify success. Keep the candidate returned by `popup_catalog` in the same source-tab session. After `ApprovalRequired`, `wait_pending(tab=source)` reads only `shared.operation_status` and `shared.get`, checking task/instance/generation/mode and current adoption metadata. It returns `{requestId, requestIdHash, state, dispatched, generation}` with `state="confirmed"`, not an `adopted`/`tabId` receipt and not proof of current page access. Explicitly select the already-known candidate tab and take a new semantic read; that read rechecks current leases, origins and shielding. Unknown ledger/query results stay fenced; rejected/expired approvals or scope changes return an error, never old success. The closed public task projection already contains the required scope fields; no new public schema is needed.
+Login windows, including candidates outside the provider allowlist, are adopted directly without confirmation. Keep the candidate returned by `popup_catalog`, call `popup_adopt` once, then select its returned tab and take a fresh semantic read. Task ownership, leases, generations and candidate identity are still checked. Never resend adoption to retrieve or verify success; after an unknown outcome, inspect task state and the page before another action. On `popupClosed.returnedTo`, read the source's latest document.
 
 ```python
 source = current_tab()
 candidate = popup_catalog(tab=source)["candidates"][0]  # select the intended observed candidate
-try:
-    popup_adopt(candidate["candidateRef"], tab=source)
-except ApprovalRequired:
-    status = wait_pending(timeout_s=30, tab=source)
-    assert status["state"] == "confirmed"
-use_tab(candidate["tabId"])
+adopted = popup_adopt(candidate["candidateRef"], tab=source)
+use_tab(adopted["tabId"])
 page = read_page(mode="interactive")
 print({"items": page["items"], "coverage": page["coverage"]})
 ```

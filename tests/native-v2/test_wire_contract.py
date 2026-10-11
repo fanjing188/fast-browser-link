@@ -83,7 +83,9 @@ class NativeV2WireTests(unittest.TestCase):
         self.assertIn("浏览器连接授权后", description)
         self.assertNotIn("智能审批", description)
         self.assertIn("凭据填写", description)
-        self.assertIn("全部访问也必须明确确认", description)
+        # 中文注释：1.11.1 起登录弹窗直接接管（饼哥 2026-10-12 定），描述不得再要求白名单外确认。
+        self.assertIn("白名单外及已发现的现有登录弹窗同样无需确认", description)
+        self.assertNotIn("必须明确确认", description)
         self.assertIn("paths", self.tools.TOOL_SCHEMAS["browser_shared_run"]["parameters"]["properties"])
 
     def test_semantic_snapshot_and_ref_actions_map_exact_wire_fields(self):

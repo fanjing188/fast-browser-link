@@ -152,7 +152,7 @@ Wait until document.readyState reaches ``until``; returns the final state.  The 
 
 ### `popup_adopt(candidate_ref, *, tab=None)`
 
-请求精确接管需要人工确认的登录窗口。白名单自动接管时直接 use_tab(popupOpened["tabId"]) 并重读；其他窗口先在同一脚本调用 popup_catalog 保留 candidate； ApprovalRequired 后用 wait_pending(tab=source) 只读查询账本，不重发接管。 等待返回 state=confirmed，不是 adopted 回执；显式 use_tab(candidate['tabId']) 后重新 read_page 核实原窗口当前权限与内容，不另开登录网址。
+登录弹窗直接接管，无需确认（含白名单外及已发现的现有窗口）。 白名单自动接管时直接 use_tab(popupOpened["tabId"]) 并重读；其他候选先调用 popup_catalog， 再 popup_adopt，显式 use_tab(回执['tabId']) 后重新 read_page 核实权限与内容。 成功回执只交付一次；未知结果不重发接管，也不另开登录网址。
 
 扩展能力：`browser_core_v1`。
 
@@ -314,7 +314,7 @@ After BrowserError.outcome_unknown: read the page to check what happened, then c
 
 ### `wait_pending(timeout_s=20.0, *, tab=None)`
 
-Wait for the same approval/manual-input request (max 300 s). Ordinary requests return their original receipt. Popup adoption queries only the ledger and current scope, returning operation_status fields (state=confirmed), never an adopted/tabId receipt. Select the catalog candidate with use_tab and read_page next; confirmation is not current page-access proof. Unknown outcomes, rejected approvals or changed scope never replay the adoption.
+Wait for the same approval/manual-input request (max 300 s), without creating a new action. Sensitive-field manual input returns the original receipt. Login-window adoption runs directly without confirmation and does not need this helper. Unknown outcomes are never replayed.
 
 扩展能力：`browser_core_v1`。
 
@@ -527,7 +527,7 @@ Wait for the same approval/manual-input request (max 300 s). Ordinary requests r
 
 ```json
 {
-  "description": "同一页需要两步以上（填表、翻页、采集、点击后读结果）请用一次 browser_shared_script；打开或导航后先看回执摘要，不足再读取页面；同一页不要混用 browser_exec。需要用户处理时列出标签页；会话结束会保留待处理页。在任务的工作页执行一个动作。浏览器连接授权后，普通读取、导航、写入和 Python 工作流直接执行，不逐项确认；tabs 只返回任务标签。除 popup_adopt 外，返回 approval_required 或 user_input_required 时，等用户处理后用相同 request_id 和参数再查一次，不要改参重发；popup_adopt 的等待只读查询当前任务，不重发接管。outcome_unknown 为真时不要重试，先读页面核实。详见技能 browser-link:use-my-browser。 点击第三方登录后查看 popupOpened 和 popupNextStep；smart/full（连接授权后的全部访问）模式下内置身份提供方授权页由本任务新打开时自动接管，直接 browser_shared_use_tab 到 popupOpened.tabId 并重读页面选账号。密码、验证码、2FA 用 manual_input 请用户亲自填写。弹窗关闭时 popupClosed.returnedTo 指向源页，返回后重读，不复用旧引用。白名单外弹窗即使全部访问也必须明确确认，仍需 popup_catalog 保留候选、popup_adopt 等待用户确认；脚本 wait_pending 只读查账本，返回 state=confirmed，不重发接管，再 use_tab 到已确认候选并读取；单工具用 browser_shared_get 核对 generation 与 adoptedPopupTabIds 后选页重读。不得另开登录网址替代原弹窗，不自动移动或关闭，不授予清理权；未知或变化的授权不能重放。 所有网站的结构读取显示真实邮箱，便于找联系人或选账号；卡号、密钥、Bearer 和密码保护不变。 semantic_snapshot 不接受 sections/maxScan/schema；需要 regions/blocks/forms/collections 等分区时用 page.parse。 页面执行：连接授权后 js.evaluate / cdp.send / cdp.events 直接执行，不逐项确认。发生过凭据填写的页面不能运行任意 JS/CDP。原始脚本结果不做字段级脱敏。 read_page/page_text 返回 dict：读 page[\"items\"] / page[\"elements\"]，不能切片 dict；wait_for timeout 上限 60 秒。 JS 用 evaluate(\"(selector)=>document.querySelector(selector)?.textContent\", \"#result\") 传值；isolated 共享 DOM，不共享网站 JS 全局变量，main 需明确理由且不自动切换。 上传：files.upload 传 selector 与 paths（用户在对话中给出的本地文件路径，可用 ~）。",
+  "description": "同一页需要两步以上（填表、翻页、采集、点击后读结果）请用一次 browser_shared_script；打开或导航后先看回执摘要，不足再读取页面；同一页不要混用 browser_exec。需要用户处理时列出标签页；会话结束会保留待处理页。在任务的工作页执行一个动作。浏览器连接授权后，普通读取、导航、写入和 Python 工作流直接执行，不逐项确认；tabs 只返回任务标签。返回 user_input_required 时，等用户处理后用相同 request_id 和参数再查一次，不要改参重发；登录弹窗 popup_adopt 直接接管，无需确认，成功回执只交付一次，不重发接管。outcome_unknown 为真时不要重试，先读页面核实。详见技能 browser-link:use-my-browser。 点击第三方登录后查看 popupOpened 和 popupNextStep；smart/full（连接授权后的全部访问）模式下内置身份提供方授权页由本任务新打开时自动接管，直接 browser_shared_use_tab 到 popupOpened.tabId 并重读页面选账号。密码、验证码、2FA 用 manual_input 请用户亲自填写。弹窗关闭时 popupClosed.returnedTo 指向源页，返回后重读，不复用旧引用。白名单外及已发现的现有登录弹窗同样无需确认；popup_catalog 保留候选后用 popup_adopt 直接接管，再 use_tab 到返回的 tabId 并读取。用 browser_shared_get 核对 generation 与 adoptedPopupTabIds；成功回执只交付一次，不重发接管。不得另开登录网址替代原弹窗，不自动移动或关闭，不授予清理权；未知或变化的授权不能重放。 所有网站的结构读取显示真实邮箱，便于找联系人或选账号；卡号、密钥、Bearer 和密码保护不变。 semantic_snapshot 不接受 sections/maxScan/schema；需要 regions/blocks/forms/collections 等分区时用 page.parse。 页面执行：连接授权后 js.evaluate / cdp.send / cdp.events 直接执行，不逐项确认。发生过凭据填写的页面不能运行任意 JS/CDP。原始脚本结果不做字段级脱敏。 read_page/page_text 返回 dict：读 page[\"items\"] / page[\"elements\"]，不能切片 dict；wait_for timeout 上限 60 秒。 JS 用 evaluate(\"(selector)=>document.querySelector(selector)?.textContent\", \"#result\") 传值；isolated 共享 DOM，不共享网站 JS 全局变量，main 需明确理由且不自动切换。 上传：files.upload 传 selector 与 paths（用户在对话中给出的本地文件路径，可用 ~）。",
   "parameters": {
     "type": "object",
     "properties": {

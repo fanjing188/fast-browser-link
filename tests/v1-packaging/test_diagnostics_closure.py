@@ -14,7 +14,7 @@ SCRATCH = Path(os.environ.get('TMPDIR', str(Path.home() / '.hermes/cache/scratch
 DIAG = Path('browser-diagnostics/python/browser_diagnostics')
 FILES = ('__init__.py', 'schema.py', 'runtime.py', 'sink.py')
 # 中文注释：版本预检也读取仓库根清单，负向夹具必须先满足正常打包输入。
-INPUTS = ('package.json', 'executor-plugin', 'native-bridge', 'native-extension',
+INPUTS = ('package.json', 'package-lock.json', 'cloud-link', 'THIRD_PARTY_NOTICES.md', 'third-party', 'scripts/install-cli.py', 'install.sh', 'executor-plugin', 'native-bridge', 'native-extension',
           'page-semantics', 'browser-interactions', 'approval-policy',
           'browser-workspaces', 'browser-diagnostics', 'scripts/install-executor.py',
           'docs/installation.md', 'docs/python-scripting.md',
@@ -98,15 +98,16 @@ class DiagnosticsClosureTests(unittest.TestCase):
         deps = json.loads((self.output / 'native-extension/BUILD-DEPS.json').read_text())['dependencies']
         expected = {'vendor/browser-workspaces.mjs', 'vendor/browser-diagnostics.mjs',
                     'vendor/approval-policy.mjs', 'vendor/page-semantics.mjs', 'vendor/page-parser.mjs',
-                    'vendor/browser-interactions.mjs'}
+                    'vendor/browser-interactions.mjs', 'vendor/redact.mjs', 'vendor/oauth-providers.mjs', 'cookie-mirror.mjs'}
         self.assertEqual(set(deps), expected)
-        self.assertEqual({'vendor/' + p.name for p in (self.output / 'native-extension/vendor').iterdir()}, expected)
+        self.assertEqual({'vendor/' + p.name for p in (self.output / 'native-extension/vendor').iterdir()}, expected - {'cookie-mirror.mjs'})
         for name, record in deps.items():
             digest = hashlib.sha256((self.output / 'native-extension' / name).read_bytes()).hexdigest()
             self.assertEqual(record['sha256'], digest)
             self.assertEqual(sums['native-extension/' + name], digest)
             self.assertEqual(hashlib.sha256((ROOT / record['source']).read_bytes()).hexdigest(), digest)
-            self.assertEqual(sums.get('browser-link/' + record['source']), digest)
+            packaged_source = record['source'] if record['source'].startswith('native-extension/') else 'browser-link/' + record['source']
+            self.assertEqual(sums[packaged_source], digest)
         for name, digest in sums.items():
             self.assertEqual(hashlib.sha256((self.output / name).read_bytes()).hexdigest(), digest, name)
         runtime = 'browser-link/native_bridge/browser_diagnostics/'

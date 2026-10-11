@@ -21,7 +21,7 @@ const api={tabs:{get:async id=>({id,url:state.url,windowId:7,groupId:-1}),update
   if(method==='Page.captureScreenshot')return {data:png(100,80)};
   // 中文注释：协议夹具模拟按钮确实改变页面，DOM 效果另由真实浏览器及离线 DOM 覆盖。
   if(method==='Runtime.callFunctionOn'&&p.functionDeclaration?.startsWith('function effectProbe'))return {result:{value:true}};
-  if(method==='Runtime.callFunctionOn')return {result:{value:p.objectId?false:p.functionDeclaration?.includes('function inspectPage')?{hasSensitiveValue:sensitive}:{ok:true}}};
+  if(method==='Runtime.callFunctionOn')return {result:{value:p.objectId?false:p.functionDeclaration?.includes('function inspectPage')?{rects:sensitive?[{x:10,y:10,width:20,height:10,kind:'sensitive_field',role:'input',name:'敏感字段'}]:[]}:{ok:true}}};
   if(method==='Runtime.evaluate'){
    const expr=p.expression||'';
    if(expr.includes(')("state"'))return {result:{value:{...state}}};

@@ -23,7 +23,7 @@ INPUTS = ('package.json', 'package-lock.json', 'executor-plugin', 'native-bridge
           # 中文注释：云端 Native 入口与运行时也属于正式包的已提交输入。
           'cloud-link', 'browser-workspaces', 'browser-diagnostics', 'page-semantics',
           'browser-interactions', 'approval-policy',
-          'CHANGELOG.md',
+          'CHANGELOG.md', 'THIRD_PARTY_NOTICES.md', 'third-party',
           'scripts/install-executor.py', 'scripts/install-cli.py', 'install.sh', 'docs/installation.md',
           'docs/python-scripting.md', 'LICENSE', 'cloud-link/site/package.json', 'cloud-link/site/package-lock.json')
 

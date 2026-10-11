@@ -123,7 +123,7 @@ TOOL_SCHEMAS = {
         'parameters': _object({'task_id': _text(), 'action': {'type': 'string', 'enum': ['list', 'claim', 'cancel']},
                                'download_id': _text(64)}, ('task_id',))},
     'browser_shared_run': {
-        'description': '同一页需要两步以上（填表、翻页、采集、点击后读结果）请用一次 browser_shared_script；打开或导航后先看回执摘要，不足再读取页面；同一页不要混用 browser_exec。需要用户处理时列出标签页；会话结束会保留待处理页。' + '在任务的工作页执行一个动作。浏览器连接授权后，普通读取、导航、写入和 Python 工作流直接执行，不逐项确认；tabs 只返回任务标签。除 popup_adopt 外，返回 approval_required 或 user_input_required 时，等用户处理后用相同 request_id 和参数再查一次，不要改参重发；popup_adopt 的等待只读查询当前任务，不重发接管。outcome_unknown 为真时不要重试，先读页面核实。详见技能 browser-link:use-my-browser。',
+        'description': '同一页需要两步以上（填表、翻页、采集、点击后读结果）请用一次 browser_shared_script；打开或导航后先看回执摘要，不足再读取页面；同一页不要混用 browser_exec。需要用户处理时列出标签页；会话结束会保留待处理页。' + '在任务的工作页执行一个动作。浏览器连接授权后，普通读取、导航、写入和 Python 工作流直接执行，不逐项确认；tabs 只返回任务标签。返回 user_input_required 时，等用户处理后用相同 request_id 和参数再查一次，不要改参重发；登录弹窗 popup_adopt 直接接管，无需确认，成功回执只交付一次，不重发接管。outcome_unknown 为真时不要重试，先读页面核实。详见技能 browser-link:use-my-browser。',
         'parameters': _object({'task_id': _text(), 'request_id': _text(),
             'action': {'type': 'string', 'enum': [
                 'navigate', 'snapshot', 'click', 'fill', 'press', 'screenshot', 'tabs', 'new_tab', 'api_request',
@@ -180,7 +180,7 @@ PUBLIC_ACTIONS = frozenset({
     'images', 'console', 'dialog',
 })
 _run_schema = TOOL_SCHEMAS['browser_shared_run']['parameters']
-TOOL_SCHEMAS['browser_shared_run']['description'] += ' 点击第三方登录后查看 popupOpened 和 popupNextStep；smart/full（连接授权后的全部访问）模式下内置身份提供方授权页由本任务新打开时自动接管，直接 browser_shared_use_tab 到 popupOpened.tabId 并重读页面选账号。密码、验证码、2FA 用 manual_input 请用户亲自填写。弹窗关闭时 popupClosed.returnedTo 指向源页，返回后重读，不复用旧引用。白名单外弹窗即使全部访问也必须明确确认，仍需 popup_catalog 保留候选、popup_adopt 等待用户确认；脚本 wait_pending 只读查账本，返回 state=confirmed，不重发接管，再 use_tab 到已确认候选并读取；单工具用 browser_shared_get 核对 generation 与 adoptedPopupTabIds 后选页重读。不得另开登录网址替代原弹窗，不自动移动或关闭，不授予清理权；未知或变化的授权不能重放。'
+TOOL_SCHEMAS['browser_shared_run']['description'] += ' 点击第三方登录后查看 popupOpened 和 popupNextStep；smart/full（连接授权后的全部访问）模式下内置身份提供方授权页由本任务新打开时自动接管，直接 browser_shared_use_tab 到 popupOpened.tabId 并重读页面选账号。密码、验证码、2FA 用 manual_input 请用户亲自填写。弹窗关闭时 popupClosed.returnedTo 指向源页，返回后重读，不复用旧引用。白名单外及已发现的现有登录弹窗同样无需确认；popup_catalog 保留候选后用 popup_adopt 直接接管，再 use_tab 到返回的 tabId 并读取。用 browser_shared_get 核对 generation 与 adoptedPopupTabIds；成功回执只交付一次，不重发接管。不得另开登录网址替代原弹窗，不自动移动或关闭，不授予清理权；未知或变化的授权不能重放。'
 TOOL_SCHEMAS['browser_shared_run']['description'] += (
     ' 所有网站的结构读取显示真实邮箱，便于找联系人或选账号；卡号、密钥、Bearer 和密码保护不变。'
     ' semantic_snapshot 不接受 sections/maxScan/schema；需要 regions/blocks/forms/collections 等分区时用 page.parse。'

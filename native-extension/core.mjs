@@ -1090,7 +1090,7 @@ export class Executor {
   const candidate=row.candidate||{candidateRef:row.candidateRef,origin:null,windowType:row.windowType??null,tabId:row.tabId};
   const adopted=this.leases.get(candidate.tabId)===t.id&&t.adoptedPopupTabs?.has(candidate.tabId);
   const value={...result,popupOpened:{candidateRef:candidate.candidateRef,origin:candidate.origin,windowType:candidate.windowType,tabId:candidate.tabId},
-   popupNextStep:!candidate.origin?'已发现新登录标签，页面尚未就绪；用源 tabId 调用 popup_catalog；白名单授权页会自动接管，确认已在 adoptedPopupTabIds 后选页重读；未就绪时等待后重查，非白名单才请求确认。':row.automaticBlocked?'自动接管未确认；先 browser_shared_get 核对任务状态，不重发点击；仍有效时重新 popup_catalog 核对候选。':adopted?'登录窗口已自动接管；用 browser_shared_use_tab 选择该 tabId，然后重新读取页面；密码、验证码和 2FA 请用户亲自填写。':'已发现登录窗口；先 popup_catalog，再 popup_adopt 等待用户确认，确认后选择该标签并重新读取。'};
+   popupNextStep:!candidate.origin?'已发现新登录标签，页面尚未就绪；用源 tabId 调用 popup_catalog；白名单授权页会自动接管，确认已在 adoptedPopupTabIds 后选页重读；未就绪时等待后重查；白名单外候选用 popup_adopt 直接接管，无需确认。':row.automaticBlocked?'自动接管未完成；先 browser_shared_get 核对任务状态，不重发点击；仍有效时重新 popup_catalog 核对候选。':adopted?'登录窗口已自动接管；用 browser_shared_use_tab 选择该 tabId，然后重新读取页面；密码、验证码和 2FA 请用户亲自填写。':'已发现登录窗口；先 popup_catalog，再 popup_adopt 直接接管，无需确认；选择返回的标签并重新读取。'};
   return value;
  }
  async assess(p){

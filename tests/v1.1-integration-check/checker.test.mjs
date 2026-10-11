@@ -77,6 +77,7 @@ test('语义动作声明不能掩盖缺失的执行分支或页面函数', async
   const controls = [
     {name: 'page.parse', needle: "else if(['page.observe','page.parse',", replacement: "else if(['page.observe',"},
     {name: 'ref_fill', needle: "if(op==='ref_fill'){", replacement: "if(op==='removed_ref_fill'){"},
+    {name: 'popup_adopt', needle: "if(p.action==='popup_adopt')return this.popupReceipt(t,p,()=>this.adoptPopup(t,p));", replacement: "if(p.action==='removed_popup_adopt')return this.popupReceipt(t,p,()=>this.adoptPopup(t,p));"},
   ];
   for (const control of controls) {
     await t.test(control.name, async child => {

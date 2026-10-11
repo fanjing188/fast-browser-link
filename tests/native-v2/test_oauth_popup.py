@@ -1,4 +1,4 @@
-"""OAuth popup adoption uses real daemon approval and request ledgers offline."""
+"""OAuth popup adoption uses real daemon scope and request ledgers offline."""
 import importlib.util
 import json
 import os
@@ -110,6 +110,7 @@ class PopupTests(unittest.TestCase):
         def popup_action(_extension, method, params, **kwargs):
             if method == 'browser.read_origin':
                 return {'origin': 'https://accounts.google.com'}
+            if method == 'browser.assess': return {'targetAssessment':'ordinary'}
             self.assertEqual(method, 'browser.execute')
             actions.append((params['action'], params['tabId']))
             return {'tabId': params['tabId'], 'completed': True}
@@ -160,6 +161,53 @@ class PopupTests(unittest.TestCase):
         self.assertTrue(receipt['adopted'])
         self.assertEqual(self.daemon.action_approvals, {})
         self.assertEqual(self.daemon.tab_leases[('instance', 2)], 'task')
+    def test_non_provider_popup_adopts_directly_in_smart_and_full(self):
+        for mode in ('smart', 'full'):
+            with self.subTest(mode=mode):
+                case = PopupTests(methodName='runTest')
+                case.setUp()
+                try:
+                    case.task['activeMode'] = mode
+                    receipt = case.daemon._run_task(case.params())
+                    self.assertTrue(receipt['adopted'])
+                    self.assertEqual(case.daemon.action_approvals, {})
+                    self.assertEqual(case.daemon.tab_leases[('instance', 2)], 'task')
+                    self.assertFalse(any('approval' in p for method, p in case.calls if method == 'browser.execute'))
+                    actions = []
+                    def popup_action(_extension, method, params, **kwargs):
+                        if method == 'browser.read_origin': return {'origin': 'https://accounts.example.test'}
+                        if method == 'browser.assess': return {'targetAssessment': 'ordinary'}
+                        self.assertEqual(method, 'browser.execute')
+                        actions.append((params['action'], params['tabId']))
+                        return {'completed': True, 'tabId': params['tabId']}
+                    case.daemon._extension_call = popup_action
+                    for action, extra in (('snapshot', {}), ('fill', {'selector': '#email', 'text': 'test@example.test'})):
+                        self.assertTrue(case.daemon._run_task(case.params(action, tabId=2, **extra))['completed'])
+                    self.assertEqual(actions, [('snapshot', 2), ('fill', 2)])
+                    self.assertEqual(case.daemon.action_approvals, {})
+                    case.daemon._handle_tab_event('instance', {'taskId': 'task', 'generation': 1, 'tabId': 2,
+                        'event': 'closed', 'documentGeneration': 0, 'popupClosed': {'returnedTo': 1}})
+                    def read_source(_extension, method, params, **kwargs):
+                        if method == 'browser.read_origin': return {'origin': 'https://example.com'}
+                        self.assertEqual(params['tabId'], 1)
+                        return {'tabId': 1, 'text': 'fresh source document'}
+                    case.daemon._extension_call = read_source
+                    read = case.daemon._run_task(case.params('snapshot', tabId=2, requestId='source-read'))
+                    self.assertEqual(read['text'], 'fresh source document')
+                    self.assertEqual(read['popupClosed'], {'returnedTo': 1})
+                    self.assertEqual(case.daemon.tab_leases[('instance', 1)], 'task')
+                finally:
+                    case.doCleanups()
+
+    def test_direct_non_provider_popup_adopts_once(self):
+        params = self.params()
+        self.assertTrue(self.daemon._run_task(params)['adopted'])
+        self.assertEqual(self.daemon.action_approvals, {})
+        with self.assertRaises(m.ProtocolError) as error:
+            self.daemon._run_task(params)
+        self.assertEqual(error.exception.code, 'request_outcome_unavailable')
+        self.assertEqual(sum(method == 'browser.execute' for method, _ in self.calls), 1)
+
     def test_target_lease_conflict_is_rejected_before_execute(self):
         self.daemon.tab_leases[('instance',2)]='other'
         with self.assertRaises(m.ProtocolError) as error:self.daemon._run_task(self.params())

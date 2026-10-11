@@ -1636,6 +1636,32 @@ class BridgeDaemon:
                             raise ProtocolError("artifact_unavailable", "approved task file is unavailable",
                                                 {"outcomeUnknown": False}) from None
 
+                    # 中文注释：预审只读，浏览器往返时释放任务锁和全局锁。
+                    if action in {'fill', 'press', 'ref_fill', 'ref_press'} and _approval is None and (task_id, request_hash) not in self.action_approvals:
+                        with self.state_lock:
+                            ext = self.extensions.get(task['instanceId'])
+                            if task['state'] == 'paused':
+                                raise ProtocolError('task_paused', '用户正在接管页面，退出接管后再继续', {'outcomeUnknown': False, 'retryable': False})
+                            if task['state'] not in {'ready', 'running'} or ext is None:
+                                raise ProtocolError('invalid_state', 'task is not ready')
+                            if self.tab_leases.get((task['instanceId'], params.get('tabId'))) != task_id:
+                                raise ProtocolError('foreign_tab', 'tab is not leased to this task')
+                            assessment_params = {k:v for k,v in params.items() if k not in {'owner', 'text'}}
+                            assessment_params.update(generation=task['generation'], modeGeneration=task.get('modeGeneration', 1), allowedOrigins=list(task['allowedOrigins']))
+                        assessed = self._extension_call(ext, 'browser.assess', assessment_params)
+                        with self.state_lock:
+                            if (task['state'] not in {'ready', 'running'} or task['generation'] != assessment_params['generation']
+                                    or task.get('accessRevoked') or task.get('controlEpoch', 0) != control_epoch
+                                    or task.get('modeGeneration', 1) != assessment_params['modeGeneration']
+                                    or self.tab_leases.get((task['instanceId'], params.get('tabId'))) != task_id):
+                                raise ProtocolError('invalid_state', 'task changed during assessment', {'outcomeUnknown': False})
+                            target = assessed.get('targetAssessment') if isinstance(assessed, dict) else None
+                            if target == 'sensitive':
+                                # 中文注释：核对作用域与登记人工填写在同一锁内完成，不向页面派发输入。
+                                return self._manual_input_action(task, params, request_hash, payload_hash,
+                                                                 pending_notifications, assessed.get('fieldKind'))
+                            if target != 'ordinary':
+                                raise ProtocolError('execution_denied', 'safe field assessment required')
             finally:
                 self.preparing_requests.pop((task_id, request_hash), None)
             with self.state_lock:

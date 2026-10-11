@@ -2,11 +2,16 @@
 
 ## 1.11.0 — 2026-10-11
 
-已本地提交，尚未推送发布；离线回归和真实浏览器验证见 `docs/release-1.11.0.md`。
+离线回归和真实浏览器验证见 `docs/release-1.11.0.md`。
 
 - 移除页面内容保护、文字过滤和普通任务动作审批；同一工作页支持跨站导航，保留任务/会话标签租约隔离。
 - 添加最多三轮的定位恢复、候选排序和 recovery 诊断；已派发未知写入只回读，不重复执行。
 - 密码输入值不回显；密码、支付、验证码字段保留保护（`inputRequired: vault_or_user`），不可直接填写，交给用户或凭据工具；同步技能、API 文档及 1.11.0 元数据。
+- 交互清单按视觉可见性过滤：透明、读屏专用、过小、aria-hidden/inert 的控件不再列出；被弹窗或横幅遮挡的控件保留并标 `blocked: occluded`、`actionable: false`；滚出视口的控件照常列出。定位恢复使用同一判断。
+- 增量快照只在比完整快照更小时返回 delta。
+- 点击、填写、按键及 ref 动作新增可选 `after={root,mode,budget}`，动作后附带有界的页面回读 `observation`；回读失败只报错，不重发动作。
+- 富文本（contenteditable）填写改为真实输入并回读核对，Tiptap、ProseMirror、Lexical 的编辑器内部内容同步；不再直接写 DOM 文本。
+- 部分交互判断参考 NousResearch/hermes-agent（MIT），许可见 `THIRD_PARTY_NOTICES.md`。
 
 ## 1.10.3 — 2026-10-11
 

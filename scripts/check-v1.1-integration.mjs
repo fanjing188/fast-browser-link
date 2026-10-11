@@ -185,7 +185,7 @@ function extensionInfo(root) {
   const bg=/import\s*\{\s*Executor\s*,[^}]*\}\s*from\s*['"]\.\/core\.mjs['"]/.test(background)
     &&/new\s+Executor\s*\(chrome\b/.test(background)&&/new\s+Bridge\s*\(port\s*,\s*executor\b/.test(background)
     &&manifest.background?.service_worker==='background.mjs';
-  const execOk=/assertV1Action\s*\(\s*p\.action\s*\)/.test(execute)&&/this\.perform\s*\(\s*t\s*,\s*p\s*\)/.test(execute)
+  const execOk=/assertV1Action\s*\(\s*p\.action\s*\)/.test(execute)&&/this\.performRecovering\s*\(\s*t\s*,\s*p\s*\)/.test(execute)&&/this\.performSettled\(t,params\)/.test(methodBody(core,'performRecovering'))&&/this\.perform\(t,p\)/.test(methodBody(core,'performSettled'))
     &&/assertV1Action\s*\(\s*p\.action\s*\)/.test(perform);
   const bridgeOk=/m\.method\s*===\s*['"]browser\.execute['"]\s*\)\s*result\s*=\s*await\s*this\.executor\.execute\s*\(\s*m\.params\s*\)/.test(bridge);
   const credentials=/m\.method\s*===\s*['"]browser\.credentials['"]/.test(bridge)&&/this\.executor\.credentials\s*\(\s*m\.params\s*\)/.test(bridge)&&/async\s+credentials\s*\(p\)/.test(core);
@@ -196,9 +196,9 @@ function extensionInfo(root) {
   const generic=/this\.callWorld\s*\([^;]*p\.action/.test(perform)&&/const\s+fn\s*=\s*action\s*===\s*['"]inspect['"]\s*\?\s*inspectPage\s*:\s*pageAction/.test(world);
   const route=action=>{
     if(!bg||!execOk||!bridgeOk)return false;
-    // 中文注释：popup 元数据动作在页面执行前独立分流，必须实际接到审批与候选模块。
+    // 中文注释：popup 元数据动作在页面执行前独立分流，必须接到候选校验与租约登记。
     if(action==='popup_catalog')return /p\.action==='popup_catalog'/.test(execute)&&/this\.popups\.catalog\(/.test(execute)&&/class OAuthPopups/.test(read(root,'native-extension/oauth-popups.mjs'));
-    if(action==='popup_adopt')return /p\.action==='popup_adopt'/.test(execute)&&/this\.adoptPopup\(t,p\)/.test(execute)&&/this\.actionGrants\.get/.test(methodBody(core,'adoptPopup'))&&/this\.popups\.inspect/.test(methodBody(core,'adoptPopup'));
+    if(action==='popup_adopt')return /p\.action==='popup_adopt'/.test(execute)&&/this\.adoptPopup\(t,p\)/.test(execute)&&/this\.popupGuard\(t,p\)/.test(methodBody(core,'adoptPopup'))&&/this\.leases\.set\(candidate\.tabId,t\.id\)/.test(methodBody(core,'adoptPopup'))&&/this\.popups\.inspect/.test(methodBody(core,'adoptPopup'));
     if(action==='api_request')return credentials;
     if(action==='files.upload')return /p\.action===['"]files\.upload['"]/.test(perform)
       &&/DOM\.setFileInputFiles/.test(perform)&&/p\.artifactOrigin/.test(perform)

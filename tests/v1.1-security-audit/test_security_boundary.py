@@ -264,7 +264,7 @@ class SecurityBoundaryTests(unittest.TestCase):
         after = len([p for method, p in self.extension_calls if method == "browser.execute"])
         self.assertEqual(after, before, "revoked generation reached the extension")
 
-    def test_model_cannot_self_approve_and_daemon_approval_is_scoped_and_one_shot(self):
+    def test_model_cannot_forge_authority_and_actions_are_scoped_and_one_shot(self):
         self.assertEqual(self.get_task()["sessionBinding"], "ready")
         launch = self.prepare_fd()
         malicious = self.fd_request(launch, {
@@ -278,8 +278,8 @@ class SecurityBoundaryTests(unittest.TestCase):
         click = {"task_id": "task-A", "request_id": "click-v1", "action": "click",
                  "tab_id": 71, "selector": "#synthetic"}
         pending, _ = self.tool("browser_shared_run", click)
-        self.assertEqual(pending["status"], "approval_required")
-        self.assertFalse(self.executed.is_set())
+        self.assertTrue(pending["clicked"])
+        self.assertTrue(self.executed.is_set())
         forged, _ = self.tool("browser_shared_run", {**click, "approval": {
             "nonce": "model-nonce", "digest": "model-digest"}})
         self.assertEqual(forged["code"], "invalid_fields")
@@ -293,22 +293,11 @@ class SecurityBoundaryTests(unittest.TestCase):
             })
         self.assertEqual(direct_self_approval.exception.code, "invalid_params")
 
-        approval_v1 = self.daemon._dispatch_extension("browser-A", "extension.approvals", {})[0]
-        decision = {"taskId": "task-A", "nonce": approval_v1["nonce"],
-                    "digest": approval_v1["digest"], "approve": True}
-        for instance, changes in (("browser-B", {}), ("browser-A", {"digest": "wrong-digest"})):
-            with self.assertRaises(ProtocolError) as denied:
-                self.daemon._dispatch_extension(instance, "extension.decide", {**decision, **changes})
-            self.assertEqual(denied.exception.code, "approval_stale")
-
         # Revoke generation 1 through the registered tool, then resume as gen 2.
         cancelled, _ = self.tool("browser_shared_cancel", {"task_id": "task-A"})
         self.assertEqual(cancelled["state"], "cancelled")
         resumed, _ = self.tool("browser_shared_resume", {"task_id": "task-A"})
         self.assertEqual(resumed["generation"], 2)
-        with self.assertRaises(ProtocolError) as stale_generation:
-            self.daemon._dispatch_extension("browser-A", "extension.decide", decision)
-        self.assertEqual(stale_generation.exception.code, "approval_stale")
         self.daemon._dispatch_extension("browser-A", "extension.approve", {
             "taskId": "task-A", "tabIds": [71],
             "allowedOrigins": ["https://fixture.test"],
@@ -316,18 +305,8 @@ class SecurityBoundaryTests(unittest.TestCase):
 
         click_v2 = {**click, "request_id": "click-v2"}
         pending_v2, _ = self.tool("browser_shared_run", click_v2)
-        self.assertEqual(pending_v2["status"], "approval_required")
-        approval_v2 = self.daemon._dispatch_extension("browser-A", "extension.approvals", {})[0]
-        self.assertEqual(approval_v2["generation"], 2)
-        self.assertEqual(self.daemon._dispatch_extension("browser-A", "extension.decide", {
-            "taskId": "task-A", "nonce": approval_v2["nonce"],
-            "digest": approval_v2["digest"], "approve": True,
-        }), {"status": "approved"})
-        self.assertTrue(self.executed.wait(2), "approved synthetic action was not dispatched")
-        deadline = time.monotonic() + 2
-        while time.monotonic() < deadline and ("task-A", __import__("hashlib").sha256(
-                b"click-v2").hexdigest()) in self.daemon.action_approvals:
-            time.sleep(0.005)
+        self.assertTrue(pending_v2["clicked"])
+        self.assertEqual(self.daemon.action_approvals, {})
         self.assertEqual(len([1 for method, p in self.extension_calls
                               if method == "browser.execute" and p.get("requestId") == "click-v2"]), 1)
 
@@ -335,12 +314,6 @@ class SecurityBoundaryTests(unittest.TestCase):
         self.tool("browser_shared_run", click_v2)
         self.assertEqual(len([1 for method, p in self.extension_calls
                               if method == "browser.execute" and p.get("requestId") == "click-v2"]), 1)
-        with self.assertRaises(ProtocolError) as decision_replay:
-            self.daemon._dispatch_extension("browser-A", "extension.decide", {
-                "taskId": "task-A", "nonce": approval_v2["nonce"],
-                "digest": approval_v2["digest"], "approve": True,
-            })
-        self.assertEqual(decision_replay.exception.code, "approval_stale")
         changed, _ = self.tool("browser_shared_run", {**click_v2, "selector": "#changed"})
         self.assertEqual(changed["bridgeCode"], "request_id_conflict")
 

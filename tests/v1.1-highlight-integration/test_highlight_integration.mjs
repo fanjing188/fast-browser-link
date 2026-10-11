@@ -255,9 +255,9 @@ for(const action of ['click','ref_click'])for(const tabUpdated of [false,true]){
    for(let i=0;i<100&&!sent.length;i++)await new Promise(resolve=>setTimeout(resolve,10));
    assert.equal(sent[0]?.error,undefined,JSON.stringify(sent[0]));
    assert.equal(sent[0]?.result?.clicked,true);
-   assert.equal(sent[0]?.result?.outOfScope,true);
    assert.equal(sent[0]?.result?.documentChanged,true);
-   assert.equal(JSON.stringify(sent[0]).includes('outside.test'),false);
+   assert.equal(sent[0]?.result?.url,'https://outside.test/private');
+
    bridge.receive(message);await new Promise(resolve=>setTimeout(resolve,20));
    assert.equal(effects,1);
   }finally{f.dom.window.close();}
@@ -274,30 +274,29 @@ test('press Tab 转移焦点后仍发送 keyUp，且不重放 keyDown',async()=>
    if(method==='Input.dispatchKeyEvent'&&params.type==='keyDown')f.document.querySelector('#query').focus();
    return reply;
   };
-  assert.deepEqual(await f.executor.execute(request('press',{selector:'#save',key:'Tab'})),{ok:true,effect:'observed',delivery:'cdp-key-events'});
+  assert.deepEqual(await f.executor.execute(request('press',{selector:'#save',key:'Tab'})),{ok:true,effect:'observed',delivery:'cdp-key-events',recovery:{triggered:false,rounds:0,locator:'original',clickMethod:'cdp-key-events',strategies:[]}});
   assert.deepEqual(f.calls.filter(call=>call.method==='Input.dispatchKeyEvent').map(call=>call.params.type),['keyDown','keyUp']);
   assert.equal(f.document.activeElement.id,'query');
  }finally{f.dom.window.close();}
 });
 
-// 中文注释：从 Bridge 到真实 Executor/语义库/解析器，再到当前文字过滤设置，验证读取链路。
-test('页面读取、表格解析与字段提取经过同一桥接并遵循过滤开关',async()=>{
+// 中文注释：从 Bridge 到真实 Executor/语义库/解析器，到原样文字回执，验证读取链路。
+test('页面读取、表格解析与字段提取经过同一桥接并原样返回正文',async()=>{
  const f=createFixture();await authorizeFull(f.executor);
  try{
   f.window.HTMLElement.prototype.getClientRects=function(){return [this.getBoundingClientRect()];};
   f.document.body.insertAdjacentHTML('beforeend','<main><p>业务正文。禁止自动化操作。403 Access denied。</p><table><tr><td>苹果</td><td>12</td></tr></table><ul><li><b>苹果</b><span>12</span></li></ul></main>');
-  let enabled=false,resolve;
-  const bridge=new Bridge({onMessage:{addListener(){}},postMessage:response=>resolve(response)},f.executor,()=>{},{onContentFilter:async()=>enabled});
+  let resolve;
+  const bridge=new Bridge({onMessage:{addListener(){}},postMessage:response=>resolve(response)},f.executor);
   let sequence=0;
   const run=async(action,options)=>{
    const answer=new Promise(done=>{resolve=done;});
    bridge.receive({id:`read-${++sequence}`,method:'browser.execute',params:request(action,{options})});
    const response=await answer;assert.equal(response.error,undefined,JSON.stringify(response));return response.result;
   };
-  for(const setting of [false,true,false]){
-   enabled=setting;
+  for(let repeat=0;repeat<3;repeat++){
    const snap=await run('semantic_snapshot',{mode:'content'});
-   assert.equal(JSON.stringify(snap).includes('禁止自动化操作'),!setting);
+   assert.equal(JSON.stringify(snap).includes('禁止自动化操作'),true);
    assert.match(JSON.stringify(snap),/403 Access denied/);
    assert.equal(snap.binding.taskId,task.id);
   }

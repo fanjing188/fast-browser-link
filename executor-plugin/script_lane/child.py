@@ -462,10 +462,10 @@ def popup_catalog(*, tab=None):
 
 @_tab_scoped
 def popup_adopt(candidate_ref, *, tab=None):
-    """请求精确接管需要人工确认的登录窗口。白名单自动接管时直接 use_tab(popupOpened["tabId"]) 并重读；其他窗口先在同一脚本调用 popup_catalog 保留 candidate；
-    ApprovalRequired 后用 wait_pending(tab=source) 只读查询账本，不重发接管。
-    等待返回 state=confirmed，不是 adopted 回执；显式 use_tab(candidate['tabId'])
-    后重新 read_page 核实原窗口当前权限与内容，不另开登录网址。"""
+    """登录弹窗直接接管，无需确认（含白名单外及已发现的现有窗口）。
+    白名单自动接管时直接 use_tab(popupOpened["tabId"]) 并重读；其他候选先调用 popup_catalog，
+    再 popup_adopt，显式 use_tab(回执['tabId']) 后重新 read_page 核实权限与内容。
+    成功回执只交付一次；未知结果不重发接管，也不另开登录网址。"""
     return _call('run', ['popup_adopt', {'candidateRef': candidate_ref}])
 
 
@@ -847,12 +847,9 @@ def load_checkpoint():
 
 @_tab_scoped
 def wait_pending(timeout_s=20.0, *, tab=None):
-    """Wait for the same approval/manual-input request (max 300 s).
-    Ordinary requests return their original receipt. Popup adoption queries only
-    the ledger and current scope, returning operation_status fields (state=confirmed),
-    never an adopted/tabId receipt. Select the catalog candidate with use_tab
-    and read_page next; confirmation is not current page-access proof. Unknown
-    outcomes, rejected approvals or changed scope never replay the adoption."""
+    """Wait for the same approval/manual-input request (max 300 s), without creating a new action.
+    Sensitive-field manual input returns the original receipt. Login-window adoption runs
+    directly without confirmation and does not need this helper. Unknown outcomes are never replayed."""
     if (isinstance(timeout_s, bool) or not isinstance(timeout_s, (int, float))
             or not math.isfinite(timeout_s) or not 0 <= timeout_s <= 300):
         raise BrowserError('invalid approval wait timeout', code='invalid_params', outcome_unknown=False)

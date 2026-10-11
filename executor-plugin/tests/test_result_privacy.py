@@ -44,11 +44,13 @@ class ResultPrivacyTests(unittest.TestCase):
         self.assertNotEqual(other['code'],'invalid_semantic_options')
         self.assertNotIn('fields',other)
 
-    def test_connection_popup_description_preserves_non_provider_confirmation_in_full_mode(self):
+    def test_connection_popup_description_adopts_non_provider_without_confirmation(self):
         description=load('native_tools').TOOL_SCHEMAS['browser_shared_run']['description']
         self.assertIn('smart/full',description)
         self.assertIn('白名单外',description)
-        self.assertIn('全部访问也必须明确确认',description)
+        self.assertIn('白名单外及已发现的现有登录弹窗同样无需确认',description)
+        self.assertIn('popup_adopt 直接接管',description)
+        self.assertNotIn('全部访问也必须明确确认',description)
         self.assertNotIn('非 smart 模式',description)
 
     def test_semantic_parse_options_report_exact_fields_without_rpc_or_values(self):
@@ -361,8 +363,8 @@ class ResultPrivacyTests(unittest.TestCase):
                     'outOfScope': True, 'debug': CANARY})
                 self.assertEqual(result, {'clicked': True, 'documentChanged': True, 'outOfScope': True})
 
-    def test_content_filter_metadata_survives_closed_result_projection(self):
-        # 中文注释：过滤标记必须传到 agent，同时仍然丢弃未声明的元数据字段。
+    def test_removed_content_filter_metadata_is_not_a_screenshot_contract(self):
+        # 中文注释：截图结果不再声明内容过滤字段；已有正文结构化投影仍丢弃未知字段。
         runtime = load('runtime')
         # 中文注释：站点禁止声明 true 与普通提示注入 false 都必须原样保留。
         for restricted in (True, False):
@@ -372,8 +374,12 @@ class ResultPrivacyTests(unittest.TestCase):
                     result = runtime._project_tool_result('browser_shared_run', {'action': action}, {
                         'contentFilter': {**metadata, 'private': CANARY},
                     })
-                    self.assertEqual(result['contentFilter'], metadata)
-                    self.assertNotIn(CANARY, json.dumps(result))
+                    if action in ('screenshot', 'interaction.capture'):
+                        self.assertNotIn('contentFilter', result)
+                        self.assertNotIn(CANARY, json.dumps(result))
+                    else:
+                        self.assertEqual(result['contentFilter'], metadata)
+                        self.assertNotIn(CANARY, json.dumps(result))
 
     def invoke(self, shared, suffix, args, result):
         module = load('native_tools')

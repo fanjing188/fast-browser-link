@@ -115,6 +115,8 @@
 - `tests/v1.1-lint-scope/lint-scope.test.mjs`
 - `tests/v1.1-access-review/test_access_request_timeout.py`
 - `tests/v1.1-highlight-deadline/deadline.test.mjs`
+- `tests/v1.11.0/test_recovery_protocol.py`：定位恢复诊断穿过 client 与公开工具投影，不丢派发状态和截图路径。
+- `tests/v1.11.0/test_after_protocol.py`：动作后 `after` 回读的 wire、helper、公开投影与未知结果栅栏。
 - `tests/native-v2/native_core.test.mjs`：1.3.5 后台滚动短期限。
 - `tests/v1.1-runtime-performance/test_journal_recovery.py`：动作超时后保留 ready、代次与标签租约。
 - `tests/v1.1-advanced/advanced.test.mjs`：JS 语法错误和运行时异常的固定码。

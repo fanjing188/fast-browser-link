@@ -35,9 +35,11 @@ class ApprovalNotificationTests(unittest.TestCase):
         self.daemon.dedupe["task"] = {}
         self.daemon.extensions["browser"] = {"instanceId": "browser"}
         self.executed = []
-        self.daemon._extension_call = lambda *_args, **_kwargs: self.executed.append(1) or {"ok": True}
-        self.params = dict(owner="owner", taskId="task", requestId="one", action="click",
-                           tabId=7, selector="#submit")
+        self.daemon._extension_call = lambda _ext, method, _params, **_kwargs: (
+            {'targetAssessment': 'sensitive', 'fieldKind': 'password'} if method == 'browser.assess'
+            else self.executed.append(1) or {'ok': True})
+        self.params = dict(owner="owner", taskId="task", requestId="one", action="fill",
+                           tabId=7, selector="#password", text="model-guess")
 
     def connect_extension(self):
         self.daemon.extensions.pop("browser")  # Replace synthetic entry via real hello.
@@ -110,7 +112,7 @@ class ApprovalNotificationTests(unittest.TestCase):
         handler.start()
         self.addCleanup(lambda: handler.join(2))
         result = self.daemon._dispatch_client("shared.run", dict(self.params))
-        self.assertEqual(result["status"], "approval_required")
+        self.assertEqual(result["status"], "user_input_required")
         self.assertTrue(callback_done.is_set())
         self.assertEqual(observed[0], {"method": "tasks.changed", "params": {}})
         self.assertEqual(observed[1]["id"], "approvals")
@@ -140,11 +142,11 @@ class ApprovalNotificationTests(unittest.TestCase):
             {"status": "denied"})
         with self.assertRaises(ProtocolError) as denied:
             self.daemon._dispatch_client("shared.run", dict(self.params))
-        self.assertEqual(denied.exception.code, "approval_denied")
+        self.assertEqual(denied.exception.code, "user_input_declined")
         self.assertEqual(notifications, ["browser"])
         self.assertEqual(self.executed, [])
         another = dict(self.params, requestId="two")
-        self.assertEqual(self.daemon._dispatch_client("shared.run", another)["status"], "approval_required")
+        self.assertEqual(self.daemon._dispatch_client("shared.run", another)["status"], "user_input_required")
         self.assertEqual(notifications, ["browser", "browser"])
 
     def test_disconnected_notification_socket_preserves_pending_and_no_replay(self):
@@ -153,7 +155,7 @@ class ApprovalNotificationTests(unittest.TestCase):
                 raise BrokenPipeError("extension disconnected")
         self.daemon.extensions["browser"] = dict(socket=ClosedSocket(), sendLock=threading.Lock())
         first = self.daemon._dispatch_client("shared.run", dict(self.params))
-        self.assertEqual(first["status"], "approval_required")
+        self.assertEqual(first["status"], "user_input_required")
         self.assertEqual(self.daemon._dispatch_client("shared.run", dict(self.params)), first)
         self.assertEqual(len(self.daemon.action_approvals), 1)
         self.assertEqual(len(self.task["requestHistory"]), 1)
@@ -167,7 +169,7 @@ class ApprovalNotificationTests(unittest.TestCase):
     def test_real_disconnect_revokes_pending_without_replaying_action(self):
         peer, reader, thread = self.connect_extension()
         first = self.daemon._dispatch_client("shared.run", dict(self.params))
-        self.assertEqual(first["status"], "approval_required")
+        self.assertEqual(first["status"], "user_input_required")
         self.assertEqual(json.loads(reader.readline()), {"method": "tasks.changed", "params": {}})
         peer.shutdown(socket.SHUT_RDWR)
         thread.join(2)

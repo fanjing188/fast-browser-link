@@ -50,6 +50,7 @@ export class PageRuntime{
  assert(t,p){
   this.assertAccess(t);
   if(this.executor.leases.get(p.tabId)!==t.id)throw fail('tab lease denied');
+  if(t.credentialTabs?.has(p.tabId))throw fail('CREDENTIAL_MODE_CONFLICT');
   const state=t.execution??=( {tabs:new Set(),subscriptions:new Map(),buffers:new Map(),worlds:new Map(),scripts:new Map()} );
   state.tabs.add(p.tabId);
   (t.scriptedTabs??=new Set()).add(p.tabId);

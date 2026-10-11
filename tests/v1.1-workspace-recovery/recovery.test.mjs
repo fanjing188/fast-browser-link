@@ -216,7 +216,7 @@ async function newTaskTab(harness, task, owner, requestId, url = START_URL) {
   }), 'shared.run new_tab');
 }
 
-test('cross-origin redirect freezes the tab but keeps the task, lease and group; returning resumes in the same group', async t => {
+test('cross-origin redirect keeps the tab readable with task lease and group intact', async t => {
   const {fixture, executor, daemon, extensionEvents} = await makeScenario(t);
   const task = await createTask(daemon);
   await approveExistingTab(daemon, executor, task);
@@ -239,9 +239,15 @@ test('cross-origin redirect freezes the tab but keeps the task, lease and group;
   }), 'shared.get after redirect');
   assert.equal(frozen.state, 'ready', 'leaving the approved site must not abandon the task');
   assert.ok(frozen.tabIds.includes(first.tabId));
-  assert.deepEqual(frozen.outOfScopeTabIds, [first.tabId]);
-  assert.equal(JSON.stringify(frozen).includes('redirect.example.net'), false, 'foreign URL is never reported');
+  assert.equal(frozen.outOfScopeTabIds, undefined);
+  assert.equal(executor.leases.get(first.tabId), task.id);
 
+  executor.api.debugger.attach = async () => {};
+  executor.api.debugger.sendCommand = async (_target, method) => {
+    if (method === 'Page.getFrameTree') return {frameTree:{frame:{id:'redirect',loaderId:'redirect-document',url:oldPage.url}}};
+    if (method === 'Page.createIsolatedWorld') return {executionContextId:1};
+    return {result:{value:{text:'redirect page'}}};
+  };
   const offSiteRead = await daemon.client('shared.run', {
     owner: OWNER,
     taskId: task.id,
@@ -249,10 +255,8 @@ test('cross-origin redirect freezes the tab but keeps the task, lease and group;
     action: 'snapshot',
     tabId: first.tabId,
   });
-  // This scenario's synthetic bridge maps every failure to execution_denied;
-  // the production bridge maps TAB_OUT_OF_SCOPE to tab_out_of_scope.
-  assert.equal(offSiteRead.error.message, 'TAB_OUT_OF_SCOPE');
-  assert.equal(offSiteRead.error.data.outcomeUnknown, false);
+  assert.equal(offSiteRead.error, undefined, JSON.stringify(offSiteRead));
+  assert.ok(offSiteRead.result);
 
   // Back on the approved site the same tab is usable again, and new work tabs
   // join the existing group instead of a fresh one.

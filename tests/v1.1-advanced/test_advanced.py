@@ -136,7 +136,7 @@ class PageExecutionDaemonTests(unittest.TestCase):
         return self.daemon._dispatch_client("shared.run", {"owner": "owner-a", "taskId": "task-a",
                                                            "requestId": request_id, "action": action, "tabId": 7, **extra})
 
-    def test_full_runs_js_and_cdp_directly_while_smart_requests_approval(self):
+    def test_full_and_smart_run_js_and_cdp_directly(self):
         self.run_action('js-0', 'js.evaluate', expression='1')
         self.run_action('cdp-0', 'cdp.send', method='Runtime.evaluate', params={'expression': '1'})
         self.assertEqual([p['action'] for method, p in self.calls if method == 'browser.execute'], ['js.evaluate', 'cdp.send'])
@@ -144,10 +144,11 @@ class PageExecutionDaemonTests(unittest.TestCase):
         self.assertNotIn('advanced', self.task)
         self.assertEqual(self.task['scriptedTabs'], [7])
         self.task['activeMode'] = 'smart'
-        # 中文注释：智能审批保留同一任务和标签，但先登记单次 JS 审批。
+        # 中文注释：普通脚本直接执行，仍绑定当前任务与标签租约。
         pending = self.run_action('js-smart', 'js.evaluate', expression='1')
-        self.assertEqual(pending['status'], 'approval_required')
-        self.assertEqual([p['action'] for method, p in self.calls if method == 'browser.execute'], ['js.evaluate', 'cdp.send'])
+        self.assertTrue(pending['ok'])
+        self.assertEqual([p['action'] for method, p in self.calls if method == 'browser.execute'], ['js.evaluate', 'cdp.send', 'js.evaluate'])
+        self.assertEqual(self.daemon.action_approvals, {})
 
     def test_removed_mode_actions_and_parameters_are_rejected(self):
         for action in ('advanced.enable', 'advanced.revoke'):
@@ -198,13 +199,8 @@ class PageExecutionDaemonTests(unittest.TestCase):
         pending = self.daemon._dispatch_client('shared.run', {
             'owner': 'owner-a', 'taskId': 'task-a', 'requestId': request_id,
             'action': 'gateway.authorize', 'codeDigest': digest})
-        self.assertEqual(pending['status'], 'approval_required')
-        approval = self.daemon._dispatch_extension('inst-a', 'extension.approvals', {})[0]
-        self.daemon._dispatch_extension('inst-a', 'extension.decide', {
-            'taskId': self.task['id'], 'nonce': approval['nonce'], 'digest': approval['digest'], 'approve': True})
-        deadline = time.time() + 3
-        while time.time() < deadline and 'gatewayPermit' not in self.task:
-            time.sleep(0.01)
+        self.assertEqual(pending, {'authorized': True})
+        self.assertEqual(self.daemon.action_approvals, {})
         self.assertIn('gatewayPermit', self.task)
         opened = self.daemon._dispatch_client('shared.cdp_gateway', {
             'owner': 'owner-a', 'taskId': 'task-a', 'requestId': request_id, 'codeDigest': digest})
@@ -228,13 +224,8 @@ class PageExecutionDaemonTests(unittest.TestCase):
         self.task['activeMode'] = 'smart'
         command = {'owner': 'owner-a', 'taskId': 'task-a', 'requestId': 'vault-once',
                    'action': 'vault.authorize', 'tabId': 7, 'vaultAction': 'fill', 'handleDigest': 'b' * 64}
-        self.assertEqual(self.daemon._dispatch_client('shared.run', command)['status'], 'approval_required')
-        approval = self.daemon._dispatch_extension('inst-a', 'extension.approvals', {})[0]
-        self.daemon._dispatch_extension('inst-a', 'extension.decide', {
-            'taskId': self.task['id'], 'nonce': approval['nonce'], 'digest': approval['digest'], 'approve': True})
-        deadline = time.time() + 3
-        while time.time() < deadline and 'vaultPermit' not in self.task:
-            time.sleep(0.01)
+        self.assertEqual(self.daemon._dispatch_client('shared.run', command), {'authorized': True})
+        self.assertEqual(self.daemon.action_approvals, {})
         self.assertIn('vaultPermit', self.task)
         self.assertEqual(self.daemon._dispatch_client('shared.run', command), {'authorized': True})
         self.task.pop('vaultPermit')

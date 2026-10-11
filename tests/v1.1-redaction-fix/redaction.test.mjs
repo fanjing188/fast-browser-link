@@ -22,104 +22,24 @@ function content(f) {
   return snapshot(f).items.map(item => item.name).join('');
 }
 
-test('unquoted secret values with spaces and pipes remain masked through ambiguous suffixes', () => {
-  const f = fixture('Safe prefix | password=SPACE_SECRET WITH SPACE|SAFE_SUFFIX');
-  try {
-    const output = content(f);
-    assert.ok(output.startsWith('Safe prefix | password=[redacted]'));
-    assert.ok(!output.includes('SPACE_SECRET'));
-    assert.ok(!output.includes('WITH SPACE'));
-    assert.ok(!output.includes('SAFE_SUFFIX'));
-  } finally {f.close();}
+// 中文注释：1.11.0 原样读取正文中的令牌、卡号与密码字样；输入框密码值另有保留保护测试。
+const cases = [
+ ['unquoted values with spaces and pipes remain readable', 'Safe prefix | password=SPACE_SECRET WITH SPACE|SAFE_SUFFIX'],
+ ['an unquoted pipe remains part of page text', 'Safe prefix | password=QUALITY_SENTINEL_SECRET|SAFE_SUFFIX'],
+ ['email after a password label remains readable', 'Safe prefix | password=PII_SECRET; alice@example.com; SAFE_SUFFIX'],
+ ['semicolon and quoted token text remain readable', 'Safe prefix | password=OUTER_SECRET; token="INNER_SECRET"|SAFE_SUFFIX'],
+ ['matched quoted value and suffix remain readable', 'Safe prefix | password="QUALITY_SENTINEL_SECRET"|SAFE_SUFFIX'],
+ ['quoted spaces pipes and escaped quotes remain readable', `Safe prefix | password=${JSON.stringify('SPACE SECRET | QUOTED "TEXT"')}|SAFE_SUFFIX`],
+ ['quoted Bearer text remains readable', `Safe prefix | Bearer ${JSON.stringify('BEARER SECRET | QUOTED "TEXT"')}|SAFE_SUFFIX`],
+ ['malformed quoted page text remains readable', 'Safe prefix | password="UNTERMINATED_SECRET|SAFE_SUFFIX'],
+ ['control characters do not trigger content redaction', 'Safe prefix | password=CONTROL_\u0000SENTINEL|SAFE_SUFFIX'],
+];
+for (const [name, text] of cases) test(name, () => {
+  const f = fixture(text);
+  try {assert.equal(content(f), text);} finally {f.close();}
 });
 
-test('an unquoted pipe is part of an ambiguous secret, not a safe boundary', () => {
-  const f = fixture('Safe prefix | password=QUALITY_SENTINEL_SECRET|SAFE_SUFFIX');
-  try {
-    const page = snapshot(f);
-    const output = page.items.map(item => item.name).join('');
-    const wire = JSON.stringify(page);
-    assert.equal(output, 'Safe prefix | password=[redacted]');
-    assert.ok(!wire.includes('QUALITY_SENTINEL_SECRET'));
-    assert.ok(!wire.includes('SAFE_SUFFIX'));
-  } finally {f.close();}
-});
-
-test('an email after an ambiguous secret does not make trailing text safe', () => {
-  const f = fixture('Safe prefix | password=PII_SECRET; alice@example.com; SAFE_SUFFIX');
-  try {
-    const output = content(f);
-    assert.equal(output, 'Safe prefix | password=[redacted]');
-    assert.ok(!output.includes('PII_SECRET'));
-    assert.ok(!output.includes('SAFE_SUFFIX'));
-  } finally {f.close();}
-});
-
-test('an unquoted semicolon cannot promote a later quoted fragment into safe text', () => {
-  const f = fixture('Safe prefix | password=OUTER_SECRET; token="INNER_SECRET"|SAFE_SUFFIX');
-  try {
-    const output = content(f);
-    assert.equal(output, 'Safe prefix | password=[redacted] token=[redacted]');
-    assert.ok(!output.includes('OUTER_SECRET'));
-    assert.ok(!output.includes('INNER_SECRET'));
-    assert.ok(!output.includes('SAFE_SUFFIX'));
-  } finally {f.close();}
-});
-
-test('a matched quote boundary preserves only text outside a structured secret value', () => {
-  const f = fixture('Safe prefix | password="QUALITY_SENTINEL_SECRET"|SAFE_SUFFIX');
-  try {
-    const page = snapshot(f);
-    const output = page.items.map(item => item.name).join('');
-    const wire = JSON.stringify(page);
-    assert.equal(output, 'Safe prefix | password=[redacted]|SAFE_SUFFIX');
-    assert.ok(!wire.includes('QUALITY_SENTINEL_SECRET'));
-  } finally {f.close();}
-});
-
-test('quoted values safely include spaces pipes and escaped quotes', () => {
-  const value = 'SPACE SECRET | QUOTED "TEXT"';
-  const f = fixture(`Safe prefix | password=${JSON.stringify(value)}|SAFE_SUFFIX`);
-  try {
-    const output = content(f);
-    assert.equal(output, 'Safe prefix | password=[redacted]|SAFE_SUFFIX');
-    assert.ok(!output.includes(value));
-  } finally {f.close();}
-});
-
-test('quoted Bearer credentials preserve only text beyond the balanced value', () => {
-  const value = 'BEARER SECRET | QUOTED "TEXT"';
-  const f = fixture(`Safe prefix | Bearer ${JSON.stringify(value)}|SAFE_SUFFIX`);
-  try {
-    const page = snapshot(f);
-    const output = page.items.map(item => item.name).join('');
-    const wire = JSON.stringify(page);
-    assert.equal(output, 'Safe prefix | Bearer [redacted]|SAFE_SUFFIX');
-    assert.ok(!wire.includes(value));
-  } finally {f.close();}
-});
-
-test('malformed quoted values fail closed through the suffix', () => {
-  const f = fixture('Safe prefix | password="UNTERMINATED_SECRET|SAFE_SUFFIX');
-  try {
-    const output = content(f);
-    assert.equal(output, 'Safe prefix | password=[redacted]');
-    assert.ok(!output.includes('UNTERMINATED_SECRET'));
-    assert.ok(!output.includes('SAFE_SUFFIX'));
-  } finally {f.close();}
-});
-
-test('control characters cannot separate an unquoted secret from an ambiguous pipe suffix', () => {
-  const f = fixture('Safe prefix | password=CONTROL_\u0000SENTINEL|SAFE_SUFFIX');
-  try {
-    const output = content(f);
-    assert.equal(output, 'Safe prefix | password=[redacted]');
-    assert.ok(!output.includes('CONTROL_SENTINEL'));
-    assert.ok(!output.includes('SAFE_SUFFIX'));
-  } finally {f.close();}
-});
-
-test('an irreversible text cap cannot expose an unfinished sensitive value', () => {
+test('an irreversible text cap reports truncation without inventing missing text', () => {
   const f = fixture(`${'A'.repeat(16370)} password=CAP_SENTINEL_TRUNCATED|SAFE_SUFFIX`, {maxItems: 100, maxText: 400});
   try {
     const page = f.semantics.snapshot({mode: 'content', budget: 12000});

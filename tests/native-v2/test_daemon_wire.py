@@ -276,7 +276,7 @@ class NativeV2DaemonTests(unittest.TestCase):
         self.assertNotIn("read-ledger", str(confirmed))
         self.run_action("pending-ledger", "click", selector="#confirm")
         pending = status("pending-ledger")
-        self.assertEqual((pending["state"], pending["dispatched"]), ("awaiting_approval", False))
+        self.assertEqual((pending["state"], pending["dispatched"]), ("confirmed", True))
         before = len(self.calls)
         status("pending-ledger")
         self.assertEqual(len(self.calls), before)
@@ -312,7 +312,7 @@ class NativeV2DaemonTests(unittest.TestCase):
             with self.subTest(options=options), self.assertRaises(daemon_module.ProtocolError):
                 validate('semantic_snapshot', {'tabId': 7, 'options': options})
 
-    def test_v1_actions_are_forwarded_with_trusted_generation_origin_and_single_approval(self):
+    def test_v1_actions_are_forwarded_with_trusted_generation_and_no_replay(self):
         result = self.run_action(
             "semantic-1",
             "semantic_snapshot",
@@ -326,61 +326,20 @@ class NativeV2DaemonTests(unittest.TestCase):
 
         command = dict(selector="#confirm")
         before = len(self.calls)
-        pending = self.run_action("click-1", "click", **command)
-        self.assertEqual(pending["status"], "approval_required")
-        self.assertEqual(pending["requestId"], "click-1")
-        self.assertNotIn("action", pending)
-        self.assertNotIn("nonce", pending)
-        self.assertEqual(self.task["state"], "ready")
-        self.assertEqual(self.run_action("click-1", "click", **command), pending)
-        self.assertEqual(len(self.calls), before)
-
-        # Only the trusted extension channel can retrieve/decide this exact request.
-        approvals = self.daemon._dispatch_extension("instance-v2", "extension.approvals", {})
-        self.assertEqual(len(approvals), 1)
-        approval = approvals[0]
-        self.assertEqual(approval["request"], dict(
-            taskId="task-v2", requestId="click-1", action="click", tabId=7, **command,
-        ))
-        self.assertEqual(approval["generation"], 4)
-        self.assertEqual(approval["modeGeneration"], 1)
-        self.assertEqual(approval["digest"], pending["digest"])
-        self.assertEqual(approval["expiresAt"], pending["expiresAt"])
-        decision = dict(taskId="task-v2", nonce=approval["nonce"], digest=approval["digest"], approve=True)
-        self.assertEqual(
-            self.daemon._dispatch_extension("instance-v2", "extension.decide", decision),
-            {"status": "approved"},
-        )
-        # Bounded wait for the real worker; querying never creates a new request ID.
-        deadline = time.monotonic() + 2
-        while True:
-            with self.daemon.state_lock:
-                finished = not self.daemon.action_approvals
-            if finished or time.monotonic() >= deadline:
-                break
-            time.sleep(.005)
-        self.assertTrue(finished, "approval worker did not finish")
         result = self.run_action("click-1", "click", **command)
         self.assertEqual(result, {"ok": True, "action": "click"})
         self.assertEqual(len(self.calls), before + 1)
         extension, method, params, _ = self.calls[-1]
         self.assertIs(extension, self.extension)
         self.assertEqual(method, "browser.execute")
-        self.assertEqual(params, dict(
-            **approval["request"], generation=4, modeGeneration=1,
-            allowedOrigins=["https://example.com"],
-            approval={"nonce": approval["nonce"], "digest": approval["digest"]},
-        ))
+        self.assertEqual(params, dict(taskId="task-v2", requestId="click-1", action="click", tabId=7,
+            **command, generation=4, modeGeneration=1, allowedOrigins=["https://example.com"]))
         for _ in range(3):
             self.assertEqual(self.run_action("click-1", "click", **command), result)
-        with self.assertRaises(daemon_module.ProtocolError) as replay:
-            self.daemon._dispatch_extension("instance-v2", "extension.decide", decision)
-        self.assertEqual(replay.exception.code, "approval_stale")
         with self.assertRaises(daemon_module.ProtocolError) as conflict:
             self.run_action("click-1", "click", selector="#other")
         self.assertEqual(conflict.exception.code, "request_id_conflict")
         self.assertEqual(len(self.calls), before + 1)
-        self.assertEqual(self.task.get("activeMode", "smart"), "smart")
         self.assertEqual(self.daemon._dispatch_extension("instance-v2", "extension.approvals", {}), [])
 
     def test_daemon_rejects_malformed_fields_and_unsupported_actions_before_extension(self):

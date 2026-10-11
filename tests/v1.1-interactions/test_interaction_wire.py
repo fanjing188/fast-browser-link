@@ -96,26 +96,12 @@ class InteractionWireTests(unittest.TestCase):
         bound=self.run_action('interaction.bounds','bounds',screenshot_id=shot['id'],selector='#button')
         self.assertEqual(bound['imageCenter'],{'x':20,'y':15})
         payload={'screenshot_id':shot['id'],'point':bound['imageCenter'],'expected_ref':bound['ref']}
-        pending=self.run_action('interaction.click','click',**payload)
-        self.assertEqual(pending['status'],'approval_required')
-        self.assertEqual(self.control('noop')['commands'],0)
-        request=self.daemon._dispatch_extension('instance-v2','extension.approvals',{})[0]
-        self.assertEqual(request['request']['expectedRef'],bound['ref'])
-        self.assertEqual(self.run_action('interaction.click','click',**payload),pending)
-        self.assertEqual(self.control('noop')['commands'],0)
-        # Decision is extension-owned. Its signed grant is installed by the extension channel.
-        decision={'taskId':'task-v2','nonce':request['nonce'],'digest':request['digest'],'approve':True}
-        self.control('approve',{'taskId':'task-v2','generation':4,'modeGeneration':1,
-             'request':request['request'],'nonce':request['nonce'],'digest':request['digest'],
-             'expiresAt':request['expiresAt']})
-        self.daemon._dispatch_extension('instance-v2','extension.decide',decision)
-        deadline=time.monotonic()+3
-        while self.daemon.action_approvals and time.monotonic()<deadline:time.sleep(.01)
-        self.assertFalse(self.daemon.action_approvals)
-        self.assertEqual(self.run_action('interaction.click','click',**payload),{'ok':True,'kind':'coordinate-click','delivery':'confirmed','effect':'observed'},getattr(self,'last_extension_error',None))
+        result=self.run_action('interaction.click','click',**payload)
+        self.assertEqual(result,{'ok':True,'kind':'coordinate-click','delivery':'confirmed','effect':'observed'})
         self.assertEqual(self.control('noop')['commands'],3)
-        self.assertEqual(self.run_action('interaction.click','click',**payload),{'ok':True,'kind':'coordinate-click','delivery':'confirmed','effect':'observed'})
+        self.assertEqual(self.run_action('interaction.click','click',**payload),result)
         self.assertEqual(self.control('noop')['commands'],3)
+        self.assertEqual(self.daemon.action_approvals,{})
 
     def test_drag_modes_reach_real_executor_and_project_truthful_result(self):
         self.task.update(activeMode='full', modeGeneration=2)
@@ -138,15 +124,14 @@ class InteractionWireTests(unittest.TestCase):
         self.assertEqual(synthetic,{'ok':True,'kind':'html5-synthetic','trusted':False})
         self.assertEqual(self.control('noop')['commands'],7)
 
-    def test_smart_drag_requires_trusted_approval_before_input(self):
+    def test_smart_drag_executes_once_without_ordinary_approval(self):
         shot=self.run_action('interaction.capture','smart-drag-shot')
         args=dict(screenshot_id=shot['id'],source='#source',target='#target',mode='html5-synthetic')
-        pending=self.run_action('interaction.drag_elements','smart-drag',**args)
-        self.assertEqual(pending['status'],'approval_required')
-        self.assertEqual(self.run_action('interaction.drag_elements','smart-drag',**args),pending)
+        result=self.run_action('interaction.drag_elements','smart-drag',**args)
+        self.assertEqual(result,{'ok':True,'kind':'html5-synthetic','trusted':False})
+        self.assertEqual(self.run_action('interaction.drag_elements','smart-drag',**args),result)
         self.assertEqual(self.control('noop')['commands'],0)
-        approval=self.daemon._dispatch_extension('instance-v2','extension.approvals',{})[0]
-        self.assertEqual(approval['request']['mode'],'html5-synthetic')
+        self.assertEqual(self.daemon.action_approvals,{})
 
     def test_sensitive_capture_and_target_never_dispatch_input(self):
         self.control('sensitive',True)
@@ -209,7 +194,7 @@ class InteractionWireTests(unittest.TestCase):
                   point={'x':float('nan'),'y':0},expectedRef='ref'))
         self.assertEqual(denied.exception.code,'invalid_params')
 
-    def test_wrong_owner_tab_and_origin_do_not_dispatch(self):
+    def test_wrong_owner_and_tab_rejected_but_cross_origin_read_allowed(self):
         self.task.update(activeMode='full',modeGeneration=2);self.control('full')
         shot=self.run_action('interaction.capture','owner-shot')
         before=len(self.sent)
@@ -221,24 +206,24 @@ class InteractionWireTests(unittest.TestCase):
                          screenshot_id=shot['id'],selector='#a').get('bridgeCode'),'foreign_tab')
         self.assertEqual(len(self.sent),before)
         self.control('origin')
-        self.assertNotIn('image',self.run_action('interaction.capture','wrong-origin'))
+        self.assertIn('image',self.run_action('interaction.capture','wrong-origin'))
         self.assertEqual(self.control('noop')['commands'],0)
 
-    def test_mode_revocation_and_generation_change_fence_click_without_replay(self):
+    def test_smart_mode_keeps_actions_allowed_but_generation_change_fences_them(self):
         self.task.update(activeMode='full',modeGeneration=2);self.control('full')
         shot=self.run_action('interaction.capture','rev-shot')
         bound=self.run_action('interaction.bounds','rev-bound',screenshot_id=shot['id'],selector='#button')
         self.task.update(activeMode='smart',modeGeneration=3);self.control('revoke')
         args=dict(screenshot_id=shot['id'],point=bound['imageCenter'],expected_ref=bound['ref'])
-        pending=self.run_action('interaction.click','rev-click',**args)
-        self.assertEqual(pending['status'],'approval_required')
-        self.assertEqual(self.control('noop')['commands'],0)
+        rejected=self.run_action('interaction.click','rev-click',**args)
+        self.assertTrue(rejected.get('ok'))
+        self.assertEqual(self.control('noop')['commands'],3)
+        self.assertEqual(self.daemon.action_approvals,{})
         self.task.update(activeMode='full',modeGeneration=4)
-        # The extension still has no full grant for the new mode generation.
-        self.assertEqual(self.run_action('interaction.click','rev-click',**args),pending)
+        self.assertEqual(self.run_action('interaction.click','rev-click',**args),rejected)
         self.control('generation')
         self.assertNotIn('image',self.run_action('interaction.capture','stale-gen'))
-        self.assertEqual(self.control('noop')['commands'],0)
+        self.assertEqual(self.control('noop')['commands'],3)
 
     def test_unknown_write_is_fenced_and_same_request_id_does_not_replay(self):
         self.task.update(activeMode='full',modeGeneration=2);self.control('full')

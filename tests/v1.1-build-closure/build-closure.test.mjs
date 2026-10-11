@@ -13,6 +13,7 @@ const root = path.resolve(import.meta.dirname, '../..');
 // 中文注释：构建验收只使用系统临时目录，避免写入实际 Hermes 安装。
 const scratch = await realpath(tmpdir());
 const dependencyFiles = [
+  'THIRD_PARTY_NOTICES.md', 'third-party/licenses/hermes-agent-MIT.txt',
   'page-semantics/oauth-providers.mjs',
   'page-semantics/redact.mjs',
   'browser-workspaces/index.mjs',
@@ -165,6 +166,7 @@ async function assertRelativeClosure(directory) {
 async function assertBuildContents(sourceRoot, output) {
   const expectedFiles = [
     ...sourceCopies,
+    'THIRD_PARTY_NOTICES.md', 'third-party/licenses/hermes-agent-MIT.txt',
     'core.mjs',
     'workspace-adapter.mjs',
     'BUILD-DEPS.json',
@@ -182,6 +184,8 @@ async function assertBuildContents(sourceRoot, output) {
     assert.deepEqual(staged, source, `${relative} source`);
     assert.equal(sha256(staged), sha256(source), `${relative} source hash`);
   }
+  for (const relative of ['THIRD_PARTY_NOTICES.md', 'third-party/licenses/hermes-agent-MIT.txt'])
+    assert.deepEqual(await readFile(path.join(output, relative)), await readFile(path.join(sourceRoot, relative)));
   const sourceCore = await readFile(path.join(sourceRoot, 'native-extension/core.mjs'), 'utf8');
   const expectedCore = sourceCore
     .replace("from '../browser-diagnostics/js/diagnostics.mjs'", "from './vendor/browser-diagnostics.mjs'")

@@ -15,7 +15,8 @@ function fixture({now=1_000_000}={}){
    tabs:{get:async()=>({url:'https://site.test/a',title:'A'})}},
   checkedFrameTree:async()=>({frame:{id:'F1',loaderId:'L1',url:'https://site.test/a'}}),
   resolveFrame:async()=>({target:{tabId:7,sessionId:'S-child'},frame:{id:'F2',loaderId:'L2',url:'https://site.test/f'}}),
-  allowed(t,url){if(!t.allowedOrigins.includes(new URL(url).origin))throw Error('origin denied');},
+  allowed(_t,url){assert.ok(['https:', 'http:'].includes(new URL(url).protocol));},
+  collectPasswords:async()=>new Set(),
   ensureFrameSessions:async()=>({sessions:new Map()})};
  const pushed=[];
  const controller=new PageRuntime(executor,{pushEvents:async batch=>{pushed.push(batch);},now:()=>clock});
@@ -51,7 +52,7 @@ test('isolated evaluation returns values and releases handles',async()=>{
  f.replies['Page.createIsolatedWorld']=()=>({executionContextId:44});
  f.replies['Runtime.evaluate']=params=>({result:{type:'number',value:params.contextId===44?42:-1}});
  const result=await f.controller.evaluate(f.task,{tabId:7,expression:'40+2'},guard);
- assert.deepEqual(result,{ok:true,world:'isolated',type:'number',value:42});
+ assert.deepEqual(result,{ok:true,world:'isolated',type:'number',value:42,coverage:{complete:true,scope:'execution_result'}});
  assert.ok(f.sent.some(row=>row.method==='Runtime.releaseObjectGroup'));
  const main=await f.controller.evaluate(f.task,{tabId:7,expression:'1',world:'main'},guard);
  assert.equal(main.ok,true,'主上下文复用相同浏览器授权');
@@ -89,15 +90,16 @@ test('JavaScript syntax and runtime errors carry stable codes and bounded first 
  assert.equal(result.exception.type,'TypeError');assert.ok(result.exception.text.length<=200);
 });
 
-test('document replacement during evaluation is reported as unknown outcome',async()=>{
+test('document replacement during evaluation is reported in coverage',async()=>{
  const f=fixture();f.controller.assert(f.task,{tabId:7});
  let calls=0;f.executor.checkedFrameTree=async()=>({frame:{id:'F1',loaderId:calls++?'L-new':'L1',url:'https://site.test/a'}});
  f.replies['Runtime.evaluate']=()=>({result:{type:'number',value:1}});
- await assert.rejects(f.controller.evaluate(f.task,{tabId:7,expression:'location.reload()',world:'main'},guard),
-  error=>error.message==='DOCUMENT_CHANGED'&&error.outcomeUnknown===true);
+ const result=await f.controller.evaluate(f.task,{tabId:7,expression:'location.reload()',world:'main'},guard);
+ assert.equal(result.ok,true);assert.equal(result.value,1);
+ assert.deepEqual(result.coverage,{complete:false,scope:'execution_result',missing:['document_changed']});
 });
 
-test('有效 CDP 方法只由两档模式控制，任务来源仍限制导航',async()=>{
+test('有效 CDP 方法只由两档模式控制，任务页允许跨站导航',async()=>{
  for(const method of ['Network.getCookies','Storage.getCookies','Fetch.enable','Network.setRequestInterception','Browser.grantPermissions',
   'Browser.close','Target.createTarget','Debugger.enable','Page.setDownloadBehavior','Tracing.start'])
   assert.equal(cdpMethodAllowed(method).allowed,true,method);
@@ -112,10 +114,10 @@ test('有效 CDP 方法只由两档模式控制，任务来源仍限制导航',a
  await f.controller.send(f.task,{tabId:7,method:'DOM.setFileInputFiles',params:{files:['/etc/hosts']}},guard,{gateway:true});
  assert.ok(f.sent.some(row=>row.method==='Network.getAllCookies'));
  assert.ok(f.sent.some(row=>row.method==='DOM.setFileInputFiles'));
- await assert.rejects(f.controller.send(f.task,{tabId:7,method:'Page.navigate',params:{url:'https://evil.test/'}},guard),/origin denied/);
- assert.equal(f.sent.filter(row=>row.method==='Page.navigate').length,0);
- await f.controller.send(f.task,{tabId:7,method:'Page.navigate',params:{url:'https://site.test/b'}},guard);
+ await f.controller.send(f.task,{tabId:7,method:'Page.navigate',params:{url:'https://evil.test/'}},guard);
  assert.equal(f.sent.filter(row=>row.method==='Page.navigate').length,1);
+ await f.controller.send(f.task,{tabId:7,method:'Page.navigate',params:{url:'https://site.test/b'}},guard);
+ assert.equal(f.sent.filter(row=>row.method==='Page.navigate').length,2);
 });
 
 test('原始目标列表可返回调试器数据，显式 target_id 仍须属于任务标签',async()=>{
@@ -154,14 +156,13 @@ test('large results are chunked and chunks expire after the last read',async()=>
  assert.throws(()=>f.controller.chunk({id:meta.id,index:0,taskId:f.task.id,generation:f.task.generation},f.task),/CHUNK_UNAVAILABLE/);
 });
 
-test('events are scrubbed, filtered to subscriptions and bounded',async()=>{
- const scrubbed=scrubCdpEvent('Network.requestWillBeSent',{request:{url:'u',headers:{Cookie:'a=b',Authorization:'x',Accept:'*/*'}}});
- assert.deepEqual(scrubbed.request.headers,{Accept:'*/*'});
- assert.deepEqual(scrubCdpEvent('Network.requestWillBeSentExtraInfo',{headers:{Cookie:'a=b',Accept:'*/*'}}),{headers:{Accept:'*/*'}});
- assert.deepEqual(scrubCdpEvent('Network.responseReceivedExtraInfo',{headers:{'Set-Cookie':'a=b','Proxy-Authorization':'Bearer secret',Server:'fixture'},blockedCookies:[{cookieLine:'a=b'}]}),{headers:{Server:'fixture'}});
- // 中文注释：额外来源的网络事件保留，但整段原始头文本和正文中的 Bearer 令牌必须剥离。
- assert.deepEqual(scrubCdpEvent('Network.responseReceivedExtraInfo',{headersText:'Set-Cookie: a=b',headers:{Server:'fixture'},statusCode:200}),{headers:{Server:'fixture'},statusCode:200});
- assert.deepEqual(scrubCdpEvent('Runtime.consoleAPICalled',{text:'Bearer synthetic-token'}),{text:'Bearer [redacted]'});
+test('page events remain readable, subscriptions and buffers remain bounded',async()=>{
+ for(const [method,params] of [
+  ['Network.requestWillBeSent',{request:{url:'u',headers:{Cookie:'a=b',Authorization:'x',Accept:'*/*'}}}],
+  ['Network.requestWillBeSentExtraInfo',{headers:{Cookie:'a=b',Accept:'*/*'}}],
+  ['Network.responseReceivedExtraInfo',{headersText:'Set-Cookie: a=b',headers:{'Set-Cookie':'a=b','Proxy-Authorization':'Bearer secret'},blockedCookies:[{cookieLine:'a=b'}]}],
+  ['Runtime.consoleAPICalled',{text:'Bearer synthetic-token'}],
+ ])assert.deepEqual(scrubCdpEvent(method,params),params);
  assert.equal(scrubCdpEvent('Runtime.executionContextCreated',{context:{name:'hermes-automation-overlay'}}),null);
  const f=fixture();f.controller.assert(f.task,{tabId:7});
  f.controller.observe({tabId:7},'Page.loadEventFired',{});
@@ -213,24 +214,24 @@ test('旧文档重建遮罩后派发输入，无法确认遮罩时拒绝派发',
  assert.equal(f.sent.some(row=>row.method==='Input.insertText'),false);
 });
 
-test('gateway refuses current or pending foreign origin before any page command',async()=>{
+test('gateway allows leased tabs at current or pending foreign origins',async()=>{
  for(const tab of [{url:'https://outside.test/'},{url:'https://site.test/',pendingUrl:'https://outside.test/'}]){
   const f=fixture();f.executor.api.tabs.get=async()=>tab;
-  await assert.rejects(f.controller.send(f.task,{tabId:7,method:'Runtime.evaluate',params:{expression:'document.body.innerText'}},guard,{gateway:true}),error=>error.message==='TAB_OUT_OF_SCOPE'&&error.preDispatch);
-  assert.equal(f.sent.length,0);
+  await f.controller.send(f.task,{tabId:7,method:'Runtime.evaluate',params:{expression:'document.body.innerText'}},guard,{gateway:true});
+  assert.equal(f.sent.filter(row=>row.method==='Runtime.evaluate').length,1);
  }
 });
 
-test('子会话可读取第三方框架，顶层离站后仍丢弃结果',async()=>{
+test('子会话可读取第三方框架，顶层跨站后仍返回结果',async()=>{
  const f=fixture();f.replies['Page.getFrameTree']=()=>({frameTree:{frame:{url:'https://outside.test/frame'}}});
  await f.controller.send(f.task,{tabId:7,childSessionId:'child',method:'Runtime.evaluate',params:{expression:'1'}},guard,{gateway:true});
  assert.ok(f.sent.some(row=>row.method==='Runtime.evaluate'));
  f.replies['Page.getFrameTree']=()=>({frameTree:{frame:{url:'https://site.test/frame'}}});
  await f.controller.send(f.task,{tabId:7,childSessionId:'child',method:'Runtime.evaluate',params:{expression:'1'}},guard,{gateway:true});
  assert.equal(f.sent.find(row=>row.method==='Runtime.evaluate').target.sessionId,'child');
- // 中文注释：派发后发生跳转时必须保留未知结果语义，不能返回外站内容或声称未派发。
+ // 中文注释：派发后跨站仍返回原始结果，不重复发送命令。。
  const later=fixture();later.replies['Runtime.evaluate']=()=>{later.executor.api.tabs.get=async()=>({url:'https://outside.test/'});return {result:{value:'untrusted'}};};
- await assert.rejects(later.controller.send(later.task,{tabId:7,method:'Runtime.evaluate',params:{}},guard,{gateway:true}),error=>error.message==='TAB_OUT_OF_SCOPE'&&error.preDispatch===false&&error.outcomeUnknown===true);
+ assert.deepEqual(await later.controller.send(later.task,{tabId:7,method:'Runtime.evaluate',params:{}},guard,{gateway:true}),{result:{value:'untrusted'}});
 });
 
 // 中文注释：输入派发的收尾不依赖下一条 CDP 请求或页面计时器。
@@ -276,13 +277,13 @@ for(const method of ['Runtime.evaluate','DOM.getDocument','Page.createIsolatedWo
  await f.controller.send(f.task,{tabId:7,method,params:method==='Page.createIsolatedWorld'?{frameId:'foreign'}:method==='Runtime.evaluate'?{expression:'document.body.innerText',contextId:99}:{}},guard);
  assert.equal(f.sent.filter(row=>row.method===method).length,1);
 });
-test('子框架离站后原始 CDP 仍返回结果，顶层离站则丢弃',async()=>{
+test('子框架跨站后原始 CDP 仍返回结果',async()=>{
  const f=fixture();let changed=false;
  f.replies['Page.getFrameTree']=()=>({frameTree:{frame:{id:'main',url:'https://site.test'},childFrames:[{frame:{id:'child',url:changed?'https://outside.test':'https://site.test/child'}}]}});
  await f.controller.send(f.task,{tabId:7,method:'DOM.getDocument'},guard);
  assert.equal(f.sent.filter(row=>row.method==='DOM.getDocument').length,1);
- f.replies['Runtime.evaluate']=()=>{changed=true;return {result:{value:'不应返回'}};};
- assert.deepEqual(await f.controller.send(f.task,{tabId:7,method:'Runtime.evaluate',params:{expression:'1'}},guard),{result:{value:'不应返回'}});
+ f.replies['Runtime.evaluate']=()=>{changed=true;return {result:{value:'页面原始结果'}};};
+ assert.deepEqual(await f.controller.send(f.task,{tabId:7,method:'Runtime.evaluate',params:{expression:'1'}},guard),{result:{value:'页面原始结果'}});
 });
 
 // 中文注释：同页 Python 事件等待和网关推送必须并存，不能因 helper 调用或网关离开互相覆盖。

@@ -5,6 +5,7 @@ import {JSDOM} from 'jsdom';
 import {Executor} from '../../native-extension/core.mjs';
 function fixture(html,query){
  const dom=new JSDOM(html,{url:'https://example.test/',runScripts:'outside-only'}),w=dom.window,objects=new Map(),nodes=new Map(),calls=[];
+ w.HTMLElement.prototype.getBoundingClientRect=()=>({left:20,top:20,right:120,bottom:50,width:100,height:30});
  w.HTMLElement.prototype.getClientRects=()=>[{}];let sequence=0;
  const e=new Executor({tabs:{},debugger:{sendCommand:async(_target,method,p={})=>{
   calls.push([method,p]);

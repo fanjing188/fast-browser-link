@@ -500,6 +500,8 @@ class ActionSession:
             value = receipt
         self._pending = None
         self._pending_kind = None
+        if kind == 'ref_fill' and receipt.get('kind') == 'trusted-input' and receipt.get('outcomeUnknown') is True:
+            self._unknown = True
         return value
 
     def new_tab(self, url: str) -> int:
@@ -578,17 +580,17 @@ class ActionSession:
         'page.parse': frozenset({'options'}),
         'semantic_snapshot': frozenset({'options'}),
         'frame_catalog': frozenset(),
-        'click': frozenset({'selector'}),
-        'fill': frozenset({'selector', 'text'}),
-        'press': frozenset({'selector', 'key'}),
-        'ref_click': frozenset({'binding', 'snapshotId', 'ref', 'clickMode', 'frameToken'}),
-        'ref_fill': frozenset({'binding', 'snapshotId', 'ref', 'text', 'frameToken'}),
+        'click': frozenset({'selector', 'after'}),
+        'fill': frozenset({'selector', 'text', 'after'}),
+        'press': frozenset({'selector', 'key', 'after'}),
+        'ref_click': frozenset({'binding', 'snapshotId', 'ref', 'clickMode', 'frameToken', 'after'}),
+        'ref_fill': frozenset({'binding', 'snapshotId', 'ref', 'text', 'frameToken', 'after'}),
         # 中文注释：脚本只传最新快照引用及固定按键，任务页仍由宿主绑定。
-        'ref_press': frozenset({'binding', 'snapshotId', 'ref', 'key', 'frameToken'}),
+        'ref_press': frozenset({'binding', 'snapshotId', 'ref', 'key', 'frameToken', 'after'}),
         # 中文注释：文件路径只由 daemon 从用户登记 ID 解析，脚本只能提交 ID 和目标选择器。
         'files.upload': frozenset({'selector', 'artifactIds', 'paths'}),
-        'ref_set_checked': frozenset({'binding', 'snapshotId', 'ref', 'checked', 'frameToken'}),
-        'ref_select_option': frozenset({'binding', 'snapshotId', 'ref', 'by', 'values', 'frameToken'}),
+        'ref_set_checked': frozenset({'binding', 'snapshotId', 'ref', 'checked', 'frameToken', 'after'}),
+        'ref_select_option': frozenset({'binding', 'snapshotId', 'ref', 'by', 'values', 'frameToken', 'after'}),
         'official.ready_state': frozenset(),
         # 中文注释：JavaScript/CDP 与网络观察复用现有任务的浏览器访问。
         'js.evaluate': frozenset({'expression', 'world', 'awaitPromise', 'timeoutMs', 'frameToken', 'arguments'}),

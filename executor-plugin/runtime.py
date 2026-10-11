@@ -303,7 +303,7 @@ _RESULT_SEMANTIC = {
     **_scalar_fields('version title snapshotId kind mode nextCursor baselineId frameToken'),
     'binding': _scalar_fields('taskId documentId leaseId'),
     # 中文注释：语义上下文和状态必须穿过公共工具投影，容器引用仍不是动作别名；不放行 value 或原始属性。
-    'items': [{**_scalar_fields('ref role name nameSource parentRef inputType fieldKind inputRequired disabled readonly busy checked expanded selected required omittedCells truncated inferred'),
+    'items': [{**_scalar_fields('ref role name nameSource parentRef inputType fieldKind inputRequired disabled readonly busy checked expanded selected required omittedCells truncated inferred blocked actionable'),
                'actions': frozenset({'click', 'press', 'fill', 'set_checked', 'select_option'}),
                'context': [_scalar_fields('ref role name index surfaceKind')],
                'targetPath': [_scalar_fields('kind mode frameRef hostRef frameToken documentId')], 'cells': [None]}],
@@ -357,7 +357,7 @@ _RESULT_ACTIONS = {
     'scroll': _scalar_fields('tabId scrolled direction'), 'back': _scalar_fields('tabId url ready'),
     'ref_click': {**_RESULT_POPUP_CONTINUITY, **_scalar_fields('clicked kind delivery fallbackReason effect tabId url ready groupId windowId openedVia unsupported code popupOwnership documentChanged outOfScope outcomeUnknown relocated'),
                   'navigation': _scalar_fields('kind origin'), 'postCheck': _scalar_fields('status code nextStep'),
-                  'dialogOpened': _scalar_fields('type message')}, 'ref_fill': _scalar_fields('filled kind relocated'),
+                  'dialogOpened': _scalar_fields('type message')}, 'ref_fill': _scalar_fields('filled verified kind delivery effect documentChanged outOfScope outcomeUnknown relocated'),
     # 中文注释：只公开按键交付状态；网页效果仍由下一次页面读取核实。
     'ref_press': {**_scalar_fields('pressed key delivery effect dispatched documentChanged outOfScope outcomeUnknown relocated'),
                   'dialogOpened': _scalar_fields('type message')},
@@ -386,11 +386,13 @@ _RESULT_RECOVERY = {
     'selected': {**_scalar_fields('role name ref'), 'rect': _scalar_fields('x y width height')},
     'strategies': [_scalar_fields('round scanned matched locator')],
     'candidates': [{**_scalar_fields('role name method'), 'rect': _scalar_fields('x y width height')}],
-    'observation': _RESULT_SEMANTIC,
+    'observation': {**_RESULT_SEMANTIC, 'error': None},
 }
 for _result_schema in _RESULT_ACTIONS.values():
     _result_schema['recovery'] = _RESULT_RECOVERY
     _result_schema['skippedFrames'] = [_RESULT_SKIPPED_FRAME]
+for _action in ('click', 'fill', 'press', 'ref_click', 'ref_fill', 'ref_press', 'ref_set_checked', 'ref_select_option'):
+    _RESULT_ACTIONS[_action]['observation'] = {**_RESULT_SEMANTIC, 'error': None}
 
 
 def _project_schema(value, schema):

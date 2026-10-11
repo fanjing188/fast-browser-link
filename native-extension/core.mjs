@@ -1,6 +1,7 @@
 import {passwordValues,omitPasswordValues} from './password-values.mjs';
-import {RECOVERY_ACTIONS,recoverTarget} from './target-recovery.mjs';
+import {RECOVERY_ACTIONS,recoverTarget,recoveryReason} from './target-recovery.mjs';
 const RECOVERY_ROUND=Symbol('recovery round');
+const OBSERVATION_FENCE=Symbol('observation fence');
 import {INPUT_ACTIONS} from './work-window.mjs';
 import {observeInputEffect} from './action-effects.mjs';
 import {DiagnosticEventBuffer,observeAction} from '../browser-diagnostics/js/diagnostics.mjs';
@@ -13,6 +14,17 @@ import {createAutomationOverlay,stepLabels} from './automation-overlay.mjs';
 import {createInteractionHighlight} from './interaction-highlight.mjs';
 import {readyState as officialReadyState,navigate as officialNavigate,openTab as officialOpenTab} from './official-actions.mjs';
 const canonical=value=>JSON.stringify(value, function(key,item){return item&&typeof item==='object'&&!Array.isArray(item)?Object.fromEntries(Object.entries(item).sort(([a],[b])=>a.localeCompare(b))):item;});
+// 中文注释：动作后回读只接受有界的读取范围；参数错误必须在任何写入前拒绝。
+export function actionObservationOptions(p){
+ if(p.after===undefined)return null;
+ const after=p.after;
+ if(!RECOVERY_ACTIONS.has(p.action)||!after||typeof after!=='object'||Array.isArray(after)||
+  Object.keys(after).some(key=>!['root','mode','budget'].includes(key)))throw Object.assign(Error('INVALID_OPTIONS'),{preDispatch:true});
+ const {root='body',mode='interactive',budget=3000}=after;
+ if(typeof root!=='string'||!root||root.length>4096||!['interactive','content','table'].includes(mode)||!Number.isSafeInteger(budget)||budget<512||budget>6000)
+  throw Object.assign(Error('INVALID_OPTIONS'),{preDispatch:true});
+ return {root,mode,budget,composed:true,...(p.frameToken?{frameToken:p.frameToken}:{})};
+}
 // 中文注释：滚动会改变页面状态，智能审批必须按交互动作处理。
 const policyAction=action=>({'images':'snapshot','console':'snapshot','dialog':'click','scroll':'click','back':'navigate','page.observe':'snapshot','page.parse':'snapshot','semantic_snapshot':'snapshot','frame_catalog':'snapshot','interaction.capture':'screenshot','interaction.bounds':'snapshot','interaction.click':'click','interaction.drag_coordinates':'click','interaction.drag_elements':'click','official.ready_state':'snapshot','official.goto_url':'navigate','official.new_tab':'new_tab'}[action]||action);
 import {Interactions,createChromeDebuggerAdapter} from '../browser-interactions/index.mjs';
@@ -149,8 +161,19 @@ export function fileUploadVisualTarget(input){
 }
 
 // 中文注释：导出同一份页面执行函数供真实浏览器验收，避免测试复制动作实现。
+// 中文注释：只压缩注入声明中非字面量的空白；保留 ASI 换行和相邻运算符，避免改变页面数据或表达式。
+export function compactSemanticSource(source){
+ const tokens=/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`|\/(?:\\.|\[(?:\\.|[^\]\\])*\]|[^/\\\r\n])+\/[a-z]*|\s+/g;
+ return source.replace(tokens,(token,offset)=>{
+  if(!/^\s+$/.test(token))return token;
+  const before=source[offset-1]||'',after=source[offset+token.length]||'';
+  if(token.includes('\n')&&!/[;{}(,[=:?]/.test(before)&&after!=='}')return '\n';
+  if(/[+\-*/]/.test(before)&&/[+\-*/]/.test(after))return ' ';
+  return /[(){}[\],;:=<>!?+\-*/&|]/.test(before)||/[(){}[\],;:=<>!?+\-*/&|]/.test(after)?'':' ';
+ });
+}
 const serializedFunction=fn=>fn.toString().replace(/^function [^(]+/,'function');
-export const semanticWorldDeclaration=`function(op,p){
+export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
  const createPageTextRedactor=${serializedFunction(createPageTextRedactor)};
  const createPageSemantics=${serializedFunction(createPageSemantics).replace(/^\s*\/\/[^\n]*\n/gm,'')};
  const createPageParser=${serializedFunction(createPageParser).replace(/^\s*\/\/[^\n]*\n/gm,'')};
@@ -248,32 +271,30 @@ export const semanticWorldDeclaration=`function(op,p){
   return result;
  };
  let state=globalThis.__hermesNativeSemanticsV2;
+ const validState=()=>state?.version===9&&typeof state.semantics?.interactionVisibility==='function';
  if(op==='semantic_snapshot'||op==='page.parse'||op==='recovery_scan'){
-  if(!state||state.version!==9||!same(state.binding,p.binding)){try{state?.semantics.revoke();}catch{}state=make();globalThis.__hermesNativeSemanticsV2=state;}
+  if(!validState()||!same(state.binding,p.binding)){try{state?.semantics.revoke();}catch{}state=make();globalThis.__hermesNativeSemanticsV2=state;}
   if(op==='recovery_scan'){
    const semantics=state.semantics,rows=[];let cursor;
    for(let page=0;page<5;page++){
     const snap=semantics.snapshot({mode:p.mode||'interactive',composed:true,budget:60000,...(cursor?{cursor}:{})});
     for(const item of snap.items){
      let node;try{node=semantics.resolve({...snap.binding,snapshotId:snap.snapshotId,ref:item.ref});}catch{continue;}
-     const r=node.getBoundingClientRect(),view=node.ownerDocument.defaultView,root=node.getRootNode();
-     const hit=root.elementFromPoint?.(r.left+r.width/2,r.top+r.height/2);
+     const r=node.getBoundingClientRect(),{visible,inViewport,occluded}=semantics.interactionVisibility(node);
      rows.push({...item,binding:snap.binding,snapshotId:snap.snapshotId,
-      selectorMatch:!!p.selector&&node.matches(p.selector),visible:true,
-      rect:{x:r.left,y:r.top,width:r.width,height:r.height},
-      inViewport:r.bottom>0&&r.right>0&&r.top<view.innerHeight&&r.left<view.innerWidth,
-      occluded:!!hit&&hit!==node&&!node.contains(hit)});
+      selectorMatch:!!p.selector&&node.matches(p.selector),visible,inViewport,occluded,
+      rect:{x:r.left,y:r.top,width:r.width,height:r.height}});
     }
     cursor=snap.nextCursor;if(!cursor)break;
    }
    return rows;
   }
   try{if(op==='page.parse'){state.parser??=createPageParser(state.semantics.parsingContext());return state.parser.parse(p.options||{});}return state.semantics.snapshot(p.options||{});}catch(error){
-   if(error?.message!=='DOCUMENT_REPLACED')throw error;
+   if(error?.message!=='DOCUMENT_REPLACED'||p.requireCurrentDocument)throw error;
    try{state.semantics.revoke();}catch{}state=make();globalThis.__hermesNativeSemanticsV2=state;if(op==='page.parse'){state.parser=createPageParser(state.semantics.parsingContext());return state.parser.parse(p.options||{});}return state.semantics.snapshot(p.options||{});
   }
  }
- if(!state||state.version!==9||!same(state.binding,p.binding))throw Error('BINDING_MISMATCH');
+ if(!validState()||!same(state.binding,p.binding))throw Error('BINDING_MISMATCH');
  const semantics=state.semantics,token={...p.binding,snapshotId:p.snapshotId,ref:p.ref},highlightBinding=p.highlightBinding;
  // 中文注释：只有宿主内部 CDP 查询使用节点对象，模型工具不会公开这两个操作。
  if(op==='recovery_hint')return semantics.recoveryHint(token);
@@ -546,17 +567,55 @@ export const semanticWorldDeclaration=`function(op,p){
  }
  if(op==='ref_fill'){
   if(!fillable())throw Error('TARGET_NOT_ACTIONABLE');
-  if(editable()){node.focus();node.textContent=p.text;}
+  if(editable())return {kind:'contenteditable-input'};
   else{
    const proto=node.tagName==='INPUT'?HTMLInputElement.prototype:HTMLTextAreaElement.prototype;
    Object.getOwnPropertyDescriptor(proto,'value').set.call(node,p.text);
   }
   node.dispatchEvent(new Event('input',{bubbles:true}));node.dispatchEvent(new Event('change',{bubbles:true}));
-  const readBack=editable()?node.textContent:node.value;
+  const readBack=node.value;
   return {filled:readBack===p.text,verified:readBack===p.text,kind:'dom-synthetic',...(readBack===p.text?{}:{outcomeUnknown:true})};
  }
  throw Error('unsupported semantic action');
-}`.replace(/^\s*\/\/[^\n]*\n/gm,'').replace(/^\s*\n/gm,'').replace(/^ +/gm,'');
+}`.replace(/^\s*\/\/[^\n]*\n/gm,'').replace(/^\s*\n/gm,'').replace(/^ +/gm,''));
+
+// 本段改编自 NousResearch/hermes-agent 的 preview-act.ts:585-645 与 act-in-page.ts:559-573。
+// Copyright (c) 2025 Nous Research；MIT，完整许可见 third-party/licenses/hermes-agent-MIT.txt。
+// 中文注释：富文本流程按需注入，避免所有普通读取承担编辑代码；页面只聚焦、全选和回读，不写正文。
+export function editableInputTarget(op,p){
+ const state=globalThis.__hermesNativeSemanticsV2,semantics=state?.semantics;
+ if(!semantics||!p.binding||Object.keys(state.binding).some(key=>state.binding[key]!==p.binding[key]))throw Error('BINDING_MISMATCH');
+ const token={...p.binding,snapshotId:p.snapshotId,ref:p.ref};
+ if(op==='prepare'){
+  const node=semantics.resolve(token),descriptor=semantics.interaction(node),doc=node.ownerDocument;
+  if(!descriptor.editable||!descriptor.actions.includes('fill'))throw Error('TARGET_NOT_ACTIONABLE');
+  node.focus({preventScroll:true});
+  if(node.getRootNode().activeElement!==node)throw Error('PRESS_TARGET_CHANGED');
+  const range=doc.createRange(),selection=doc.getSelection();range.selectNodeContents(node);
+  selection.removeAllRanges();selection.addRange(range);
+  state.editTarget={node,root:doc.documentElement,snapshotId:p.snapshotId,ref:p.ref};
+  return {focused:true,selected:true};
+ }
+ const edit=state.editTarget;
+ if(!edit||edit.snapshotId!==p.snapshotId||edit.ref!==p.ref)throw Error('STALE_REF');
+ const node=edit.node,doc=node.ownerDocument;
+ semantics.parsingContext().revision();
+ if(op==='check'){
+  if(doc.documentElement!==edit.root||semantics.resolve(token)!==node||node.getRootNode().activeElement!==node)throw Error('PRESS_TARGET_CHANGED');
+  const selection=doc.getSelection(),range=selection?.rangeCount===1?selection.getRangeAt(0):null;
+  if(!range||!node.contains(range.startContainer)||!node.contains(range.endContainer))throw Error('PRESS_TARGET_CHANGED');
+  // 中文注释：编辑器可把全选边界规整到内部文本节点，但选区前后不能留下未选中的文本。
+  const before=doc.createRange(),after=doc.createRange();
+  before.selectNodeContents(node);before.setEnd(range.startContainer,range.startOffset);
+  after.selectNodeContents(node);after.setStart(range.endContainer,range.endOffset);
+  if(before.toString()||after.toString())throw Error('PRESS_TARGET_CHANGED');
+  return {focused:true,selected:true};
+ }
+ if(op!=='read')throw Error('INVALID_OPTIONS');
+ const value=typeof node.innerText==='string'?node.innerText:node.textContent;
+ const verified=node.isConnected&&doc.documentElement===edit.root&&(p.text===''?value.trim()==='':value.replace(/\r\n/g,'\n')===p.text.replace(/\r\n/g,'\n'));
+ return {filled:verified,verified,kind:'trusted-input',delivery:verified?'confirmed':'unconfirmed',...(verified?{}:{outcomeUnknown:true})};
+}
 
 function interactionHighlightCommand(op,payload){
  const state=globalThis.__hermesAutomationOverlay;
@@ -2325,7 +2384,7 @@ export class Executor {
   let world=executionContextId?{executionContextId}:await createWorld();guard();
   const key=()=>JSON.stringify([target.tabId,target.sessionId,world.executionContextId]);
   const install=async()=>{const installed=await this.api.debugger.sendCommand(target,'Runtime.callFunctionOn',{executionContextId:world.executionContextId,functionDeclaration:`function(){globalThis.__hermesSemanticLibrary={version:1,call:(${semanticWorldDeclaration})};return true;}`,returnByValue:true});guard();if(installed.exceptionDetails||installed.result?.value!==true)throw Object.assign(Error('SEMANTIC_LIBRARY_UNAVAILABLE'),{preDispatch:true});this.semanticWorlds.add(key());};
-  const invoke=()=>this.api.debugger.sendCommand(target,'Runtime.callFunctionOn',{executionContextId:world.executionContextId,functionDeclaration:op==='page.observe'?`function(op,p){const library=globalThis.__hermesSemanticLibrary;if(library?.version!==1)return {hermesSemanticMissing:true};const state=globalThis.__hermesNativeSemanticsV2;if(!state||state.version!==9||JSON.stringify(state.binding)!==JSON.stringify(p.binding))library.call('semantic_snapshot',{binding:p.binding,options:{root:'head',mode:'content',budget:512}});return (${observePage.toString()})(globalThis.__hermesNativeSemanticsV2.semantics.parsingContext(),p.options);}`:'function(op,p){const library=globalThis.__hermesSemanticLibrary;return library?.version===1?library.call(op,p):{hermesSemanticMissing:true};}',arguments:[{value:op},{value:payload}],returnByValue:true,awaitPromise:true});
+  const invoke=()=>this.api.debugger.sendCommand(target,'Runtime.callFunctionOn',{executionContextId:world.executionContextId,functionDeclaration:op==='page.observe'?`function(op,p){const library=globalThis.__hermesSemanticLibrary;if(library?.version!==1)return {hermesSemanticMissing:true};const state=globalThis.__hermesNativeSemanticsV2;if(!state||state.version!==9||typeof state.semantics?.interactionVisibility!=='function'||JSON.stringify(state.binding)!==JSON.stringify(p.binding))library.call('semantic_snapshot',{binding:p.binding,options:{root:'head',mode:'content',budget:512}});return (${observePage.toString()})(globalThis.__hermesNativeSemanticsV2.semantics.parsingContext(),p.options);}`:'function(op,p){const library=globalThis.__hermesSemanticLibrary;return library?.version===1?library.call(op,p):{hermesSemanticMissing:true};}',arguments:[{value:op},{value:payload}],returnByValue:true,awaitPromise:true});
   let result;
   try{if(!this.semanticWorlds.has(key()))await install();result=await invoke();}
   catch(error){
@@ -2452,6 +2511,8 @@ export class Executor {
   return values;
  }
  async performRecovering(t,p){
+  const after=actionObservationOptions(p),modeGeneration=t.policy.modeGeneration;
+  const finish=async result=>after?{...result,observation:result?.recovery?.observation||await this.observeAfterAction(t,p,after,modeGeneration)}:result;
   const queryRead=p.action==='semantic_snapshot'&&!!(p.options?.query||p.options?.roles?.length)&&!p.options?.cursor;
   const execute=async params=>{
    this.check(t,params);
@@ -2511,7 +2572,7 @@ export class Executor {
     return {...(p.action.endsWith('press')?{pressed:true,key:p.key}:{clicked:true}),delivery:'confirmed',effect:'observed',navigation:{kind:'document'},documentChanged:true,url:now};
    }
   };
-  return remember(await recoverTarget({action:p.action,hint,
+  return finish(remember(await recoverTarget({action:p.action,hint,
    run:(chosen,round)=>runOnce(chosen&&!queryRead?{...p,action:({click:'ref_click',fill:'ref_fill',press:'ref_press'}[p.action]||p.action),
     ref:chosen.ref,snapshotId:chosen.snapshotId,binding:chosen.binding,frameToken:chosen.frameToken,[RECOVERY_ROUND]:round}:p),
    settle:async()=>{
@@ -2525,9 +2586,44 @@ export class Executor {
     await this.api.debugger.sendCommand(target,'Runtime.evaluate',{contextId:world.executionContextId,awaitPromise:true,returnByValue:true,
      expression:`new Promise(resolve=>{let quiet;const finish=()=>{clearTimeout(quiet);clearTimeout(limit);observer.disconnect();resolve(true);};const observer=new MutationObserver(()=>{clearTimeout(quiet);quiet=setTimeout(finish,300);});observer.observe(document,{subtree:true,childList:true,attributes:true,characterData:true});const limit=setTimeout(finish,${Math.max(1,deadline-Date.now())});quiet=setTimeout(finish,300);})`});guard();
    },scan,
-   readback:async()=>{try{return await execute({...p,action:'semantic_snapshot',options:{mode:'interactive',composed:true,budget:3000}});}catch(error){guard();return {error:error.message};}},
+   readback:async()=>{if(after)return this.observeAfterAction(t,p,after,modeGeneration);try{return await execute({...p,action:'semantic_snapshot',options:{mode:'interactive',composed:true,budget:3000}});}catch(error){guard();return {error:error.message};}},
    capture:()=>execute({...p,action:'screenshot'}),
-  }));
+  })));
+ }
+ // 本段参考 NousResearch/hermes-agent 的 app/chat/right-rail/preview-act.ts:283-334,662-685。
+ // Copyright (c) 2025 Nous Research；MIT，完整许可见 third-party/licenses/hermes-agent-MIT.txt。
+ // 中文注释：复用恢复回读格式；回读失败绝不进入写动作重试。
+ async observeAfterAction(t,p,options,modeGeneration){
+  let expired=false,timer;
+  const fence=()=>{
+   this.check(t,p);
+   if(t.paused||t.pauseRequested)throw Error('task paused');
+   if(this.leases.get(p.tabId)!==t.id)throw Error('tab lease denied');
+   if(t.policy.modeGeneration!==modeGeneration)throw Error('mode revoked');
+   if(expired)throw Error('OBSERVATION_TIMEOUT');
+  };
+  const {after:_after,...request}=p;
+  const read=()=>{fence();return this.performSettled(t,{...request,action:'semantic_snapshot',options,[OBSERVATION_FENCE]:fence});};
+  const work=async()=>{
+   let observation;
+   try{observation=await read();}
+   catch(error){
+    fence();
+    if(recoveryReason(error)!=='DOCUMENT_REPLACED')throw error;
+    // 中文注释：同 loader 的 documentElement 被替换也要撤销旧租约引用，重新 mint 后仅重读一次。
+    for(const key of t.semanticBindings.keys())if(key===p.tabId||typeof key==='string'&&key.startsWith(`${p.tabId}:`))t.semanticBindings.delete(key);
+    observation=await read();
+   }
+   fence();
+   const safe=omitPasswordValues(observation,await this.collectPasswords(t,request));
+   if(Math.ceil(JSON.stringify(safe).length/4)>options.budget)throw Error('BUDGET_TOO_SMALL');
+   return safe;
+  };
+  try{
+   const observation=await Promise.race([work(),new Promise((_,reject)=>{timer=setTimeout(()=>{expired=true;reject(Error('OBSERVATION_TIMEOUT'));},5000);})]);
+   fence();return observation;
+  }catch(error){return {error:recoveryReason(error).slice(0,120)};}
+  finally{clearTimeout(timer);expired=true;}
  }
  async performSettled(t,p){
   if(!SETTLING_READ_ACTIONS.has(p.action))return this.perform(t,p);
@@ -2685,9 +2781,48 @@ export class Executor {
   const work=await this.openOwnedTab(t,p,guard,inspection.url);
   return {...work,clicked:false,openedVia:'safe_link_navigation',effect:'observed'};
  }
+ // 中文注释：富文本只派发一次真实编辑输入；回读不一致或派发后失联均报告未知，不补写。
+ async fillSemanticEditable(t,p,target,payload,guard,contextId){
+  let window,dispatched=false;
+  const unconfirmed={filled:false,verified:false,kind:'trusted-input',delivery:'unconfirmed',outcomeUnknown:true};
+  const edit=async op=>{
+   guard();
+   const response=await this.api.debugger.sendCommand(target,'Runtime.callFunctionOn',{executionContextId:contextId,functionDeclaration:editableInputTarget.toString(),arguments:[{value:op},{value:payload}],returnByValue:true});guard();
+   if(response.exceptionDetails)throw Object.assign(Error(response.exceptionDetails.exception?.description||'EDIT_TARGET_UNAVAILABLE'),{preDispatch:!dispatched});
+   return response.result?.value;
+  };
+  try{
+   await this.api.debugger.sendCommand(target,'Emulation.setFocusEmulationEnabled',{enabled:true});guard();
+   await edit('prepare');
+   const method=p.text?'Input.insertText':'Input.dispatchKeyEvent',params=p.text?{text:p.text}:{type:'keyDown',key:'Backspace',code:'Backspace',windowsVirtualKeyCode:8,nativeVirtualKeyCode:8};
+   window=await this.pageRuntime.openInputWindow(t,p.tabId,method,params,guard);
+   await edit('check');guard();
+   dispatched=true;
+   await this.api.debugger.sendCommand(target,method,params);guard();
+   if(!p.text){await this.api.debugger.sendCommand(target,method,{...params,type:'keyUp'});guard();}
+   const deadline=Date.now()+1500;let matched=false;
+   // 中文注释：异步编辑器必须连续两次回读匹配；截止后报告未知，不重发输入。
+   while(Date.now()<deadline){
+    await new Promise(resolve=>setTimeout(resolve,Math.min(60,deadline-Date.now())));guard();
+    if(Date.now()>=deadline)break;
+    const read=await waitUntil(edit('read'),deadline);guard();
+    if(read===RELEASE_DEADLINE_EXPIRED)break;
+    if(matched&&read.verified)return read;
+    matched=read.verified;
+   }
+   return unconfirmed;
+  }catch(error){
+   if(!dispatched)throw error;
+   return unconfirmed;
+  }finally{
+   if(window)await this.overlayCall(p.tabId,window.entry,'reblock',{expectedActionToken:window.token}).catch(()=>{});
+   await this.api.debugger.sendCommand(target,'Emulation.setFocusEmulationEnabled',{enabled:false}).catch(()=>{});
+  }
+ }
  async perform(t,p) {
+  actionObservationOptions(p);
   assertV1Action(p.action);
-  this.check(t,p);const modeGeneration=t.policy.modeGeneration;const guard=()=>{this.check(t,p);if(Number.isInteger(p.tabId)&&this.leases.get(p.tabId)!==t.id)throw Error('tab lease denied');if(t.policy.modeGeneration!==modeGeneration)throw Error('mode revoked');};const get=async id=>{const tab=await this.api.tabs.get(id);guard();this.allowed(t,tab.url);return tab;};
+  this.check(t,p);const modeGeneration=t.policy.modeGeneration;const guard=()=>{p[OBSERVATION_FENCE]?.();this.check(t,p);if(Number.isInteger(p.tabId)&&this.leases.get(p.tabId)!==t.id)throw Error('tab lease denied');if(t.policy.modeGeneration!==modeGeneration)throw Error('mode revoked');};const get=async id=>{const tab=await this.api.tabs.get(id);guard();this.allowed(t,tab.url);return tab;};
   await this.authorize(t,p,guard);guard();
   // 中文注释：审批完成后才进入窗口输入队列，读操作不切前台。
   return this.workspaces&&INPUT_ACTIONS.has(p.action)?this.workspaces.withInput(t,p,guard,()=>this.performAuthorized(t,p,guard,get,modeGeneration)):this.performAuthorized(t,p,guard,get,modeGeneration);
@@ -2901,14 +3036,14 @@ export class Executor {
     const {frameToken:_,...options}=p.options;
     const binding=this.semanticBinding(t,p.tabId,frame.loaderId,frame.id);
     const frameContext=await this.exposeClosedShadowRoots(frameTarget,frame.id,guard);
-    result=await this.callSemanticWorld(frameTarget,frame.id,p.action,{binding,options},guard,frameContext);
+    result=await this.callSemanticWorld(frameTarget,frame.id,p.action,{binding,options,requireCurrentDocument:!!p[OBSERVATION_FENCE]},guard,frameContext);
     result={...result,frameToken:token,items:(result.items||[]).map(item=>({...item,
      targetPath:[{kind:'frame',frameToken:token,documentId:frame.loaderId},...(item.targetPath||[])]}))};
     if(Math.ceil(JSON.stringify(result).length/4)>(options.budget??3000))throw Error('BUDGET_TOO_SMALL');
    }
    else if(['page.observe','semantic_snapshot','page.parse'].includes(p.action)){
     const context=p.options?.composed===true?await this.exposeClosedShadowRoots(target,tree.frame.id,guard,executionContextId,true):executionContextId;
-    result=await this.callSemanticWorld(target,tree.frame.id,p.action,{binding:semanticBinding,options:p.options||{}},guard,context);
+    result=await this.callSemanticWorld(target,tree.frame.id,p.action,{binding:semanticBinding,options:p.options||{},requireCurrentDocument:!!p[OBSERVATION_FENCE]},guard,context);
    }
    else {
     let resolved=p.frameToken?await this.resolveFrame(t,p,tree,guard):null;
@@ -3019,7 +3154,9 @@ export class Executor {
        return {pressed:true,key:p.key,delivery:'cdp-key-events',effect:'unverified'};
       }finally{await this.api.debugger.sendCommand(frameTarget,'Emulation.setFocusEmulationEnabled',{enabled:false});}
      }
-     return this.callSemanticWorld(frameTarget,frame.id,p.action,{...targetPayload,text:p.text,checked:p.checked,by:p.by,values:p.values,highlightBinding},guard,entry?.contextId);
+     const payload={...targetPayload,text:p.text,checked:p.checked,by:p.by,values:p.values,highlightBinding};
+     const receipt=await this.callSemanticWorld(frameTarget,frame.id,p.action,payload,guard,entry?.contextId);
+     return receipt?.kind==='contenteditable-input'?this.fillSemanticEditable(t,p,frameTarget,payload,guard,entry?.contextId):receipt;
     });
     result=await this.withInteractionHighlight({t,p,entry,guard,visualOnly:true,
      prepare:async highlightBinding=>{
@@ -3039,7 +3176,7 @@ export class Executor {
     if(relocated&&result&&typeof result==='object')result={...result,relocated:true};
    }
    // 中文注释：JS 对话框打开后该页的 CDP 调用会停住；对话框出现即结束收尾核实，并把对话框告知调用方。
-   const settled=DISPATCHING_ACTIONS.has(p.action)?null:await this.raceDialog(t,p.tabId,this.checkedFrameTree(target,t,guard,false));
+   const settled=DISPATCHING_ACTIONS.has(p.action)||p.action==='ref_fill'&&result?.kind==='trusted-input'?null:await this.raceDialog(t,p.tabId,this.checkedFrameTree(target,t,guard,false));
    if(settled?.dialogOpened&&result&&typeof result==='object'&&!result.dialogOpened)result={...result,dialogOpened:settled.dialogOpened};
   } else if(p.action.startsWith('interaction.')) {
    const interactions=this.interactionsFor(t,p.tabId,guard);const scoped={taskId:t.id,generation:t.generation};
@@ -3164,7 +3301,7 @@ export class Executor {
   if(captureCache.coverage)result={...result,coverage:captureCache.coverage};
   guard();
   // 中文注释：点击/按键已派发后页面跳转属于正常结果；如实返回，不再报“文档已变化”让模型误判为失败。
-  const dispatchedInput=DISPATCHING_ACTIONS.has(p.action)&&result!==undefined;
+  const dispatchedInput=(DISPATCHING_ACTIONS.has(p.action)||p.action==='ref_fill'&&result?.kind==='trusted-input')&&result!==undefined;
   if(dispatchedInput){
    const tab=await this.timed(p,'post_check',()=>this.api.tabs.get(p.tabId));guard();
    // 中文注释：frame 可能先于 tabs/onUpdated 提交新文档；这里只读导航元数据，范围外不再读取页面正文。

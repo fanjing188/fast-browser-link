@@ -112,6 +112,8 @@ NODE_TESTS = (
     'tests/popup-integration/native-routing.test.mjs',
     # 中文注释：离线状态回执也必须读取当前扩展清单版本。
     'tests/workspace-diagnostics-integration/surfaces.test.mjs',
+    'page-semantics/visibility-delta.test.mjs',
+    'tests/complex-ui/after-editing.test.mjs',
     'page-semantics/long-text.test.mjs',
     'page-semantics/controls.test.mjs',
     'page-semantics/inferred-name.test.mjs',

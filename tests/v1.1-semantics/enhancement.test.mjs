@@ -6,6 +6,7 @@ import {createPageSemantics} from '../../page-semantics/index.js';
 function fixture(html, limits = {}) {
   const dom = new JSDOM(`<!doctype html><body>${html}</body>`, {url:'https://example.test/'});
   const {document} = dom.window;
+ dom.window.HTMLElement.prototype.getBoundingClientRect=()=>({left:20,top:20,right:120,bottom:50,width:100,height:30});
   dom.window.HTMLElement.prototype.getClientRects = function () {return [this.getBoundingClientRect()];};
   const semantics = createPageSemantics({document,taskId:'t',documentId:'d',leaseId:'l',...limits});
   return {document,semantics,close(){semantics.revoke();dom.window.close();}};
@@ -75,6 +76,7 @@ test('opt-in composed view scans a same-origin frame and binds its exact ref', (
     const frame=f.document.querySelector('#child');
     const fd=frame.contentDocument;
     fd.body.innerHTML='<button id="inner">Save</button><p>合法正文</p>';
+ fd.defaultView.HTMLElement.prototype.getBoundingClientRect=()=>({left:20,top:20,right:120,bottom:50,width:100,height:30});
     fd.defaultView.HTMLElement.prototype.getClientRects=function(){return [this.getBoundingClientRect()];};
     assert.deepEqual(f.semantics.snapshot().items.map(x=>x.name),['Save']);
     const page=f.semantics.snapshot({composed:true});
@@ -93,6 +95,7 @@ test('same-turn shadow mutation and frame replacement invalidate old action refs
     const frame=f.document.querySelector('#child');
     const fd=frame.contentDocument;
     fd.body.innerHTML='<button>Frame</button>';
+ fd.defaultView.HTMLElement.prototype.getBoundingClientRect=()=>({left:20,top:20,right:120,bottom:50,width:100,height:30});
     fd.defaultView.HTMLElement.prototype.getClientRects=function(){return [this.getBoundingClientRect()];};
     const s=createPageSemantics({document:f.document,taskId:'t',documentId:'d',leaseId:'l',maxItems:1});
     try {

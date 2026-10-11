@@ -6,6 +6,7 @@ import {createPageSemantics} from './index.js';
 function fixture(html) {
   const dom = new JSDOM(html);
   // 中文注释：合成布局仅用于语义契约，不能作为真实浏览器可点击验收。
+ dom.window.HTMLElement.prototype.getBoundingClientRect=()=>({left:20,top:20,right:120,bottom:50,width:100,height:30});
   dom.window.HTMLElement.prototype.getClientRects = () => [{width: 100, height: 20}];
   const semantics = createPageSemantics({document: dom.window.document, taskId: 'task', documentId: 'doc', leaseId: 'lease'});
   return {document: dom.window.document, semantics, close() {semantics.revoke(); dom.window.close();}};

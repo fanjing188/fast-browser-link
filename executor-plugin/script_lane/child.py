@@ -576,19 +576,19 @@ def _selection_result(result, target):
 
 
 @_tab_scoped
-def click_element(name, *, mode='pointer', tab=None, **options):
+def click_element(name, *, mode='pointer', after=None, tab=None, **options):
     """按名称/角色点击一次；effect=observed 表示观察到效果；effect=unobserved 表示已点击但未见页面变化，先读页面核对。"""
     target = wait_for_element(name, action='click', **options)
-    return _selection_result(ref_click(target['snapshot'], target['ref'], mode=mode), target)
+    return _selection_result(ref_click(target['snapshot'], target['ref'], mode=mode, after=after), target)
 
 
 @_tab_scoped
-def fill_element(name, text, tab=None, **options):
+def fill_element(name, text, tab=None, *, after=None, **options):
     """按名称/角色定位后填写，定位失败由插件自动恢复。"""
     if not isinstance(text, str):
         raise BrowserError('text must be a string', code='invalid_params', outcome_unknown=False)
     target = wait_for_element(name, action='fill', **options)
-    return _selection_result(ref_fill(target['snapshot'], target['ref'], text), target)
+    return _selection_result(ref_fill(target['snapshot'], target['ref'], text, after=after), target)
 
 
 @_tab_scoped
@@ -600,26 +600,28 @@ def scroll(direction='down', *, tab=None):
 
 
 @_tab_scoped
-def click(selector, *, tab=None):
-    return _call('run', ['click', {'selector': selector}])
+def click(selector, *, after=None, tab=None):
+    return _call('run', ['click', {'selector': selector, **({'after': after} if after is not None else {})}])
 
 
 @_tab_scoped
-def fill(selector, text, *, tab=None):
-    return _call('run', ['fill', {'selector': selector, 'text': text}])
+def fill(selector, text, *, after=None, tab=None):
+    return _call('run', ['fill', {'selector': selector, 'text': text, **({'after': after} if after is not None else {})}])
 
 
 @_tab_scoped
-def press(selector, key, *, tab=None):
-    return _call('run', ['press', {'selector': selector, 'key': key}])
+def press(selector, key, *, after=None, tab=None):
+    return _call('run', ['press', {'selector': selector, 'key': key, **({'after': after} if after is not None else {})}])
 
 
 @_tab_scoped
-def ref_click(snapshot, ref, *, mode='pointer', tab=None):
+def ref_click(snapshot, ref, *, mode='pointer', after=None, tab=None):
     """按语义引用点击一次；依据实际送达回执区分交付方式。"""
     if mode != 'pointer':
         raise BrowserError('invalid click mode', code='invalid_params', outcome_unknown=False)
     params = {'binding': snapshot['binding'], 'snapshotId': snapshot['snapshotId'], 'ref': ref}
+    if after is not None:
+        params['after'] = after
     if snapshot.get('frameToken'):
         params['frameToken'] = snapshot['frameToken']
     # 中文注释：可见页确认可信点击，后台页保持可写并报告合成点击；调用方无需额外模式参数。
@@ -627,37 +629,43 @@ def ref_click(snapshot, ref, *, mode='pointer', tab=None):
 
 
 @_tab_scoped
-def ref_fill(snapshot, ref, text, *, tab=None):
+def ref_fill(snapshot, ref, text, *, after=None, tab=None):
     params = {'binding': snapshot['binding'], 'snapshotId': snapshot['snapshotId'], 'ref': ref, 'text': text}
+    if after is not None:
+        params['after'] = after
     if snapshot.get('frameToken'):
         params['frameToken'] = snapshot['frameToken']
     return _call('run', ['ref_fill', params])
 
 
 @_tab_scoped
-def ref_press(snapshot, ref, key, *, tab=None):
+def ref_press(snapshot, ref, key, *, after=None, tab=None):
     """在当前语义目标上派发按键；已派发结果未知时先回读核实。"""
     if key not in ('Enter', 'Tab', 'Escape', 'ArrowDown', 'ArrowUp'):
         raise BrowserError('invalid key', code='invalid_params', outcome_unknown=False)
     params = {'binding': snapshot['binding'], 'snapshotId': snapshot['snapshotId'], 'ref': ref, 'key': key}
+    if after is not None:
+        params['after'] = after
     if snapshot.get('frameToken'):
         params['frameToken'] = snapshot['frameToken']
     return _call('run', ['ref_press', params])
 
 
 @_tab_scoped
-def ref_set_checked(snapshot, ref, checked, *, tab=None):
+def ref_set_checked(snapshot, ref, checked, *, after=None, tab=None):
     """设置当前语义引用的复选状态；结果由页面状态回读确认。"""
     if type(checked) is not bool:
         raise BrowserError('checked must be a boolean', code='invalid_params', outcome_unknown=False)
     params = {'binding': snapshot['binding'], 'snapshotId': snapshot['snapshotId'], 'ref': ref, 'checked': checked}
+    if after is not None:
+        params['after'] = after
     if snapshot.get('frameToken'):
         params['frameToken'] = snapshot['frameToken']
     return _call('run', ['ref_set_checked', params])
 
 
 @_tab_scoped
-def ref_select_option(snapshot, ref, values, *, by='value', tab=None):
+def ref_select_option(snapshot, ref, values, *, by='value', after=None, tab=None):
     """按 value、Unicode 标签或零基 index 选择原生选项，并由页面状态回读确认。"""
     # 中文注释：index 与文本选择器使用不同类型，避免布尔值或混合列表流入原生控件。
     invalid = by not in ('value', 'label', 'index') or not isinstance(values, list) or len(values) > 100
@@ -667,6 +675,8 @@ def ref_select_option(snapshot, ref, values, *, by='value', tab=None):
     if invalid or len(set(values)) != len(values):
         raise BrowserError('invalid option values', code='invalid_params', outcome_unknown=False)
     params = {'binding': snapshot['binding'], 'snapshotId': snapshot['snapshotId'], 'ref': ref, 'by': by, 'values': values}
+    if after is not None:
+        params['after'] = after
     if snapshot.get('frameToken'):
         params['frameToken'] = snapshot['frameToken']
     return _call('run', ['ref_select_option', params])

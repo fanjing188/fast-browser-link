@@ -43,6 +43,7 @@ def render():
     lines = ['# Generated browser API reference', '', '由 `python3 scripts/generate-browser-reference.py` 从实际 helper 和工具 schema 生成。不要手工编辑。', '',
              '## Page output and recovery', '',
              '页面内容原样返回，仅密码输入值不回显。coverage 表示未读范围。同一任务页可跨站；任务与会话标签租约仍隔离。定位失败插件已自动等待、重扫 frame/Shadow DOM 并最多恢复三轮。recovery 包含 triggered、rounds、locator、clickMethod、selected、otherCandidates；失败时另含 strategies、candidates 和 screenshotPath。仍失败就换描述重找或跳过该项继续，不停整个任务。已派发结果未知时先回读核实，不重复执行。', '',
+             '动作 helper 可显式传 `after={"root":"#result","mode":"interactive","budget":3000}`；省略时回执保持原样。root 默认 body，mode 可为 interactive/content/table，budget 为 512–6000（默认 3000）。返回 observation 使用 semantic_snapshot 格式；失败只返回 observation.error，不改变 delivery/effect，也不重发动作。导航或文档替换后重新校验并生成 binding；旧引用不可沿用。', '',
              '## Task lifecycle', '',
              '每轮 `on_session_end(completed=True)` 默认立即关闭工作页；显式设置宽限时，同会话再次调用任意 `browser_shared_*` 取消计时。失败、中断和成功映射 owner 的 `agent_loop_stopped(session_key)` 立即按 handoff 结束。', '',
              '`HERMES_BROWSER_IDLE_CLOSE_SECONDS` 设置完成宽限（0 为立即关闭）；`HERMES_BROWSER_TASK_IDLE_TIMEOUT_SECONDS` 设置 ready 任务空闲上限（默认 1200 秒）。计时由常驻 daemon 管理并持久化，CLI 退出不丢失。', '',

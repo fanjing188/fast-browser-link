@@ -6,6 +6,7 @@ import {createPageParser} from '../../page-semantics/parser.mjs';
 // 中文注释：使用真实 DOM 结构验证解析来源与合并单元格，布局由 fixture 提供。
 function fixture(html){
  const dom=new JSDOM(html,{url:'https://example.test/'});
+ dom.window.HTMLElement.prototype.getBoundingClientRect=()=>({left:20,top:20,right:120,bottom:50,width:100,height:30});
  dom.window.HTMLElement.prototype.getClientRects=function(){return [this.getBoundingClientRect()];};
  const semantics=createPageSemantics({document:dom.window.document,taskId:'t',documentId:'d',leaseId:'l'});
  return {dom,semantics,parser:createPageParser(semantics.parsingContext()),close(){semantics.revoke();dom.window.close();}};
@@ -73,6 +74,7 @@ test('组合树 schema 包含同源 iframe 字段，排除其他记录中的 ifr
  try{
   const frames=[...f.dom.window.document.querySelectorAll('iframe')];
   for(const [index,frame] of frames.entries()){
+ frame.contentWindow.HTMLElement.prototype.getBoundingClientRect=()=>({left:20,top:20,right:120,bottom:50,width:100,height:30});
    frame.contentWindow.HTMLElement.prototype.getClientRects=()=>[{}];
    frame.contentDocument.body.innerHTML=`<h2>Frame ${index}</h2>`;
   }
@@ -88,6 +90,7 @@ test('组合树 schema 包含同源 iframe 字段，排除其他记录中的 ifr
 
 // 中文注释：iframe 扫描不包含 html，祖先关系不能依赖扫描节点数量。
 function frameBody(frame,html){
+ frame.contentWindow.HTMLElement.prototype.getBoundingClientRect=()=>({left:20,top:20,right:120,bottom:50,width:100,height:30});
  frame.contentWindow.HTMLElement.prototype.getClientRects=()=>[{}];
  frame.contentDocument.body.innerHTML=html;
  return frame.contentDocument.body;
@@ -269,6 +272,7 @@ test('无名固定 section 的 iframe 登录字段保留外层浮层上下文，
  const f=fixture('<section style="position:fixed"><iframe></iframe></section>');
  try{
   const inner=f.dom.window.document.querySelector('iframe').contentDocument;
+ inner.defaultView.HTMLElement.prototype.getBoundingClientRect=()=>({left:20,top:20,right:120,bottom:50,width:100,height:30});
   inner.defaultView.HTMLElement.prototype.getClientRects=()=>[{width:100,height:30}];
   // 中文注释：固定测试 HTML，仅补 iframe 的独立布局夹具。
   inner.body.innerHTML='<input autocomplete="username" aria-label="账号"><button>下一步</button>';

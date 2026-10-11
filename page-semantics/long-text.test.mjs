@@ -6,6 +6,7 @@ import {createPageSemantics} from './index.js';
 function fixture(html, limits = {}) {
   const dom = new JSDOM(`<!doctype html><body>${html}</body>`, {url: 'https://example.test/'});
   const {document} = dom.window;
+ dom.window.HTMLElement.prototype.getBoundingClientRect=()=>({left:20,top:20,right:120,bottom:50,width:100,height:30});
   dom.window.HTMLElement.prototype.getClientRects = function () { return [this.getBoundingClientRect()]; };
   const semantics = createPageSemantics({document, taskId:'task',documentId:'doc',leaseId:'lease', ...limits});
   return {document, semantics, close: () => {semantics.revoke();dom.window.close();}};

@@ -9,9 +9,9 @@ This plugin shares the user's browser logins. Confirm full connection access onc
 
 ## Page output and recovery
 
-Read page content as returned. `coverage` describes missing areas without blocking readable content. Password input values are not echoed; actions on those fields are allowed.
+Read page content as returned. `coverage` describes missing areas without blocking readable content. Password values are not echoed; password/payment/OTP fields require Vault or user input.
 
-The plugin waits, rescans frames and Shadow DOM, and retries element location up to three rounds. Inspect `recovery` for the chosen target, other candidates, locator and click method. If recovery still fails, use a different description or skip that item and continue the task. For an already-dispatched action with unknown outcome, read the page to verify before deciding what to do next.
+Location recovery rescans frame/Shadow DOM up to three rounds; `recovery` reports target/method. On failure, change the locator or skip. Unknown writes require a read.
 
 A task tab may navigate across sites. Keep task/session tab ownership intact.
 
@@ -28,7 +28,7 @@ The always-on task cursor is visual feedback; takeover pauses the task. Cookie m
 3. **Act**:
    - Official tools: `browser_click(ref)`, `browser_type(ref, text)`, `browser_navigate(url)`, `browser_scroll(direction)`, `browser_back()`, `browser_press(key)`.
    - Or `browser_shared_run`: `ref_click` / `ref_fill` / `ref_press` / `ref_set_checked` / `ref_select_option` (with `binding`, `snapshot_id`, `ref`), `navigate`, `scroll`, `back`, `screenshot`.
-   - After a page change, take a fresh reading inside the same script before the next action; “read again” does not require another model call. Locator helpers already take a fresh snapshot. If a receipt says `relocated: true`, verify the page result before continuing.
+   - After a page change or `relocated: true`, read in the same script before the next action. Locator helpers already refresh their snapshot.
 4. **Another site**: call `browser_shared_open(url=<new site>)`; it retains the previous task, creates or reuses the new site task, and explicitly selects the returned work tab.
 5. **Finish**: `browser_shared_close(task_id)` closes the task/work tabs. Success closes immediately by default; with configured grace, same-session `browser_shared_*` cancels it. Failed/interrupted/stopped turns immediately hand off. Paused or approval/manual-input-waiting tasks keep tabs; verified private creation records govern group cleanup, and overlays/authority are removed. List kept tab IDs. `keep_tabs=true` requires explicitly asking the user to act on that page now, or their request to keep it; pass `handoff_reason` (`captcha`, `login`, `verification`, `final_submit`, `user_requested`). Authority is revoked (`cleanupReason: handed_to_user`). 遇阻、结果未知、读不到或遮挡不是交接：记录 URL/停点后普通关闭，不把失败一律交给用户。
 
@@ -88,3 +88,7 @@ For error codes, see `browser-link:troubleshoot`.
 使用 `browser_shared_cookie_mirror`：`list_sites(source)` 只列站点计数，`request_mirror(source,target,sites,options)` 发起请求，`status(transfer_id)` 查询原请求。目标是明确的已连接实例，不可把同一个实例作为两端。选项 `clearTarget` 默认关闭；`persistDays` 不传时会话 Cookie 保持原样。每次由用户在源浏览器扩展确认面板点击批准，即使全部访问也必须等待；60 秒过期或被拒绝后不要自行重发。
 
 **不得要求查看 Cookie 值，不得把 Cookie 内容写进任何文件或回复，不得尝试通过 CDP、脚本或网页替用户确认。** 只讨论站点、数量、成功/失败和回读匹配/缺失。回读身份匹配仅证明导入，访问目标站点是否已登录仍需用户验收。失败可能已部分写入，不自动重试或清除。
+
+## 动作后有界回读
+
+动作 helper 可传 `after={"root":"#result","mode":"interactive","budget":3000}`；省略时行为不变。root 默认 body；mode 为 interactive/content/table；budget 为 512–6000，默认 3000；5 秒截止。observation 是新语义快照，导航/文档替换重新生成 binding；frame 引用失效只报错。observation.error 与 delivery/effect 分开，回读失败不重发。富文本经受控 CDP 编辑并核对目标文本；outcomeUnknown 不重写，DOM 匹配不代表模型保存或提交成功。

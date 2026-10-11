@@ -21,6 +21,7 @@ for(const role of ['link','button'])test(`账号 ${role} 的非原生节点使�
 });
 function fixture(origin,options={},html=`<main><p>${email}</p><button>${email}</button></main>`){
  const dom=new JSDOM(html,{url:origin+'/choose',pretendToBeVisual:true,runScripts:'outside-only'});
+ dom.window.HTMLElement.prototype.getBoundingClientRect=()=>({left:20,top:20,right:120,bottom:50,width:100,height:30});
  dom.window.HTMLElement.prototype.getClientRects=()=>[{width:240,height:38}];
  Object.defineProperty(dom.window.HTMLElement.prototype,'innerText',{get(){return this.textContent;},configurable:true});
  const semantics=createPageSemantics({document:dom.window.document,taskId:'t',documentId:'d',leaseId:'l',...options});
@@ -83,6 +84,7 @@ test('accessible iframe also shows emails',()=>{
   const child=f.dom.window.document.querySelector('iframe').contentDocument;
   child.open();child.write(`<html><body><button aria-label="${email}">${email}</button><p>${email}</p></body></html>`);child.close();
   assert.equal(child.defaultView.location.origin,'https://example.test');
+ child.defaultView.HTMLElement.prototype.getBoundingClientRect=()=>({left:20,top:20,right:120,bottom:50,width:100,height:30});
   child.defaultView.HTMLElement.prototype.getClientRects=()=>[{width:240,height:38}];
   const page=f.semantics.snapshot({composed:true});
   const nested=page.items.find(item=>item.targetPath?.some(row=>row.kind==='frame'));

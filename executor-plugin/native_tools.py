@@ -135,6 +135,8 @@ TOOL_SCHEMAS = {
             'tab_id': {'type': 'integer', 'minimum': 0}, 'url': _text(4096), 'selector': _text(4096),
             'summary': {'type': 'boolean', 'description': 'navigate 默认附带精简语义摘要；false 关闭。'},
             'text': {'type': 'string', 'maxLength': 100000}, 'key': _text(128),
+            'after': _object({'root': _text(4096), 'mode': {'type': 'string', 'enum': ['interactive', 'content', 'table']},
+                              'budget': {'type': 'integer', 'minimum': 512, 'maximum': 6000}}),
             'options': _semantic_options(), 'binding': _binding(), 'snapshot_id': _text(512),
             'clickMode': {'type': 'string', 'enum': ['open_link_in_task_tab', 'pointer'],
                           'description': 'ref_click 在可见页面确认可信 click 送达；后台页面使用已确认的 DOM 合成点击并标注回退原因，不激活标签页。click/ref_click 的 open_link_in_task_tab 模式显式打开符合条件的链接。'},
@@ -441,6 +443,8 @@ def _validate(tool_name, args):
             'cdp.send': {'cdp_params', 'frame_token', 'target_id', 'timeout_ms'}, 'cdp.events': {'max'},
             'console': {'clear'}, 'dialog': {'prompt_text'},
         }
+        if action in {'click', 'fill', 'press', 'ref_click', 'ref_fill', 'ref_press', 'ref_set_checked', 'ref_select_option'}:
+            optional[action] = optional.get(action, set()) | {'after'}
         required = fields[action]
         allowed = {'task_id', 'request_id', 'action'} | set(required) | optional.get(action, set())
         if action not in ('tabs', 'new_tab'):
@@ -490,7 +494,7 @@ def make_tool_handler(tool_name, profile_runtime, *, host_bridge=None, backend_c
             mapping = {'title': 'title', 'instance_id': 'instanceId', 'allowed_origins': 'allowedOrigins',
                        'task_id': 'taskId', 'action': 'action', 'tab_id': 'tabId', 'url': 'url',
                        'selector': 'selector', 'text': 'text', 'key': 'key',
-                       'clickMode': 'clickMode',
+                       'clickMode': 'clickMode', 'after': 'after',
                        'candidate_ref': 'candidateRef',
                        'fields': 'fields', 'http_method': 'httpMethod',
                        'options': 'options', 'binding': 'binding', 'snapshot_id': 'snapshotId',

@@ -17,6 +17,12 @@ for (const file of ['manifest.json', 'work-window.mjs', 'work-window.html', 'act
   await copyFile(path.join(source, file), path.join(dest, file));
 }
 
+// 中文注释：归属声明和完整许可证随扩展分发，后续构建身份哈希也覆盖这两个文件。
+await mkdir(path.join(dest, 'third-party/licenses'), {recursive: true});
+for (const file of ['THIRD_PARTY_NOTICES.md', 'third-party/licenses/hermes-agent-MIT.txt']) {
+  await copyFile(path.join(repo, file), path.join(dest, file));
+}
+
 const dependencies = {
   'cookie-mirror.mjs': path.join(source, 'cookie-mirror.mjs'),
   'vendor/browser-workspaces.mjs': path.join(repo, 'browser-workspaces/index.mjs'),

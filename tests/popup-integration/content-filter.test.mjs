@@ -789,14 +789,16 @@ test('R10 waits for DOM readiness inside the structured read',async()=>{
  try{assert.ok((await f.e.execute({...f.request('semantic_snapshot'),options:{budget:8000}})).items);assert.ok(pending<0);}
  finally{f.dom.window.close();}
 });
-test('R10 account target with a small cross-origin frame is allowed only without overlap',()=>{
- const f=shieldFixture({selectors:[]});f.w.document.body.innerHTML='<main><button>synthetic-target@example.test</button></main><iframe src="https://frame.test/private?secret=hidden"></iframe>';
- const frame=f.w.document.querySelector('iframe'),account=f.w.document.querySelector('button');Object.defineProperty(frame,'contentDocument',{get:()=>null});
+for(const markup of ['<button>','<div role="link" tabindex="0">','<div role="button" tabindex="0">'])test(`账号 ${markup} 仅在跨源框架不重叠时通过局部保护`,()=>{
+ const f=shieldFixture({selectors:[]});f.w.document.body.innerHTML=`<main>${markup}synthetic-target@example.test</${markup.includes('div')?'div':'button'}></main><iframe src="https://frame.test/private?secret=hidden"></iframe>`;
+ const frame=f.w.document.querySelector('iframe'),account=f.w.document.querySelector('main > *');Object.defineProperty(frame,'contentDocument',{get:()=>null});
  const inspect=()=>f.w.eval(`(${targetedShieldDeclaration})`)({selectors:[],directiveSources:[],restrictionSources:[]},account);
  try{
   frame.getBoundingClientRect=()=>({x:500,y:500,width:2,height:2});assert.equal(inspect().writeTargetVerified,true);
   frame.getBoundingClientRect=()=>({x:12,y:12,width:2,height:2});
   assert.throws(inspect,error=>{const [code,encoded]=error.message.split('|');assert.equal(code,'CONTENT_SHIELD_UNINSPECTABLE');assert.deepEqual(JSON.parse(decodeURIComponent(encoded)),{origin:'https://frame.test',x:12,y:12,width:2,height:2});return true;});
+  frame.getBoundingClientRect=()=>({x:500,y:500,width:2,height:2});account.append(frame);
+  assert.throws(inspect,/CONTENT_SHIELD_UNINSPECTABLE/);
  }finally{f.dom.window.close();}
 });
 test('R10 collection and delivery share a maximum of two structured retries',async()=>{

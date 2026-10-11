@@ -21,7 +21,7 @@ const server=createServer((request,response)=>{
  }
  response.writeHead(200,{'content-type':'text/html; charset=utf-8'});
  if(url.pathname==='/oauth-source')response.end(oauthSourcePage({origin,loginOrigin:origin.replace('127.0.0.1','login.localhost'),manualOrigin:origin.replace('127.0.0.1','manual.localhost'),flow:url.searchParams.get('flow')}));
- else if(url.pathname==='/oauth-provider')response.end(oauthProviderPage({frameOrigin:origin}));
+ else if(url.pathname==='/oauth-provider')response.end(oauthProviderPage({frameOrigin:origin,accountRole:({'H':'link','I':'button'})[url.searchParams.get('flow')?.[0]]}));
  else if(url.pathname==='/oauth-frame')response.end(oauthFramePage);
  else if(url.pathname==='/oauth-done')response.end(oauthDonePage);
  else response.end(fixture);
@@ -266,7 +266,7 @@ try{
   return {automatic:true,tabId:popup.tabId,modeGeneration:current.modeGeneration,requestIdHash:entry.requestIdHash};
  };
  const withOAuthTask=async(label,fn)=>{
-  const flow=crypto.randomUUID(),url=origin+'/oauth-source?flow='+encodeURIComponent(flow);
+  const flow=label+'-'+crypto.randomUUID(),url=origin+'/oauth-source?flow='+encodeURIComponent(flow);
   const handle=await openTask(session,{owner:'oauth-'+label,origins:[origin],url,title:'OAuth '+label});
   diagnostics={taskId:handle.task.id,urlTimeline:[]};
   const capture=async()=>{try{diagnostics.urlTimeline.push(await extensionDiagnostics(handle));}catch(error){diagnostics.urlTimeline.push({at:Date.now(),error:error.message});}};
@@ -354,7 +354,7 @@ try{
  const shield=await session.ui.evaluate(`chrome.runtime.sendMessage({type:'page_content_filter',enabled:true})`);
  assert.equal(shield.error,undefined,JSON.stringify(shield));assert.equal(shield.result.enabled,true);
  assert.equal(await session.ui.evaluate(`chrome.runtime.sendMessage({type:'popup_status'}).then(r=>r.result.pageContentFilter)`),true);
- for(const mode of ['smart','full'])await check(`G ${mode}：带跨源小框架的账号页：邮箱可读、按邮箱选中后登录回源`,()=>withOAuthTask('G-'+mode+'-account',async(handle,flow)=>{
+ for(const [scenario,accountRole] of [['G',null],['H','link'],['I','button']])for(const mode of ['smart','full'])await check(`${scenario} ${mode}：带跨源小框架的${accountRole?'ARIA '+accountRole:'原生按钮'}账号页：邮箱可读、按邮箱选中后登录回源`,()=>withOAuthTask(scenario+'-'+mode+'-account',async(handle,flow)=>{
   await setMode(handle,mode);
   const opened=await openOnly(handle,'只开授权小窗');await verifyAutoAudit(handle,opened.popupOpened);
   const popup={...handle,tabId:opened.popupOpened.tabId,run:(action,params={},id)=>handle.run(action,{...params,tab_id:opened.popupOpened.tabId},id)};
@@ -363,12 +363,13 @@ try{
   diagnostics.shieldEnabled=true;
   assert.notEqual(diagnostics.frameState.parentOrigin,diagnostics.frameState.frameOrigin);assert.equal(diagnostics.frameState.opaque,true);
   assert.equal(diagnostics.frameState.width,2);assert.equal(diagnostics.frameState.height,2);
+  assert.deepEqual(await session.readPage(popup.tabId,`(()=>{const a=document.querySelector('.account');return {tag:a.localName,role:a.getAttribute('role')}})()`),{tag:accountRole?'div':'button',role:accountRole});
   const content=await confirmedRun(popup,'semantic_snapshot',{options:{mode:'content',budget:5000}});
   for(const email of OAUTH_FIXTURE_ACCOUNTS)assert.ok(JSON.stringify(content.items).includes(email));
   const parsed=await confirmedRun(popup,'page.parse',{options:{sections:['blocks'],budget:5000}});
   for(const email of OAUTH_FIXTURE_ACCOUNTS)assert.ok(JSON.stringify(parsed.blocks).includes(email));
   const selected=OAUTH_FIXTURE_ACCOUNTS[1];
-  const account=await confirmedRun(popup,'semantic_snapshot',{options:{query:selected,roles:['button'],budget:5000}});
+  const account=await confirmedRun(popup,'semantic_snapshot',{options:{query:selected,roles:[accountRole||'button'],budget:5000}});
   diagnostics.accountRead=account;assert.equal(account.contentFilter.enabled,true);
   assert.equal(account.coverage.complete,false);assert.equal(account.coverage.coveredScopeComplete,true);
   assert.equal(account.items.length,1);assert.equal(account.skippedFrames.length,1);assert.equal(account.skippedFrames[0].origin,origin);
@@ -390,4 +391,4 @@ try{
 }
 for(const result of results)console.log(`${result.ok?'PASS':'FAIL'} ${result.name}${result.ok?'':': '+result.error}`);
 console.log(JSON.stringify({browser,passed:results.filter(result=>result.ok).length,total:results.length,output}));
-process.exitCode=results.length===(process.argv.includes('--popup-only')?3:25)&&results.every(result=>result.ok)?0:1;
+process.exitCode=results.length===(process.argv.includes('--popup-only')?3:29)&&results.every(result=>result.ok)?0:1;

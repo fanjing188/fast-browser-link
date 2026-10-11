@@ -7,6 +7,18 @@ import {createPageParser} from '../../page-semantics/parser.mjs';
 import {pageAction,semanticWorldDeclaration,Executor} from '../../native-extension/core.mjs';
 
 const email='synthetic-target@example.test';
+for(const role of ['link','button'])test(`账号 ${role} 的非原生节点使用已核实引用进入局部保护`,()=>{
+ const f=fixture('https://accounts.google.com',{},`<main><div role="${role}" tabindex="0">${email}</div></main>`);
+ try{
+  const call=f.dom.window.eval(`(${semanticWorldDeclaration})`),binding={taskId:'t',documentId:'d',leaseId:'l'};
+  const page=call('semantic_snapshot',{binding,options:{query:email}});
+  assert.equal(page.items.length,1);
+  const params={binding,snapshotId:page.snapshotId,ref:page.items[0].ref,action:'ref_click'};
+  assert.equal(call('shield_write_target',params),f.dom.window.document.querySelector('[role]'));
+  assert.equal(call('shield_write_target',{...params,action:'ref_fill'}),null);
+  assert.equal(call('shield_write_target',{...params,action:'ref_select_option'}),null);
+ }finally{f.close();}
+});
 function fixture(origin,options={},html=`<main><p>${email}</p><button>${email}</button></main>`){
  const dom=new JSDOM(html,{url:origin+'/choose',pretendToBeVisual:true,runScripts:'outside-only'});
  dom.window.HTMLElement.prototype.getClientRects=()=>[{width:240,height:38}];

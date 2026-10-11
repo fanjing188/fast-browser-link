@@ -37,6 +37,8 @@ Check `code` (or `bridgeCode`) and `outcome_unknown` in the result. If `outcome_
 
 ## Popup adoption after approval
 
+`content_shield_uninspectable` 不等于账号不可选：先保留错误的 `skippedFrame` / `reasonCode` 和覆盖信息，用结构读取核对目标。账号项可能是 ARIA link/button；按新快照中的实际角色和用户指定邮箱唯一定位，执行器只允许不与不可读框架重叠的主文档目标。仍拒绝就停止，不关闭保护或改用 JS/CDP/坐标绕过。`outcome_unknown=true` 时只读核实，不再次点击。
+
 For login clicks, check `popupOpened` and `popupNextStep`: smart/full-mode provider authorization pages are automatically adopted; select the returned tab and re-read. Passwords, codes and 2FA remain user `manual_input`. `popupClosed.returnedTo` reports return to the source; read it fresh. For non-provider `popup_adopt`, never resend the action for a cached receipt. Keep the original same-script catalog candidate. `wait_pending(tab=source)` is read-only: it queries the ledger/current scope and returns `state=confirmed`, not `adopted` or `tabId`.
 
 For single tools, use `browser_shared_get` to check the original/current generation and `adoptedPopupTabIds`; select the known candidate with `browser_shared_use_tab`, then re-read the page. Scripts use `use_tab(candidate['tabId'])` and fresh `read_page`. Metadata is not access proof. Rejected, unknown, expired, revoked or changed-scope requests must not replay.
@@ -48,6 +50,8 @@ For single tools, use `browser_shared_get` to check the original/current generat
 3. If no window appears, ask the user to click the Hermes extension icon in the toolbar and act in its popup. The authorization state shown on the Browser connections page is the source of truth.
 
 ## Installation and new capability errors
+
+任务 `state=closed` 或 `open_tabs=0` 不证明浏览器已清理。若 `cleanupState=unknown/failed`（如 `browser_offline`、`no_journal`），用 `browser_shared_close(task_id, cleanup_action='status')` 查询并如实报告。只有实际核实无残留后，维护人员才可按项目文档用 `tasks:ack` 登记；不要直接改台账或因没有回执而宣称成功。
 
 Use `browser_shared_doctor` for a read-only installation/connection check. It never starts or repairs the service. Use `browser_shared_reference` to inspect the chosen connected instance.
 

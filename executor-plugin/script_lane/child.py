@@ -750,7 +750,7 @@ def cancel_download(download_id):
 
 @_tab_scoped
 def js(expression, *, world='isolated', await_promise=True, timeout_ms=10000, frame_token=None, tab=None):
-    """在任务页运行 JavaScript；连接授权后直接执行，凭据与内容保护仍生效。"""
+    """在任务页运行 JavaScript；连接授权后直接执行，凭据页排斥与敏感字段保护仍生效。"""
     if not isinstance(expression, str) or not expression or world not in ('isolated', 'main'):
         raise BrowserError('invalid JavaScript request', code='invalid_params', outcome_unknown=False)
     params = {'expression': expression, 'world': world, 'awaitPromise': bool(await_promise), 'timeoutMs': int(timeout_ms)}

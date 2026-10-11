@@ -18,7 +18,7 @@ Plugin options are separate from environment variables. `vault_tools.enabled` de
 
 ## Browser popup and task cursor
 
-The top-right version comes from the loaded extension manifest. The popup contains browser connection authorization (not a mode switch), current-task controls and **自动屏蔽网页干扰**. Automatic shielding defaults off and preserves saved preference; enabling it requires no per-site selector setup. It changes Agent outputs and processed screenshots, not the user-visible page. See [content shielding](content-shield.md) for refusal boundaries.
+The top-right version comes from the loaded extension manifest. The popup contains browser connection authorization (not a mode switch) and current-task controls. There is no content shielding switch: page content is returned as-is, except that password input values are omitted and password, payment and one-time-code fields are left to the user or Vault. See [page output and recovery](content-shield.md).
 
 The visual task cursor is always enabled and has no popup switch. It stays visible during work and between actions, uses 240 ms target travel, and hides when paused, disconnected, stopped or in a hidden tab. System reduced-motion preferences remove cursor travel. Cookie mirror settings are on the Hermes Desktop page.
 

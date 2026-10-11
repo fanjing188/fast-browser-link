@@ -80,7 +80,7 @@ When the plugin has the `tools.override` capability and the session is bound to 
 
 While a task is active its pages are covered by a translucent overlay that blocks clicks and key presses. Each target is highlighted just before an action is dispatched.
 
-The extension popup shows the installed extension version in the top right, **连接授权**, and **自动屏蔽网页干扰**. Cookie mirror controls and the primary browser link are on Hermes Desktop → **浏览器连接**. There is no popup cursor switch or additional selector form.
+The extension popup shows the installed extension version in the top right, **连接授权** and current-task controls. Cookie mirror controls and the primary browser link are on Hermes Desktop → **浏览器连接**. There is no popup cursor switch or additional selector form.
 
 The task cursor is always enabled. It stays visible during active work and between steps, keeps its last position, and moves between targets with a 240 ms transform transition. Drag previews move to the start and then the end without restarting during geometry updates. Pausing, stopping, disconnection and hidden tabs hide it; returning to active work restores it. System reduced-motion preferences disable cursor travel. Capture temporarily hides the overlay and restores it afterward. These visuals do not synthesize extra webpage input or change action authorization.
 

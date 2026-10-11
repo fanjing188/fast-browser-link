@@ -35,13 +35,11 @@ This catalog describes the current source feature set. See the [changelog](../CH
 
 Verified custom site-tool drafts, bounded network evidence, same-origin page requests, read-only doctor and generated capability-aware API reference are described by module in the [product catalog](product-modules.zh-CN.md). These tools reuse the existing task and script execution chain. Verified source does not mean a personal installation or public release has been updated.
 
-## Automatic text and screenshot shielding
+## Page output and sensitive fields
 
-Enable **自动屏蔽网页干扰** once in the browser popup. Built-in Chinese/English regexes group inline text by CSS block boundaries, detect automation notices and webpage instructions, and mask the matching text block and descendants. Parent summaries, associated names, plain script return values and screenshot annotations use the same inventory. No per-site origin or selector entry is required; the browser popup no longer exposes an extra-region form.
+Since 1.11.0 there is no content filtering, shielding switch or content-protection refusal: page text, attributes, script results and diagnostics are returned as-is. Password input values are replaced with `[password]` in every output.
 
-The webpage DOM and visible user page stay intact. Captured pixels use opaque masks, including the ordinary screenshot and interaction-capture paths. Real CAPTCHA, sign-in, access-denied and rate-limit signals remain. A detected site automation restriction is still reported as `siteAutomationRestricted`; filtering is not permission to automate that site.
-
-Settings/readback failure, document or mask-geometry changes, and stale replay refuse unconfirmed content. Closed Shadow DOM uses confirmed CDP access. Structured reads can skip unreadable child frames and report partial coverage; screenshots and arbitrary scripts still refuse those frames. Unsupported rendering remains a bounded refusal. Images/canvas/video are not OCR-scanned, and arbitrary JavaScript re-encoding is not a leakage-proof sandbox. See [complete boundaries](content-shield.md).
+Password, payment and one-time-code fields keep their protection. Semantic snapshots mark them with `fieldKind` and `inputRequired: vault_or_user` and expose no actions; `ref_fill`/`ref_press` on them return `user_input_required` so the user fills them (or Vault does). Screenshots still mask visible sensitive fields; when the mask cannot be confirmed they return `capture_sensitive_blocked` or `capture_frame_uninspectable`. See [page output and recovery](content-shield.md).
 
 ## Cookie mirror
 

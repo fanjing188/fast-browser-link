@@ -128,10 +128,10 @@
 
 实现：`executor-plugin/reference.py`、`native-bridge/doctor.py`、扩展握手及 daemon 的能力投影。
 
-## 7. 自动屏蔽、任务可视化与桌面入口
+## 7. 页面输出、任务可视化与桌面入口
 
-- 扩展弹窗：从当前 manifest 显示版本，提供连接授权、当前任务控制和自动屏蔽，不提供审批模式切换；保留独立云端连接与云端授权；模拟鼠标和 Cookie 镜像设置仍由已有入口管理。
-- 自动屏蔽：`content-filter.mjs` 提供中英文规则，`content-shield.mjs` 按 CSS 文本块归并、定位和脱敏，`core.mjs` 与 `bridge.mjs` 在执行及回放出口核对设置、文档和图像遮罩。具体支持及拒绝边界见 [内容屏蔽](content-shield.md)。
+- 扩展弹窗：从当前 manifest 显示版本，提供连接授权和当前任务控制，不提供审批模式切换和屏蔽开关；保留独立云端连接与云端授权；模拟鼠标和 Cookie 镜像设置仍由已有入口管理。
+- 页面输出：1.11.0 删除了 `content-filter.mjs` 和 `content-shield.mjs`，读取结果原样返回；`password-values.mjs` 把密码输入值替换为 `[password]`；密码、支付、验证码字段交给用户或 Vault 填写；截图仍遮罩可见敏感字段。见 [页面读取与定位恢复](content-shield.md)。
 - 任务鼠标：`automation-overlay.mjs` 在执行和等待下一步时持续显示，沿目标位置平滑移动，接管、断连和终止后隐藏；截图期间隐藏浮层并恢复。可视动画不额外派发网页输入。
 - Cookie 镜像：Hermes 桌面插件页提供站点、目标、选项及状态。居中、不透明的原生 dialog 保留焦点隔离、Esc 和返回焦点；每次复制仍须源扩展批准。
 

@@ -266,7 +266,7 @@ Wait until document.readyState reaches ``until``; returns the final state.  The 
 
 ### `js(expression, *, world='isolated', await_promise=True, timeout_ms=10000, frame_token=None, tab=None)`
 
-在任务页运行 JavaScript；连接授权后直接执行，凭据与内容保护仍生效。
+在任务页运行 JavaScript；连接授权后直接执行，凭据页排斥与敏感字段保护仍生效。
 
 扩展能力：`browser_core_v1`。
 

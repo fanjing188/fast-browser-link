@@ -331,7 +331,8 @@ export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
  // 中文注释：回读使用本次计划保存的节点。
  const reading=op==='read_ref_set_checked'||op==='read_ref_select_option';
  const usingDelivery=op==='synthetic_ref_click'||op==='synthetic_ref_set_checked';
- const usingSelection=op==='synthetic_ref_select_option'||op==='pointer_target'&&p.selectionTarget===true;
+ const syntheticSelect=op==='synthetic_ref_select_option';
+ const usingSelection=syntheticSelect||op==='pointer_target'&&p.selectionTarget===true;
  const pending=(reading||usingSelection)&&state.pendingTarget?.snapshotId===p.snapshotId&&state.pendingTarget?.ref===p.ref?state.pendingTarget:null;
  if((reading||usingSelection)&&!pending||usingDelivery&&!deliveryMatches())throw Error('STALE_REF');
  const node=(usingDelivery?delivery.node:pending?.node)||semantics.resolve(token);
@@ -351,14 +352,24 @@ export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
  // 中文注释：计划和指针定位共用选项查找，保留缺失、歧义及禁用检查，不缓存页面节点。
  const applySelect=op==='apply_native_ref_select_option';
  const planSelect=op==='plan_ref_select_option';
- const ariaIds=()=>(attr('aria-controls')||'').trim().split(/\\s+/).filter(Boolean);
- const ariaList=ids=>interaction().role==='listbox'?node:node.getRootNode().getElementById?.(ids[0])||doc.getElementById(ids[0]);
+ const ariaIds=()=>(attr('aria-controls')||attr('aria-owns')||'').trim().split(/\\s+/).filter(Boolean);
+ const ariaList=ids=>{
+  if(interaction().role==='combobox'&&ids.length!==1)throw Error('CUSTOM_SELECT_UNSUPPORTED');
+  const list=interaction().role==='listbox'?node:node.getRootNode().getElementById?.(ids[0])||doc.getElementById(ids[0]);
+  if(!list||semantics.interaction(list).role!=='listbox')throw Error('CUSTOM_SELECT_UNSUPPORTED');
+  return list;
+ };
  const normalizeOption=value=>String(value||'').normalize('NFC').replace(/\\s+/g,' ').trim();
- const ariaOption=list=>{
-  const matches=[...(list?.querySelectorAll('[role]')||[])].filter(option=>semantics.interaction(option).role==='option'&&(p.by==='label'?normalizeOption(option.getAttribute('aria-label')||option.textContent||'')===normalizeOption(p.values[0]):(option.getAttribute('data-value')??option.getAttribute('value'))===p.values[0]));
+ const uniqueOption=matches=>{
   if(matches.length!==1)throw Error(matches.length?'SELECT_OPTION_AMBIGUOUS':'SELECT_OPTION_MISSING');
-  if(semantics.interaction(matches[0]).disabled)throw Error('SELECT_OPTION_DISABLED');
   return matches[0];
+ };
+ const ariaOption=(list,allowMissing=false)=>{
+  const matches=[...list.querySelectorAll('[role]')].filter(option=>semantics.interaction(option).role==='option'&&(p.by==='label'?normalizeOption(option.getAttribute('aria-label')||option.textContent||'')===normalizeOption(p.values[0]):(option.getAttribute('value')??option.getAttribute('data-value'))===p.values[0]));
+  if(!matches.length&&allowMissing)return null;
+  const option=uniqueOption(matches);
+  if(semantics.interaction(option).disabled)throw Error('SELECT_OPTION_DISABLED');
+  return option;
  };
  if(reading)state.pendingTarget=null;
  if(op==='input_visibility')return {visibility:document.visibilityState};
@@ -464,8 +475,7 @@ export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
   // 中文注释：派发前复核指针命中。
   let target=p.checked!==undefined?controlVisual(node):node;
   if(p.optionTarget){
-   const ids=ariaIds();
-   target=ariaOption(ariaList(ids));
+   target=ariaOption(ariaList(ariaIds()));
    target.scrollIntoView({behavior:'instant',block:'nearest',inline:'nearest'});
   }
   const r=target.getBoundingClientRect();let point={x:p.optionTarget?r.left+Math.min(12,r.width/4):r.left+r.width/2,y:r.top+r.height/2},doc=target.ownerDocument;
@@ -508,7 +518,7 @@ export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
   const verified=node.isConnected&&matches;
   return {checked:before===true||before==='true',changed:true,verified,kind:'trusted-input',...(verified?{}:{outcomeUnknown:true})};
  }
- if(planSelect||op==='read_ref_select_option'||applySelect||op==='synthetic_ref_select_option'){
+ if(planSelect||reading||applySelect||syntheticSelect){
   if(!interaction().actions.includes('select_option'))throw Error('TARGET_NOT_ACTIONABLE');
   // 中文注释：原生控件按 value、去首尾空白的 Unicode 标签或零基 index 精确定位，校验全部选项后才写入。
   if(!Array.isArray(p.values)||p.values.length>100||!['value','label','index'].includes(p.by)||
@@ -517,10 +527,9 @@ export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
    if(node.disabled)throw Error('TARGET_NOT_ACTIONABLE');
    if(!node.multiple&&p.values.length!==1)throw Error('INVALID_SELECT_OPTIONS');
    const options=[...node.options],selected=p.values.map(value=>{
-    const matches=options.filter((option,index)=>p.by==='index'?index===value:p.by==='label'?normalizeOption(option.label)===normalizeOption(value):option.value===value);
-    if(matches.length!==1)throw Error(matches.length?'SELECT_OPTION_AMBIGUOUS':'SELECT_OPTION_MISSING');
-    if(matches[0].disabled||matches[0].parentElement?.disabled)throw Error('SELECT_OPTION_DISABLED');
-    return matches[0];
+    const option=uniqueOption(options.filter((option,index)=>p.by==='index'?index===value:p.by==='label'?normalizeOption(option.label)===normalizeOption(value):option.value===value));
+    if(option.disabled||option.parentElement?.disabled)throw Error('SELECT_OPTION_DISABLED');
+    return option;
    });
    if(new Set(selected).size!==selected.length)throw Error('INVALID_SELECT_OPTIONS');
    const wanted=new Set(selected),changed=options.some(option=>option.selected!==wanted.has(option));
@@ -531,8 +540,7 @@ export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
     for(const option of options)option.selected=wanted.has(option);
     node.dispatchEvent(new Event('input',{bubbles:true}));
     node.dispatchEvent(new Event('change',{bubbles:true}));
-    const finalOptions=[...node.options];
-    const selectedOptions=[...node.selectedOptions].map(option=>({value:option.value,label:option.label.trim(),index:finalOptions.indexOf(option)}));
+    const selectedOptions=[...node.selectedOptions].map(option=>({value:option.value,label:option.label.trim(),index:option.index}));
     const verified=node.isConnected&&node.options.length===options.length&&options.every((option,index)=>node.options[index]===option&&option.selected===wanted.has(option));
     return {changed,verified,selectedCount:selectedOptions.length,selectedOptions,kind:'native-select',...(verified?{}:{outcomeUnknown:true})};
    }
@@ -541,18 +549,15 @@ export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
   if(applySelect)throw Error('INVALID_SELECT_OPTIONS');
   // 中文注释：自定义 listbox/combobox 仍只支持单选，并由宿主派发可信指针点击。
   if(p.by==='index'||p.values.length!==1)throw Error('INVALID_SELECT_OPTIONS');
-  const role=interaction().role,ids=ariaIds();
-  if(!['combobox','listbox'].includes(role)||role==='combobox'&&ids.length!==1)throw Error('CUSTOM_SELECT_UNSUPPORTED');
-  const list=ariaList(ids);
-  if(planSelect&&role==='combobox'&&attr('aria-expanded')!=='true'&&!list){
-   // 中文注释：无法预检选项的懒加载自定义列表不先展开，避免展开后失败被误报未知结果。
-   throw Error('CUSTOM_SELECT_UNSUPPORTED');
-  }
-  const option=ariaOption(list),selected=option.getAttribute('aria-selected')==='true';
-  if(planSelect){state.pendingTarget={snapshotId:p.snapshotId,ref:p.ref,node};return {kind:'aria',needsChange:!selected,needsOpen:role==='combobox'&&attr('aria-expanded')!=='true'};}
-  if(op==='synthetic_ref_select_option'){
+  const list=ariaList(ariaIds());
+  const needsOpen=interaction().role==='combobox'&&attr('aria-expanded')!=='true';
+  if(syntheticSelect&&p.openOnly){node.click();return;}
+  // 中文注释：只对已有明确关联列表的关闭组合框延后缺失检查；歧义、禁用仍在展开前拒绝。
+  const option=ariaOption(list,planSelect&&needsOpen);
+  const selected=option?.getAttribute('aria-selected')==='true';
+  if(planSelect){state.pendingTarget={snapshotId:p.snapshotId,ref:p.ref,node};return {kind:'aria',needsChange:!selected,needsOpen};}
+  if(syntheticSelect){
 
-   if(p.needsOpen)node.click();
    option.scrollIntoView({behavior:'instant',block:'nearest',inline:'nearest'});
    actionable(option);
    let clicks=0;const capture=()=>clicks++;
@@ -2476,6 +2481,19 @@ export class Executor {
    if(stable<2&&Date.now()>deadline)throw Object.assign(Error('TARGET_UNSTABLE'),{preDispatch:true});
   }
  }
+ // 中文注释：展开后只等待选项缺失，最多 1.5 秒；每次复查当前关联列表和任务守卫，不重放点击。
+ async settleSemanticOption(target,frameId,payload,guard,executionContextId=null){
+  const deadline=Date.now()+1500;
+  while(true){
+   guard();
+   try{return await this.callSemanticWorld(target,frameId,'pointer_target',{...payload,selectionTarget:true,optionTarget:true},guard,executionContextId);}
+   catch(error){
+    const reason=String(error?.message||'').split(/\r?\n/,1)[0].replace(/^Error: /,'').split('|',1)[0];
+    if(reason!=='SELECT_OPTION_MISSING'||Date.now()>=deadline)throw error;
+   }
+   await new Promise(resolve=>setTimeout(resolve,Math.min(60,Math.max(1,deadline-Date.now()))));
+  }
+ }
  async assertSafeCapture(target,t,guard,cache={}) {
   const masks=[];
   try{
@@ -3122,23 +3140,25 @@ export class Executor {
        return this.callSemanticWorld(frameTarget,frame.id,'apply_native_ref_select_option',{...targetPayload,by:p.by,values:p.values,highlightBinding},guard,entry?.contextId);
       }
       if(!selectPlan.needsChange)return {changed:false,verified:true,selectedCount:1};
-      if(targetPayload.syntheticHidden){
-       // 中文注释：后台自定义下拉逐项合成点击并回读状态，避免 CDP 静默丢失仍报告成功。
-       return this.callSemanticWorld(frameTarget,frame.id,'synthetic_ref_select_option',{...targetPayload,highlightBinding,by:p.by,values:p.values,needsOpen:selectPlan.needsOpen,fallbackReason:'background_tab_input_unreliable'},guard,entry?.contextId);
-      }
       const interactions=this.interactionsFor(t,p.tabId,guard,resolved?.record||null);
-      const readTarget=optionTarget=>this.callSemanticWorld(frameTarget,frame.id,'pointer_target',{...targetPayload,highlightBinding,selectionTarget:true,optionTarget,by:p.by,values:p.values},guard,entry?.contextId);
-      if(selectPlan.kind==='aria'){
-       // 中文注释：自定义选择器的展开和选项点击分别走相同的可信指针路径，不重放部分完成的动作。
-       if(selectPlan.needsOpen)await interactions.clickBoundTarget({taskId:t.id,generation:t.generation},{readTarget:()=>readTarget(false),guard});
-       try{await interactions.clickBoundTarget({taskId:t.id,generation:t.generation},{readTarget:()=>readTarget(true),guard});}
-       catch(error){
-        // 中文注释：展开已经派发时，即使选项点击前失败也需先回读页面，不能报告整个操作未执行。
-        if(selectPlan.needsOpen&&error&&typeof error==='object')error.preDispatch=false;
-        throw error;
+      const selectionPayload={...targetPayload,highlightBinding,by:p.by,values:p.values};
+      const readTarget=optionTarget=>this.callSemanticWorld(frameTarget,frame.id,'pointer_target',{...selectionPayload,selectionTarget:true,optionTarget},guard,entry?.contextId);
+      let dispatched=false;
+      const markDispatched=()=>{dispatched=true;onDispatch();};
+      try{
+       if(selectPlan.needsOpen){
+        if(targetPayload.syntheticHidden){markDispatched();await this.callSemanticWorld(frameTarget,frame.id,'synthetic_ref_select_option',{...selectionPayload,openOnly:true},guard,entry?.contextId);}
+        else await interactions.clickBoundTarget({taskId:t.id,generation:t.generation},{readTarget:()=>readTarget(false),guard,onDispatch:markDispatched});
        }
+       await this.settleSemanticOption(frameTarget,frame.id,selectionPayload,guard,entry?.contextId);
+       // 中文注释：后台也先展开并等待，再合成选项点击；派发后的任何失败均不可重放。
+       if(targetPayload.syntheticHidden){markDispatched();return await this.callSemanticWorld(frameTarget,frame.id,'synthetic_ref_select_option',{...selectionPayload,fallbackReason:'background_tab_input_unreliable'},guard,entry?.contextId);}
+       await interactions.clickBoundTarget({taskId:t.id,generation:t.generation},{readTarget:()=>readTarget(true),guard,onDispatch:markDispatched});
+       return await this.callSemanticWorld(frameTarget,frame.id,'read_ref_select_option',selectionPayload,guard,entry?.contextId);
+      }catch(error){
+       if(dispatched&&error&&typeof error==='object')error.preDispatch=false;
+       throw error;
       }
-      return this.callSemanticWorld(frameTarget,frame.id,'read_ref_select_option',{...targetPayload,by:p.by,values:p.values},guard,entry?.contextId);
      }
      if(p.action==='ref_press'){
       const keyCode={Enter:13,Tab:9,Escape:27,ArrowDown:40,ArrowUp:38}[p.key];

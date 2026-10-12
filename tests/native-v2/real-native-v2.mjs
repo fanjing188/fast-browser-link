@@ -128,6 +128,7 @@ await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 const origin = `http://127.0.0.1:${server.address().port}`;
 const crossOrigin = `http://frame.test:${server.address().port}`;
 const deepOrigin = `http://deep.test:${server.address().port}`;
+const offsiteOrigin = `http://offsite.test:${server.address().port}`;
 
 async function helperCall(...args) {
   const {stdout} = await exec(python, [helper, ...args], {
@@ -177,7 +178,7 @@ async function run(browser) {
   };
   proc = spawn(choices[browser], [
     '--headless=new', '--use-mock-keychain', '--password-store=basic', '--disable-background-networking', '--disable-sync', '--no-proxy-server',
-    '--site-per-process', '--host-resolver-rules=MAP frame.test 127.0.0.1,MAP deep.test 127.0.0.1',
+    '--site-per-process', '--host-resolver-rules=MAP frame.test 127.0.0.1,MAP deep.test 127.0.0.1,MAP offsite.test 127.0.0.1',
     `--user-data-dir=${profile}`, '--remote-debugging-address=127.0.0.1', '--remote-debugging-port=0',
     '--enable-unsafe-extension-debugging', '--no-first-run', '--no-default-browser-check', 'about:blank',
   ], {stdio: ['ignore', 'ignore', 'pipe'], detached: true, cwd: work, env: browserEnv});
@@ -497,7 +498,10 @@ async function run(browser) {
       const child=next.frames.find(item=>item.origin===deepOrigin);
       return child?.access==='ready'&&child.documentId!==deepFrame.documentId;
     });
-    assert.ok((await run('screenshot')).error,'nested cross-origin password value must block screenshot');
+    // 中文注释：1.11.0 不因跨源 iframe 拒绝截图；本夹具密码像素为圆点，不要求跨源几何遮罩。
+    const nestedShot=await run('screenshot');
+    assert.equal(nestedShot.error,undefined,JSON.stringify(nestedShot));
+    assert.ok(typeof nestedShot.data==='string'&&nestedShot.data.length>100,'nested cross-origin screenshot bytes');
     await readPage(`document.querySelector('#cross-frame').src=${JSON.stringify(crossOrigin+'/cross-secret')}`);
     await waitFor(async()=>{
       const next=await run('frame_catalog');
@@ -508,7 +512,10 @@ async function run(browser) {
       'old cross-origin frame token cannot survive navigation');
     assert.ok((await run('semantic_snapshot',{options:{frameToken:deepFrame.frameToken,mode:'interactive',budget:1600}})).error,
       'old nested frame token cannot survive parent navigation');
-    assert.ok((await run('screenshot')).error,'cross-origin password value must block screenshot');
+    // 中文注释：1.11.0 跨源框架覆盖不足不拒绝截图；父导航使旧 frame token 失效的断言仍保留。
+    const crossShot=await run('screenshot');
+    assert.equal(crossShot.error,undefined,JSON.stringify(crossShot));
+    assert.ok(typeof crossShot.data==='string'&&crossShot.data.length>100,'cross-origin screenshot bytes');
     // 中文注释：只检查仍未公开的动作；已接入的交互动作通过上面的正向用例验证。
     const deferredActions = [
       'files.download.start', 'files.download.status',
@@ -518,18 +525,35 @@ async function run(browser) {
     for (const action of deferredActions) {
       const denied = await run(action);
       assert.ok(denied.error, action);
-      assert.equal(denied.code, 'invalid_arguments', action);
+      // 中文注释：1.11.x 公开 action 枚举在工具参数校验处拒绝，当前协议返回 invalid_fields。
+      assert.equal(denied.code, 'invalid_fields', action);
+      assert.deepEqual(denied.fields,['action'],action);
+      assert.equal(denied.outcome_unknown,false,action);
       assert.equal(denied.retryable, false, action);
     }
     assert.equal(await readPage('document.body.dataset.clicks'), '1');
     assert.equal(await readPage('document.body.dataset.html5Drop'), undefined);
     assert.equal(await readPage('document.body.dataset.pointerDrop'), undefined);
 
-    await readPage('document.querySelector("#password").value="fixture"');
-    assert.ok((await run('screenshot')).error, 'sensitive screenshot must be denied');
+    await readPage('document.querySelector("#password").value="native-v2-password-probe-2026";document.querySelector("#password").scrollIntoView({block:"center"})');
+    // 中文注释：1.11.0 可见敏感字段遮罩后返回截图；先滚入视口，避免空 masked 被页外位置掩盖。
+    const maskedShot=await run('screenshot');
+    assert.equal(maskedShot.error,undefined,JSON.stringify(maskedShot));
+    assert.ok(typeof maskedShot.data==='string'&&maskedShot.data.length>100,'masked screenshot bytes');
+    assert.ok(maskedShot.masked?.some(row=>row.kind==='sensitive_field'&&row.role==='input'&&row.name==='敏感字段'),
+      'visible password field must appear in masked');
+    // 中文注释：1.11.x 密码值始终不回显；JS 结果也只能返回占位符。
+    const passwordRead=await run('js.evaluate',{expression:'document.querySelector("#password").value'});
+    assert.equal(passwordRead.value,'[password]',JSON.stringify(passwordRead));
     await readPage('document.querySelector("#password").value=""');
-    assert.ok((await runWithReadback('ref_click', buttonToken)).error, 'mutated snapshot ref must not replay');
-    assert.equal(await readPage('document.body.dataset.clicks'), '1', 'stale reference cannot repeat the click');
+    // 中文注释：1.11.0 旧引用可恢复定位；新请求只点击一次，同一请求 ID 的回读不得重放已送达动作。
+    const clicksBefore=Number(await readPage('document.body.dataset.clicks'));
+    const recoveredClick=await runWithReadback('ref_click',buttonToken);
+    assert.equal(recoveredClick.clicked,true,JSON.stringify(recoveredClick));
+    assert.equal(Number(await readPage('document.body.dataset.clicks')),clicksBefore+1,'old reference delivers exactly one new click');
+    const initialClick={task_id:task.id,request_id:clickRequestId,action:'ref_click',tab_id:tabId,...buttonToken};
+    assert.deepEqual(await rpc('session-a','run',initialClick),clickResult,'original request still returns its recorded receipt');
+    assert.equal(Number(await readPage('document.body.dataset.clicks')),clicksBefore+1,'original delivered request must not replay');
 
     // 中文注释：官方工具对应的原生只读动作：图片、控制台（首次读取后收集）与 JS 对话框处理。
     const images=await run('images');
@@ -565,7 +589,15 @@ async function run(browser) {
     // 中文注释：旧 CDP 黑名单已移除；在合成页面检查凭据读取命令确实派发。
     const cookieCommand=await run('cdp.send',{method:'Network.getAllCookies'});
     assert.equal(cookieCommand.bridgeCode,undefined,JSON.stringify(cookieCommand));
-    assert.ok((await run('cdp.send',{method:'Page.navigate',cdp_params:{url:'https://example.com/'}})).error,'navigation outside approved origins denied');
+    // 中文注释：1.11.0 同一工作页允许跨站导航；使用不在 allowed_origins 内的本地合成来源并回到夹具页。
+    assert.ok(!task.allowedOrigins.includes(offsiteOrigin));
+    const offsiteNavigation=await run('cdp.send',{method:'Page.navigate',cdp_params:{url:`${offsiteOrigin}/fixture`}});
+    assert.equal(offsiteNavigation.error,undefined,JSON.stringify(offsiteNavigation));
+    assert.equal(offsiteNavigation.errorText,undefined,JSON.stringify(offsiteNavigation));
+    await waitFor(()=>readPage(`location.origin===${JSON.stringify(offsiteOrigin)}&&document.readyState==='complete'`));
+    const returned=await run('navigate',{url:`${origin}/fixture`});
+    assert.equal(returned.url,`${origin}/fixture`,JSON.stringify(returned));
+    await waitFor(()=>readPage('location.pathname==="/fixture"&&document.querySelector("#same-frame")?.contentDocument?.readyState==="complete"'));
     assert.equal((await run('cdp.send',{method:'DOM.getDocument',cdp_params:{depth:1}})).root.nodeName,'#document');
     assert.equal((await run('cdp.send',{method:'DOM.getDocument',cdp_params:{depth:1},timeout_ms:5000})).root.nodeName,'#document');
     // 中文注释：原始 Target 列表按浏览器结果返回；显式 target_id 与 frame_token 仍逐次核对任务归属。
@@ -576,7 +608,11 @@ async function run(browser) {
     assert.equal((await run('cdp.send',{method:'DOM.getDocument',target_id:ownPage.id||ownPage.targetId,cdp_params:{depth:1}})).root.nodeName,'#document');
     const foreignTarget=await run('cdp.send',{method:'DOM.getDocument',target_id:'foreign-target'});
     assert.equal(foreignTarget.bridgeCode,'target_not_owned',JSON.stringify(foreignTarget));
-    const cdpFrames=await run('frame_catalog');
+    // 中文注释：1.11.0 跨站导航返回后重扫框架；加载完成仍无 frame 才是真问题，保留 token 归属断言。
+    const cdpFrames=await waitFor(async()=>{
+      const next=await run('frame_catalog');
+      return next.frames?.some(item=>item.origin===crossOrigin&&item.access==='ready')?next:null;
+    });
     const currentCross=cdpFrames.frames.find(item=>item.origin===crossOrigin&&item.access==='ready');
     assert.ok(currentCross?.frameToken,JSON.stringify(cdpFrames));
     assert.equal((await run('cdp.send',{method:'DOM.getDocument',frame_token:currentCross.frameToken,
@@ -584,9 +620,14 @@ async function run(browser) {
     await run('cdp.send',{method:'Runtime.enable'});
     // 中文注释：前面的网络/导航矩阵已有大量事件，先显式消费旧缓冲再观察本次日志。
     await run('cdp.events',{max:500});
-    await run('js.evaluate',{expression:'console.log("hermes-console-probe")',world:'main'});
-    const drained=await waitFor(async()=>{const reply=await run('cdp.events',{max:200});return reply.events?.some(e=>e.method==='Runtime.consoleAPICalled')?reply:null;});
-    assert.ok(drained.events.every(e=>!JSON.stringify(e.params).match(/"(?:Cookie|Set-Cookie|Authorization|Proxy-Authorization)"\s*:/i)));
+    // 中文注释：1.11.0 CDP 事件原样返回，普通 Bearer 文本不再过滤；只保留密码输入值不回显的保护。
+    await run('js.evaluate',{expression:'document.querySelector("#password").value="native-v2-event-password-2026";console.log("hermes-console-probe","Bearer synthetic-event-token",document.querySelector("#password").value)',world:'main'});
+    const drained=await waitFor(async()=>{const reply=await run('cdp.events',{max:200});return reply.events?.some(e=>e.method==='Runtime.consoleAPICalled'&&JSON.stringify(e.params).includes('hermes-console-probe'))?reply:null;});
+    const eventText=JSON.stringify(drained.events);
+    assert.ok(eventText.includes('Bearer synthetic-event-token'),'ordinary event text must remain readable');
+    assert.ok(eventText.includes('[password]'),'password event value must be replaced');
+    assert.ok(!eventText.includes('native-v2-event-password-2026'),'password event value must not escape');
+    await readPage('document.querySelector("#password").value=""');
     // 中文注释：单独的临时任务先核实官方 about:blank 创建，避免与后续 CLI 批处理混淆结果。
     const blankTask=await rpc('blank-session','create',{title:`Blank probe ${browser}`,instance_id:instance.instanceId,allowed_origins:[origin]});
     await waitFor(async()=>{const current=await rpc('blank-session','get',{task_id:blankTask.id});return current.state==='ready'&&current.activeMode==='full';});
@@ -612,12 +653,19 @@ upload = pathlib.Path(os.environ['BH_AGENT_WORKSPACE']) / 'harness-upload.txt'
 upload.write_text('uploaded-by-harness')
 upload_file('#upload-input', str(upload))
 out['uploadFiles'] = js("document.querySelector('#upload-input').files.length")
-for probe, call in (('cookies', lambda: cdp('Network.getAllCookies')), ('offsite', lambda: goto_url('https://example.com/')),
+for probe, call in (('cookies', lambda: cdp('Network.getAllCookies')),
                     ('privateFile', lambda: upload_file('#upload-input', '/etc/hosts'))):
     try:
         call(); out[probe] = 'allowed'
     except Exception:
         out[probe] = 'denied'
+# 中文注释：1.11.0 CLI 同样允许工作页跨站；回读真实来源后返回夹具，继续验证 iframe。
+goto_url(${JSON.stringify(`${offsiteOrigin}/fixture`)})
+assert wait_for_load(), 'offsite fixture did not finish loading'
+out['offsiteOrigin'] = js("location.origin")
+goto_url(${JSON.stringify(`${origin}/fixture`)})
+assert wait_for_load(), 'return fixture did not finish loading'
+assert js("location.origin") == ${JSON.stringify(origin)}
 frame = iframe_target('frame.test')
 out['framePath'] = js("location.pathname", target_id=frame) if frame else None
 tid = new_tab(${JSON.stringify(origin+'/fixture')})
@@ -638,8 +686,10 @@ print('RESULT=' + json.dumps(out))`;
       assert.deepEqual(harness.tabs.map(url=>new URL(url).origin),[origin],'harness only sees the task page');
       assert.equal(harness.clickDelta,1,JSON.stringify(harness));assert.equal(harness.typed,'typed-by-harness');
       assert.ok(harness.shotBytes>1000);assert.equal(harness.uploadFiles,1);
-      assert.deepEqual([harness.cookies,harness.offsite,harness.privateFile],['allowed','denied','allowed']);
-      assert.equal(harness.framePath,'/cross-secret','iframe_target reaches the approved cross-origin frame session');
+      // 中文注释：1.11.0 CLI 的跨站来源须实读成功；返回新夹具后框架恢复为 cross-child。
+      assert.deepEqual([harness.cookies,harness.privateFile],['allowed','allowed']);
+      assert.equal(harness.offsiteOrigin,offsiteOrigin,JSON.stringify(harness));
+      assert.equal(harness.framePath,'/cross-child','iframe_target reaches the reloaded cross-origin frame session');
       assert.equal(new URL(harness.newTabUrl).origin,origin);assert.equal(harness.afterClose,1);
       await waitFor(async()=>receivedUploads.slice(uploadBefore).some(item=>item.sha256===sha256(Buffer.from('uploaded-by-harness'))));
     }finally{if(execResult.harness)await helperCall('harness_stop',work,execResult.harness).catch(()=>{});}
@@ -657,10 +707,25 @@ print('RESULT=' + json.dumps(out))`;
     assert.ok(!JSON.stringify(vaultResult).includes('synthetic-vault-password-2026'));
     const vaultPageValue=await ui.evaluate(`chrome.debugger.sendCommand({tabId:${vaultTabId}},'Runtime.evaluate',{expression:'document.querySelector("#password").value',returnByValue:true}).then(r=>r.result.value)`);
     assert.equal(vaultPageValue,'synthetic-vault-password-2026');
+    // 中文注释：1.11.1 凭据页在派发前排斥任意 JS/CDP；拒绝后密码值仍须保持不变。
+    for(const [action,extra] of [['js.evaluate',{expression:'document.querySelector("#password").value="changed-by-script"'}],
+      ['cdp.send',{method:'Runtime.evaluate',cdp_params:{expression:'document.querySelector("#password").value="changed-by-cdp"'}}]]){
+      const denied=await rpc('vault-session','run',{task_id:vaultTask.id,request_id:`${browser}-vault-denied-${action}`,action,tab_id:vaultTabId,...extra});
+      assert.equal(denied.bridgeCode,'credential_mode_conflict',JSON.stringify(denied));
+      assert.equal(denied.outcome_unknown,false,JSON.stringify(denied));
+      assert.ok(!JSON.stringify(denied).includes('synthetic-vault-password-2026'));
+    }
+    assert.equal(await ui.evaluate(`chrome.debugger.sendCommand({tabId:${vaultTabId}},'Runtime.evaluate',{expression:'document.querySelector("#password").value',returnByValue:true}).then(r=>r.result.value)`),
+      'synthetic-vault-password-2026','denied scripts must not change the credential');
     const vaultClosed=await rpc('vault-session','close',{task_id:vaultTask.id});
     assert.equal(vaultClosed.state,'closed');
     // 中文注释：敏感字段保护在连接授权的全部访问下仍须生效。
     const password = await run('semantic_snapshot', {options: {mode: 'interactive', query: 'Password', roles: ['textbox'], budget: 1600}});
+    // 中文注释：1.11.x 敏感字段只公开字段种类和人工/Vault 要求，不提供直接写入动作。
+    assert.equal(password.items.length,1,JSON.stringify(password));
+    assert.equal(password.items[0].fieldKind,'password');
+    assert.equal(password.items[0].inputRequired,'vault_or_user');
+    assert.deepEqual(password.items[0].actions,[]);
     const sensitive = await run('ref_fill', {binding: password.binding, snapshot_id: password.snapshotId, ref: password.items[0].ref, text: 'fixture'});
     assert.equal(sensitive.status, 'user_input_required', 'sensitive ref fill must request human input');
     // 中文注释：语义按键也必须先识别密码字段，不得把 Enter 派发给敏感输入框。
@@ -702,34 +767,35 @@ print('RESULT=' + json.dumps(out))`;
       staged: installed,
       passed: [
         'Hermes trusted hook owner lease', 'browser-level consent and task-owned tab',
-        'task/tab/generation/origin checks',
-        'semantic snapshot exact ref click/fill', 'stale ref denied', 'sensitive ref fill/press routed to human input',
+        'task/tab/generation/lease checks',
+        'semantic snapshot exact ref click/fill', 'old ref recovered and delivered request IDs never replayed', 'sensitive ref fill/press routed to human input',
         'native checkbox/select and asynchronous custom combobox state readback',
         'semantic pointer click trusted and dispatched once',
         'open Shadow and same-origin iframe target paths with click readback',
         'cross-origin OOPIF frame catalog and scoped snapshot',
         'cross-origin OOPIF DOM click/fill/check/select/pointer/key after trusted task full-access approval',
-        'nested OOPIF click/fill/check/select/key/pointer readback, parent navigation invalidates tokens, nested secret screenshot blocked',
-        'cancelled task rejects JS and child writes; old child tokens rejected and child secret blocks screenshot',
+        'nested OOPIF click/fill/check/select/key/pointer readback, parent navigation invalidates tokens, nested password screenshot succeeds',
+        'cancelled task rejects JS and child writes; old child tokens rejected and cross-origin password screenshot succeeds',
         'task-scoped single and multiple file selection plus local-path upload with real website hashes',
         'task downloads: link, same-name uniquify, blob, interrupted refusal, cancel, private claim with matching SHA-256',
         'concurrent same-URL user download left unclaimed and counted as unattributed',
         'native images/console/dialog reads for official tools; open JS dialog fails other actions fast',
         'JS directly runs after connection authorization; task cancellation revokes execution',
         'isolated vs main-world JS, node/cyclic values as descriptions, exceptions, async values, bounded timeout',
-        'raw CDP valid methods dispatched, off-origin navigation denied, events scrubbed',
+        'raw CDP valid methods dispatched, cross-site task navigation succeeds and returns to fixture, raw event text retained and password values omitted',
         'raw Target.getTargets, owned target_id, frame token routing, bounded CDP timeout and foreign target rejection',
-        'browser_exec via real Browser Use CLI on the task gateway: list_tabs/page_info/click_at_xy/fill_input/capture_screenshot/upload_file/iframe js/new_tab/close_tab, off-site navigation denied and local regular file allowed',
+        'browser_exec via real Browser Use CLI on the task gateway: list_tabs/page_info/click_at_xy/fill_input/capture_screenshot/upload_file/iframe js/new_tab/close_tab, cross-site navigation succeeds and returns to fixture, local regular file allowed',
         'official about:blank creation and later task-owned close preserve the task connection',
         'registered Hermes browser_vault_list/fill from temporary encrypted Vault through trusted hook and private socket with page readback',
+        'credential-filled page rejects JS/CDP before changing the password',
         'ordinary screenshot bytes', 'unlisted download and cookie run actions denied',
-        'deferred actions have no fixture DOM effects', 'sensitive screenshot denied',
+        'deferred actions have no fixture DOM effects', 'visible password screenshot masked and password JS value omitted',
         'foreign owner denied', 'user tab retained and task-owned tab closed', 'staged dependency hashes verified',
         'V1.3 page parser and parameterized evaluate/conditional wait/response observation through real script lane',
         'V1.3 popup takeover and return controls confirmed by daemon',
         ...(packageMode?['package hashes verified before isolated installation; browser uses installed files']:[]),
       ],
-      notClaimed: [...(packageMode?[]:['package-first acceptance']), 'nested OOPIF scale and transform edge cases', 'coordinate interaction and drag/drop', 'downloads initiated inside cross-process child frames', 'masked Vault save/unlock prompt and external password managers', 'credential export beyond current same-origin page request checks'],
+      notClaimed: [...(packageMode?[]:['package-first acceptance']), 'cross-origin sensitive screenshot geometry masking', 'nested OOPIF scale and transform edge cases', 'coordinate interaction and drag/drop', 'downloads initiated inside cross-process child frames', 'masked Vault save/unlock prompt and external password managers', 'credential export beyond current same-origin page request checks'],
     };
   } catch (error) {
     console.error('popup:', await ui?.evaluate('document.body.innerText').catch(() => ''));

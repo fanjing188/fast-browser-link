@@ -1,6 +1,6 @@
 # Hermes Browser Link
 
-**1.11.2 — local candidate, not released.** Authorized browser tasks, raw page reads and automatic target recovery, a persistent task cursor, Desktop Cookie mirroring, independent cloud browser access and stable-release updates.
+**1.11.2 — macOS stable release.** Authorized browser tasks, raw page reads and automatic target recovery, a persistent task cursor, Desktop Cookie mirroring, independent cloud browser access and stable-release updates.
 
 ![Hermes Browser Link](docs/assets/readme-banner.png)
 
@@ -14,9 +14,9 @@ Read pages and tables, click, fill forms, upload files, track downloads and run 
 
 | Capability | Behavior |
 |---|---|
-| Connection authorization | Confirm once in the extension; ordinary task actions execute directly. Takeover, stop, credential protections and Cookie/OAuth-window confirmations remain independent. |
+| Connection authorization | Confirm once in the extension; ordinary task actions execute directly. Takeover, stop, credential protections and the Cookie mirror confirmation remain independent. |
 | Existing browsers | Reuse logged-in Chrome/Edge; task tabs use a separate work window without taking focus from your window. |
-| OAuth login windows | Discover and explicitly adopt an existing login popup with user confirmation; operation access does not grant deletion rights. |
+| OAuth login windows | Login popups, including candidates outside the provider allowlist and existing windows, are adopted directly without confirmation; operation access does not grant deletion rights. |
 | Page reading and input | Read text, tables, forms and records; use semantic references, clicks, typing, selection, scrolling and file transfers. |
 | Python workflows | Run multi-step scripts and validated reusable site tools through the same task authorization. |
 | Target recovery | Failed element location waits, rescans and retries up to three rounds; already-dispatched uncertain writes are read back before further action. |

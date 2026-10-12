@@ -4,6 +4,8 @@ import {readFileSync} from 'node:fs';
 import {JSDOM} from 'jsdom';
 import {fillThroughInput} from './editable-fixture.mjs';
 import {Executor,semanticWorldDeclaration} from '../../native-extension/core.mjs';
+import {workspaceFixture,trustedTask} from '../native-extension/workspace-fixture.mjs';
+import {withSyntheticOverlay} from '../native-extension/overlay-fixture.mjs';
 const html=readFileSync(new URL('./fixture.html',import.meta.url),'utf8');
 function setup(){
  const dom=new JSDOM(html,{url:'https://fixture.example.test/',runScripts:'outside-only',pretendToBeVisual:true});
@@ -28,6 +30,127 @@ function installedCaller(f){
  }}});
  return {commands,call:(op,payload)=>executor.callSemanticWorld({tabId:7},'main',op,payload,()=>{},17)};
 }
+
+// 中文注释：只模拟浏览器传输和指针派发，计划、等待、选项检查及回读均通过真实 Executor 执行。
+async function selectionExecutor(f,{hidden=false}={}){
+ f.dom.reconfigure({url:'https://example.com/'});
+ if(hidden)Object.defineProperty(f.document,'visibilityState',{value:'hidden',configurable:true});
+ f.window.__hermesAutomationOverlay={highlight:{prepare:()=>({ok:true}),verify:()=>({ok:true})}};
+ const browser=workspaceFixture();
+ browser.api.debugger=withSyntheticOverlay({attach:async()=>{},detach:async()=>{},sendCommand:async(_target,method,params)=>{
+  if(method==='Page.getFrameTree')return {frameTree:{frame:{id:'main',url:'https://example.com/',loaderId:'loader'}}};
+  if(method==='Page.createIsolatedWorld')return {executionContextId:17};
+  if(method==='Network.enable')return {};
+  assert.equal(method,'Runtime.callFunctionOn');
+  try{return {result:{value:await f.window.eval(`(${params.functionDeclaration})`)(...(params.arguments||[]).map(argument=>argument.value))}};}
+  catch(error){return {exceptionDetails:{exception:{description:error.toString()}}};}
+ }});
+ const executor=new Executor(browser.api),task=trustedTask();await executor.approve(task);
+ executor.setMode({...task,activeMode:'full',modeGeneration:2});
+ executor.interactionsFor=()=>({clickBoundTarget:async(_scope,{readTarget,onDispatch})=>{
+  const point=await readTarget();onDispatch();f.document.elementFromPoint(point.x,point.y).click();
+ }});
+ const binding=executor.semanticBinding(executor.tasks.get('a'),1,'loader');
+ const page=f.call('semantic_snapshot',{binding,options:{mode:'interactive',query:'地区',roles:['combobox','listbox'],budget:1600}});
+ const request={taskId:'a',generation:1,tabId:1,modeGeneration:2,action:'ref_select_option',binding,snapshotId:page.snapshotId,ref:page.items[0].ref,by:'value',values:['b']};
+ return ()=>executor.execute(request);
+}
+
+function delayedSelect(f,{association='aria-controls',options='<div role="option" data-value="b">Beta</div>',delay=100}={}){
+ f.document.body.innerHTML=`<button id="combo" role="combobox" aria-label="地区" ${association}="options" aria-expanded="false">地区</button><div id="options" role="listbox" hidden></div><div role="listbox"><div id="outside" role="option" data-value="b">Beta</div></div>`;
+ const combo=f.document.querySelector('#combo'),list=f.document.querySelector('#options'),counts={open:0,option:0,outside:0};
+ f.setHit(combo);
+ f.document.elementFromPoint=x=>x<150?combo:list.querySelector('[role="option"]');
+ f.document.querySelector('#outside').onclick=()=>counts.outside++;
+ combo.onclick=()=>{
+  counts.open++;combo.setAttribute('aria-expanded','true');list.hidden=false;
+  if(options!==null)f.window.setTimeout(()=>{
+   list.innerHTML=options;
+   for(const option of list.querySelectorAll('[role="option"]')){
+    option.getBoundingClientRect=()=>({left:200,top:20,right:300,bottom:50,width:100,height:30});
+    option.onclick=()=>{counts.option++;option.setAttribute('aria-selected','true');combo.dataset.selected='b';list.hidden=true;};
+   }
+  },delay);
+ };
+ return counts;
+}
+
+test('完整选择入口等待展开后 100ms 的 data-value 选项，前后台与两种关联均只点击一次',async()=>{
+ for(const hidden of [false,true])for(const association of ['aria-controls','aria-owns']){
+  const f=setup();try{
+   const counts=delayedSelect(f,{association}),run=await selectionExecutor(f,{hidden});
+   const result=await run();assert.equal(result.verified,true);assert.equal(result.selectedCount,1);
+   assert.equal(f.document.querySelector('#combo').dataset.selected,'b');
+   assert.deepEqual(counts,{open:1,option:1,outside:0});
+  }finally{f.close();}
+ }
+});
+
+test('展开后有界等待超时仍报缺失，关联范围外的同值项从未点击，已展开不重放',async()=>{
+ for(const hidden of [false,true]){
+  const f=setup();try{
+   const counts=delayedSelect(f,{options:null}),run=await selectionExecutor(f,{hidden}),start=Date.now();
+   await assert.rejects(run(),error=>error.message.includes('SELECT_OPTION_MISSING')&&error.preDispatch===false);
+   assert.ok(Date.now()-start>=1500);assert.deepEqual(counts,{open:1,option:0,outside:0});
+  }finally{f.close();}
+ }
+});
+
+test('异步出现的歧义和禁用项立即拒绝，展开派发后无选项点击或重放',async()=>{
+ for(const hidden of [false,true])for(const [options,code] of [
+  ['<div role="option" data-value="b">Beta</div><div role="option" data-value="b">Other</div>','SELECT_OPTION_AMBIGUOUS'],
+  ['<div role="option" data-value="b" aria-disabled="true">Beta</div>','SELECT_OPTION_DISABLED'],
+ ]){
+  const f=setup();try{
+   const counts=delayedSelect(f,{options}),run=await selectionExecutor(f,{hidden});
+   await assert.rejects(run(),error=>error.message.includes(code)&&error.preDispatch===false);
+   assert.deepEqual(counts,{open:1,option:0,outside:0});
+  }finally{f.close();}
+ }
+});
+
+test('ARIA value 属性优先于 data-value，无值属性不回退名称，标签匹配保持不变',()=>{
+ const f=setup();try{
+  const option=f.document.querySelector('#options [role="option"]'),token={...f.find('地区',['combobox']),by:'value',values:['cn']};
+  f.document.querySelector('#combo').setAttribute('aria-expanded','true');
+  option.setAttribute('value','primary');
+  assert.throws(()=>f.call('plan_ref_select_option',token),/SELECT_OPTION_MISSING/);
+  assert.equal(f.call('plan_ref_select_option',{...token,values:['primary']}).kind,'aria');
+  option.removeAttribute('value');option.removeAttribute('data-value');option.setAttribute('aria-valuetext','中国');
+  assert.throws(()=>f.call('plan_ref_select_option',{...token,values:['中国']}),/SELECT_OPTION_MISSING/);
+  assert.equal(f.call('plan_ref_select_option',{...token,by:'label',values:['中国']}).kind,'aria');
+ }finally{f.close();}
+});
+
+test('未关联、多个关联或非 listbox 容器均在任何展开前拒绝',async()=>{
+ for(const association of ['aria-controls="missing"','aria-controls="options other"','aria-controls="options"']){
+  const f=setup();try{
+   f.document.body.innerHTML=`<button id="combo" role="combobox" aria-label="地区" ${association} aria-expanded="false">地区</button><div id="options"><div role="option" data-value="b">Beta</div></div>`;
+   let clicks=0;f.document.querySelector('#combo').onclick=()=>clicks++;f.setHit(f.document.querySelector('#combo'));
+   const run=await selectionExecutor(f);
+   await assert.rejects(run(),error=>error.message.includes('CUSTOM_SELECT_UNSUPPORTED')&&error.preDispatch===true);
+   assert.equal(clicks,0);
+  }finally{f.close();}
+ }
+});
+
+test('完整原生 select 入口保留 value、label、index、多选和 input/change 回读',async()=>{
+ const f=setup();try{
+  f.document.body.innerHTML='<select id="combo" multiple aria-label="地区"><option value="a"> 甲 </option><option value="b">乙</option></select>';
+  const select=f.document.querySelector('select'),events=[];f.setHit(select);
+  for(const type of ['input','change'])select.addEventListener(type,event=>events.push([event.type,event.bubbles]));
+  const run=await selectionExecutor(f),result=await run();assert.equal(result.kind,'native-select');assert.equal(result.verified,true);assert.equal(select.value,'b');
+  const token=f.find('地区',['listbox']);
+  for(const [by,values] of [['value',['a','b']],['label',['甲']],['index',[1]]]){
+   const result=f.call('apply_native_ref_select_option',{...token,by,values});assert.equal(result.verified,true);assert.equal(result.selectedCount,values.length);
+  }
+  assert.deepEqual(events,Array.from({length:4},()=>[['input',true],['change',true]]).flat());
+  assert.throws(()=>f.call('plan_ref_select_option',{...token,by:'value',values:['missing']}),/SELECT_OPTION_MISSING/);
+  select.options[0].disabled=true;
+  assert.throws(()=>f.call('plan_ref_select_option',{...token,by:'value',values:['a']}),/SELECT_OPTION_DISABLED/);
+  assert.equal(events.length,8);
+ }finally{f.close();}
+});
 
 test('菜单复选与单选共用勾选动作，角色 token 回退和状态回读一致',async()=>{
  for(const role of ['future menuitemcheckbox','menuitemradio']){
@@ -98,7 +221,7 @@ test('实际安装的 ARIA 计划与指针阶段一致拒绝缺失、歧义及�
  for(const role of ['combobox','listbox'])for(const by of ['value','label']){
   const f=setup();try{
    const inside=role==='listbox';
-   f.document.body.innerHTML=`<div id="combo" role="${role}" aria-label="地区" aria-controls="options" aria-expanded="true">${inside?'<div role="option" data-value="cn">中国</div>':''}</div>${inside?'':'<div id="options"><div role="option" data-value="cn">中国</div></div>'}`;
+   f.document.body.innerHTML=`<div id="combo" role="${role}" aria-label="地区" aria-controls="options" aria-expanded="true">${inside?'<div role="option" data-value="cn">中国</div>':''}</div>${inside?'':'<div id="options" role="listbox"><div role="option" data-value="cn">中国</div></div>'}`;
    const combo=f.document.querySelector('#combo'),option=f.document.querySelector('[role="option"]'),api=installedCaller(f);
    option.getBoundingClientRect=()=>({left:200,top:20,right:300,bottom:50,width:100,height:30});
    f.document.elementFromPoint=x=>x<150?combo:option;

@@ -103,7 +103,7 @@ function fixtureApi() {
         if (method === 'Page.captureScreenshot') return { data: png(100, 80) };
         if (method === 'Runtime.callFunctionOn') {
           // 中文注释：隔离世界安装回执与后续语义调用分别模拟。
-          if (params.functionDeclaration.includes('globalThis.__hermesSemanticLibrary={')) return {result:{value:true}};
+          if (params.functionDeclaration.includes('globalThis.__fastSemanticLibrary={')) return {result:{value:true}};
           if (params.objectId) return { result: { value: false } };
           const op = params.arguments?.[0]?.value;
           if (op === 'inspect') return { result: { value: { hasSensitiveValue: false } } };

@@ -53,7 +53,7 @@ export async function rollbackDirectorySwaps(swaps){
 // 中文注释：只更新共享根；profile 必须已经是直接引用，开发同步不迁移或启用。
 export async function installedPluginTargets(home){
  await rejectPathLinks(home);
- const targets=[path.join(home,'plugins','browser-link')];
+ const targets=[path.join(home,'plugins','fast-browser-link')];
  await rejectPathLinks(targets[0]);
  if(!(await lstat(targets[0])).isDirectory())throw Error('Root installation must be a regular directory');
  const profiles=path.join(home,'profiles');
@@ -65,8 +65,8 @@ export async function installedPluginTargets(home){
   const plugins=path.join(profiles,entry.name,'plugins');
   if(!(await readdir(path.dirname(plugins))).includes('plugins'))continue;
   const registry=await lstat(plugins);if(!registry.isDirectory()||registry.isSymbolicLink())throw Error('Plugin registry must be a regular directory');
-  if((await readdir(plugins)).includes('browser-link')){
-   const target=path.join(plugins,'browser-link'),installed=await lstat(target);
+  if((await readdir(plugins)).includes('fast-browser-link')){
+   const target=path.join(plugins,'fast-browser-link'),installed=await lstat(target);
    // 中文注释：已指向根插件的 profile 链接随根目录同步，无需替换；未知链接仍拒绝。
    if(installed.isSymbolicLink()){
     const destination=await readlink(target);

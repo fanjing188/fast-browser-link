@@ -11,8 +11,8 @@ const repoPath = relativePath => path.join(repoRoot, relativePath);
 test('ignores generated build and release output only', async () => {
   for (const generated of [
     'native-extension/dist-native/core.mjs',
-    'artifacts/browser-link/native-extension/core.mjs',
-    'release/browser-link/native-extension/core.mjs',
+    'artifacts/fast-browser-link/native-extension/core.mjs',
+    'release/fast-browser-link/native-extension/core.mjs',
   ]) {
     assert.equal(await eslint.isPathIgnored(repoPath(generated)), true, generated);
   }

@@ -1,7 +1,7 @@
-"""Hermes native registration for browser-link.
+"""Hermes native registration for fast-browser-link.
 
 Uses only Hermes' public plugin API; no Hermes or Browser Use source is patched.
-- browser_shared_*, browser_shared_open and browser_shared_script are this plugin's own tools.
+- fast_browser_*, fast_browser_open and fast_browser_script are this plugin's own tools.
 - Hermes' official browser_* tools are taken over with register_tool(override=True)
   only when the operator granted this plugin ``tools.override``. Sessions not
   bound to a ready native task keep Hermes' built-in behavior.
@@ -39,18 +39,18 @@ def _load_native_tools():
 
 
 _SKILLS = (
-    ("use-my-browser", "Standard workflow and safety rules for working in the user's logged-in Chrome/Edge"),
-    ("batch-scrape", "Paging, extraction, de-duplication and saving with browser_shared_script"),
-    ("troubleshoot", "What to do for each browser plugin error code and status"),
+    ("fast-browser-link", "Standard workflow and safety rules for working in the user's logged-in Chrome/Edge"),
+    ("fast-browser-batch-scrape", "Paging, extraction, de-duplication and saving with fast_browser_script"),
+    ("fast-browser-troubleshoot", "What to do for each browser plugin error code and status"),
 )
 _SENSITIVE_DEFAULT = "Never fill password, payment or one-time-code fields yourself; the user fills them in the browser."
 _SENSITIVE_VAULT = ("For login password or one-time-code fields, check browser_vault_list first; if nothing fits, the user "
                     "enters it in the trusted browser UI. Payment fields are always filled by the user.")
 _PROMPT = (
     "When you need to work in the user's own browser (their logged-in Chrome/Edge), first read "
-    "browser-link:use-my-browser with skill_view; for bulk paging and collection read "
-    "browser-link:batch-scrape, and for errors read browser-link:troubleshoot. "
-    "Use the open receipt summary first; batch multi-step page work in one browser_shared_script and read back there. "
+    "fast-browser-link:fast-browser-link with skill_view; for bulk paging and collection read "
+    "fast-browser-link:fast-browser-batch-scrape, and for errors read fast-browser-link:fast-browser-troubleshoot. "
+    "Use the open receipt summary first; batch multi-step page work in one fast_browser_script and read back there. "
     "Wait with wait_for or wait_for_load, not time.sleep. " + _SENSITIVE_DEFAULT
 )
 
@@ -66,7 +66,7 @@ def _register_guidance(ctx, *, vault_enabled=False) -> None:
     if callable(register_section):
         # 中文注释：只有官方 Vault 工具真实启用后才提示模型使用私有填写路径。
         prompt = _PROMPT.replace(_SENSITIVE_DEFAULT, _SENSITIVE_VAULT) if vault_enabled else _PROMPT
-        register_section("browser-link.guide", prompt)
+        register_section("fast-browser-link.guide", prompt)
 
 
 def register(ctx) -> None:
@@ -74,6 +74,12 @@ def register(ctx) -> None:
     from hermes_constants import get_hermes_home
 
     home = get_hermes_home().expanduser().resolve()
+    # 中文注释：旧插件仍有相同官方工具与钩子，必须在注册任何工具前拒绝并存，避免加载顺序改变路由。
+    shared_home = home.parent.parent if home.parent.name == 'profiles' else home
+    has_plugin = getattr(ctx, 'has_plugin', None)
+    if ((home / 'plugins/browser-link').exists() or (shared_home / 'plugins/browser-link').exists()
+            or (callable(has_plugin) and has_plugin('browser-link'))):
+        raise RuntimeError('检测到旧 browser-link 插件；未注册 Fast-browser-link。请使用独立 skills 模式，或先卸载旧插件。')
     native = _load_native_tools()
     native_runtime = native.runtime_module()
     profile = native_runtime.get_native_profile_runtime(home, _PLUGIN_ROOT)
@@ -102,13 +108,13 @@ def register(ctx) -> None:
         single_bridge, overridden = integration.register_official_overrides(
             ctx, profile, lease_arg=native_runtime.OWNER_LEASE_ARG, lease_error=native_runtime.OwnerLeaseError)
         bridges.append(single_bridge)
-        logger.info("browser-link: official browser tools routed for bound sessions: %s", ", ".join(overridden))
+        logger.info("fast-browser-link: official browser tools routed for bound sessions: %s", ", ".join(overridden))
         exec_module = native_runtime.load_module(
             _PLUGIN_ROOT / "single_tool_adapter" / "browser_exec.py", "hermes_browser_exec_adapter_")
         if exec_module.register_browser_exec_override(
                 ctx, profile, script_bridge, home, lease_arg=native_runtime.OWNER_LEASE_ARG,
                 lease_error=native_runtime.OwnerLeaseError) is not None:
-            logger.info("browser-link: browser_exec routed to the task CDP gateway for bound sessions")
+            logger.info("fast-browser-link: browser_exec routed to the task CDP gateway for bound sessions")
         # 中文注释：Vault 覆盖另有显式配置；未开启时官方原工具保持原样。
         get_config = getattr(ctx, "get_config", None)
         vault_setting = get_config("vault_tools.enabled", False) if callable(get_config) else False
@@ -123,7 +129,7 @@ def register(ctx) -> None:
                 lease_error=native_runtime.OwnerLeaseError)
             bridges.append(vault_bindings)
             vault_enabled = True
-            logger.info("browser-link: official Vault tools routed for bound sessions: %s", ", ".join(names))
+            logger.info("fast-browser-link: official Vault tools routed for bound sessions: %s", ", ".join(names))
     host_bridge = integration.HostBindingCoordinator(*bridges)
     open_tool = native_runtime.load_module(_PLUGIN_ROOT / "open_tool.py", "hermes_browser_open_tool_")
     open_tool.register(ctx, profile, host_bridge, lease_error=native_runtime.OwnerLeaseError)

@@ -333,7 +333,7 @@ runQualityTest('automation overlay fixture is omitted without losing visible pag
     visible.id = 'visible-control';
     visible.textContent = 'Visible';
     const overlay = f.document.createElement('div');
-    overlay.setAttribute('data-hermes-automation-overlay', '');
+    overlay.setAttribute('data-fast-automation-overlay', '');
     const hidden = f.document.createElement('button');
     hidden.textContent = 'OVERLAY_SHOULD_NOT_APPEAR';
     overlay.append(hidden);

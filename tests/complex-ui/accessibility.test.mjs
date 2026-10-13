@@ -21,7 +21,7 @@ function fixture(html,query){
   return {};
  }}});
  const binding={taskId:'t',documentId:'d',leaseId:'l'};
- return {e,w,calls,objects,binding,close(){w.__hermesNativeSemanticsV2?.semantics.revoke();dom.window.close();}};
+ return {e,w,calls,objects,binding,close(){w.__fastNativeSemanticsV2?.semantics.revoke();dom.window.close();}};
 }
 test('AX 局部查询最多 16 个，句柄全部释放且原 DOM 引用仍可解析',async()=>{
  const f=fixture('<section id="scope">'+Array.from({length:18},()=>'<button></button>').join('')+'</section>');
@@ -74,10 +74,10 @@ test('升级实现版本后重新创建实例并撤销旧引用',async()=>{
  const f=fixture('<section id="scope"><button>保存</button></section>');
  try{
   const call=()=>f.e.callSemanticWorld({tabId:7},'main','semantic_snapshot',{binding:f.binding,options:{root:'#scope'}},()=>{},17);
-  const first=await call(),old=f.w.__hermesNativeSemanticsV2.semantics;
-  f.w.__hermesNativeSemanticsV2.version=4;
+  const first=await call(),old=f.w.__fastNativeSemanticsV2.semantics;
+  f.w.__fastNativeSemanticsV2.version=4;
   const next=await call();assert.notEqual(next.items[0].ref,first.items[0].ref);assert.throws(()=>old.snapshot(),/LEASE_REVOKED/);
-  assert.equal(f.w.__hermesNativeSemanticsV2.version,9);assert.ok(next.items[0].actions.includes('click'));
+  assert.equal(f.w.__fastNativeSemanticsV2.version,9);assert.ok(next.items[0].actions.includes('click'));
  }finally{f.close();}
 });
 

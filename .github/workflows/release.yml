@@ -1,4 +1,4 @@
-name: Release installation package
+name: Release installation packages
 on:
   push:
     tags: ['v*']
@@ -9,27 +9,35 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      # 中文注释：仅标签触发发布；固定已有 Action 提交，不在源码变更时自动打标签。
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22'
-      - name: Build verified release package
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - name: Build immutable independent and Hermes packages
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          # 中文注释：打包器核对标签版本、干净源码和文件清单，构建不需要开发依赖。
           version="${RELEASE_TAG#v}"
-          node scripts/package-executor.mjs --release "$version" --output "out/hermes-browser-link-$version"
+          python3 scripts/package-agent.py --release "$version" --output "out/fast-browser-link-$version"
+          node scripts/package-executor.mjs --release "$version" --output "out/fast-browser-link-hermes-$version"
           cd out
-          zip -q -r "hermes-browser-link-$version.zip" "hermes-browser-link-$version"
-      - name: Attach ZIP and checksums to GitHub Release
+          zip -q -r "fast-browser-link-$version.zip" "fast-browser-link-$version"
+          zip -q -r "fast-browser-link-hermes-$version.zip" "fast-browser-link-hermes-$version"
+          sha256sum "fast-browser-link-$version.zip" "fast-browser-link-hermes-$version.zip" > SHA256SUMS.txt
+      - name: Publish verified tag assets
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           version="${RELEASE_TAG#v}"
-          # 中文注释：只发布验收通过的当前标签，采用对应中文发布说明和稳定版标记，不覆盖既有附件。
-          gh release create "$RELEASE_TAG" "out/hermes-browser-link-$version.zip" "out/hermes-browser-link-$version/SHA256SUMS.json" --verify-tag --title "Browser Link $version" --notes-file "docs/release-$version.md" --latest
+          gh release create "$RELEASE_TAG" \
+            "out/fast-browser-link-$version.zip" \
+            "out/fast-browser-link-hermes-$version.zip" \
+            out/SHA256SUMS.txt \
+            --verify-tag --title "Fast-browser-link $version" \
+            --notes-file "docs/release-$version.md" --latest

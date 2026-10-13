@@ -1,4 +1,4 @@
-const states={waiting:'Hermes 正在工作',running:'Hermes 正在工作',pausing:'正在暂停…',paused:'已暂停 · 你可以操作页面',resuming:'正在恢复…',stopping:'正在停止…',stopped:'已停止',disconnected:'与扩展的连接已断开',unknown:'状态待核查'};
+const states={waiting:'Fast-browser-link 正在工作',running:'Fast-browser-link 正在工作',pausing:'正在暂停…',paused:'已暂停 · 你可以操作页面',resuming:'正在恢复…',stopping:'正在停止…',stopped:'已停止',disconnected:'与扩展的连接已断开',unknown:'状态待核查'};
 const interactionLabels={click:'准备点击',input:'正在输入',select:'正在选择',drag:'正在拖动'};
 export const stepLabels=Object.freeze({
  tabs:'读取标签页',new_tab:'打开新标签页',navigate:'打开网页',back:'返回上一页',
@@ -18,7 +18,7 @@ const highlightRectOk=r=>r&&[r.left,r.top,r.width,r.height].every(Number.isFinit
 
 export function createAutomationOverlay({document:doc=globalThis.document,taskId,generation,tabId,origin,documentId=null,onStop,onTakeover,onResume,commandTimeoutMs=8000}={}){
  if(!doc?.documentElement||doc.location?.origin!==origin||!/^https?:\/\//.test(origin)||!taskId||!Number.isSafeInteger(generation)||generation<1||!Number.isInteger(tabId)||typeof onStop!=='function'||typeof onTakeover!=='function'||typeof onResume!=='function')throw Error('overlay scope denied');
- const host=doc.createElement('div');host.dataset.hermesAutomationOverlay='';host.dataset.hermesOverlayTask=taskId;host.dataset.hermesOverlayGeneration=String(generation);host.setAttribute?.('aria-hidden','false');
+ const host=doc.createElement('div');host.dataset.fastAutomationOverlay='';host.dataset.fastOverlayTask=taskId;host.dataset.fastOverlayGeneration=String(generation);host.setAttribute?.('aria-hidden','false');
  Object.assign(host.style,{position:'fixed',inset:'0',zIndex:'2147483647',pointerEvents:'auto',background:'transparent'});
  const shadow=host.attachShadow({mode:'closed'});
  const setText=(node,value)=>{if(node.textContent!==value)node.textContent=value;};
@@ -32,10 +32,10 @@ export function createAutomationOverlay({document:doc=globalThis.document,taskId
  Object.assign(target.style,{position:'fixed',display:'none',border:'2px solid #e59b17',background:'rgba(229,155,23,.12)',boxSizing:'border-box',pointerEvents:'none'});
  // 中文注释：交互高亮加粗、外发光并脉冲闪烁，标签贴在目标旁边，便于实时看清正在操作的模块。
  const pulse=doc.createElement('style');
- pulse.textContent='@keyframes hermes-pulse{0%{box-shadow:0 0 0 0 rgba(255,138,0,.65),0 0 14px rgba(255,138,0,.55)}100%{box-shadow:0 0 0 12px rgba(255,138,0,0),0 0 14px rgba(255,138,0,.55)}}@media(prefers-reduced-motion:reduce){[data-role="virtual-cursor"],[data-role="cursor-hint"]{transition:none!important}[data-role="cursor-ripple"]{transition:opacity 180ms cubic-bezier(.23,1,.32,1)!important;transform:none!important}[data-role="target"],[data-role="drag-start"],[data-role="drag-end"]{animation:none!important}}';
+ pulse.textContent='@keyframes fast-pulse{0%{box-shadow:0 0 0 0 rgba(255,138,0,.65),0 0 14px rgba(255,138,0,.55)}100%{box-shadow:0 0 0 12px rgba(255,138,0,0),0 0 14px rgba(255,138,0,.55)}}@media(prefers-reduced-motion:reduce){[data-role="virtual-cursor"],[data-role="cursor-hint"]{transition:none!important}[data-role="cursor-ripple"]{transition:opacity 180ms cubic-bezier(.23,1,.32,1)!important;transform:none!important}[data-role="target"],[data-role="drag-start"],[data-role="drag-end"]{animation:none!important}}';
  // 中文注释：扫描只动画 transform 和 opacity；减少动态效果时保留静态边框，取消大幅扫屏位移。
- pulse.textContent+=`@keyframes hermes-scan{from{transform:translateY(-100%)}to{transform:translateY(calc(100vh + 100%))}}
- [data-role="parsing-beam"]{animation:hermes-scan 1400ms linear infinite}
+ pulse.textContent+=`@keyframes fast-scan{from{transform:translateY(-100%)}to{transform:translateY(calc(100vh + 100%))}}
+ [data-role="parsing-beam"]{animation:fast-scan 1400ms linear infinite}
  [data-role="parsing-elements"]{transition:opacity 220ms cubic-bezier(.23,1,.32,1)}
  @media(prefers-reduced-motion:reduce){[data-role="parsing-beam"]{animation:none;opacity:.35;transform:none}[data-role="parsing-elements"]{transition:none}}`;
  const parsingScan=doc.createElement('div');parsingScan.dataset.role='parsing-scan';parsingScan.setAttribute('aria-hidden','true');
@@ -44,7 +44,7 @@ export function createAutomationOverlay({document:doc=globalThis.document,taskId
  Object.assign(parsingBeam.style,{position:'absolute',top:'0',left:'0',width:'100%',height:'96px',background:'linear-gradient(180deg,transparent,rgba(75,210,145,.05) 65%,rgba(75,210,145,.18))',borderBottom:'1px solid rgba(108,238,173,.8)',boxSizing:'border-box',pointerEvents:'none',animationPlayState:'paused'});parsingScan.append(parsingBeam);
  const parsingElements=doc.createElement('div');parsingElements.dataset.role='parsing-elements';parsingElements.setAttribute('aria-hidden','true');
  Object.assign(parsingElements.style,{position:'fixed',inset:'0',display:'none',opacity:'0',pointerEvents:'none'});
- const highlightStyle=color=>({position:'fixed',display:'none',border:`3px solid ${color}`,borderRadius:'4px',background:color==='#ff8a00'?'rgba(255,138,0,.16)':'rgba(56,136,232,.16)',boxSizing:'border-box',pointerEvents:'none',animation:'hermes-pulse 0.9s ease-out infinite'});
+ const highlightStyle=color=>({position:'fixed',display:'none',border:`3px solid ${color}`,borderRadius:'4px',background:color==='#ff8a00'?'rgba(255,138,0,.16)':'rgba(56,136,232,.16)',boxSizing:'border-box',pointerEvents:'none',animation:'fast-pulse 0.9s ease-out infinite'});
  const interactionTarget=doc.createElement('div');interactionTarget.dataset.role='target';interactionTarget.setAttribute('aria-hidden','true');
  Object.assign(interactionTarget.style,highlightStyle('#ff8a00'));
  const dragStart=doc.createElement('div');dragStart.dataset.role='drag-start';dragStart.setAttribute('aria-hidden','true');
@@ -199,7 +199,7 @@ export function createAutomationOverlay({document:doc=globalThis.document,taskId
   update(request){
    if(!matchesScope(request)||!['click','input','select','drag'].includes(request.kind)||!Array.isArray(request.rects)||request.rects.length!==(request.kind==='drag'?2:1)||request.rects.some(rect=>!highlightRectOk(rect)))return {ok:false,code:'INVALID_SURFACE_UPDATE'};
    if(activeHighlightToken&&activeHighlightToken!==request.operationToken)return {ok:false,code:'STALE_OPERATION'};
-   activeHighlightToken=request.operationToken;host.setAttribute('data-hermes-interaction-highlight','');
+   activeHighlightToken=request.operationToken;host.setAttribute('data-fast-interaction-highlight','');
    for(const element of [interactionTarget,dragStart,dragEnd]){element.style.opacity='1';element.style.transition='left 180ms ease-out, top 180ms ease-out, width 180ms ease-out, height 180ms ease-out, opacity 600ms ease-out';}
    interactionStatus.style.opacity='1';interactionStatus.textContent=`${interactionLabels[request.kind]}${request.label?`：${String(request.label).slice(0,48)}`:''}`;
    const anchor=request.rects[request.rects.length-1],view=doc.defaultView;
@@ -242,13 +242,13 @@ export function createAutomationOverlay({document:doc=globalThis.document,taskId
   clear(request){
    if(!matchesScope(request))return {ok:false,code:'INVALID_SCOPE'};
    if(!activeHighlightToken||activeHighlightToken!==request.operationToken)return {ok:false,code:'STALE_OPERATION'};
-   activeHighlightToken=null;host.removeAttribute('data-hermes-interaction-highlight');cancelCursorMotion();
+   activeHighlightToken=null;host.removeAttribute('data-fast-interaction-highlight');cancelCursorMotion();
    interactionTarget.style.display='none';dragStart.style.display='none';dragEnd.style.display='none';interactionStatus.style.display='none';interactionStatus.textContent='';
    syncCursor();
    return {ok:true};
   },
   isVisible(operationToken){
-   if(removed||!host.isConnected||activeHighlightToken!==operationToken||!host.hasAttribute('data-hermes-interaction-highlight'))return false;
+   if(removed||!host.isConnected||activeHighlightToken!==operationToken||!host.hasAttribute('data-fast-interaction-highlight'))return false;
    try{
     if(doc.defaultView.getComputedStyle(host).display==='none'||transparent(host))return false;
     return interactionTarget.style.display==='block'||dragStart.style.display==='block'&&dragEnd.style.display==='block';
@@ -300,7 +300,7 @@ export function createAutomationOverlay({document:doc=globalThis.document,taskId
   for(const type of keyEvents)doc.defaultView?.removeEventListener?.(type,blockKeys,true);
  }
  // 中文注释：清理事件只能本地卸载浮层；即使网页主动触发，也不能授予任务权限或伪造暂停。
- host.addEventListener('hermes-overlay-release',remove);
+ host.addEventListener('fast-overlay-release',remove);
  const overlay=Object.freeze({
   host,interactionSurface,hide,restore,
   // 中文注释：只接收语义解析回执的矩形，不读取字段值、不展示网页文字，最多标出 24 个视口内元素。

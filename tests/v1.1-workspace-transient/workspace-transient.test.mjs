@@ -152,7 +152,7 @@ test('restart reconciliation preserves transient uncertainty until exact absence
   readAvailable = true;
   fixture.tabs.delete(created);
   await restarted.status();
-  const journal = fixture.data['hermes.backgroundWorkspaces.v1'];
+  const journal = fixture.data['fast.backgroundWorkspaces.v1'];
   const record = journal.tasks.flatMap(([, storedTask]) => storedTask.requests).find(([, request]) => request.tabId === created)?.[1];
   // 中文注释：已确认结束的任务会从持久化日志压缩掉，不再保留 released 墓碑。
   assert.equal(record, undefined);

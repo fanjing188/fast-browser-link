@@ -1,5 +1,7 @@
 # Installation / 安装
 
+> 本页说明可选 Hermes 适配器。默认独立 skills 安装请看 [通用接入](agent-integration.md)。适配器附件名为 `fast-browser-link-hermes-<版本>.zip`；不要把默认独立 ZIP 用于适配器升级。
+
 目前支持 macOS + Chrome/Edge。需要先安装 [Hermes](https://hermes-agent.nousresearch.com/docs/) 和 Python 3.11+；已测试 Hermes 0.21.4、浏览器 153。**Release 安装无需 Node.js、npm 或 Git**；仅源码安装需要 Node.js 22.12+。
 
 Currently supported: macOS + Chrome/Edge. Install [Hermes](https://hermes-agent.nousresearch.com/docs/) and Python 3.11+ first; tested with Hermes 0.21.4 and browser 153. **Release installation needs no Node.js, npm or Git**; only source installation needs Node.js 22.12+.
@@ -15,8 +17,8 @@ python3 --version
 
 ## Install / 安装
 
-从 [Release](https://github.com/fanjing188/hermes-browser-link/releases) 的 Assets 下载 `hermes-browser-link-<版本>.zip`，不要选 **Source code (zip)**。完整解压、在终端进入包含 `install.sh` 的目录后运行：
-Download the asset named `hermes-browser-link-<version>.zip`, not **Source code (zip)**. Extract the complete archive and enter the directory containing `install.sh` in your terminal:
+从 [Release](https://github.com/fanjing188/fast-browser-link/releases) 的 Assets 下载 `fast-browser-link-<版本>.zip`，不要选 **Source code (zip)**。完整解压、在终端进入包含 `install.sh` 的目录后运行：
+Download the asset named `fast-browser-link-<version>.zip`, not **Source code (zip)**. Extract the complete archive and enter the directory containing `install.sh` in your terminal:
 
 ```sh
 ./install.sh
@@ -25,8 +27,8 @@ Download the asset named `hermes-browser-link-<version>.zip`, not **Source code 
 源码安装 / From source:
 
 ```sh
-git clone https://github.com/fanjing188/hermes-browser-link.git
-cd hermes-browser-link
+git clone https://github.com/fanjing188/fast-browser-link.git
+cd fast-browser-link
 ./install.sh
 ```
 
@@ -42,7 +44,7 @@ There are two stages: **Program installed and enabled** confirms only the local 
 
 The connection wait is at most 3 minutes. Ctrl+C skips only this wait. A timeout or `--wait-seconds 0` does not undo installation. If **Browser connection not yet verified** appears, load the extension and run the printed **Check** command; do not repeat the first install.
 
-打开扩展弹窗，未连接时点“连接 Hermes”，在浏览器中确认连接授权（全部访问）；重启使用目标 profile 的 Hermes 桌面端，或新开 CLI 会话。弹窗显示“已连接”、桌面用户确认“浏览器连接”页显示在线浏览器即完成。连接授权后普通任务直接执行，不再逐页或逐项确认；任务就绪、来源范围、接管、停止和凭据保护仍须核实。离线或状态未知不代表已授权。
+打开扩展弹窗，未连接时点“连接 Fast-browser-link”，在浏览器中确认连接授权（全部访问）；重启使用目标 profile 的 Hermes 桌面端，或新开 CLI 会话。弹窗显示“已连接”、桌面用户确认“浏览器连接”页显示在线浏览器即完成。连接授权后普通任务直接执行，不再逐页或逐项确认；任务就绪、来源范围、接管、停止和凭据保护仍须核实。离线或状态未知不代表已授权。
 
 Open the popup, click **Connect Hermes** if disconnected, and confirm browser connection authorization (full access). Restart Hermes Desktop with the target profile, or start a new CLI session. Look for **Connected** in the popup and, if using Desktop, an online browser in **Browser connections**. After connection authorization, ordinary task actions run directly without per-page or per-action prompts. Task readiness, origin scope, takeover, stop and credential protections still apply. Offline or unknown state is not proof of authorization.
 
@@ -56,9 +58,9 @@ hermes profile create work  # 仅当不存在 / only if missing
 ./install.sh --profile default --profile work
 ```
 
-只启用 `work` 时运行 `./install.sh --profile work`。共享根默认是 `$HOME/.hermes`；仅 `<共享根>/plugins/browser-link` 保存一份使用中的正规程序目录，命名 profile 的 `<共享根>/profiles/<名>/plugins/browser-link` 是直接指向它的目录链接，由 Hermes CLI 单独启用。新增 profile 用 `./install.sh --upgrade --profile <名>`，不必复制程序或加载第二份扩展。
+只启用 `work` 时运行 `./install.sh --profile work`。共享根默认是 `$HOME/.hermes`；仅 `<共享根>/plugins/fast-browser-link` 保存一份使用中的正规程序目录，命名 profile 的 `<共享根>/profiles/<名>/plugins/fast-browser-link` 是直接指向它的目录链接，由 Hermes CLI 单独启用。新增 profile 用 `./install.sh --upgrade --profile <名>`，不必复制程序或加载第二份扩展。
 
-To enable only `work`, run `./install.sh --profile work`. The shared root defaults to `$HOME/.hermes`; one regular program directory lives at `<shared-root>/plugins/browser-link`. Named profiles use direct directory links at `<shared-root>/profiles/<name>/plugins/browser-link` and are enabled separately through the Hermes CLI. Add a profile with `./install.sh --upgrade --profile <name>`; no program copy or second extension is needed.
+To enable only `work`, run `./install.sh --profile work`. The shared root defaults to `$HOME/.hermes`; one regular program directory lives at `<shared-root>/plugins/fast-browser-link`. Named profiles use direct directory links at `<shared-root>/profiles/<name>/plugins/fast-browser-link` and are enabled separately through the Hermes CLI. Add a profile with `./install.sh --upgrade --profile <name>`; no program copy or second extension is needed.
 
 程序共用不等于权限共用：各 profile 的启停、可选权限、配置、记忆、工作区、站点工具、任务身份和凭据数据继续隔离。Hermes Desktop 仍会生成一份应用级界面缓存；升级备份也保留，不承诺磁盘上没有任何额外程序副本。
 
@@ -132,9 +134,9 @@ Checks the latest stable GitHub Release hourly; developer previews are excluded.
 ./install.sh --auto-update off
 ```
 
-自动更新默认关闭。使用 macOS 用户 LaunchAgent，只有用户登录期间运行；卸载时移除调度。网络或校验失败保留原安装，下一次检查重试。结果保存在 `<共享根>/plugin-data/browser-link-native/update-status.json`（共享根默认 `$HOME/.hermes`），状态包括 `available`、`deferred`、`updated`、`up_to_date`、`no_stable_release` 和 `failed`。
+自动更新默认关闭。使用 macOS 用户 LaunchAgent，只有用户登录期间运行；卸载时移除调度。网络或校验失败保留原安装，下一次检查重试。结果保存在 `<共享根>/plugin-data/fast-browser-link-native/update-status.json`（共享根默认 `$HOME/.hermes`），状态包括 `available`、`deferred`、`updated`、`up_to_date`、`no_stable_release` 和 `failed`。
 
-Background updates are disabled by default and use a user LaunchAgent; uninstall removes it. Network or validation failures preserve the installation. Results are stored in `<shared-root>/plugin-data/browser-link-native/update-status.json`, with `$HOME/.hermes` as the default shared root.
+Background updates are disabled by default and use a user LaunchAgent; uninstall removes it. Network or validation failures preserve the installation. Results are stored in `<shared-root>/plugin-data/fast-browser-link-native/update-status.json`, with `$HOME/.hermes` as the default shared root.
 
 没有正式版本时返回 `no_stable_release`；缺少 GitHub 附件摘要时拒绝更新。
 
@@ -172,7 +174,7 @@ Prefer the installer's printed **Check** command: it uses the installation's Pyt
 
 ```sh
 bridge_home="$HOME/.hermes"
-python3 "$bridge_home/plugins/browser-link/native_bridge/doctor.py" --hermes-home "$bridge_home" --user-home "$HOME"
+python3 "$bridge_home/plugins/fast-browser-link/native_bridge/doctor.py" --hermes-home "$bridge_home" --user-home "$HOME"
 ```
 
 自定义安装将 `bridge_home` 换成实际**共享根目录**，不是 `<共享根>/profiles/<名>`；自定义 `--user-home` 也需使用相同目录。doctor 只读，不启动服务、不修复文件或恢复授权。看到顶层 `"ok": true` 表示连接检查通过；失败不代表需要重装。
@@ -189,8 +191,8 @@ For custom installs, set `bridge_home` to the actual **shared root**, not `<shar
 | 缺少浏览器 / Missing browser | 安装 Chrome 或 Edge / Install Chrome or Edge |
 | 已有安装 / Already installed | 在新包目录运行 `./install.sh --upgrade` / Run it from the new package |
 | 安装包校验失败 / Package validation failed | 重新下载完整 Release ZIP / Download the complete Release ZIP again |
-| 未连接 / Not connected | 加载或重载打印的目录，在弹窗点“连接 Hermes”，再运行上面的检查命令 / Load or reload the printed directory, click Connect Hermes in the popup and rerun the check |
-| 插件启用失败 / Plugin activation failed | 运行 `hermes --profile <name> plugins enable browser-link` 查看原因 / Run this command to see the cause |
+| 未连接 / Not connected | 加载或重载打印的目录，在弹窗点“连接 Fast-browser-link”，再运行上面的检查命令 / Load or reload the printed directory, click Connect Hermes in the popup and rerun the check |
+| 插件启用失败 / Plugin activation failed | 运行 `hermes --profile <name> plugins enable fast-browser-link` 查看原因 / Run this command to see the cause |
 | 升级检测到活动或未知状态 / Upgrade finds active or unknown state | 退出浏览器和 Hermes 后重试 / Quit the browser and Hermes, then retry |
 
-[代理安装提示词 / Agent prompt](agent-install-prompt.md) · [配置 / Configuration](configuration.md) · [安全说明 / Security](https://github.com/fanjing188/hermes-browser-link/blob/main/SECURITY.md) · [开发与手动安装 / Development and manual installation](development.md)
+[代理安装提示词 / Agent prompt](agent-install-prompt.md) · [配置 / Configuration](configuration.md) · [安全说明 / Security](https://github.com/fanjing188/fast-browser-link/blob/main/SECURITY.md) · [开发与手动安装 / Development and manual installation](development.md)

@@ -137,7 +137,7 @@ async function runBrowser(browser, install) {
     const { id: extensionId } = await cdp.call('Extensions.loadUnpacked', { path: install.prepared.extensionRoot });
     const installed = await install.registerExtension(browser, extensionId);
     const manifestSource = installed.manifests[browser === 'chrome' ? 'Google/Chrome' : 'Microsoft Edge'];
-    const profileManifest = path.join(profile, 'NativeMessagingHosts/com.hermes.browser_link.json');
+    const profileManifest = path.join(profile, 'NativeMessagingHosts/com.fast.browser_link.json');
     await mkdir(path.dirname(profileManifest), { recursive: true });
     await copyFile(manifestSource, profileManifest);
 

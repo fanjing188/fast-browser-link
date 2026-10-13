@@ -40,7 +40,7 @@ function fixture({hangOverlayRemove=false,releaseDeadlineMs,beforeLeaseRelease}=
     calls.push({method,params});
     if(method==='Page.getFrameTree')return {frameTree:{frame:{id:'main',url:`${origin}/`,loaderId:'deadline-document'}}};
     if(method==='Page.createIsolatedWorld')return {executionContextId:17};
-    if(method==='Runtime.addBinding'){window.hermesOverlayCommand=()=>{};return {};}
+    if(method==='Runtime.addBinding'){window.fastOverlayCommand=()=>{};return {};}
     if(method==='Runtime.callFunctionOn'){
      const args=(params.arguments||[]).map(item=>item.value);
      if(hangOverlayRemove&&params.functionDeclaration.startsWith('function(op,scope)')&&args[0]==='remove'){
@@ -114,7 +114,7 @@ test('release returns while its painted CDP probe remains in flight and ignores 
   await new Promise(resolve=>setImmediate(resolve));
   assert.deepEqual(f.events,[],'late success cannot dispatch after release');
   assert.equal(state.pendingInteractionProbes.size,0,'late settlement clears in-flight tracking');
-  assert.equal(f.document.querySelector('[data-hermes-interaction-highlight]'),null,'late success cannot restore a removed highlight');
+  assert.equal(f.document.querySelector('[data-fast-interaction-highlight]'),null,'late success cannot restore a removed highlight');
  }finally{
   f.resolvePaint({ok:true});
   if(releasePromise)await within(releasePromise,1500);

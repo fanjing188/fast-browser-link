@@ -70,7 +70,7 @@ test('封闭 Shadow Root 内跨源框架按后端节点矩形进入遮罩清单'
 test('透明单选框改用关联 label 命中；弹窗遮挡仍拒绝',()=>{
  const {dom,document}=page('<label id="wrap"><input id="radio" type="radio" name="plan" style="opacity:0"><span id="face">Freemium</span></label><input id="separate" type="checkbox" style="opacity:0"><label id="separate-label" for="separate">Paid</label><div id="modal"></div>');
  const saved={document:globalThis.document,window:globalThis.window,innerWidth:globalThis.innerWidth,innerHeight:globalThis.innerHeight,
-  __hermesNativeSemanticsV2:globalThis.__hermesNativeSemanticsV2};
+  __fastNativeSemanticsV2:globalThis.__fastNativeSemanticsV2};
  try{
   globalThis.document=document;globalThis.window=dom.window;globalThis.innerWidth=800;globalThis.innerHeight=600;
   let popup=false,face=document.querySelector('#face');
@@ -90,7 +90,7 @@ test('透明单选框改用关联 label 命中；弹窗遮挡仍拒绝',()=>{
   const radio=shot.items.find(row=>row.name==='Freemium');
   assert.throws(()=>world('pointer_target',{binding,snapshotId:shot.snapshotId,ref:radio.ref,checked:true}),/TARGET_OCCLUDED/);
  }finally{
-  globalThis.__hermesNativeSemanticsV2?.semantics?.revoke();
+  globalThis.__fastNativeSemanticsV2?.semantics?.revoke();
   for(const [key,value] of Object.entries(saved)){if(value===undefined)delete globalThis[key];else globalThis[key]=value;}
   dom.window.close();
  }

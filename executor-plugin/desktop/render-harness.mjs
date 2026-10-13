@@ -9,7 +9,7 @@ import * as jsxRuntime from 'react/jsx-runtime'
 import * as query from '@tanstack/react-query'
 const flush = () => new Promise(resolve => setTimeout(resolve, 20))
 
-export async function setup(rest, hash = '#/browser-link') {
+export async function setup(rest, hash = '#/fast-browser-link') {
   const dom = new JSDOM('<div id="root"></div>', { url: `http://localhost/${hash}` })
   // 中文注释：仅在 JSDOM 中模拟原生对话框的打开/关闭标记。
   dom.window.HTMLDialogElement.prototype.showModal = function () { this.open = true }

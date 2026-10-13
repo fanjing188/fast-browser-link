@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""将旧安装迁移到 browser-link；默认仅预览，--apply 才写入。"""
+"""将旧安装迁移到 fast-browser-link；默认仅预览，--apply 才写入。"""
 from __future__ import annotations
 import argparse
 import importlib.util
@@ -19,8 +19,8 @@ LEGACY = {
     'plugin': 'browser-executor', 'native': 'browser-native',
     'host': 'com.hermes.browser_executor', 'label': 'Hermes 本地浏览器桥',
 }
-HOST = 'com.hermes.browser_link'
-ORIGIN = 'chrome-extension://dhioigkigkkhceflkkkmoljhdaefjohb/'
+HOST = 'com.fast.browser_link'
+ORIGIN = 'chrome-extension://hhnljehnkmhhgjjjmnlhilfpcjhobloc/'
 BROWSERS = ('Google/Chrome', 'Microsoft Edge')
 spec = importlib.util.spec_from_file_location('link_installer', ROOT / 'scripts/install-executor.py')
 installer = importlib.util.module_from_spec(spec)
@@ -67,7 +67,7 @@ def rewrite_config(raw):
         if parents == ['plugins', 'entries'] and key:
             identities['entries'].append(key[2])
         if parents == ['plugins', 'entries'] and key and key[2] == LEGACY['plugin']:
-            lines[index] = line[:key.start(2)] + 'browser-link' + line[key.end(2):]
+            lines[index] = line[:key.start(2)] + 'fast-browser-link' + line[key.end(2):]
         elif parents == ['plugins'] and key and key[2] == 'enabled':
             # 中文注释：流式列表只处理完整元素，注释与其他字符串不参与替换。
             start, end = line.find('['), line.rfind(']')
@@ -75,19 +75,19 @@ def rewrite_config(raw):
                 body = line[start + 1:end]
                 identities['enabled'].extend(part.strip().strip("\"'") for part in body.split(','))
                 body = re.sub(rf'''(^|,)\s*(['"]?){old}\2\s*(?=,|$)''',
-                              lambda m: m[0].replace(LEGACY['plugin'], 'browser-link'), body)
+                              lambda m: m[0].replace(LEGACY['plugin'], 'fast-browser-link'), body)
                 lines[index] = line[:start + 1] + body + line[end:]
         elif parents == ['plugins', 'enabled']:
             item = re.match(r'''\s*-\s*(['"]?)([\w-]+)\1(?=\s*(?:#|$))''', line)
             if item:
                 identities['enabled'].append(item[2])
             lines[index] = re.sub(rf'''^(\s*-\s*)(['"]?){old}\2(?=\s*(?:#|$))''',
-                                  lambda m: m[0].replace(LEGACY['plugin'], 'browser-link'), line)
+                                  lambda m: m[0].replace(LEGACY['plugin'], 'fast-browser-link'), line)
         if key:
             stack.append((indent, key[2]))
     result = ''.join(lines)
     # 中文注释：拒绝同时存在新旧插件项，避免重名键及重复启用。
-    if any(LEGACY['plugin'] in values and 'browser-link' in values for values in identities.values()):
+    if any(LEGACY['plugin'] in values and 'fast-browser-link' in values for values in identities.values()):
         raise ValueError('配置已含新插件项，请先消除新旧配置冲突')
     return result.encode('utf-8')
 
@@ -124,35 +124,35 @@ def profile_plugin_links(home):
             continue
         for link in plugins.iterdir():
             if link.is_symlink() and (link.parent / os.readlink(link)).resolve() == old_target:
-                replacement = plugins / 'browser-link'
+                replacement = plugins / 'fast-browser-link'
                 if replacement.exists() or replacement.is_symlink():
-                    raise ValueError('profile 已有 browser-link 插件入口: ' + str(replacement))
+                    raise ValueError('profile 已有 fast-browser-link 插件入口: ' + str(replacement))
                 result.append((link, replacement))
     return result
 
 
 def verify(home, browser_root, package, hashes):
     """中文注释：删除旧注册前验证插件、桌面副本、扩展哈希与两浏览器精确来源。"""
-    plugin = home / 'plugins/browser-link'
+    plugin = home / 'plugins/fast-browser-link'
     installer.verify_installed(plugin, hashes)
-    extension = home / 'browser-link-releases/current/native-extension'
+    extension = home / 'fast-browser-link-releases/current/native-extension'
     for name, digest in hashes.items():
         if name.startswith('native-extension/'):
             if installer.hashlib.sha256((extension / name.split('/', 1)[1]).read_bytes()).hexdigest() != digest:
                 raise ValueError('扩展哈希不一致: ' + name)
-    desktop = home / 'desktop-plugins/browser-link'
+    desktop = home / 'desktop-plugins/fast-browser-link'
     for source in (plugin / 'desktop').rglob('*'):
         if source.is_file() and (desktop / source.relative_to(plugin / 'desktop')).read_bytes() != source.read_bytes():
             raise ValueError('桌面插件副本不一致')
     for browser in BROWSERS:
         manifest = json.loads((browser_root / browser / 'NativeMessagingHosts' / (HOST + '.json')).read_text())
-        launcher = home / 'plugin-data/browser-link-native' / HOST
-        if manifest != {'name': HOST, 'description': 'Hermes Browser Link native bridge',
+        launcher = home / 'plugin-data/fast-browser-link-native' / HOST
+        if manifest != {'name': HOST, 'description': 'Fast-browser-link native bridge',
                         'path': str(launcher), 'type': 'stdio', 'allowed_origins': [ORIGIN]}:
             raise ValueError('宿主注册校验失败')
         if not os.access(launcher, os.X_OK):
             raise ValueError('宿主启动器不可执行')
-    if json.loads((home / 'plugin-data/browser-link-native/host-config.json').read_text()) != {'allowedOrigins': [ORIGIN]}:
+    if json.loads((home / 'plugin-data/fast-browser-link-native/host-config.json').read_text()) != {'allowedOrigins': [ORIGIN]}:
         raise ValueError('宿主来源配置校验失败')
 
 
@@ -165,7 +165,7 @@ def migrate(package, home, browser_root, *, apply=False):
     # 中文注释：1.8.0 沿用固定扩展身份，保留已支持的迁移版本并核对当前发布包。
     digest = installer.hashlib.sha256(base64.b64decode(extension['key'], validate=True)).hexdigest()[:32]
     identity = ''.join(chr(97 + int(c, 16)) for c in digest)
-    if extension['version'] not in {'1.4.0', '1.4.1', '1.4.2', '1.4.3', '1.4.4', '1.4.5', '1.5.0', '1.5.1', '1.5.2', '1.5.3', '1.6.0', '1.6.1', '1.7.0', '1.7.1', '1.8.0', '1.8.1', '1.8.2', '1.8.3', '1.8.4', '1.8.5', '1.9.0', '1.9.1', '1.10.0', '1.10.1', '1.10.1', '1.10.2', '1.10.3', '1.11.0', '1.11.1', '1.11.2'} or ORIGIN != f'chrome-extension://{identity}/':
+    if extension['version'] not in {'1.4.0', '1.4.1', '1.4.2', '1.4.3', '1.4.4', '1.4.5', '1.5.0', '1.5.1', '1.5.2', '1.5.3', '1.6.0', '1.6.1', '1.7.0', '1.7.1', '1.8.0', '1.8.1', '1.8.2', '1.8.3', '1.8.4', '1.8.5', '1.9.0', '1.9.1', '1.10.0', '1.10.1', '1.10.1', '1.10.2', '1.10.3', '1.11.0', '1.11.1', '1.11.2', '2.0.0'} or ORIGIN != f'chrome-extension://{identity}/':
         raise ValueError('需要身份匹配且在迁移支持范围内的安装包')
     configs = [p for p in [home / 'config.yaml', *sorted((home / 'profiles').glob('*/config.yaml'))] if p.exists()]
     rewrites = {p: rewrite_config(p.read_bytes()) for p in configs}
@@ -176,16 +176,16 @@ def migrate(package, home, browser_root, *, apply=False):
                 *sorted((home / 'plugin-backups').glob(LEGACY['plugin'] + '-*'))]
     old_hosts = [browser_root / b / 'NativeMessagingHosts' / (LEGACY['host'] + '.json') for b in BROWSERS]
     old = [p for p in old_dirs + old_hosts if p.exists() or p.is_symlink()]
-    targets = [home / 'plugins/browser-link', home / 'desktop-plugins/browser-link',
-               home / 'browser-link-releases', home / 'plugin-data/browser-link',
-               home / 'plugin-data/browser-link-native',
+    targets = [home / 'plugins/fast-browser-link', home / 'desktop-plugins/fast-browser-link',
+               home / 'fast-browser-link-releases', home / 'plugin-data/fast-browser-link',
+               home / 'plugin-data/fast-browser-link-native',
                *[browser_root / b / 'NativeMessagingHosts' / (HOST + '.json') for b in BROWSERS],
-               home / 'browser-link-release-management']
-    marker = home / 'browser-link-releases/migration-complete.json'
+               home / 'fast-browser-link-release-management']
+    marker = home / 'fast-browser-link-releases/migration-complete.json'
     installer.reject_target_symlinks([home / 'plugin-backups', *configs, *old, *targets])
     if marker.exists() and not old:
         if profile_links:
-            if not (home / 'plugins/browser-link/plugin.yaml').is_file():
+            if not (home / 'plugins/fast-browser-link/plugin.yaml').is_file():
                 raise ValueError('新插件不存在，不能修复 profile 链接')
         else:
             verify(home, browser_root, package, hashes)
@@ -202,7 +202,7 @@ def migrate(package, home, browser_root, *, apply=False):
         try:
             for source, target in profile_links:
                 original = os.readlink(source)
-                target.symlink_to(home / 'plugins/browser-link')
+                target.symlink_to(home / 'plugins/fast-browser-link')
                 changed.append((source, target, original))
                 source.unlink()
         except BaseException:
@@ -215,7 +215,7 @@ def migrate(package, home, browser_root, *, apply=False):
     for p in targets:
         if p.exists():
             raise ValueError('新目标已存在，拒绝合并覆盖: ' + str(p))
-    plan = {'status': 'dry_run', 'backup': str(home / 'plugin-backups/browser-link-migration-<时间戳>'),
+    plan = {'status': 'dry_run', 'backup': str(home / 'plugin-backups/fast-browser-link-migration-<时间戳>'),
             'old': list(map(str, old)), 'create': list(map(str, targets)),
             'configs': [str(p) for p, value in rewrites.items() if p.read_bytes() != value],
             'profileLinks': [{'old': str(source), 'new': str(target)} for source, target in profile_links],
@@ -225,7 +225,7 @@ def migrate(package, home, browser_root, *, apply=False):
                       '重启 Hermes 网关以重新加载各 profile 插件']}
     if not apply:
         return plan
-    backup = home / 'plugin-backups' / ('browser-link-migration-' + datetime.now().strftime('%Y%m%d-%H%M%S-') + uuid.uuid4().hex[:8])
+    backup = home / 'plugin-backups' / ('fast-browser-link-migration-' + datetime.now().strftime('%Y%m%d-%H%M%S-') + uuid.uuid4().hex[:8])
     backup.mkdir(parents=True, mode=0o700)
     snapshots = []
     moved = []
@@ -249,10 +249,10 @@ def migrate(package, home, browser_root, *, apply=False):
         mutated = True
         for target in targets:
             installer.make_directories(target.parent, created_parents)
-        shutil.copytree(package / 'browser-link', targets[0])
+        shutil.copytree(package / 'fast-browser-link', targets[0])
         shutil.copytree(targets[0] / 'desktop', targets[1])
         (targets[1] / '.hermes-package.json').write_text(json.dumps({
-            'package': 'browser-link', 'source': str(targets[0] / 'desktop'),
+            'package': 'fast-browser-link', 'source': str(targets[0] / 'desktop'),
             'sourceMtimeMs': (targets[0] / 'desktop/plugin.js').stat().st_mtime * 1000}))
         shutil.copytree(package / 'native-extension', targets[2] / 'current/native-extension')
         for old_name, target in [(LEGACY['plugin'], targets[3]), (LEGACY['native'], targets[4])]:
@@ -273,7 +273,7 @@ def migrate(package, home, browser_root, *, apply=False):
         import sys
         launcher.write_text(f'#!{sys.executable}\n# 中文注释：固定安装目录与 Hermes 数据目录。\nimport os,runpy,sys\nsys.path.insert(0,{str(native)!r})\nos.environ["HERMES_HOME"]={str(home)!r}\nrunpy.run_path({str(native / "host.py")!r},run_name="__main__")\n')
         launcher.chmod(0o700)
-        native_manifest = {'name': HOST, 'description': 'Hermes Browser Link native bridge',
+        native_manifest = {'name': HOST, 'description': 'Fast-browser-link native bridge',
                            'path': str(launcher), 'type': 'stdio', 'allowed_origins': [ORIGIN]}
         for p, value in [(data / 'host-config.json', {'allowedOrigins': [ORIGIN]}),
                          *[(p, native_manifest) for p in targets[5:7]]]:
@@ -288,7 +288,7 @@ def migrate(package, home, browser_root, *, apply=False):
                 raise ValueError('配置写入校验失败: ' + str(p))
         for source, target in profile_links:
             # 中文注释：新链接只指向本次安装的新插件，先建后移除旧链接，失败时用快照回滚。
-            target.symlink_to(home / 'plugins/browser-link')
+            target.symlink_to(home / 'plugins/fast-browser-link')
             source.unlink()
         for index, p in enumerate(old):
             # 中文注释：旧进程已停止；归档目录也排除失效套接字，不能把 IPC 节点搬入备份。
@@ -334,8 +334,8 @@ def main():
     args = parser.parse_args()
     print(json.dumps(migrate(args.package, args.hermes_home, args.browser_root, apply=args.apply), ensure_ascii=False, indent=2))
     print('退出 Hermes 后迁移。随后打开 chrome://extensions / edge://extensions，开启开发者模式，加载已解压的扩展程序：')
-    print(args.hermes_home / 'browser-link-releases/current/native-extension')
-    print('移除旧扩展“' + LEGACY['label'] + '”，打开 Hermes Browser Link 并重新授权；重启 Hermes。')
+    print(args.hermes_home / 'fast-browser-link-releases/current/native-extension')
+    print('移除旧扩展“' + LEGACY['label'] + '”，打开 Fast-browser-link 并重新授权；重启 Hermes。')
 
 
 if __name__ == '__main__':

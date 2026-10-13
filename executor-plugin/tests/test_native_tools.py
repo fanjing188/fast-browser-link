@@ -54,11 +54,11 @@ class NativeTests(unittest.TestCase):
         return json.loads(result), patched
 
     def test_pending_guidance_distinguishes_browser_consent_from_manual_approval(self):
-        result, _ = self.invoke('browser_shared_create', {'title': 'fixture', 'instance_id': 'explicit-instance', 'allowed_origins': ['https://example.com']})
+        result, _ = self.invoke('fast_browser_create', {'title': 'fixture', 'instance_id': 'explicit-instance', 'allowed_origins': ['https://example.com']})
         self.assertIn('自动', result['message'])
-        self.assertIn('new_tab', self.tools.TOOL_SCHEMAS['browser_shared_create']['description'])
-        self.assertNotIn('用户必须', self.tools.TOOL_SCHEMAS['browser_shared_create']['description'])
-        self.assertIn('全部访问', self.tools.TOOL_SCHEMAS['browser_shared_resume']['description'])
+        self.assertIn('new_tab', self.tools.TOOL_SCHEMAS['fast_browser_create']['description'])
+        self.assertNotIn('用户必须', self.tools.TOOL_SCHEMAS['fast_browser_create']['description'])
+        self.assertIn('全部访问', self.tools.TOOL_SCHEMAS['fast_browser_resume']['description'])
         self.assertIn('授权', self.tools._public({'state': 'authorizing'})['message'])
 
     # 中文注释：模型说明不宣传旧模式，但仍说明特殊确认和凭据隔离。
@@ -66,16 +66,16 @@ class NativeTests(unittest.TestCase):
         descriptions = '\n'.join(schema['description'] for schema in self.tools.TOOL_SCHEMAS.values())
         self.assertNotIn('智能审批', descriptions)
         self.assertIn('连接授权', descriptions)
-        run = self.tools.TOOL_SCHEMAS['browser_shared_run']['description']
+        run = self.tools.TOOL_SCHEMAS['fast_browser_run']['description']
         self.assertIn('直接执行', run)
         self.assertIn('凭据填写', run)
         self.assertIn('popup_adopt', run)
         self.assertIn('登录弹窗 popup_adopt 直接接管，无需确认', run)
         self.assertNotIn('必须明确确认', run)
         self.assertNotIn('popup_adopt 的等待只读', run)
-        self.assertIn('browser_shared_get', run)
+        self.assertIn('fast_browser_get', run)
         self.assertNotIn('切到返回 tabId', run)
-        self.assertIn('源浏览器扩展确认', self.tools.TOOL_SCHEMAS['browser_shared_cookie_mirror']['description'])
+        self.assertIn('源浏览器扩展确认', self.tools.TOOL_SCHEMAS['fast_browser_cookie_mirror']['description'])
         self.assertNotIn('智能审批', self.tools._public({'state': 'pending_approval'})['message'])
 
     # 中文注释：桥接丢失滚动回执时不能被工具层的只读分类覆盖。
@@ -88,7 +88,7 @@ class NativeTests(unittest.TestCase):
             def fail_call(method, params):
                 raise Failure('revoked')
             self.client.call = fail_call
-            result, _ = self.invoke('browser_shared_run', {'task_id': 'task-1', 'request_id': 'write',
+            result, _ = self.invoke('fast_browser_run', {'task_id': 'task-1', 'request_id': 'write',
                 'action': 'navigate', 'tab_id': 7, 'url': 'https://example.test/'})
             self.assertEqual(result['bridgeCode'], 'browser_access_revoked')
             self.assertEqual(result['outcome_unknown'], dispatched)
@@ -104,7 +104,7 @@ class NativeTests(unittest.TestCase):
             def fail_call(_method, _params):
                 raise error
             self.client.call = fail_call
-            result, _ = self.invoke('browser_shared_run', {'task_id': 'task-1', 'request_id': 'parallel',
+            result, _ = self.invoke('fast_browser_run', {'task_id': 'task-1', 'request_id': 'parallel',
                 'action': 'new_tab', 'url': 'https://example.test/'})
             self.assertEqual(result['bridgeCode'], code)
             self.assertEqual(result['outcome_unknown'], unknown)
@@ -117,7 +117,7 @@ class NativeTests(unittest.TestCase):
         def fail_call(method, params):
             raise Failure("页面已变化")
         self.client.call = fail_call
-        result, _ = self.invoke("browser_shared_run", {"task_id": "task-1", "request_id": "scroll-1",
+        result, _ = self.invoke("fast_browser_run", {"task_id": "task-1", "request_id": "scroll-1",
                                                       "action": "scroll", "tab_id": 7, "direction": "down"})
         self.assertTrue(result["outcome_unknown"])
         self.assertFalse(result["retryable"])
@@ -130,7 +130,7 @@ class NativeTests(unittest.TestCase):
         def fail_call(_method, _params):
             raise Failure('PRIVATE_ERROR_CANARY')
         self.client.call = fail_call
-        result, _ = self.invoke('browser_shared_run', {'task_id': 'task-1', 'request_id': 'changed-checkbox',
+        result, _ = self.invoke('fast_browser_run', {'task_id': 'task-1', 'request_id': 'changed-checkbox',
             'action': 'ref_set_checked', 'tab_id': 7, 'binding': {'taskId': 'task-1', 'documentId': 'doc', 'leaseId': 'lease'},
             'snapshot_id': 'snapshot', 'ref': 'checkbox', 'checked': True})
         self.assertTrue(result['outcome_unknown'])
@@ -140,12 +140,12 @@ class NativeTests(unittest.TestCase):
 
     def test_explicit_cleanup_status_then_retry_routes_under_same_owner(self):
         for action, method in [('status', 'shared.cleanup_status'), ('retry', 'shared.cleanup_retry')]:
-            result, _ = self.invoke('browser_shared_close', {'task_id': 'task-1', 'cleanup_action': action})
+            result, _ = self.invoke('fast_browser_close', {'task_id': 'task-1', 'cleanup_action': action})
             self.assertNotIn('error', result)
             self.assertEqual(self.client.calls[-1][0], method)
             self.assertEqual(self.client.calls[-1][1], {
                 'owner': self.profile.authority.owner_for_session('session-a'), 'taskId': 'task-1'})
-        self.assertIn('cleanupState', self.tools.TOOL_SCHEMAS['browser_shared_close']['description'])
+        self.assertIn('cleanupState', self.tools.TOOL_SCHEMAS['fast_browser_close']['description'])
 
     def test_task_projection_preserves_bounded_cleanup_counts_and_error(self):
         def result(method, params):
@@ -155,7 +155,7 @@ class NativeTests(unittest.TestCase):
                     'cleanupUnknownCount': 3, 'cleanupError': {'code': 'extension_timeout', 'secret': 'hide'},
                     'spawnedTabCount': 1, 'untrusted': 'hide'}
         self.client.call = result
-        value, _ = self.invoke('browser_shared_get', {'task_id': 'task-1'})
+        value, _ = self.invoke('fast_browser_get', {'task_id': 'task-1'})
         self.assertEqual(value['cleanupState'], 'unknown')
         self.assertEqual(value['cleanupReason'], 'extension_timeout')
         self.assertEqual(value['cleanupRemainingCount'], 2)
@@ -176,7 +176,7 @@ class NativeTests(unittest.TestCase):
         def fail(*_):
             raise TypedFailure()
         self.client.call = fail
-        result, _ = self.invoke('browser_shared_run', {'task_id': 'task-1', 'action': 'snapshot', 'tab_id': 1})
+        result, _ = self.invoke('fast_browser_run', {'task_id': 'task-1', 'action': 'snapshot', 'tab_id': 1})
         self.assertEqual(result['bridgeCode'], 'page_not_ready')
         self.assertFalse(result['outcome_unknown'])
         self.assertTrue(result['retryable'])
@@ -186,7 +186,7 @@ class NativeTests(unittest.TestCase):
             code = 'invalid_state'
             data = {}
         self.client.call = lambda method, params: (_ for _ in ()).throw(AmbiguousFailure())
-        result, _ = self.invoke('browser_shared_run', {'task_id': 'task-1', 'action': 'click', 'tab_id': 1, 'selector': '#save'})
+        result, _ = self.invoke('fast_browser_run', {'task_id': 'task-1', 'action': 'click', 'tab_id': 1, 'selector': '#save'})
         self.assertTrue(result['outcome_unknown'])
         self.assertFalse(result['retryable'])
 
@@ -198,7 +198,7 @@ class NativeTests(unittest.TestCase):
         def fail(*_):
             raise StaleCursor('private page content and cursor')
         self.client.call = fail
-        result, _ = self.invoke('browser_shared_run', {'task_id': 'task-1', 'action': 'page.parse',
+        result, _ = self.invoke('fast_browser_run', {'task_id': 'task-1', 'action': 'page.parse',
             'tab_id': 1, 'options': {'cursor': 'old-cursor'}})
         self.assertEqual(result.get('bridgeCode'), 'parse_cursor_stale')
         self.assertFalse(result['outcome_unknown'])
@@ -212,7 +212,7 @@ class NativeTests(unittest.TestCase):
             data = {'outcomeUnknown': False, 'retryable': True}
         # 中文注释：接管阻断发生在浏览器动作派发前，不应被标为结果不确定。
         self.client.call = lambda method, params: (_ for _ in ()).throw(Paused())
-        result, _ = self.invoke('browser_shared_run', {'task_id': 'task-1', 'action': 'click', 'tab_id': 1, 'selector': '#save'})
+        result, _ = self.invoke('fast_browser_run', {'task_id': 'task-1', 'action': 'click', 'tab_id': 1, 'selector': '#save'})
         self.assertEqual(result['bridgeCode'], 'task_paused')
         self.assertFalse(result['outcome_unknown'])
         self.assertFalse(result['retryable'])
@@ -226,7 +226,7 @@ class NativeTests(unittest.TestCase):
             captured.append((method, params))
             raise ForeignTarget()
         self.client.call = refuse
-        result, _ = self.invoke('browser_shared_run', {'task_id': 'task-1', 'action': 'cdp.send',
+        result, _ = self.invoke('fast_browser_run', {'task_id': 'task-1', 'action': 'cdp.send',
             'tab_id': 1, 'method': 'DOM.getDocument', 'target_id': 'foreign-target'})
         self.assertEqual(captured[0][1]['targetId'], 'foreign-target')
         self.assertEqual(result['bridgeCode'], 'target_not_owned')
@@ -234,19 +234,19 @@ class NativeTests(unittest.TestCase):
 
     def test_page_request_maps_without_separate_api_consent_or_credentials(self):
         # 中文注释：任务来源即页面请求范围，协议不再接受独立 API URL 清单。
-        result, _ = self.invoke('browser_shared_create', {'title': 'API fixture', 'instance_id': 'explicit-instance', 'allowed_origins': ['https://example.com']})
+        result, _ = self.invoke('fast_browser_create', {'title': 'API fixture', 'instance_id': 'explicit-instance', 'allowed_origins': ['https://example.com']})
         self.assertNotIn('error', result)
         self.assertNotIn('apiUrls', self.client.calls[-1][1])
-        result, _ = self.invoke('browser_shared_run', {'task_id': 'task-1', 'action': 'api_request', 'tab_id': 1, 'url': 'https://example.com/api', 'fields': ['count'], 'http_method': 'GET'})
+        result, _ = self.invoke('fast_browser_run', {'task_id': 'task-1', 'action': 'api_request', 'tab_id': 1, 'url': 'https://example.com/api', 'fields': ['count'], 'http_method': 'GET'})
         self.assertNotIn('error', result)
         self.assertEqual(self.client.calls[-1][1]['fields'], ['count'])
         self.assertEqual(self.client.calls[-1][1]['httpMethod'], 'GET')
         for extra in ({'cookies': 'no'}, {'headers': {}}, {'http_method': 'POST'}, {'fields': []}):
-            result, _ = self.invoke('browser_shared_run', {'task_id': 'task-1', 'action': 'api_request', 'tab_id': 1, 'url': 'https://example.com/api', 'fields': ['count'], **extra})
+            result, _ = self.invoke('fast_browser_run', {'task_id': 'task-1', 'action': 'api_request', 'tab_id': 1, 'url': 'https://example.com/api', 'fields': ['count'], **extra})
             self.assertEqual(result['code'], 'invalid_fields')
 
     def test_cross_thread_hook_retains_identity_and_pending_guidance(self):
-        result, patched = self.invoke('browser_shared_create', {
+        result, patched = self.invoke('fast_browser_create', {
             'title': 'fixture', 'instance_id': 'explicit-instance',
             'allowed_origins': ['https://example.com']})
         method, params = self.client.calls[-1]
@@ -256,7 +256,7 @@ class NativeTests(unittest.TestCase):
         self.assertNotIn('owner', result)
         self.assertIn('浏览器', result['message'])
         self.assertIn('批准', result['message'])
-        replay = json.loads(self.tools.make_tool_handler('browser_shared_create', self.profile)(patched, session_id='session-a'))
+        replay = json.loads(self.tools.make_tool_handler('fast_browser_create', self.profile)(patched, session_id='session-a'))
         self.assertIn('error', replay)
         self.assertEqual(len(self.client.calls), 1)
 
@@ -272,14 +272,14 @@ class NativeTests(unittest.TestCase):
         ]
         for suffix, args in cases:
             with self.subTest(suffix=suffix, args=args):
-                result, _ = self.invoke('browser_shared_' + suffix, args)
+                result, _ = self.invoke('fast_browser_' + suffix, args)
                 # 中文注释：缺必填参数与参数类型/字段错误分别返回固定分类。
                 expected = 'missing_fields' if suffix == 'create' and 'instance_id' not in args or suffix == 'run' and args.get('action') == 'click' and 'tab_id' not in args else 'invalid_fields'
                 self.assertEqual(result.get('code'), expected)
         self.assertEqual(self.client.calls, [])
 
     def test_wrong_session_tampering_and_missing_hook_fail_closed(self):
-        name = 'browser_shared_get'
+        name = 'fast_browser_get'
         handler = self.tools.make_tool_handler(name, self.profile)
         for session, mutation in [('session-b', {}), ('', {}), ('session-a', {'task_id': 'other'})]:
             args = {'task_id': 'task-1'}
@@ -291,7 +291,7 @@ class NativeTests(unittest.TestCase):
 
     def test_forged_owner_and_lease_blocked_in_hook(self):
         for key in ('owner', 'session_id', self.runtime.OWNER_LEASE_ARG):
-            decision = self.profile.authority.pre_tool_call('browser_shared_list', {key: 'forged'}, session_id='a', tool_call_id='c')
+            decision = self.profile.authority.pre_tool_call('fast_browser_list', {key: 'forged'}, session_id='a', tool_call_id='c')
             self.assertEqual(decision['action'], 'block')
 
     def test_exact_registration_and_no_authority_in_schema(self):
@@ -307,7 +307,7 @@ class NativeTests(unittest.TestCase):
         ctx = Context()
         self.tools.register_native_context(ctx, self.profile)
         # 中文注释：文件清单只读工具随可信任务身份注册，不授予本地路径读取。
-        self.assertEqual(set(ctx.tools), {'browser_shared_' + s for s in ('health', 'browsers', 'create', 'list', 'get', 'artifacts', 'run', 'cancel', 'resume', 'close', 'downloads', 'cookie_mirror')})
+        self.assertEqual(set(ctx.tools), {'fast_browser_' + s for s in ('health', 'browsers', 'create', 'list', 'get', 'artifacts', 'run', 'cancel', 'resume', 'close', 'downloads', 'cookie_mirror')})
         self.assertEqual({name for name, _ in ctx.hooks}, {'pre_tool_call', 'on_session_finalize', 'subagent_stop', 'on_session_end', 'agent_loop_stopped'})
         for entry in ctx.tools.values():
             schema = entry['schema']['parameters']
@@ -315,29 +315,29 @@ class NativeTests(unittest.TestCase):
             self.assertNotIn('owner', schema['properties'])
             self.assertNotIn(self.runtime.OWNER_LEASE_ARG, schema['properties'])
         ctx.unload[0]()
-        result, _ = self.invoke('browser_shared_list', {})
+        result, _ = self.invoke('fast_browser_list', {})
         self.assertIn('error', result)
         self.assertEqual(self.client.calls, [])
 
     def test_expired_foreign_tool_and_profile_leases_are_rejected(self):
         authority = self.profile.authority
         authority._clock = lambda: 1.0
-        issued = authority.pre_tool_call('browser_shared_list', {}, session_id='a', tool_call_id='c')
+        issued = authority.pre_tool_call('fast_browser_list', {}, session_id='a', tool_call_id='c')
         authority._clock = lambda: 1000.0
-        self.assertRaises(self.runtime.OwnerLeaseError, authority.consume, 'browser_shared_list', issued['args'], session_id='a')
+        self.assertRaises(self.runtime.OwnerLeaseError, authority.consume, 'fast_browser_list', issued['args'], session_id='a')
         authority._clock = lambda: 1.0
-        issued = authority.pre_tool_call('browser_shared_list', {}, session_id='a', tool_call_id='c')
-        self.assertRaises(self.runtime.OwnerLeaseError, authority.consume, 'browser_shared_health', issued['args'], session_id='a')
+        issued = authority.pre_tool_call('fast_browser_list', {}, session_id='a', tool_call_id='c')
+        self.assertRaises(self.runtime.OwnerLeaseError, authority.consume, 'fast_browser_health', issued['args'], session_id='a')
         other = self.runtime.NativeProfileRuntime(Path(self.tmp.name) / 'other', ROOT, bridge_client=self.client)
-        issued = authority.pre_tool_call('browser_shared_list', {}, session_id='a', tool_call_id='c')
-        self.assertRaises(self.runtime.OwnerLeaseError, other.authority.consume, 'browser_shared_list', issued['args'], session_id='a')
+        issued = authority.pre_tool_call('fast_browser_list', {}, session_id='a', tool_call_id='c')
+        self.assertRaises(self.runtime.OwnerLeaseError, other.authority.consume, 'fast_browser_list', issued['args'], session_id='a')
         self.assertNotEqual(authority.owner_for_session('a'), other.authority.owner_for_session('a'))
         reloaded = self.runtime.NativeProfileRuntime(Path(self.tmp.name), ROOT, bridge_client=self.client)
         self.assertEqual(authority.owner_for_session('a'), reloaded.authority.owner_for_session('a'))
-        self.assertRaises(self.runtime.OwnerLeaseError, reloaded.authority.consume, 'browser_shared_list', issued['args'], session_id='a')
+        self.assertRaises(self.runtime.OwnerLeaseError, reloaded.authority.consume, 'fast_browser_list', issued['args'], session_id='a')
 
     def test_close_keep_tabs_maps_to_handoff(self):
-        result, _ = self.invoke('browser_shared_close', {'task_id': 'task-1', 'keep_tabs': True, 'handoff_reason': 'captcha'})
+        result, _ = self.invoke('fast_browser_close', {'task_id': 'task-1', 'keep_tabs': True, 'handoff_reason': 'captcha'})
         self.assertNotIn('error', result)
         method, params = self.client.calls[-1]
         self.assertEqual(method, 'shared.handoff')
@@ -349,7 +349,7 @@ class NativeTests(unittest.TestCase):
             args = {'task_id': 'task-1', 'keep_tabs': True}
             if reason is not None:
                 args['handoff_reason'] = reason
-            result, _ = self.invoke('browser_shared_close', args)
+            result, _ = self.invoke('fast_browser_close', args)
             self.assertEqual(result['code'], 'invalid_fields')
             self.assertIn('handoff_reason', result['fields'])
             self.assertIn('普通关闭', result['error'])
@@ -360,7 +360,7 @@ class NativeTests(unittest.TestCase):
                                  ('get', 'shared.get'), ('cancel', 'shared.cancel'),
                                  ('resume', 'shared.resume'), ('close', 'shared.close')]:
             args = {} if suffix in ('health', 'browsers', 'list') else {'task_id': 'task-1'}
-            result, _ = self.invoke('browser_shared_' + suffix, args)
+            result, _ = self.invoke('fast_browser_' + suffix, args)
             self.assertNotIn('error', result)
             method, params = self.client.calls[-1]
             self.assertEqual(method, expected)
@@ -382,7 +382,7 @@ class NativeTests(unittest.TestCase):
                                   {'action': 'ref_set_checked', 'result': 'unknown', 'errorCode': 'stale_reference',
                                    'message': 'PRIVATE_ERROR_CANARY', 'input': 'PRIVATE_INPUT_CANARY'}]}
         self.client.call = call
-        result, _ = self.invoke('browser_shared_get', {'task_id': 'task-1', 'until': 'resumed',
+        result, _ = self.invoke('fast_browser_get', {'task_id': 'task-1', 'until': 'resumed',
                                                        'timeout_s': 1, 'include_log': True, 'log_limit': 5})
         self.assertTrue(result['resumeSummary']['readPageFirst'])
         self.assertEqual(result['recentLog'][0]['target'], 'button · 提交')
@@ -391,7 +391,7 @@ class NativeTests(unittest.TestCase):
         self.assertEqual(result['recentLog'][1]['result'], 'unknown')
         self.assertNotIn('CANARY', json.dumps(result))
         self.assertEqual(self.client.calls[-1][1]['logLimit'], 5)
-        self.assertNotIn('browser_shared_set_primary', self.tools.TOOL_SCHEMAS)
+        self.assertNotIn('fast_browser_set_primary', self.tools.TOOL_SCHEMAS)
 
     def test_clients_are_per_thread_and_closed_on_unload_without_daemon_shutdown(self):
         import types
@@ -432,7 +432,7 @@ class NativeTests(unittest.TestCase):
                               ('fill', {'tab_id': 42, 'selector': '#fixture', 'text': ''}),
                               ('press', {'tab_id': 42, 'selector': '#fixture', 'key': 'Enter'}),
                               ('screenshot', {'tab_id': 42})]:
-            result, _ = self.invoke('browser_shared_run', {'task_id': 'task-1', 'action': action, **extra})
+            result, _ = self.invoke('fast_browser_run', {'task_id': 'task-1', 'action': action, **extra})
             self.assertNotIn('error', result)
             method, params = self.client.calls[-1]
             self.assertEqual(method, 'shared.run')

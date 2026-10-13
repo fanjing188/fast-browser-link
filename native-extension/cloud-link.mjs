@@ -30,7 +30,7 @@ export class CloudLink {
   this.instanceId=instanceId;this.browser=browser;
   this.setState({state:'connecting',online:false,paired:false,fullAccess:false,error:null});
   this.connecting=(async()=>{
-   const port=this.chrome.runtime.connectNative('com.hermes.browser_link.cloud');this.port=port;
+   const port=this.chrome.runtime.connectNative('com.fast.browser_link.cloud');this.port=port;
    port.onMessage.addListener(message=>void this.receive(message,port));
    port.onDisconnect.addListener(()=>{
     // 中文注释：读取浏览器断开原因，避免把正常 Native 退出留成未处理扩展错误。

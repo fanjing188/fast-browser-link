@@ -130,7 +130,7 @@ test('新云端连接码不继承旧连接码的复制成功提示', async () =>
     button.addEventListener=(_type,handler)=>{click=handler}
     Object.defineProperty(dom.window.navigator,'clipboard',{value:{writeText:async code=>{clipboard=code;if(finish)await finish.promise}}})
     dom.window.eval(cloudScript)
-    const update=code=>dom.window.dispatchEvent(new dom.window.CustomEvent('browser-link-status',{detail:{state:'pending_pairing',paired:false,online:false,code,expiresAt:Date.now()+300000}}))
+    const update=code=>dom.window.dispatchEvent(new dom.window.CustomEvent('fast-browser-link-status',{detail:{state:'pending_pairing',paired:false,online:false,code,expiresAt:Date.now()+300000}}))
     update('QADEMO-0001')
     await click({isTrusted:true})
     assert.equal(clipboard,'QADEMO-0001')
@@ -156,7 +156,7 @@ test('状态读取失败时显示未知并禁用页面控制', async () => {
   await h.flush()
   assert.equal(h.document.querySelector('#connection-label').textContent,'状态待确认')
   assert.match(h.document.querySelector('#access-detail').textContent,/状态待确认/)
-  assert.doesNotMatch(h.document.querySelector('#access-detail').textContent,/已连接|已授权|可由 Hermes 直接访问/)
+  assert.doesNotMatch(h.document.querySelector('#access-detail').textContent,/已连接|已授权|可由 Fast-browser-link 直接访问/)
   assert.equal(h.document.querySelector('#connect').hidden,false)
   assert.equal(h.document.querySelector('#page-task').hidden,true)
   h.dom.window.close()

@@ -23,8 +23,8 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 VERSION = json.loads((ROOT / 'package.json').read_text())['version']
-ORIGIN = 'chrome-extension://dhioigkigkkhceflkkkmoljhdaefjohb/'
-HOST = 'com.hermes.browser_link'
+ORIGIN = 'chrome-extension://hhnljehnkmhhgjjjmnlhilfpcjhobloc/'
+HOST = 'com.fast.browser_link'
 
 
 def rehash(package):
@@ -36,6 +36,18 @@ def rehash(package):
 
 
 class InstallFlowTests(unittest.TestCase):
+    def test_legacy_plugin_refuses_activation_without_touching_old_install(self):
+        legacy = self.hermes / 'plugins/browser-link'
+        legacy.mkdir(parents=True)
+        marker = legacy / 'plugin.yaml'
+        marker.write_text('name: browser-link\n')
+        before = (marker.read_bytes(), marker.stat().st_mtime_ns)
+        result = self.invoke(ok=False)
+        self.assertIn('Legacy plugin detected', result.stderr)
+        self.assertEqual((marker.read_bytes(), marker.stat().st_mtime_ns), before)
+        self.assertFalse(self.plugin.exists())
+        self.assertFalse(any(path.exists() for path in self.manifests))
+
     def auto_update(self, *, busy=None, corrupt=False, fail=False, profiles=('default',)):
         # 中文注释：以真实打包产物走完整下载校验及事务升级，网络和进程查询用替身。
         for name in profiles:
@@ -46,7 +58,7 @@ class InstallFlowTests(unittest.TestCase):
         for name in profiles:
             profile = self.hermes if name == 'default' else self.hermes / 'profiles' / name
             config = profile / 'config.yaml'
-            config.write_bytes(b'plugins:\n  browser-link: false\ncapabilities: [tools.override]\n')
+            config.write_bytes(b'plugins:\n  fast-browser-link: false\ncapabilities: [tools.override]\n')
             self.auto_configs[config] = config.read_bytes()
         # 中文注释：写入标记，后台再调用 open/pbcopy 会覆盖它们，测试可以直接发现。
         (self.root / 'opened.json').write_text('browser-handoff-preserved')
@@ -55,7 +67,7 @@ class InstallFlowTests(unittest.TestCase):
         updater = importlib.util.module_from_spec(module_spec)
         module_spec.loader.exec_module(updater)
         version = '9.0.0'
-        plugin = self.package / 'browser-link/plugin.yaml'
+        plugin = self.package / 'fast-browser-link/plugin.yaml'
         import re
         plugin.write_text(re.sub(r'^version:.*$', 'version: ' + version, plugin.read_text(), flags=re.M))
         extension = self.package / 'native-extension/manifest.json'
@@ -65,12 +77,12 @@ class InstallFlowTests(unittest.TestCase):
         (self.package / 'RELEASE-STATUS.txt').write_text(f'RELEASE V{version}: formal release built from commit ' + 'a' * 40 + '. Verified fixture.\n')
         rehash(self.package)
         if corrupt:
-            (self.package / 'browser-link/runtime.py').write_text('# 中文注释：模拟摘要校验后的内容损坏\n')
+            (self.package / 'fast-browser-link/runtime.py').write_text('# 中文注释：模拟摘要校验后的内容损坏\n')
         buffer = io.BytesIO()
         with zipfile.ZipFile(buffer, 'w') as archive:
             for path in self.package.rglob('*'):
                 if path.is_file():
-                    archive.write(path, f'hermes-browser-link-{version}/' + path.relative_to(self.package).as_posix())
+                    archive.write(path, f'fast-browser-link-hermes-{version}/' + path.relative_to(self.package).as_posix())
         payload = buffer.getvalue()
         release = {'version': version, 'url': 'fixed-test-url', 'size': len(payload),
                    'digest': hashlib.sha256(payload).hexdigest()}
@@ -108,7 +120,7 @@ class InstallFlowTests(unittest.TestCase):
         for config, contents in self.auto_configs.items():
             self.assertEqual(config.read_bytes(), contents)
         for name in names[1:]:
-            reference = self.hermes / 'profiles' / name / 'plugins/browser-link'
+            reference = self.hermes / 'profiles' / name / 'plugins/fast-browser-link'
             self.assertTrue(reference.is_symlink())
             self.assertEqual(reference.resolve(), self.plugin)
             self.assertIn('version: 9.0.0', (reference / 'plugin.yaml').read_text())
@@ -144,7 +156,7 @@ class InstallFlowTests(unittest.TestCase):
             cls.scratch.cleanup()
             raise RuntimeError(result.stderr)
         # 中文注释：只替换 doctor 为离线连接响应，发行包其余程序使用真实打包产物。
-        (cls.release / 'browser-link/native_bridge/doctor.py').write_text('''import json, os, pathlib, sys
+        (cls.release / 'fast-browser-link/native_bridge/doctor.py').write_text('''import json, os, pathlib, sys
 count = pathlib.Path(os.environ['TEST_DOCTOR_COUNT'])
 number = int(count.read_text()) + 1 if count.exists() else 1
 count.write_text(str(number))
@@ -182,7 +194,7 @@ if sys.argv[1:] == ['--version']:
     print(os.environ.get('TEST_HERMES_VERSION', 'hermes 0.21.4'))
     sys.exit(0)
 args = sys.argv[1:]
-assert args[:1] == ['--profile'] and args[2:3] == ['plugins'] and args[4:] == ['browser-link'], args
+assert args[:1] == ['--profile'] and args[2:3] == ['plugins'] and args[4:] == ['fast-browser-link'], args
 root = pathlib.Path(os.environ['HERMES_HOME'])
 profile = root if args[1] == 'default' else root / 'profiles' / args[1]
 config = profile / 'config.yaml'
@@ -191,12 +203,12 @@ config.write_text('plugin: ' + args[3] + '\\n')
 with open(os.environ['TEST_LOG'], 'a') as log:
     log.write(json.dumps(args) + '\\n')
 if os.environ.get('TEST_CORRUPT') == '1':
-    (profile / 'plugins/browser-link/runtime.py').write_text('# injected corruption\\n')
+    (profile / 'plugins/fast-browser-link/runtime.py').write_text('# injected corruption\\n')
 if os.environ.get('TEST_REPLACE_REFERENCE') == '1':
     import shutil
-    reference = profile / 'plugins/browser-link'
+    reference = profile / 'plugins/fast-browser-link'
     reference.unlink()
-    shutil.copytree(root / 'plugins/browser-link', reference)
+    shutil.copytree(root / 'plugins/fast-browser-link', reference)
 if os.environ.get('TEST_ACTIVATE_FAIL') == '1':
     sys.exit(7)
 ''')
@@ -210,9 +222,9 @@ if os.environ.get('TEST_ACTIVATE_FAIL') == '1':
                     'TEST_OPEN': str(self.root / 'opened.json'),
                     'TEST_CLIPBOARD': str(self.root / 'clipboard'),
                     'TEST_DOCTOR_COUNT': str(self.root / 'doctor-count')}
-        self.plugin = self.hermes / 'plugins/browser-link'
-        self.data = self.hermes / 'plugin-data/browser-link-native'
-        self.extension = self.hermes / 'browser-link-releases/native-extension'
+        self.plugin = self.hermes / 'plugins/fast-browser-link'
+        self.data = self.hermes / 'plugin-data/fast-browser-link-native'
+        self.extension = self.hermes / 'fast-browser-link-releases/native-extension'
         self.manifests = [self.home / 'Library/Application Support' / browser / 'NativeMessagingHosts' / f'{HOST}.json'
                           for browser in ('Google/Chrome', 'Microsoft Edge')]
 
@@ -224,7 +236,7 @@ if os.environ.get('TEST_ACTIVATE_FAIL') == '1':
     def invoke(self, *args, ok=True, source=False, stdin='', env=None):
         script = ROOT / 'install.sh' if source else self.package / 'install.sh'
         # 中文注释：从非 Git 的临时工作目录启动，PATH 中也没有 rg 或 git。
-        result = subprocess.run([str(script), '--wait-seconds', '0', *args],
+        result = subprocess.run([str(script), *(['--hermes-plugin'] if source else []), '--wait-seconds', '0', *args],
                                 env={**self.env, **(env or {})}, input=stdin, capture_output=True,
                                 text=True, cwd=self.root, timeout=150)
         if ok:
@@ -255,7 +267,7 @@ if os.environ.get('TEST_ACTIVATE_FAIL') == '1':
 
     def old_install(self):
         # 中文注释：模拟旧安装的版本面，扩展公钥与来源不变。
-        for path in (self.package / 'browser-link/plugin.yaml', self.package / 'native-extension/manifest.json'):
+        for path in (self.package / 'fast-browser-link/plugin.yaml', self.package / 'native-extension/manifest.json'):
             path.write_text(path.read_text().replace(VERSION, '1.5.1'))
         rehash(self.package)
         self.invoke()
@@ -267,7 +279,7 @@ if os.environ.get('TEST_ACTIVATE_FAIL') == '1':
         return private
 
     def cloud_journal(self, *, legacy=False, pending=False):
-        base = self.hermes / 'plugin-data/browser-link-cloud'
+        base = self.hermes / 'plugin-data/fast-browser-link-cloud'
         directory = base if legacy else base / 'instances/11111111-1111-4111-8111-111111111111'
         directory.mkdir(parents=True, exist_ok=True, mode=0o700)
         path = directory / 'requests.sqlite'
@@ -326,6 +338,8 @@ if os.environ.get('TEST_ACTIVATE_FAIL') == '1':
             content = subprocess.check_output(['git', 'show',
                 'f2b0371b289552d1431332ee9dbe502cc8671c0a:cloud-link/' + relative],
                 cwd=os.environ.get('BROWSER_LINK_RELEASE_HISTORY', ROOT))
+            # 中文注释：旧版本逻辑保持不变，只映射本次统一改名后的安装命名空间。
+            content = content.replace(b'dhioigkigkkhceflkkkmoljhdaefjohb', b'hhnljehnkmhhgjjjmnlhilfpcjhobloc').replace(b'browser-link', b'fast-browser-link').replace(b'com.hermes.browser_link', b'com.fast.browser_link').replace(b'browser_shared_', b'fast_browser_')
             path.write_bytes(content)
         state = self.data / 'install-state.json'
         value = json.loads(state.read_text()); value.pop('cloudFence', None)
@@ -342,8 +356,8 @@ def run(argv,*args,**kwargs):
     if argv==['/bin/ps','-axo','command=']:
         root=os.environ['HERMES_HOME']
         result.stdout='\\n'.join(line for line in result.stdout.splitlines() if
-            root+'/plugins/browser-link/cloud_link/native_host.py' in line or
-            root+'/plugin-data/browser-link-cloud/com.hermes.browser_link.cloud' in line)
+            root+'/plugins/fast-browser-link/cloud_link/native_host.py' in line or
+            root+'/plugin-data/fast-browser-link-cloud/com.fast.browser_link.cloud' in line)
         if os.environ.get('TEST_MAINTENANCE_APP')=='1':
             result.stdout+='\\n/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
     return result
@@ -353,8 +367,8 @@ mock.patch.object(subprocess,'run',side_effect=run).start()
             script += '''original_open=os.open
 def open_node(path,*args,**kwargs):
     if str(path).endswith('/native.lock'):
-        launcher=pathlib.Path(os.environ['HERMES_HOME'])/'plugin-data/browser-link-cloud/com.hermes.browser_link.cloud'
-        result=original([str(launcher),'chrome-extension://dhioigkigkkhceflkkkmoljhdaefjohb/'],input=b'',capture_output=True,timeout=5)
+        launcher=pathlib.Path(os.environ['HERMES_HOME'])/'plugin-data/fast-browser-link-cloud/com.fast.browser_link.cloud'
+        result=original([str(launcher),'chrome-extension://hhnljehnkmhhgjjjmnlhilfpcjhobloc/'],input=b'',capture_output=True,timeout=5)
         assert result.returncode==4,result
         pathlib.Path(os.environ['TEST_OPEN']).with_name('paused-launch-proof').write_text('paused-launch-blocked')
     return original_open(path,*args,**kwargs)
@@ -390,7 +404,7 @@ mock.patch.object(os,'open',side_effect=open_node).start()
 
     def test_real_head_prehello_host_maintenance_refuses_and_restores_launcher(self):
         self.real_head_cloud_install()
-        launcher = self.hermes / 'plugin-data/browser-link-cloud' / (HOST + '.cloud')
+        launcher = self.hermes / 'plugin-data/fast-browser-link-cloud' / (HOST + '.cloud')
         before = (launcher.read_bytes(), launcher.stat().st_mode, launcher.stat().st_ino)
         child = self.start_real_old_host()
         try:
@@ -411,7 +425,7 @@ mock.patch.object(os,'open',side_effect=open_node).start()
     def test_real_head_offline_idle_first_maintenance_migration_blocks_launch(self):
         private = self.real_head_cloud_install()
         child = self.start_real_old_host(hello=True); self.stop_fixture_host(child)
-        base = self.hermes / 'plugin-data/browser-link-cloud'
+        base = self.hermes / 'plugin-data/fast-browser-link-cloud'
         pairing = base / 'instances/11111111-1111-4111-8111-111111111111/pairing.json'
         pairing.write_bytes(b'opaque synthetic private bytes'); pairing.chmod(0o600)
         original = pairing.read_bytes()
@@ -430,7 +444,7 @@ mock.patch.object(os,'open',side_effect=open_node).start()
     def test_real_head_maintenance_transaction_failure_restores_original_launcher_and_private(self):
         private = self.real_head_cloud_install()
         child = self.start_real_old_host(hello=True); self.stop_fixture_host(child)
-        launcher = self.hermes / 'plugin-data/browser-link-cloud' / (HOST + '.cloud')
+        launcher = self.hermes / 'plugin-data/fast-browser-link-cloud' / (HOST + '.cloud')
         before = launcher.read_bytes(), launcher.stat().st_mode
         original = (self.plugin / 'cloud_link/native_host.py').read_bytes()
         self.maintenance_invoke(fail=True, ok=False)
@@ -457,7 +471,7 @@ mock.patch.object(os,'open',side_effect=open_node).start()
         self.assertEqual(json.loads((self.root / 'opened.json').read_text()), ['-a', 'Google Chrome'])
         for path in self.manifests:
             self.assertEqual(json.loads(path.read_text())['allowed_origins'], [ORIGIN])
-        self.assertEqual(json.loads((self.root / 'commands.jsonl').read_text()), ['--profile', 'default', 'plugins', 'enable', 'browser-link'])
+        self.assertEqual(json.loads((self.root / 'commands.jsonl').read_text()), ['--profile', 'default', 'plugins', 'enable', 'fast-browser-link'])
         self.assertIn('Program installed and enabled', result.stdout)
         self.assertNotIn('Extension connected.', result.stdout)
         self.assertIn('Confirm browser connection authorization', result.stdout)
@@ -492,7 +506,7 @@ mock.patch.object(os,'open',side_effect=open_node).start()
                      if 'Check: ' in line)
         argv = shlex.split(check)
         self.assertEqual(argv[0], sys.executable)
-        self.assertEqual(argv[1], str(self.hermes / 'plugins/browser-link/native_bridge/doctor.py'))
+        self.assertEqual(argv[1], str(self.hermes / 'plugins/fast-browser-link/native_bridge/doctor.py'))
         self.assertEqual(argv[2:], ['--hermes-home', str(self.hermes), '--user-home', str(self.home)])
         checked = subprocess.run(argv, env={**self.env, 'TEST_CONNECT_AT': '1'},
                                  capture_output=True, text=True, timeout=15)
@@ -510,10 +524,10 @@ mock.patch.object(os,'open',side_effect=open_node).start()
         self.assertEqual(extension['version'], VERSION)
         self.assertEqual((self.data / 'host-config.json').read_bytes(), config)
         self.assert_private_kept(private)
-        backups = list((self.hermes / 'plugin-backups').glob('browser-link-1.5.1-*'))
+        backups = list((self.hermes / 'plugin-backups').glob('fast-browser-link-1.5.1-*'))
         self.assertEqual(len(backups), 1)
         self.assertEqual(backups[0].stat().st_mode & 0o777, 0o700)
-        self.assertFalse(any(path.name.startswith('browser-link-') for path in (self.hermes / 'plugins').iterdir()))
+        self.assertFalse(any(path.name.startswith('fast-browser-link-') for path in (self.hermes / 'plugins').iterdir()))
         index = json.loads((backups[0] / 'paths.json').read_text())
         plugin_backup = next(Path(row['backup']) for row in index if row['path'] == str(self.plugin))
         self.assertIn('version: 1.5.1', (plugin_backup / 'plugin.yaml').read_text())
@@ -543,7 +557,7 @@ mock.patch.object(os,'open',side_effect=open_node).start()
 
     def test_corrupt_package_is_rejected_before_upgrade_writes(self):
         self.old_install()
-        (self.package / 'browser-link/runtime.py').write_text('# unlisted modification\n')
+        (self.package / 'fast-browser-link/runtime.py').write_text('# unlisted modification\n')
         before = self.inventory()
         self.invoke('--upgrade', ok=False)
         self.assertEqual(self.inventory(), before)
@@ -623,7 +637,7 @@ mock.patch.object(os,'open',side_effect=open_node).start()
         named.mkdir(parents=True)
         result = self.invoke(env={'HERMES_HOME': str(named)})
         self.assertTrue((self.plugin / 'plugin.yaml').is_file())
-        self.assertFalse((named / 'plugins/browser-link').exists())
+        self.assertFalse((named / 'plugins/fast-browser-link').exists())
         self.assertEqual(json.loads((self.root / 'commands.jsonl').read_text())[1], 'default')
         self.assertIn('profiles: default', result.stdout)
 
@@ -734,7 +748,7 @@ mock.patch.object(os,'open',side_effect=open_node).start()
         self.invoke(*[arg for name in names for arg in ('--profile', name)])
         self.assertFalse(self.plugin.is_symlink())
         for name in names[1:]:
-            reference = self.hermes / 'profiles' / name / 'plugins/browser-link'
+            reference = self.hermes / 'profiles' / name / 'plugins/fast-browser-link'
             self.assertTrue(reference.is_symlink())
             self.assertEqual(os.readlink(reference), str(self.plugin))
             self.assertEqual(reference.resolve(), self.plugin)
@@ -748,7 +762,7 @@ mock.patch.object(os,'open',side_effect=open_node).start()
             profile = self.hermes if name == 'default' else self.hermes / 'profiles' / name
             profile.mkdir(parents=True, exist_ok=True)
             config = profile / 'config.yaml'
-            config.write_bytes(b'plugins:\n  browser-link: false\ncapabilities: [tools.override]\n')
+            config.write_bytes(b'plugins:\n  fast-browser-link: false\ncapabilities: [tools.override]\n')
             private = profile / 'plugin-data/profile-private'
             private.mkdir(parents=True)
             (private / 'keep').write_bytes(name.encode())
@@ -756,13 +770,13 @@ mock.patch.object(os,'open',side_effect=open_node).start()
             original[private / 'keep'] = (private / 'keep').read_bytes()
             if name == 'default':
                 continue
-            reference = profile / 'plugins/browser-link'
+            reference = profile / 'plugins/fast-browser-link'
             reference.parent.mkdir()
             if name == 'linked':
-                reference.symlink_to('../../../plugins/browser-link')
+                reference.symlink_to('../../../plugins/fast-browser-link')
             else:
                 shutil.copytree(self.plugin, reference)
-        linked = self.hermes / 'profiles/linked/plugins/browser-link'
+        linked = self.hermes / 'profiles/linked/plugins/fast-browser-link'
         readlink = os.readlink(linked)
         inode = linked.lstat().st_ino
         (self.hermes / 'profiles/new').mkdir()
@@ -772,30 +786,30 @@ mock.patch.object(os,'open',side_effect=open_node).start()
         for path, contents in original.items():
             self.assertEqual(path.read_bytes(), contents)
         for name in ('copied', 'linked', 'disabled', 'new'):
-            reference = self.hermes / 'profiles' / name / 'plugins/browser-link'
+            reference = self.hermes / 'profiles' / name / 'plugins/fast-browser-link'
             self.assertTrue(reference.is_symlink())
             self.assertEqual(reference.resolve(), self.plugin)
         self.assertEqual(os.readlink(linked), readlink)
         self.assertEqual(linked.lstat().st_ino, inode)
         calls = [json.loads(line) for line in (self.root / 'commands.jsonl').read_text().splitlines()]
         self.assertEqual([args[1] for args in calls], ['default', 'new'])
-        references = {name: (self.hermes / 'profiles' / name / 'plugins/browser-link').lstat().st_ino
+        references = {name: (self.hermes / 'profiles' / name / 'plugins/fast-browser-link').lstat().st_ino
                       for name in ('copied', 'linked', 'disabled', 'new')}
         self.invoke('--upgrade')
         for name, previous_inode in references.items():
-            self.assertEqual((self.hermes / 'profiles' / name / 'plugins/browser-link').lstat().st_ino, previous_inode)
+            self.assertEqual((self.hermes / 'profiles' / name / 'plugins/fast-browser-link').lstat().st_ino, previous_inode)
         self.assertEqual(len((self.root / 'commands.jsonl').read_text().splitlines()), 2)
         state = json.loads((self.data / 'install-state.json').read_text())
         self.assertEqual(set(state['profiles']), {'default', 'copied', 'linked', 'disabled', 'new'})
         self.invoke('--uninstall', '--yes')
         for name in references:
-            self.assertFalse((self.hermes / 'profiles' / name / 'plugins/browser-link').is_symlink())
+            self.assertFalse((self.hermes / 'profiles' / name / 'plugins/fast-browser-link').is_symlink())
 
     def test_multiple_profiles_are_installed_enabled_upgraded_and_uninstalled(self):
         (self.hermes / 'profiles/work').mkdir(parents=True)
         result = self.invoke('--profile', 'default', '--profile', 'work', '--profile', 'work')
         self.assertIn('profiles: default, work', result.stdout)
-        named = self.hermes / 'profiles/work/plugins/browser-link'
+        named = self.hermes / 'profiles/work/plugins/fast-browser-link'
         self.assertTrue((named / 'plugin.yaml').is_file())
         calls = [json.loads(line) for line in (self.root / 'commands.jsonl').read_text().splitlines()]
         self.assertEqual([args[1] for args in calls], ['default', 'work'])
@@ -806,12 +820,12 @@ mock.patch.object(os,'open',side_effect=open_node).start()
 
     def migration_fixture(self):
         private = self.old_install()
-        copied = self.hermes / 'profiles/copied/plugins/browser-link'
+        copied = self.hermes / 'profiles/copied/plugins/fast-browser-link'
         copied.parent.mkdir(parents=True)
         shutil.copytree(self.plugin, copied)
-        linked = self.hermes / 'profiles/linked/plugins/browser-link'
+        linked = self.hermes / 'profiles/linked/plugins/fast-browser-link'
         linked.parent.mkdir(parents=True)
-        linked.symlink_to('../../../plugins/browser-link')
+        linked.symlink_to('../../../plugins/fast-browser-link')
         (self.hermes / 'profiles/new').mkdir()
         configs = []
         for name in ('default', 'copied', 'linked', 'new'):
@@ -824,11 +838,11 @@ mock.patch.object(os,'open',side_effect=open_node).start()
     def assert_migration_restored(self, fixture):
         private, copied, linked, configs = fixture
         self.assertTrue(linked.is_symlink())
-        self.assertEqual(os.readlink(linked), '../../../plugins/browser-link')
+        self.assertEqual(os.readlink(linked), '../../../plugins/fast-browser-link')
         self.assertTrue(copied.is_dir())
         self.assertFalse(copied.is_symlink())
         self.assertIn('version: 1.5.1', (copied / 'plugin.yaml').read_text())
-        self.assertFalse((self.hermes / 'profiles/new/plugins/browser-link').exists())
+        self.assertFalse((self.hermes / 'profiles/new/plugins/fast-browser-link').exists())
         for config in configs:
             self.assertEqual(config.read_bytes(), b'original capability and disabled settings\n')
         self.assert_private_kept(private)
@@ -836,10 +850,10 @@ mock.patch.object(os,'open',side_effect=open_node).start()
         index = json.loads((backup / 'paths.json').read_text())
         row = next(row for row in index if row['path'] == str(linked))
         self.assertEqual(row.get('kind'), 'symlink')
-        self.assertEqual(row.get('readlink'), '../../../plugins/browser-link')
+        self.assertEqual(row.get('readlink'), '../../../plugins/fast-browser-link')
         saved = Path(row['backup'])
         self.assertTrue(saved.is_symlink())
-        self.assertEqual(os.readlink(saved), '../../../plugins/browser-link')
+        self.assertEqual(os.readlink(saved), '../../../plugins/fast-browser-link')
 
     def test_migration_activation_rollback_keeps_link_text_and_node_kind(self):
         fixture = self.migration_fixture()
@@ -855,7 +869,7 @@ mock.patch.object(os,'open',side_effect=open_node).start()
         fixture = self.migration_fixture()
         stages = [('root install', 'shutil', 'copytree', str(self.plugin)),
                   ('extension install', 'shutil', 'copytree', str(self.extension)),
-                  ('link creation', 'pathlib.Path', 'symlink_to', str(self.hermes / 'profiles/new/plugins/browser-link')),
+                  ('link creation', 'pathlib.Path', 'symlink_to', str(self.hermes / 'profiles/new/plugins/fast-browser-link')),
                   ('state write', 'pathlib.Path', 'write_text', str(self.data / 'install-state.json'))]
         for stage, owner, method, destination in stages:
             with self.subTest(stage=stage):
@@ -1035,9 +1049,9 @@ mock.patch.object(socket.socket, 'connect_ex', side_effect=AssertionError('must 
         self.assertEqual(parent.stat().st_mtime_ns, mtime)
 
     def named_shared_reference(self):
-        reference = self.hermes / 'profiles/work/plugins/browser-link'
+        reference = self.hermes / 'profiles/work/plugins/fast-browser-link'
         reference.parent.mkdir(parents=True)
-        reference.symlink_to('../../../plugins/browser-link')
+        reference.symlink_to('../../../plugins/fast-browser-link')
 
     def test_named_stale_pid_live_socket_refuses_before_probe_writes(self):
         self.old_install()
@@ -1150,15 +1164,15 @@ mock.patch.object(socket.socket, 'connect_ex', side_effect=AssertionError('must 
 
     def test_unknown_reference_links_are_rejected_before_upgrade_or_uninstall(self):
         self.old_install()
-        reference = self.hermes / 'profiles/unregistered/plugins/browser-link'
+        reference = self.hermes / 'profiles/unregistered/plugins/fast-browser-link'
         reference.parent.mkdir(parents=True)
         outside = self.root / 'outside'
         outside.mkdir()
         (outside / 'keep').write_bytes(b'untouched')
         alias = self.root / 'chain'
         alias.symlink_to(self.plugin)
-        for destination in (outside, self.root / 'missing', alias, self.root / 'other-hermes/plugins/browser-link',
-                            self.hermes / 'missing/../plugins/browser-link'):
+        for destination in (outside, self.root / 'missing', alias, self.root / 'other-hermes/plugins/fast-browser-link',
+                            self.hermes / 'missing/../plugins/fast-browser-link'):
             reference.symlink_to(destination)
             for args in (('--upgrade',), ('--uninstall', '--yes')):
                 with self.subTest(destination=destination, args=args):
@@ -1170,16 +1184,16 @@ mock.patch.object(socket.socket, 'connect_ex', side_effect=AssertionError('must 
     def test_unregistered_desktop_only_copy_is_archived_without_enabling_profile(self):
         self.old_install()
         profile = self.hermes / 'profiles/desktop-only'
-        desktop = profile / 'desktop-plugins/browser-link'
+        desktop = profile / 'desktop-plugins/fast-browser-link'
         desktop.mkdir(parents=True)
-        (desktop / '.hermes-package.json').write_text(json.dumps({'package': 'browser-link'}))
+        (desktop / '.hermes-package.json').write_text(json.dumps({'package': 'fast-browser-link'}))
         (desktop / 'plugin.js').write_bytes(b'old interface copy')
         config = profile / 'config.yaml'
         config.write_bytes(b'disabled profile capability settings')
         self.invoke('--upgrade')
         self.assertFalse(desktop.exists())
         self.assertEqual(config.read_bytes(), b'disabled profile capability settings')
-        reference = profile / 'plugins/browser-link'
+        reference = profile / 'plugins/fast-browser-link'
         self.assertTrue(reference.is_symlink())
         self.assertEqual(reference.resolve(), self.plugin)
         backup = next((self.hermes / 'plugin-backups').iterdir())
@@ -1221,9 +1235,9 @@ mock.patch.object(socket.socket, 'connect_ex', side_effect=AssertionError('must 
         self.assertEqual(self.inventory(), before)
 
     def test_fresh_install_detects_unselected_unregistered_program_copy(self):
-        copied = self.hermes / 'profiles/unregistered/plugins/browser-link'
+        copied = self.hermes / 'profiles/unregistered/plugins/fast-browser-link'
         copied.parent.mkdir(parents=True)
-        shutil.copytree(self.package / 'browser-link', copied)
+        shutil.copytree(self.package / 'fast-browser-link', copied)
         before = self.inventory()
         result = self.invoke(ok=False)
         self.assertIn('Already installed', result.stderr)

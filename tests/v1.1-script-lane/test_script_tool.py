@@ -1,4 +1,4 @@
-"""browser_shared_script end to end: real child interpreter, synthetic bridge.
+"""fast_browser_script end to end: real child interpreter, synthetic bridge.
 
 No browser, daemon or Hermes source is used. The fake runtime stands in for the
 native daemon's shared.get/browser.list/shared.run answers.
@@ -245,7 +245,7 @@ class ScriptToolTests(unittest.TestCase):
         self.assertTrue(all(row.get('tabId') == 7 for row in self.runtime.runs[1:]))
 
     def test_script_reuses_only_unique_owned_tab_without_opening_another(self):
-        # 中文注释：browser_shared_open 已打开唯一页时，脚本无需再开第二个页。
+        # 中文注释：fast_browser_open 已打开唯一页时，脚本无需再开第二个页。
         self.bind()
         self.runtime.tab_ids = [7]
         result = self.run_script("click_element('Next', role='button')")
@@ -387,7 +387,7 @@ class ScriptToolTests(unittest.TestCase):
         keys = set(json.loads(result["stdout"]))
         self.assertNotIn("BROWSER_EXECUTOR_TEST_SECRET", keys)
         self.assertLessEqual(keys, {"PATH", "HOME", "TMPDIR", "LANG", "PYTHONIOENCODING",
-                                    "PYTHONDONTWRITEBYTECODE", "HERMES_BROWSER_FD", "HERMES_BROWSER_EXPORT_ROOTS", "LC_CTYPE", "__CF_USER_TEXT_ENCODING"})
+                                    "PYTHONDONTWRITEBYTECODE", "FAST_BROWSER_FD", "FAST_BROWSER_EXPORT_ROOTS", "LC_CTYPE", "__CF_USER_TEXT_ENCODING"})
 
     def test_timeout_kills_the_script_and_marks_outcome_unknown(self):
         self.bind()
@@ -451,7 +451,7 @@ class ScriptToolTests(unittest.TestCase):
             "except BrowserError as exc:\n"
             "    print('refused', exc.code)\n")
         self.assertEqual(result["exit_code"], 0, result)
-        workspace = next((self.home / "plugin-data" / "browser-link-native" / "scripts").iterdir())
+        workspace = next((self.home / "plugin-data" / "fast-browser-link-native" / "scripts").iterdir())
         self.assertEqual(result["stdout"].split(), [str((workspace / "shots" / "a.png").resolve()), "refused", "invalid_params"])
         self.assertTrue((workspace / "shots" / "a.png").is_file())
         self.assertFalse((workspace.parent / "escape.png").exists())

@@ -40,7 +40,7 @@ class BridgeIntegrationTests(unittest.TestCase):
         finally:
             client.close()
 
-        data_dir = self.home / "plugin-data" / "browser-link-native"
+        data_dir = self.home / "plugin-data" / "fast-browser-link-native"
         socket_path = data_dir / "bridge.sock"
         token_path = data_dir / "token"
         self.assertTrue(stat.S_ISSOCK(socket_path.stat().st_mode))
@@ -51,8 +51,8 @@ class BridgeIntegrationTests(unittest.TestCase):
 
     def test_native_host_framing_registers_extension_over_real_uds(self):
         ensure_service(self.home)
-        data_dir = self.home / "plugin-data" / "browser-link-native"
-        origin = "chrome-extension://dhioigkigkkhceflkkkmoljhdaefjohb/"
+        data_dir = self.home / "plugin-data" / "fast-browser-link-native"
+        origin = "chrome-extension://hhnljehnkmhhgjjjmnlhilfpcjhobloc/"
         (data_dir / "host-config.json").write_text(
             json.dumps({"allowedOrigins": [origin]}), encoding="utf-8"
         )
@@ -96,9 +96,9 @@ class BridgeIntegrationTests(unittest.TestCase):
     def test_default_idle_exit_after_real_native_host_eof_and_restart(self):
         from daemon import _DAEMON_IDLE_GRACE_SECONDS
         ensure_service(self.home)
-        data = self.home / 'plugin-data/browser-link-native'
+        data = self.home / 'plugin-data/fast-browser-link-native'
         pid = int((data / 'daemon.pid').read_text())
-        origin = 'chrome-extension://dhioigkigkkhceflkkkmoljhdaefjohb/'
+        origin = 'chrome-extension://hhnljehnkmhhgjjjmnlhilfpcjhobloc/'
         (data / 'host-config.json').write_text(json.dumps({'allowedOrigins': [origin]}))
         process = subprocess.Popen([sys.executable, str(BRIDGE_DIR / 'host.py'), origin],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -151,7 +151,7 @@ class BridgeIntegrationTests(unittest.TestCase):
                 stream.close()
 
     def test_native_host_rejects_non_allowlisted_origin_without_token_output(self):
-        data_dir = self.home / "plugin-data" / "browser-link-native"
+        data_dir = self.home / "plugin-data" / "fast-browser-link-native"
         data_dir.mkdir(parents=True, exist_ok=True)
         token = "never-print-this-token"
         (data_dir / "token").write_text(token)
@@ -175,7 +175,7 @@ class BridgeIntegrationTests(unittest.TestCase):
 
         with ThreadPoolExecutor(max_workers=8) as pool:
             list(pool.map(lambda _index: start(), range(8)))
-        data_dir = self.home / "plugin-data" / "browser-link-native"
+        data_dir = self.home / "plugin-data" / "fast-browser-link-native"
         pid = int((data_dir / "daemon.pid").read_text())
         self.assertGreater(pid, 0)
         process_list = subprocess.run(
@@ -189,7 +189,7 @@ class BridgeIntegrationTests(unittest.TestCase):
 
     def test_installer_stages_chrome_and_edge_manifests_only_in_isolated_home(self):
         isolated_home = Path(self.temp.name) / "mac-home"
-        origin = "chrome-extension://dhioigkigkkhceflkkkmoljhdaefjohb/"
+        origin = "chrome-extension://hhnljehnkmhhgjjjmnlhilfpcjhobloc/"
         subprocess.run(
             [
                 sys.executable,
@@ -205,23 +205,23 @@ class BridgeIntegrationTests(unittest.TestCase):
             text=True,
         )
         manifest_paths = [
-            isolated_home / "Library/Application Support/Google/Chrome/NativeMessagingHosts/com.hermes.browser_link.json",
-            isolated_home / "Library/Application Support/Microsoft Edge/NativeMessagingHosts/com.hermes.browser_link.json",
+            isolated_home / "Library/Application Support/Google/Chrome/NativeMessagingHosts/com.fast.browser_link.json",
+            isolated_home / "Library/Application Support/Microsoft Edge/NativeMessagingHosts/com.fast.browser_link.json",
         ]
         for manifest_path in manifest_paths:
             manifest = json.loads(manifest_path.read_text())
-            self.assertEqual(manifest["name"], "com.hermes.browser_link")
+            self.assertEqual(manifest["name"], "com.fast.browser_link")
             self.assertEqual(manifest["type"], "stdio")
             self.assertEqual(manifest["allowed_origins"], [origin])
             host_path = Path(manifest["path"])
             self.assertTrue(host_path.is_file())
             self.assertTrue(os.access(host_path, os.X_OK))
             self.assertTrue(str(host_path).startswith(str(isolated_home)))
-        config = isolated_home / ".hermes/plugin-data/browser-link-native/host-config.json"
+        config = isolated_home / ".hermes/plugin-data/fast-browser-link-native/host-config.json"
         self.assertEqual(json.loads(config.read_text()), {"allowedOrigins": [origin]})
 
     def test_client_does_not_replay_request_after_response_is_lost(self):
-        data_dir = self.home / "plugin-data" / "browser-link-native"
+        data_dir = self.home / "plugin-data" / "fast-browser-link-native"
         data_dir.mkdir(parents=True, mode=0o700)
         token = "test-token-value"
         (data_dir / "token").write_text(token)

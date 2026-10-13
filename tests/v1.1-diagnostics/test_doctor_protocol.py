@@ -18,7 +18,7 @@ class DoctorProtocolTests(unittest.TestCase):
         for browsers in (None, {}, 'invalid', [None]):
             with self.subTest(browsers=browsers), tempfile.TemporaryDirectory(dir='/tmp') as work:
                 home = Path(work)
-                data = home / 'plugin-data/browser-link-native'
+                data = home / 'plugin-data/fast-browser-link-native'
                 data.mkdir(parents=True)
                 (data / 'token').write_text('synthetic-token')
                 (data / 'token').chmod(0o600)

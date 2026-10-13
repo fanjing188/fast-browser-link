@@ -48,7 +48,7 @@ function fixture({debuggerEvents=true,pauseAnimationFrames=false,stallPaintProbe
     if(method==='DOM.getDocument')return {root:{nodeName:'HTML',children:[]}};
     if(['DOM.enable','Target.setAutoAttach'].includes(method))return {};
     if(method==='Page.createIsolatedWorld')return {executionContextId:17};
-    if(method==='Runtime.addBinding'){window.hermesOverlayCommand=()=>{};return {};}
+    if(method==='Runtime.addBinding'){window.fastOverlayCommand=()=>{};return {};}
     if(method==='Runtime.callFunctionOn'){
      const args=(params.arguments||[]).map(item=>item.value);
      if(stallPaintProbe&&params.functionDeclaration.startsWith('function interactionHighlightCommand(')&&args[0]==='painted'){
@@ -58,7 +58,7 @@ function fixture({debuggerEvents=true,pauseAnimationFrames=false,stallPaintProbe
      const fn=window.eval(`(${params.functionDeclaration})`);
      const value=fn(...args);
      if(restoreFailure&&params.functionDeclaration.startsWith('function(op,scope){const state=')&&args[0]==='hide'){
-      const host=document.querySelector('[data-hermes-automation-overlay]');
+      const host=document.querySelector('[data-fast-automation-overlay]');
       window.getComputedStyle=element=>element===host?{display:'none'}:getComputedStyle(element);
      }
      if(params.functionDeclaration.startsWith('function interactionHighlightCommand(')&&args[0]==='prepare-selector')preparedResolve();
@@ -148,10 +148,10 @@ test('截图恢复失败保留拦截，显式停止后才清理遮罩',async()=>
   assert.match(error?.message||'',/overlay restore failed/);
   assert.ok(f.calls.some(call=>call.method==='Page.captureScreenshot'),'capture succeeds before restoration is rejected');
   // 中文注释：失败关闭要求保留输入拦截；资源由明确停止统一释放。
-  assert.equal(f.document.querySelector('[data-hermes-automation-overlay]')?.style.pointerEvents,'auto');
+  assert.equal(f.document.querySelector('[data-fast-automation-overlay]')?.style.pointerEvents,'auto');
   assert.equal(f.executor.tasks.get(task.id).overlays?.has(7),true);
   await f.executor.release({taskId:task.id,generation:task.generation,closeAgentTabs:false});
-  assert.equal(f.document.querySelector('[data-hermes-automation-overlay]'),null);assert.equal(f.listeners.size,0);
+  assert.equal(f.document.querySelector('[data-fast-automation-overlay]'),null);assert.equal(f.listeners.size,0);
  }finally{f.dom.window.close();}
 });
 
@@ -164,10 +164,10 @@ test('截图与恢复同时失败保留两个原因并保持拦截至停止',asy
    assert.deepEqual(error.errors.map(cause=>cause.message),['review capture failure','overlay restore failed']);
    return true;
   });
-  assert.equal(f.document.querySelector('[data-hermes-automation-overlay]')?.style.pointerEvents,'auto');
+  assert.equal(f.document.querySelector('[data-fast-automation-overlay]')?.style.pointerEvents,'auto');
   assert.equal(f.executor.tasks.get(task.id).overlays?.has(7),true);
   await f.executor.release({taskId:task.id,generation:task.generation,closeAgentTabs:false});
-  assert.equal(f.document.querySelector('[data-hermes-automation-overlay]'),null);assert.equal(f.listeners.size,0);
+  assert.equal(f.document.querySelector('[data-fast-automation-overlay]'),null);assert.equal(f.listeners.size,0);
  }finally{f.dom.window.close();}
 });
 

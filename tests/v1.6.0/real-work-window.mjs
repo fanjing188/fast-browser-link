@@ -30,9 +30,9 @@ try{
  const shot=await tabs[1].run('interaction.capture');assert.equal(shot.error,undefined,JSON.stringify(shot));
  const bounds=await tabs[1].run('interaction.bounds',{screenshot_id:shot.id,selector:'#trusted'});assert.equal(bounds.error,undefined,JSON.stringify(bounds));
  assert.equal(await session.ui.evaluate(`chrome.tabs.query({windowId:${windows[0]},active:true}).then(t=>t[0].id)`),activeBeforeRead);
- const stateBefore=await tabs[1].read(`({revision:globalThis.__hermesInteractions?.revision,visibility:document.visibilityState,url:location.href,viewport:{width:innerWidth,height:innerHeight},scroll:{x:scrollX,y:scrollY}})`);
+ const stateBefore=await tabs[1].read(`({revision:globalThis.__fastInteractions?.revision,visibility:document.visibilityState,url:location.href,viewport:{width:innerWidth,height:innerHeight},scroll:{x:scrollX,y:scrollY}})`);
  const coordinate=await tabs[1].run('interaction.click',{screenshot_id:shot.id,point:bounds.imageCenter,expected_ref:bounds.ref});
- if(coordinate.error)console.log('coordinate debug',stateBefore,await tabs[1].read(`({revision:globalThis.__hermesInteractions?.revision,visibility:document.visibilityState,url:location.href,viewport:{width:innerWidth,height:innerHeight},scroll:{x:scrollX,y:scrollY}})`));
+ if(coordinate.error)console.log('coordinate debug',stateBefore,await tabs[1].read(`({revision:globalThis.__fastInteractions?.revision,visibility:document.visibilityState,url:location.href,viewport:{width:innerWidth,height:innerHeight},scroll:{x:scrollX,y:scrollY}})`));
  assert.equal(coordinate.effect,'observed',JSON.stringify(coordinate));assert.equal(await tabs[1].read('hits.trusted'),2);
  console.log('PASS 后台截图读取不切标签，切前台后坐标点击引用仍有效');
  // 中文注释：最小化仍走真实输入；不恢复窗口或聚焦用户窗口。
@@ -45,7 +45,7 @@ try{
  await session.ui.evaluate(`chrome.windows.update(${windows[0]},{state:'normal'}).then(()=>true)`);
  let extra;
  for(let i=4;i<=7;i++)extra=await openTask(session,{owner:'work160',origins:[origin],url:`${origin}/${i}`,title:`计数任务 ${i}`});
- assert.equal(extra.opened.open_tabs,7);assert.equal(extra.opened.tab_hint,'不再用的网站先 browser_shared_close');
+ assert.equal(extra.opened.open_tabs,7);assert.equal(extra.opened.tab_hint,'不再用的网站先 fast_browser_close');
  console.log('PASS 会话工作页计数和超过六页的关闭提醒');
  // 中文注释：只关本 fixture 的工作窗口，再创建新任务，验证自动重建。
  await session.ui.evaluate(`chrome.windows.remove(${windows[0]}).then(()=>true)`);
@@ -53,7 +53,7 @@ try{
  const rebuiltWindow=await session.ui.evaluate(`chrome.tabs.get(${rebuilt.tabId}).then(t=>t.windowId)`);assert.notEqual(rebuiltWindow,windows[0]);
  assert.equal((await rebuilt.act('ref_click',await rebuilt.ref('Trusted click',['button']))).effect,'observed');console.log('PASS 用户关闭后工作窗口自动重建');
  // 中文注释：丢失保存编号时仍复用真实首页；并发任务全部结束后才关闭空窗口。
- await session.ui.evaluate(`chrome.storage.local.remove('hermes.workWindow.v1').then(()=>true)`);
+ await session.ui.evaluate(`chrome.storage.local.remove('fast.workWindow.v1').then(()=>true)`);
  const peer=await openTask(session,{owner:'peer160',origins:[origin],url:`${origin}/peer`,title:'复用'});
  assert.equal(await session.ui.evaluate(`chrome.tabs.get(${peer.tabId}).then(t=>t.windowId)`),rebuiltWindow);
  const closed=await session.rpc(rebuilt.owner,'close',{task_id:rebuilt.task.id});assert.equal(closed.state,'closed',JSON.stringify(closed));

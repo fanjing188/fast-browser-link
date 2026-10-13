@@ -86,7 +86,7 @@ class HardeningTests(unittest.TestCase):
         return daemon, task
 
     def test_fixture_socket_path_is_canonical_and_fits_macos_uds(self):
-        socket_path = self.home / "plugin-data" / "browser-link-native" / "bridge.sock"
+        socket_path = self.home / "plugin-data" / "fast-browser-link-native" / "bridge.sock"
         self.assertEqual(socket_path, socket_path.resolve())
         self.assertLessEqual(len(os.fsencode(socket_path)), 103)
 
@@ -300,7 +300,7 @@ class HardeningTests(unittest.TestCase):
         self.assertEqual(reclaimed["state"], "ready")
 
     def test_token_symlink_is_rejected_without_touching_target(self):
-        data_dir = self.home / "plugin-data" / "browser-link-native"
+        data_dir = self.home / "plugin-data" / "fast-browser-link-native"
         data_dir.mkdir(parents=True, mode=0o700)
         target = Path(self.temp.name) / "victim-token"
         target.write_text("do-not-read-or-chmod", encoding="ascii")
@@ -317,7 +317,7 @@ class HardeningTests(unittest.TestCase):
         self.assertEqual(stat.S_IMODE(target.stat().st_mode), 0o644)
 
     def test_daemon_refuses_non_socket_collision_without_deleting_it(self):
-        data_dir = self.home / "plugin-data" / "browser-link-native"
+        data_dir = self.home / "plugin-data" / "fast-browser-link-native"
         data_dir.mkdir(parents=True, mode=0o700)
         collision = data_dir / "bridge.sock"
         collision.write_text("unrelated-file", encoding="ascii")
@@ -346,7 +346,7 @@ class HardeningTests(unittest.TestCase):
         # 中文注释：旧 daemon 被 SIGKILL 后遗留套接字；新 daemon 持锁后应清理无人监听的套接字并重新服务。
         first = subprocess.Popen([sys.executable, str(BRIDGE_DIR / "daemon.py"), "--home", str(self.home)],
                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        data_dir = self.home / "plugin-data" / "browser-link-native"
+        data_dir = self.home / "plugin-data" / "fast-browser-link-native"
         deadline = time.monotonic() + 5
         while not (data_dir / "daemon.pid").exists() and time.monotonic() < deadline:
             time.sleep(0.05)

@@ -1,24 +1,20 @@
-# Agent installation prompt / 代理安装提示词
+# 从 GitHub 自动安装并验证
 
-## English
+将下面提示词发送给能执行本机命令的 agent。默认使用独立 skills 模式。
 
-> Check macOS, Chrome/Edge, `hermes --version` and Python 3.11+ (`python3 --version`). Download and extract the Release asset named `hermes-browser-link-<version>.zip` from https://github.com/fanjing188/hermes-browser-link/releases, not Source code (zip). The Release needs no Node.js, npm or Git. Only use source installation if requested; it needs Node.js 22.12+.
-> Inspect `hermes profile list` and select my intended profiles explicitly with repeated `--profile <name>` flags. Without flags the first install enables only default, even in a named profile environment. Do not create profiles without asking.
-> Use one program in the shared root with named-profile direct references; keep profile enablement, permissions and private data separate. Upgrade existing copies without re-enabling disabled profiles; do not add `--profile` flags merely to enumerate migration targets. Retain upgrade backups and Hermes Desktop's application-level UI cache.
-> Enter the extracted directory and run `./install.sh --wait-seconds 0` (or `bash install.sh --wait-seconds 0` if not executable); do not use sudo. Use `--upgrade` for an existing installation. Do not edit config.yaml by hand or stop running apps for me.
-> Report the enabled profiles and separate local program installation from browser connection. Stop and give me the printed Extension directory and Check command; wait while I load that directory at chrome://extensions or edge://extensions, confirm browser connection authorization (full access) myself in the extension, and restart Hermes Desktop with the intended profile (or start a new CLI session).
-> Do not click browser security or connection authorization confirmations for me. Ordinary task actions run directly after I authorize the connection; independent protections remain.
-> After I finish, run the exact printed Check command. It uses the installation's shared Hermes root and user home; do not replace them with the current profile's HERMES_HOME. This read-only check does not start or repair services.
-> Report whether installation succeeded and the browser connected; if it failed, give the cause and next command or action.
+```text
+请从 https://github.com/fanjing188/fast-browser-link 的正式 Releases 自动下载安装 Fast-browser-link，并实际调用验证。
 
-## 中文
+1. 使用 GitHub API 或 gh 获取真实 Release 附件，选择 fast-browser-link-<版本>.zip；不要选择 Source code 或带 -hermes- 的适配器包。
+2. 校验发布的 ZIP SHA256 和包内 SHA256SUMS.json，在独立目录解压；仓库或附件不可用时如实停止，不猜测 URL。
+3. 阅读安装说明，检查 macOS、Python 3.11+ 和目标目录。已有安装不覆盖、不删除。
+4. 记录原 Hermes 配置、插件及 Native host 文件的摘要。保留所有现有插件、数据和标签页。
+5. 先运行 bash install.sh --dry-run，再运行 bash install.sh。不要加 --hermes-plugin，不开启 tools.override，不修改 Hermes 源码或 config.yaml。
+6. 在日常使用的 Chrome/Edge 中，通过正常扩展管理界面加载输出的 extension 目录。新版扩展 ID 为 hhnljehnkmhhgjjjmnlhilfpcjhobloc；保留旧扩展启用。不要装进其他应用的专用浏览器或临时 profile。
+7. 读取 ~/.agents/skills/fast-browser-link/SKILL.md，使用其 scripts/browser.py 验证 health、browsers、公开网页读取，以及本机测试页的填写、点击和回读。不要向真实网站提交测试数据。
+8. 关闭本次创建的任务，核对清理成功和旧安装文件未变。报告 Release URL、摘要、安装位置及验证结果。
 
-> 检查 macOS、Chrome/Edge、`hermes --version` 和 Python 3.11+（`python3 --version`）。从 https://github.com/fanjing188/hermes-browser-link/releases 下载并解压名为 `hermes-browser-link-<版本>.zip` 的附件，不选 Source code (zip)。Release 无需 Node.js、npm 或 Git；只有我要求时才用源码安装，源码需要 Node.js 22.12+。
-> 用 `hermes profile list` 查看已有 profile，明确选择我要用的对象，重复加 `--profile <名>`。首次安装不加参数只启用 default，即使当前在命名 profile 环境里也一样。不要擅自创建 profile。
-> 使用共享根的一份程序和命名 profile 的直接引用，保留各自启停、权限和私有数据。升级迁移已有全副本时不重新启用停用项，不为枚举迁移对象而加 `--profile`。保留升级备份和 Hermes Desktop 的应用级界面缓存。
-> 进入解压目录，运行 `./install.sh --wait-seconds 0`，无执行权限时用 `bash install.sh --wait-seconds 0`，不要用 sudo。已有安装用 `--upgrade`。不手工编辑 config.yaml，也不替我退出正在运行的应用。
-> 报告启用的 profiles，分开说明程序安装和浏览器连接。停下来给我打印的“扩展目录”和“检查 / Check”命令，等我在 chrome://extensions 或 edge://extensions 加载该目录、亲自在扩展中确认浏览器连接授权（全部访问），用目标 profile 重启 Hermes 桌面端或新开 CLI 会话。
-> 不替我点击浏览器的安全或权限确认。
-> 浏览器连接授权由我亲自确认；确认后普通任务直接执行，独立保护不变。
-> 等我完成后，运行打印的原样 Check 命令，使用安装时的共享根和用户目录，不换成当前 profile 的 HERMES_HOME。这个检查只读，不启动或修复服务。
-> 报告安装是否成功、浏览器是否连接；失败时说明原因和下一条命令或操作。
+请实际执行。文件复制成功或 health 正常，不等于浏览器调用验证通过；需要用户确认时说明具体步骤。
+```
+
+通用包无需 Node.js 或 Hermes。浏览器对未上架扩展的首次确认仍然适用；纯云端、不能执行本机命令的 agent 无法直接使用本机 skill。

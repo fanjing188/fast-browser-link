@@ -10,7 +10,7 @@ export const JSON_VERSION_FILES = [
 ];
 export const TEXT_VERSION_FILES = [
  'executor-plugin/plugin.yaml',
- 'README.md', 'README.zh-CN.md', 'docs/releasing.md', 'scripts/migrate-to-browser-link.py',
+ 'README.md', 'README.zh-CN.md', 'docs/releasing.md', 'scripts/migrate-to-fast-browser-link.py',
 ];
 export const MIGRATION_VERSIONS = /extension\['version'\] not in \{([^}]+)\}/;
 
@@ -71,10 +71,10 @@ export async function verifyReleaseVersions(source) {
   for (const match of matches) expectVersion(file, text, match.index, match[0], version, 'document version');
   const required = file.startsWith('README') ? [
    `**${version} —`,
-   `https://github.com/fanjing188/hermes-browser-link/releases/download/v${version}/hermes-browser-link-${version}.zip`,
-   `-o hermes-browser-link-${version}.zip`, `unzip hermes-browser-link-${version}.zip`, `cd hermes-browser-link-${version}`,
+   `https://github.com/fanjing188/fast-browser-link/releases/download/v${version}/fast-browser-link-${version}.zip`,
+   `-o fast-browser-link-${version}.zip`, `unzip fast-browser-link-${version}.zip`, `cd fast-browser-link-${version}`,
   ] : [
-   `artifacts/public-source-${version}`, `--release ${version} --output out/browser-link-${version}`, `tag \`v${version}\``,
+   `artifacts/public-source-${version}`, `--release ${version} --output out/fast-browser-link-${version}`, `tag \`v${version}\``,
   ];
   for (const token of required) if (!text.includes(token)) mismatch(file, text, 0, `missing current release reference: ${token}`);
  }
@@ -83,9 +83,9 @@ export async function verifyReleaseVersions(source) {
  const topVersion = /^(\d+\.\d+\.\d+) — \d{4}-\d{2}-\d{2}/.exec(firstSection?.[1] || '');
  expectVersion(changelogFile, changelog, firstSection?.index, topVersion?.[1], version, 'top release section');
  const releaseFile = `docs/release-${version}.md`, release = await sourceText(source, releaseFile);
- const title = /^# Hermes Browser Link (\S+)$/m.exec(release);
+ const title = /^# Fast-browser-link (\S+)$/m.exec(release);
  expectVersion(releaseFile, release, title?.index, title?.[1], version, 'release title');
- const migrationFile = 'scripts/migrate-to-browser-link.py', migration = await sourceText(source, migrationFile);
+ const migrationFile = 'scripts/migrate-to-fast-browser-link.py', migration = await sourceText(source, migrationFile);
  const supported = MIGRATION_VERSIONS.exec(migration);
  if (!supported || !supported[1].split(',').some(value => value.trim() === `'${version}'`)) mismatch(migrationFile, migration, supported?.index, `known migration versions must include ${version}`);
  return version;

@@ -45,7 +45,7 @@ export function cdpMethodAllowed(method){
 
 // 中文注释：内部隔离世界不属于网页事件；其余事件保留原始字段。
 export function scrubCdpEvent(method,params){
- if(method==='Runtime.executionContextCreated'&&/^hermes-/.test(params?.context?.name||''))return null;
+ if(method==='Runtime.executionContextCreated'&&/^fast-/.test(params?.context?.name||''))return null;
  if(method==='Runtime.bindingCalled'&&String(params?.name||'').startsWith('hermes'))return null;
  return params;
 }

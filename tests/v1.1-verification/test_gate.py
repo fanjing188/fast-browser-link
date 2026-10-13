@@ -506,7 +506,7 @@ class GateNegativeControls(unittest.TestCase):
         # 中文注释：诊断三个固定 Python runner 各新增一步，原有四十步全部保留。
         # 中文注释：自动更新增加一个固定离线 runner，不改变补充或真实浏览器门禁。
         # 中文注释：OAuth popup 两个固定 Python 文件增加两步，Node 合并步骤不变。
-        self.assertEqual(len(gate.matrix(Path('/scratch/source'), '/scratch/python')), 51)
+        self.assertEqual(len(gate.matrix(Path('/scratch/source'), '/scratch/python')), 52)
         self.assertEqual(len(gate.supplemental_matrix(Path('/scratch/source'), '/scratch/python')), 2)
 
     def test_browser_use_cli_source_is_discovered_from_cli_without_executing_it(self):
@@ -563,9 +563,10 @@ class GateNegativeControls(unittest.TestCase):
         }
         # 中文注释：V1.3 新增受审阅的脚本 runner，保留显式清单与数量校验；1.8.5 后加入 version-set 回归。
         # 中文注释：1.11.1 登记 tests/v1.11.0 的定位恢复与动作后回读两个 Python runner，清单增加两项。
-        self.assertEqual(len(steps), 52)
-        self.assertEqual(len(gate.REVIEWED_RUNNER_PATHS), 52)
-        self.assertEqual(len(set(gate.REVIEWED_RUNNER_PATHS)), 52)
+        # 中文注释：新增真实 Hermes 注册表兼容回归，保留显式数量与发现门禁。
+        self.assertEqual(len(steps), 53)
+        self.assertEqual(len(gate.REVIEWED_RUNNER_PATHS), 53)
+        self.assertEqual(len(set(gate.REVIEWED_RUNNER_PATHS)), 53)
         self.assertTrue({'tests/v1.11.0/test_recovery_protocol.py','tests/v1.11.0/test_after_protocol.py'}.issubset(set(gate.REVIEWED_RUNNER_PATHS)))
         self.assertTrue(latest_delta.issubset(set(gate.REVIEWED_RUNNER_PATHS)))
         self.assertTrue(current_delta.issubset(set(gate.REVIEWED_RUNNER_PATHS)))
@@ -575,7 +576,7 @@ class GateNegativeControls(unittest.TestCase):
         # 中文注释：镜像 Node/Python 两个离线文件也纳入发现与固定清单核对。
         # 中文注释：新增自动更新固定 runner 后，审阅允许清单增加一项。
         # 中文注释：version-set 回归登记后允许清单再增加一项。
-        self.assertEqual(len(gate.known_v11_runner_paths()), 94)
+        self.assertEqual(len(gate.known_v11_runner_paths()), 95)
         self.assertIn('tests/v1.11.0/recovery.test.mjs', gate.known_v11_runner_paths())
         # 中文注释：1.5.1 桌面 API 与交互均登记，真实浏览器脚本不进入离线门禁。
         # 中文注释：后台审批 runner 登记后显式清单增加一项。

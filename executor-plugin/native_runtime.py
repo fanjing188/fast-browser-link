@@ -41,10 +41,10 @@ def load_module(path: Path, prefix: str):
         return module
 
 
-_base = load_module(Path(__file__).with_name('runtime.py'), 'hermes_browser_link_runtime_')
+_base = load_module(Path(__file__).with_name('runtime.py'), 'fast_browser_link_runtime_')
 OWNER_LEASE_ARG = _base.OWNER_LEASE_ARG
 OwnerLeaseError = _base.OwnerLeaseError
-TOOL_NAMES = tuple('browser_shared_' + suffix for suffix in (
+TOOL_NAMES = tuple('fast_browser_' + suffix for suffix in (
     # 中文注释：文件清单只提供当前可信会话的任务级元信息。
     'health', 'browsers', 'create', 'list', 'get', 'artifacts', 'run', 'cancel', 'resume', 'close', 'downloads', 'cookie_mirror'))
 
@@ -100,10 +100,10 @@ class NativeProfileRuntime:
     def __init__(self, hermes_home: Path, plugin_root: Path, *, bridge_client=None):
         self.hermes_home = Path(hermes_home).expanduser().resolve()
         self.plugin_root = Path(plugin_root).expanduser().resolve()
-        self.authority = NativeOwnerAuthority(self.hermes_home / 'plugin-data' / 'browser-link-native' / 'authority')
-        # 中文注释：扩展只连默认 HERMES_HOME 的守护进程；其他 profile 设 HERMES_BROWSER_BRIDGE_HOME 共用它。
+        self.authority = NativeOwnerAuthority(self.hermes_home / 'plugin-data' / 'fast-browser-link-native' / 'authority')
+        # 中文注释：扩展只连默认 HERMES_HOME 的守护进程；其他 profile 设 FAST_BROWSER_BRIDGE_HOME 共用它。
         # 任务仍按本 profile 的 owner 身份隔离，凭据库（vault）不共用。
-        bridge_home = os.environ.get('HERMES_BROWSER_BRIDGE_HOME', '').strip()
+        bridge_home = os.environ.get('FAST_BROWSER_BRIDGE_HOME', '').strip()
         if bridge_home:
             self.bridge_home = Path(bridge_home).expanduser().resolve()
         elif self.hermes_home.parent.name == 'profiles':

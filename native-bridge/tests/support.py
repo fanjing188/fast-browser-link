@@ -23,7 +23,7 @@ def temporary_bridge_home():
     root = Path(tempfile.gettempdir()).resolve()
     for _ in range(100):
         home = root / uuid.uuid4().hex[:3]
-        if len(os.fsencode(home / 'plugin-data/browser-link-native/bridge.sock')) > 103:
+        if len(os.fsencode(home / 'plugin-data/fast-browser-link-native/bridge.sock')) > 103:
             raise ValueError('TMPDIR is too long for a fixture bridge socket')
         try:
             home.mkdir(mode=0o700)
@@ -50,7 +50,7 @@ def read_line(reader):
 
 
 def stop_fixture_daemon(home: Path, extra_daemons=()):
-    data_dir = Path(home) / "plugin-data" / "browser-link-native"
+    data_dir = Path(home) / "plugin-data" / "fast-browser-link-native"
     pid_path = data_dir / "daemon.pid"
     if not pid_path.exists():
         return
@@ -58,7 +58,7 @@ def stop_fixture_daemon(home: Path, extra_daemons=()):
     pid = int(raw)
     command = subprocess.run(["ps", "-p", str(pid), "-o", "command="], capture_output=True, text=True)
     candidates = (Path(__file__).resolve().parents[1] / "daemon.py",
-                  Path(home) / "plugins/browser-link/native_bridge/daemon.py",
+                  Path(home) / "plugins/fast-browser-link/native_bridge/daemon.py",
                   data_dir / "host-bin/daemon.py", *map(Path, extra_daemons))
     expected = any(command.stdout.strip().endswith(f" {candidate} --home {Path(home).resolve()}")
                    for candidate in candidates)
@@ -79,7 +79,7 @@ class ExtensionPeer:
     def __init__(self, home: Path, instance_id="instance-a", browser="chrome", capabilities=None):
         ensure_service(home)
         self.home = Path(home)
-        data_dir = self.home / "plugin-data" / "browser-link-native"
+        data_dir = self.home / "plugin-data" / "fast-browser-link-native"
         self.socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.socket.settimeout(3)
         self.socket.connect(str(data_dir / "bridge.sock"))

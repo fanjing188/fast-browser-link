@@ -8,14 +8,14 @@ import {preveilSource} from '../../native-extension/core.mjs';
 import {CdpClient,waitFor,fetchJson} from '../native-v2/cdp-client.mjs';
 const browser=process.argv.includes('--edge')?'edge':'chrome';
 const binary=browser==='edge'?'/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge':'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-const work=await mkdtemp(path.join(process.env.TMPDIR||'/private/tmp','hermes-overlay-')),profile=path.join(work,'profile'),temp=path.join(work,'tmp');
+const work=await mkdtemp(path.join(process.env.TMPDIR||'/private/tmp','fast-overlay-')),profile=path.join(work,'profile'),temp=path.join(work,'tmp');
 await mkdir(temp);await mkdir(path.join(work,'home'));
 const browserEnv={HOME:process.env.HOME,HERMES_HOME:path.join(work,'home','.hermes'),TMPDIR:temp,PATH:process.env.PATH||'/usr/bin:/bin:/usr/sbin:/sbin',LANG:process.env.LANG||'en_US.UTF-8'};
 const source=await readFile(new URL('../../native-extension/automation-overlay.mjs',import.meta.url),'utf8');
 const server=createServer((req,res)=>{
  if(req.url==='/preveil-only'){res.setHeader('Content-Type','text/html');res.end("<!doctype html><dialog id='dialog'><button onclick='window.clicks++'>加载中的模态按钮</button></dialog><script>window.clicks=0;document.querySelector('dialog').showModal()</script>");return;}
  res.setHeader('Content-Type',req.url==='/overlay.mjs'?'text/javascript':'text/html');
- res.end(req.url==='/frame'?'<input id=frame-input aria-label=框架输入>':req.url==='/overlay.mjs'?source:`<!doctype html><style>body{min-height:4000px}#frame{position:fixed;left:400px;top:100px;width:280px;height:160px}</style><script>window.blockedAtFirstScript=!!document.querySelector('[data-hermes-preveil]')</script><button id="target" style="position:fixed;left:50px;top:80px" onclick="window.clicks++">测试点击</button><iframe id="frame" src="http://localhost:${server.address().port}/frame"></iframe><dialog id="dialog"><button onclick="window.clicks++">模态按钮</button></dialog><div id="pop" popover="manual"><button onclick="window.clicks++">浮层按钮</button></div><script>window.clicks=0</script><script type="module">import {createAutomationOverlay} from '/overlay.mjs';window.overlay=createAutomationOverlay({taskId:'t',generation:1,tabId:7,origin:location.origin,onStop:async()=>({state:'stopped'}),onTakeover:async()=>({state:'paused'}),onResume:async()=>({state:'running'})});</script>`);
+ res.end(req.url==='/frame'?'<input id=frame-input aria-label=框架输入>':req.url==='/overlay.mjs'?source:`<!doctype html><style>body{min-height:4000px}#frame{position:fixed;left:400px;top:100px;width:280px;height:160px}</style><script>window.blockedAtFirstScript=!!document.querySelector('[data-fast-preveil]')</script><button id="target" style="position:fixed;left:50px;top:80px" onclick="window.clicks++">测试点击</button><iframe id="frame" src="http://localhost:${server.address().port}/frame"></iframe><dialog id="dialog"><button onclick="window.clicks++">模态按钮</button></dialog><div id="pop" popover="manual"><button onclick="window.clicks++">浮层按钮</button></div><script>window.clicks=0</script><script type="module">import {createAutomationOverlay} from '/overlay.mjs';window.overlay=createAutomationOverlay({taskId:'t',generation:1,tabId:7,origin:location.origin,onStop:async()=>({state:'stopped'}),onTakeover:async()=>({state:'paused'}),onResume:async()=>({state:'running'})});</script>`);
 });
 let proc,cdp;
 try{
@@ -54,7 +54,7 @@ try{
  await cdp.evaluate("overlay.update({state:'waiting'})");await cdp.call('Input.insertText',{text:'不应输入'});assert.equal(await frameEval("document.querySelector('input').value"),'用户输入');
  await cdp.call('Target.detachFromTarget',{sessionId:attached.sessionId});
  // 中文注释：新文档第一个内联脚本运行时预遮罩必须已在 DOM 中。
- await cdp.call('Page.enable');await cdp.call('Page.addScriptToEvaluateOnNewDocument',{source:preveilSource([url.slice(0,-1)]),worldName:'hermes-automation-preveil'});
+ await cdp.call('Page.enable');await cdp.call('Page.addScriptToEvaluateOnNewDocument',{source:preveilSource([url.slice(0,-1)]),worldName:'fast-automation-preveil'});
  await cdp.call('Page.navigate',{url:url+'navigate'});await waitFor(()=>cdp.evaluate('location.pathname==="/navigate"&&!!window.overlay'));
  assert.equal(await cdp.evaluate('window.blockedAtFirstScript'),true,'导航首个脚本前应有预遮罩');await click();assert.equal(await cdp.evaluate('window.clicks'),0);
  await cdp.evaluate("document.open();document.write('<html><body><button onclick=window.clicks++>替换文档</button></body></html>');document.close()");await waitFor(()=>cdp.evaluate('overlay.host.isConnected'));

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {Executor} from '../../native-extension/core.mjs';
 import {NativeWorkspaces} from '../../native-extension/workspace-adapter.mjs';
 import {workspaceFixture,trustedTask} from './workspace-fixture.mjs';
-const journalKey='hermes.backgroundWorkspaces.v1';
+const journalKey='fast.backgroundWorkspaces.v1';
 const open=(e,id='a',requestId='new')=>e.execute({taskId:id,generation:1,action:'new_tab',requestId,url:'https://example.com/',allowedOrigins:['https://example.com'],modeGeneration:2});
 async function approve(e,id='a',ids=[1]){const t=trustedTask(id,ids);await e.approve(t);e.setMode({...t,modeGeneration:2,activeMode:'full'});}
 

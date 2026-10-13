@@ -4,7 +4,7 @@ The plugin, daemon, Native Messaging host and extension exchange JSON messages. 
 
 ## Transport
 
-- **Client ↔ daemon.** Newline-delimited JSON over the Unix-domain socket `$HERMES_HOME/plugin-data/browser-link-native/bridge.sock`. The first line is a handshake `{role: "client" | "extension", token, ...}`. Requests are `{id, method, params}`; responses are `{id, result}` or `{id, error: {code, message, data?}}`. No TCP listener exists.
+- **Client ↔ daemon.** Newline-delimited JSON over the Unix-domain socket `$HERMES_HOME/plugin-data/fast-browser-link-native/bridge.sock`. The first line is a handshake `{role: "client" | "extension", token, ...}`. Requests are `{id, method, params}`; responses are `{id, result}` or `{id, error: {code, message, data?}}`. No TCP listener exists.
 - **Extension ↔ host.** Chromium Native Messaging (4-byte little-endian length + JSON). The host adds the local token and forwards to the socket. It accepts only the extension origins listed in its manifest.
 - **Bounds.** Payload sizes, pending-request counts and timeouts are bounded. Page-action dispatch allows up to 30 s for capture/input round trips.
 
@@ -26,7 +26,7 @@ Every `shared.run` carries a `requestId`. The daemon binds each ID to a hash of 
 | `browser.access_request {instanceId}` | Compatibility request to show extension connection authorization; not a Desktop action-request or mode-switch control. It never grants authorization itself. |
 | `shared.create {owner, title, instanceId, allowedOrigins}` | New task; after browser connection authorization the extension prepares full-access task authority automatically |
 | `shared.list`, `shared.get`, `shared.cancel`, `shared.close`, `shared.resume` | Task lifecycle. `resume` increments the generation and needs fresh authorization. |
-| `shared.run {owner, taskId, requestId, action, tabId?, ...}` | One page action (see [usage](usage.md#page-actions-browser_shared_run)) |
+| `shared.run {owner, taskId, requestId, action, tabId?, ...}` | One page action (see [usage](usage.md#page-actions-fast_browser_run)) |
 | `shared.operation_status` | Read the request ledger for a request ID |
 | `shared.artifacts`, `shared.downloads`, `shared.download_claim` | Task files and downloads |
 | `shared.cdp_gateway`, `shared.cdp_gateway_close` | Local CDP endpoint for `browser_exec`; connection authorization opens directly; task scope and credential-page exclusion remain enforced, and the gateway closes after the script |

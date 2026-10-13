@@ -60,7 +60,7 @@ try{for(const browser of browsers){
   assert.equal((await invoke('browser_site_manage',{action:'activate',draft_id:draft.draft_id})).ok,true);
   assert.equal((await invoke('browser_site_search',{query:'列表'})).tools.length,1);
   assert.equal((await invoke('browser_site_run',{site:'fixture',name:'rows',args:{path:'/api'}})).result.rows[0].title,'中文测试');
-  const refs=await invoke('browser_shared_reference',{instance_id:task.instance.instanceId});assert.ok(refs.helpers.some(h=>h.name==='network_start'),JSON.stringify(refs));
+  const refs=await invoke('fast_browser_reference',{instance_id:task.instance.instanceId});assert.ok(refs.helpers.some(h=>h.name==='network_start'),JSON.stringify(refs));
   await script('import json\nprint(json.dumps(network_stop()))');
   // 中文注释：真实浏览器中结果序列化超时必须释放执行器；原表达式只能执行一次。
   const serialization=await task.run('js.evaluate',{world:'main',timeout_ms:100,expression:'globalThis.auditSerializationCount=(globalThis.auditSerializationCount||0)+1;({toJSON(){while(true){}}})'});

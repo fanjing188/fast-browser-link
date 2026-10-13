@@ -9,7 +9,7 @@ import {CdpClient,waitFor,fetchJson} from '../native-v2/cdp-client.mjs';
 const browser=process.argv.includes('--edge')?'edge':'chrome';
 const binary=browser==='edge'?'/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge':'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const root=path.resolve(import.meta.dirname,'../..');
-const work=await mkdtemp('/private/tmp/hermes-files-');
+const work=await mkdtemp('/private/tmp/fast-files-');
 const profile=path.join(work,'profile'),extension=path.join(work,'extension'),hermes=path.join(work,'hermes'),temp=path.join(work,'tmp');
 const server=createServer((req,res)=>{
  if(req.url==='/file'){
@@ -80,7 +80,7 @@ print(json.dumps(str(store.resolve(task=task,owner='audit',origin=LOCAL_PATH_ORI
  const completed=reports.find(row=>row.event==='complete');
  assert.equal(completed.taskId,'audit');assert.equal(completed.generation,1);
  assert.equal(await readFile(completed.path,'utf8'),'synthetic-download');
- assert.ok(completed.path.includes('/hermes-tasks/0123456789abcdef/'));
+ assert.ok(completed.path.includes('/fast-browser-tasks/0123456789abcdef/'));
  await ui.evaluate(`executor.vault.inspect({...scope,nonce:'a'.repeat(48)}).then(value=>(globalThis.inspected=value))`);
  // 中文注释：用真实页面验证检查后字段变成只读时不会写入合成凭据。
  await ui.evaluate(`read('document.querySelector("#password").readOnly=true')`);

@@ -2,8 +2,8 @@ import { host, ROUTES_AREA, SIDEBAR_NAV_AREA, PALETTE_AREA, useQuery } from '@he
 import { useEffect, useRef, useState } from 'react'
 import { jsx, jsxs } from 'react/jsx-runtime'
 
-const ID = 'browser-link'
-const ROOT = '/browser-link'
+const ID = 'fast-browser-link'
+const ROOT = '/fast-browser-link'
 const POLL_MS = 3000
 let pluginCtx = null
 
@@ -127,7 +127,7 @@ function CookieMirrorPanel({ browser, rows, fresh }) {
   const filtered = (sites || []).filter(row => row.site.includes(search.trim().toLowerCase()))
   return jsxs('section', { 'aria-label': 'Cookie 镜像', style: { gridColumn: '1 / -1', minWidth: 0 }, children: [
     // 中文注释：遮罩只作用于本镜像弹窗，原生 top layer 继续负责背景输入隔离、焦点和 Esc。
-    jsx('style', { children: '.hermes-cookie-dialog::backdrop{background:rgb(0 0 0 / .45)}' }),
+    jsx('style', { children: '.fast-cookie-dialog::backdrop{background:rgb(0 0 0 / .45)}' }),
     button(loading ? '正在读取…' : '读取 Cookie 站点', loadSites, { disabled: !available || loading || busy }),
     error ? jsx('p', { role: 'alert', className: 'mt-2 text-sm text-(--ui-text-danger)', children: error }) : null,
     sites ? jsxs('div', { className: 'mt-3 flex flex-col gap-3', children: [
@@ -144,7 +144,7 @@ function CookieMirrorPanel({ browser, rows, fresh }) {
       jsx('p', { children: cookieStatusText(current) }),
       ['preparing', 'approval_required'].includes(current.status) ? jsx('p', { children: '必须在源浏览器扩展里批准。浏览器在后台时可点击系统通知打开面板；也可切到源浏览器，将已有确认窗口切到前台。' }) : null,
       ...(current.sites || []).filter(row => row.reasons.length).map(row => jsx('p', { children: `${row.site}：${row.reasons.join(' / ')}` }, row.site)) ] }) : null,
-    jsx('dialog', { ref: dialog, onCancel: () => setDialogSites(null), 'aria-label': '镜像 Cookie 到其他浏览器', className: 'hermes-cookie-dialog', style: COOKIE_DIALOG_STYLE, children: jsxs('div', { style: COOKIE_DIALOG_CONTENT_STYLE, children: [
+    jsx('dialog', { ref: dialog, onCancel: () => setDialogSites(null), 'aria-label': '镜像 Cookie 到其他浏览器', className: 'fast-cookie-dialog', style: COOKIE_DIALOG_STYLE, children: jsxs('div', { style: COOKIE_DIALOG_CONTENT_STYLE, children: [
       jsx('h2', { className: 'm-0 text-lg font-semibold', children: '镜像 Cookie' }),
       jsx('p', { className: 'text-sm', children: '批准后会把该站点登录态复制到目标浏览器。必须在源浏览器扩展里批准，全部访问也不能跳过确认。' }),
       jsx('p', { className: 'break-all text-sm', children: (dialogSites || []).join('、') }),
@@ -207,10 +207,10 @@ function BrowserWork() {
   const loading=browsers.data===undefined&&!browsers.error&&browsers.fetchStatus!=='paused'
   return jsxs('main', { 'data-browser-work-page': '', style: BROWSER_WORK_PAGE_STYLE, children: [
     jsx('h1', { className: 'text-xl font-semibold text-(--ui-text-primary)', children: '浏览器连接' }),
-    jsx('p', { role: loading?'status':browsersFresh?'status':'alert', className: 'text-sm text-(--ui-text-secondary)', children: loading?'正在读取浏览器连接…':browsersFresh?'本地桥接可用':'本地桥接不可用，请启动桥接服务并在浏览器扩展中连接 Hermes。' }),
+    jsx('p', { role: loading?'status':browsersFresh?'status':'alert', className: 'text-sm text-(--ui-text-secondary)', children: loading?'正在读取浏览器连接…':browsersFresh?'本地桥接可用':'本地桥接不可用，请启动桥接服务并在浏览器扩展中连接 Fast-browser-link。' }),
     !loading&&!browsersFresh?button(browsers.isFetching?'正在刷新…':'刷新',()=>browsers.refetch(),{disabled:browsers.isFetching||browsers.fetchStatus==='paused'}):null,
     primaryError?jsx('p',{role:'alert',className:'text-xs text-(--ui-text-danger)',children:'主要链接设置未确认，请刷新后重试。'}):null,
-    browsersFresh&&!rows.length?jsx('p', { className: 'text-sm text-(--ui-text-secondary)', children: '暂无浏览器，请打开浏览器扩展并连接 Hermes。' }):null,
+    browsersFresh&&!rows.length?jsx('p', { className: 'text-sm text-(--ui-text-secondary)', children: '暂无浏览器，请打开浏览器扩展并连接 Fast-browser-link。' }):null,
     ...[['在线浏览器',online],['离线浏览器',offline],['状态待确认的浏览器',unknown]].filter(([,items])=>items.length).map(([label,items])=>jsxs('section', { 'aria-label':label,style:BROWSER_WORK_SECTION_STYLE,children:[jsx('h2',{style:BROWSER_WORK_HEADING_STYLE,children:label}),...items.map(browserRow)] },label)),
     jsx('p',{className:'text-xs text-(--ui-text-tertiary)',children:'连接授权在浏览器扩展中确认；普通任务无需逐项批准。接管、停止、凭据保护和 Cookie 镜像确认仍独立生效。'})
   ] })
@@ -228,7 +228,7 @@ export default {
     ctx.registerMany([
       { id: 'page', area: ROUTES_AREA, data: { path: ROOT }, render: () => jsx(Page, {}) },
       { id: 'nav', area: SIDEBAR_NAV_AREA, order: 68, data: { path: ROOT, label: '浏览器连接', codicon: 'browser' } },
-      { id: 'open', area: PALETTE_AREA, data: { id: 'browser-link.open', label: '打开浏览器连接', keywords: ['浏览器', '连接', 'browser'], run: () => host.navigate(ROOT) } }
+      { id: 'open', area: PALETTE_AREA, data: { id: 'fast-browser-link.open', label: '打开浏览器连接', keywords: ['浏览器', '连接', 'browser'], run: () => host.navigate(ROOT) } }
     ])
   }
 }

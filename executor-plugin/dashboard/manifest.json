@@ -1,11 +1,11 @@
 {
-  "name": "browser-link",
+  "name": "fast-browser-link",
   "label": "浏览器连接",
   "description": "浏览器连接授权与 Cookie 镜像；桌面界面由 Hermes 插件提供。",
   "icon": "Globe",
-  "version": "1.11.2",
+  "version": "2.0.0",
   "tab": {
-    "path": "/browser-link",
+    "path": "/fast-browser-link",
     "position": "after:sessions",
     "hidden": true
   },

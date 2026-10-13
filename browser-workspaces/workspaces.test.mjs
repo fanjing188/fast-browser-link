@@ -34,7 +34,7 @@ test('retry revalidates moved tabs after inventory lookup and preserves late add
 
 test('recovered legacy opener ownership is uncertain and cannot be deleted',async()=>{
  const f=fixture(),cap=f.grant(),a=await f.manager.open(cap,{requestId:'a',url:'https://example.test'});
- const key='hermes.backgroundWorkspaces.v1',stored=(await f.api.storage.local.get(key))[key];
+ const key='fast.backgroundWorkspaces.v1',stored=(await f.api.storage.local.get(key))[key];
  stored.tasks[0][1].requests[0][1].source='opener';await f.api.storage.local.set({[key]:stored});
  const restored=createWorkspaces({chrome:f.api,authority:f.authority});await restored.cleanup(cap);
  assert.ok(f.tabs.has(a.tabId));assert.equal((await restored.status(cap)).cleanupState,'unknown');
@@ -202,7 +202,7 @@ test('timeout before journal restoration never overwrites recoverable entries',a
  const f=fixture(),cap=f.grant();await f.manager.open(cap,{requestId:'a',url:'https://example.test'});
  const get=f.api.storage.local.get;let resume;const gate=new Promise(r=>resume=r);f.api.storage.local.get=async key=>{await gate;return get(key);};
  const restored=createWorkspaces({chrome:f.api,authority:f.authority});await assert.rejects(restored.cleanup(cap,{timeoutMs:10}),/WORKSPACE_CLEANUP_TIMEOUT/);
- assert.equal((await get('hermes.backgroundWorkspaces.v1'))['hermes.backgroundWorkspaces.v1'].tasks.length,1);
+ assert.equal((await get('fast.backgroundWorkspaces.v1'))['fast.backgroundWorkspaces.v1'].tasks.length,1);
  resume();await restored.reconcile();assert.equal(f.tabs.size,2);
 });
 test('keep requested while ownership lookup is pending prevents deletion',async()=>{
@@ -213,7 +213,7 @@ test('keep requested while ownership lookup is pending prevents deletion',async(
 });
 test('startup inventory protects original tab even when recovered ownership says regrouped and ready',async()=>{
  const f=fixture(),cap=f.grant(),work=await f.manager.open(cap,{requestId:'new',url:'https://example.test'});
- const key='hermes.backgroundWorkspaces.v1',journal=(await f.api.storage.local.get(key))[key];
+ const key='fast.backgroundWorkspaces.v1',journal=(await f.api.storage.local.get(key))[key];
  f.tabs.get(1).groupId=work.groupId;
  journal.tasks[0][1].requests.push(['bad-old-ownership',{status:'ready',tabId:1,groupId:work.groupId}]);
  await f.api.storage.local.set({[key]:journal});
@@ -285,7 +285,7 @@ test('different task creates overlap while local saves remain serialized',async(
  const slow=f.manager.open(a,{requestId:'slow',url:'https://example.test/slow'});await started;
  const fast=await f.manager.open(b,{requestId:'fast',url:'https://example.test/fast'});
  assert.ok(f.tabs.has(fast.tabId));release();await slow;
- const stored=(await f.api.storage.local.get('hermes.backgroundWorkspaces.v1'))['hermes.backgroundWorkspaces.v1'];
+ const stored=(await f.api.storage.local.get('fast.backgroundWorkspaces.v1'))['fast.backgroundWorkspaces.v1'];
  assert.equal(stored.tasks.length,2);assert.ok(stored.tasks.every(([,task])=>task.requests[0][1].status==='ready'));
 });
 
@@ -374,7 +374,7 @@ test('deferred deadline guard retries but protective guard denial remains kept',
 });
 
 test('local journal drops completed and restart-invalidated terminal tasks but keeps live ones',async()=>{
- const f=fixture(),key='hermes.backgroundWorkspaces.v1';
+ const f=fixture(),key='fast.backgroundWorkspaces.v1';
  const done=f.grant('done'),live=f.grant('live');
  await f.manager.open(done,{requestId:'d',url:'https://example.test/d',title:'done'});
  await f.manager.open(live,{requestId:'l',url:'https://example.test/l',title:'live'});

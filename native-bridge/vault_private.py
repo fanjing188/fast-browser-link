@@ -103,7 +103,7 @@ class VaultPrivateService:
         server.listen(16)
         server.setblocking(False)
         self.server = server
-        threading.Thread(target=self._accept, args=(server, token), name="browser-link-native-vault", daemon=True).start()
+        threading.Thread(target=self._accept, args=(server, token), name="fast-browser-link-native-vault", daemon=True).start()
 
     def close(self):
         if self.server:

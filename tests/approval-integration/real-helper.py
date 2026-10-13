@@ -33,7 +33,7 @@ def paths(work: Path):
         "work": work,
         "home": home,
         "hermes": home / ".hermes",
-        "plugin": work / "plugin" / "browser-link",
+        "plugin": work / "plugin" / "fast-browser-link",
         "extension": work / "dist-native",
     }
 
@@ -83,7 +83,7 @@ def rpc(work: Path, session: str, suffix: str, args: dict):
     profile.call = recorded_call
     manager = plugins.PluginManager()
     manager._hooks.setdefault("pre_tool_call", []).append(profile.authority.pre_tool_call)
-    name = "browser_shared_" + suffix
+    name = "fast_browser_" + suffix
     try:
         with patch.object(plugins, "_delivery_manager", return_value=manager):
             result = _invoke(plugins, tools, profile, name, args, session)
@@ -138,7 +138,7 @@ def batch(work: Path, session: str, kind: str, args: dict):
             "task_id": args["task_id"], "request_id": f"{args['request_prefix']}-{sequence}",
             "action": action, "tab_id": args["tab_id"], **extra,
         }
-        result = _invoke(plugins, tools, profile, "browser_shared_run", payload, session)
+        result = _invoke(plugins, tools, profile, "fast_browser_run", payload, session)
         if result.get("error"):
             raise RuntimeError(json.dumps({**result, "diagnostic": diagnostic}, ensure_ascii=False))
         return result
@@ -149,7 +149,7 @@ def batch(work: Path, session: str, kind: str, args: dict):
                 shot = run("interaction.capture")
                 bounds = run("interaction.bounds", screenshot_id=shot["id"], selector=args["selector"])
                 clicked = run("interaction.click", screenshot_id=shot["id"], point=bounds["imageCenter"], expected_ref=bounds["ref"])
-                replay = _invoke(plugins, tools, profile, "browser_shared_run", {
+                replay = _invoke(plugins, tools, profile, "fast_browser_run", {
                     "task_id": args["task_id"], "request_id": f"{args['request_prefix']}-replay",
                     "action": "interaction.click", "tab_id": args["tab_id"],
                     "screenshot_id": shot["id"], "point": bounds["imageCenter"], "expected_ref": bounds["ref"],
@@ -176,12 +176,12 @@ def batch(work: Path, session: str, kind: str, args: dict):
 
 def inspect(work: Path):
     value = paths(work)
-    pid_path = value["hermes"] / "plugin-data/browser-link-native/daemon.pid"
+    pid_path = value["hermes"] / "plugin-data/fast-browser-link-native/daemon.pid"
     if not pid_path.is_file():
         raise RuntimeError("fixture daemon is not running")
     pid = int(pid_path.read_text())
     command = subprocess.run(["ps", "-p", str(pid), "-o", "command="], check=True, capture_output=True, text=True).stdout.strip()
-    expected = value["hermes"] / "plugin-data/browser-link-native/host-bin/daemon.py"
+    expected = value["hermes"] / "plugin-data/fast-browser-link-native/host-bin/daemon.py"
     alternate = value["plugin"] / "native_bridge/daemon.py"
     if str(alternate) in command:
         import hashlib
@@ -201,12 +201,12 @@ def inspect(work: Path):
 
 def cleanup(work: Path):
     value = paths(work)
-    pid_path = value["hermes"] / "plugin-data/browser-link-native/daemon.pid"
+    pid_path = value["hermes"] / "plugin-data/fast-browser-link-native/daemon.pid"
     if not pid_path.is_file():
         return {}
     pid = int(pid_path.read_text())
     command = subprocess.run(["ps", "-p", str(pid), "-o", "command="], capture_output=True, text=True)
-    expected = str(value["hermes"] / "plugin-data/browser-link-native/host-bin/daemon.py")
+    expected = str(value["hermes"] / "plugin-data/fast-browser-link-native/host-bin/daemon.py")
     alternate = str(value["plugin"] / "native_bridge/daemon.py")
     if command.returncode == 0 and (expected in command.stdout or alternate in command.stdout) and str(value["hermes"]) in command.stdout:
         stop_fixture_daemon(value["hermes"])

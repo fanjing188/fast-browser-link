@@ -15,7 +15,7 @@ let connectedInstanceId=null,connectedGeneration=null;
 // cannot be opened reliably from a background request, so open the same page
 // as a centered, focused extension window instead.
 const ACCESS_WIDTH=460,ACCESS_HEIGHT=640;
-const ACCESS_NOTIFICATION='hermes-browser-access';
+const ACCESS_NOTIFICATION='fast-browser-access';
 let accessWindow=null;
 // 中文注释：监听在 service worker 顶层注册；系统通知点击只打开确认 UI，不能授权。
 chrome.notifications.onClicked.addListener(id=>{
@@ -148,7 +148,7 @@ const executor=new Executor(chrome,p=>bridge?.request('extension.tab_event',p).c
   }
  },onOverlayCommand:overlayCommand,onDownloadEvent:reportDownload,onCdpEvents:pushCdpEvents,
  // 中文注释：系统通知只说明需要登录，不携带网站、任务或账号信息。
- onSignInRedirect:()=>void showPanelNotification(chrome,'hermes-browser-sign-in','任务页面跳到了第三方登录页。请在该标签页亲自选择账号并完成登录，完成后任务会自动继续。')});
+ onSignInRedirect:()=>void showPanelNotification(chrome,'fast-browser-sign-in','任务页面跳到了第三方登录页。请在该标签页亲自选择账号并完成登录，完成后任务会自动继续。')});
 // 中文注释：镜像状态变化只刷新源扩展确认面板，弹窗不保留复制结果。
 const cookieMirror=new CookieMirror(chrome,{onChanged:()=>{void refreshApprovals();}});
 let cloud=null;
@@ -300,7 +300,7 @@ async function connect(){if(bridge||connecting)return;connecting=true;try{
  void cloud.connect(instanceId,/Edg/.test(navigator.userAgent)?'Edge':'Chrome');
  if(!executor.workspaces)executor.workspaces=new NativeWorkspaces(chrome,instanceId,id=>executor.leases.has(id));
  await executor.workspaces.manager.reconcile();
- const port=chrome.runtime.connectNative('com.hermes.browser_link');const current=new Bridge(port,executor,changed,{onConsentStatus:()=>consent.readStatus(),onAccessRequest:openAccessManagementRequest,onCookieMirror:(method,p)=>cookieMirror.handle(method,p),onCookieDisconnect:()=>{cookieMirror.disconnect();}});bridge=current;
+ const port=chrome.runtime.connectNative('com.fast.browser_link');const current=new Bridge(port,executor,changed,{onConsentStatus:()=>consent.readStatus(),onAccessRequest:openAccessManagementRequest,onCookieMirror:(method,p)=>cookieMirror.handle(method,p),onCookieDisconnect:()=>{cookieMirror.disconnect();}});bridge=current;
  port.onDisconnect.addListener(()=>{if(bridge!==current)return;const wasConnected=connected;lastError=chrome.runtime.lastError?.message||'本地桥已断开；操作不会自动重放';connected=false;connectedInstanceId=null;connectedGeneration=null;if(accessWindow)accessWindow.requestId=null;bridge=null;current.close();const old=notifier;notifier=null;approvalInstance=null;old?.dispose().catch(()=>{});disconnectBarrier=executor.disconnect().catch(()=>{});
   // 中文注释：本地桥意外断开（如 daemon 重启）后很快重连一次；在途动作不重放，其余仍靠 30 秒定时重连兜底。
   // 握手前就断开（如开发同步维护中宿主直接退出）不快速重试，等 30 秒定时重连，避免反复拉起宿主进程。

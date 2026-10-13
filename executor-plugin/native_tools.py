@@ -99,31 +99,31 @@ def _semantic_options():
 
 
 TOOL_SCHEMAS = {
-    'browser_shared_cookie_mirror': {
+    'fast_browser_cookie_mirror': {
         'description': '列出 Cookie 站点计数或请求复制登录态。request_mirror 必须由用户在源浏览器扩展确认，全部访问也不能免确认；status 查询同一 transfer_id，不重发。不得索要 Cookie 值或保存 Cookie 内容。',
         'parameters': _object({'action': {'type': 'string', 'enum': ['list_sites', 'request_mirror', 'status']},
             'source': _text(), 'target': _text(), 'sites': {'type': 'array', 'minItems': 1, 'maxItems': 256, 'items': _text(253)},
             'transfer_id': _text(32), 'options': _object({'clearTarget': {'type': 'boolean'},
                 'persistDays': {'type': 'integer', 'minimum': 1, 'maximum': 365}})}, ('action',))},
-    'browser_shared_health': {'description': '检查共享浏览器桥接服务；不启动或选择浏览器。', 'parameters': _object({})},
-    'browser_shared_browsers': {'description': '仅在多实例歧义或诊断时调用；通常直接 browser_shared_open。只读列出 Chrome/Edge 实例和主要链接标记；多台可用时 browser_shared_open 优先使用已启用的主要链接。', 'parameters': _object({})},
-    'browser_shared_create': {
-        'description': '在指定浏览器实例中为给定网站建任务（共享该浏览器的登录状态）。通常直接用 browser_shared_open；就绪后用 new_tab 打开工作页。详见技能 browser-link:use-my-browser。',
+    'fast_browser_health': {'description': '检查共享浏览器桥接服务；不启动或选择浏览器。', 'parameters': _object({})},
+    'fast_browser_browsers': {'description': '仅在多实例歧义或诊断时调用；通常直接 fast_browser_open。只读列出 Chrome/Edge 实例和主要链接标记；多台可用时 fast_browser_open 优先使用已启用的主要链接。', 'parameters': _object({})},
+    'fast_browser_create': {
+        'description': '在指定浏览器实例中为给定网站建任务（共享该浏览器的登录状态）。通常直接用 fast_browser_open；就绪后用 new_tab 打开工作页。详见技能 fast-browser-link:fast-browser-link。',
         'parameters': _object({'title': _text(200), 'instance_id': _text(),
                                'allowed_origins': {'type': 'array', 'minItems': 1, 'maxItems': 64, 'items': _text(2048)}},
                               ('title', 'instance_id', 'allowed_origins'))},
-    'browser_shared_list': {'description': '仅列出当前可信会话的共享浏览器任务。', 'parameters': _object({})},
+    'fast_browser_list': {'description': '仅列出当前可信会话的共享浏览器任务。', 'parameters': _object({})},
     # 中文注释：文件 ID 由用户在可信界面选取后生成，模型仅能读取已登记元信息。
-    'browser_shared_artifacts': {'description': '列出当前任务中用户已选取的文件元信息；不返回本地路径或文件内容。',
+    'fast_browser_artifacts': {'description': '列出当前任务中用户已选取的文件元信息；不返回本地路径或文件内容。',
                                  'parameters': _object({'task_id': _text()}, ('task_id',))},
     # 中文注释：任务页触发的下载只在唯一归属时登记；领取前校验完整、大小与摘要。
-    'browser_shared_downloads': {
+    'fast_browser_downloads': {
         'description': ('查看、领取或取消当前任务页触发的下载。list 返回元信息与归属未知的计数；claim 在下载完成后校验并移入私有目录，'
                         '返回 localPath 供本会话读取；cancel 只取消本任务仍在进行的下载。归属不明的下载不会出现在列表中。'),
         'parameters': _object({'task_id': _text(), 'action': {'type': 'string', 'enum': ['list', 'claim', 'cancel']},
                                'download_id': _text(64)}, ('task_id',))},
-    'browser_shared_run': {
-        'description': '同一页需要两步以上（填表、翻页、采集、点击后读结果）请用一次 browser_shared_script；打开或导航后先看回执摘要，不足再读取页面；同一页不要混用 browser_exec。需要用户处理时列出标签页；会话结束会保留待处理页。' + '在任务的工作页执行一个动作。浏览器连接授权后，普通读取、导航、写入和 Python 工作流直接执行，不逐项确认；tabs 只返回任务标签。返回 user_input_required 时，等用户处理后用相同 request_id 和参数再查一次，不要改参重发；登录弹窗 popup_adopt 直接接管，无需确认，成功回执只交付一次，不重发接管。outcome_unknown 为真时不要重试，先读页面核实。详见技能 browser-link:use-my-browser。',
+    'fast_browser_run': {
+        'description': '同一页需要两步以上（填表、翻页、采集、点击后读结果）请用一次 fast_browser_script；打开或导航后先看回执摘要，不足再读取页面；同一页不要混用 browser_exec。需要用户处理时列出标签页；会话结束会保留待处理页。' + '在任务的工作页执行一个动作。浏览器连接授权后，普通读取、导航、写入和 Python 工作流直接执行，不逐项确认；tabs 只返回任务标签。返回 user_input_required 时，等用户处理后用相同 request_id 和参数再查一次，不要改参重发；登录弹窗 popup_adopt 直接接管，无需确认，成功回执只交付一次，不重发接管。outcome_unknown 为真时不要重试，先读页面核实。详见技能 fast-browser-link:fast-browser-link。',
         'parameters': _object({'task_id': _text(), 'request_id': _text(),
             'action': {'type': 'string', 'enum': [
                 'navigate', 'snapshot', 'click', 'fill', 'press', 'screenshot', 'tabs', 'new_tab', 'api_request',
@@ -179,9 +179,9 @@ PUBLIC_ACTIONS = frozenset({
     'js.evaluate', 'cdp.send', 'cdp.events',
     'images', 'console', 'dialog',
 })
-_run_schema = TOOL_SCHEMAS['browser_shared_run']['parameters']
-TOOL_SCHEMAS['browser_shared_run']['description'] += ' 点击第三方登录后查看 popupOpened 和 popupNextStep；smart/full（连接授权后的全部访问）模式下内置身份提供方授权页由本任务新打开时自动接管，直接 browser_shared_use_tab 到 popupOpened.tabId 并重读页面选账号。密码、验证码、2FA 用 manual_input 请用户亲自填写。弹窗关闭时 popupClosed.returnedTo 指向源页，返回后重读，不复用旧引用。白名单外及已发现的现有登录弹窗同样无需确认；popup_catalog 保留候选后用 popup_adopt 直接接管，再 use_tab 到返回的 tabId 并读取。用 browser_shared_get 核对 generation 与 adoptedPopupTabIds；成功回执只交付一次，不重发接管。不得另开登录网址替代原弹窗，不自动移动或关闭，不授予清理权；未知或变化的授权不能重放。'
-TOOL_SCHEMAS['browser_shared_run']['description'] += (
+_run_schema = TOOL_SCHEMAS['fast_browser_run']['parameters']
+TOOL_SCHEMAS['fast_browser_run']['description'] += ' 点击第三方登录后查看 popupOpened 和 popupNextStep；smart/full（连接授权后的全部访问）模式下内置身份提供方授权页由本任务新打开时自动接管，直接 fast_browser_use_tab 到 popupOpened.tabId 并重读页面选账号。密码、验证码、2FA 用 manual_input 请用户亲自填写。弹窗关闭时 popupClosed.returnedTo 指向源页，返回后重读，不复用旧引用。白名单外及已发现的现有登录弹窗同样无需确认；popup_catalog 保留候选后用 popup_adopt 直接接管，再 use_tab 到返回的 tabId 并读取。用 fast_browser_get 核对 generation 与 adoptedPopupTabIds；成功回执只交付一次，不重发接管。不得另开登录网址替代原弹窗，不自动移动或关闭，不授予清理权；未知或变化的授权不能重放。'
+TOOL_SCHEMAS['fast_browser_run']['description'] += (
     ' 所有网站的结构读取显示真实邮箱，便于找联系人或选账号；卡号、密钥、Bearer 和密码保护不变。'
     ' semantic_snapshot 不接受 sections/maxScan/schema；需要 regions/blocks/forms/collections 等分区时用 page.parse。'
     ' 页面执行：连接授权后 js.evaluate / cdp.send / cdp.events 直接执行，不逐项确认。'
@@ -206,22 +206,22 @@ for suffix, description in (
     ('get', '读取当前可信会话拥有的任务。'),
     ('cancel', '取消当前会话任务并释放其控制权，不影响其他任务或关闭用户标签页。'),
     ('resume', '恢复已取消或需同步的任务（新代次）；新任务沿用浏览器连接授权（全部访问），无需逐项批准；未连接或授权未确认时不执行。不会重放结果不确定的动作。'),
-    ('close', '关闭任务并关掉它新建的工作页；结果看 cleanupState。每轮成功完成默认立即关闭工作页并收组；显式设置完成宽限时，同会话 browser_shared_* 调用取消计时；失败或中断立即按 handoff 结束。keep_tabs=true 仅用于本轮回复明确请用户现在去该页完成一步，必须同时传 handoff_reason（captcha/login/verification/final_submit/user_requested）。遇阻、结果未知、读不到或遮挡时记录 URL 和停点后普通关闭；真正交接时：撤销任务权限、移除遮罩并收组，但不关页面，cleanupReason 为 handed_to_user。cleanup_action=status 只读核实；仅当状态为 pending 且 cleanupRemainingCount 大于 0 时可用 retry。unknown 或 failed 不满足重试门禁，不能重试删页。不会关闭用户自己的页面。'),
+    ('close', '关闭任务并关掉它新建的工作页；结果看 cleanupState。每轮成功完成默认立即关闭工作页并收组；显式设置完成宽限时，同会话 fast_browser_* 调用取消计时；失败或中断立即按 handoff 结束。keep_tabs=true 仅用于本轮回复明确请用户现在去该页完成一步，必须同时传 handoff_reason（captcha/login/verification/final_submit/user_requested）。遇阻、结果未知、读不到或遮挡时记录 URL 和停点后普通关闭；真正交接时：撤销任务权限、移除遮罩并收组，但不关页面，cleanupReason 为 handed_to_user。cleanup_action=status 只读核实；仅当状态为 pending 且 cleanupRemainingCount 大于 0 时可用 retry。unknown 或 failed 不满足重试门禁，不能重试删页。不会关闭用户自己的页面。'),
 ):
     properties = {'task_id': _text()}
     if suffix == 'close':
         properties['cleanup_action'] = {'type': 'string', 'enum': ['status', 'retry']}
         properties['keep_tabs'] = {'type': 'boolean'}
         properties['handoff_reason'] = {'type': 'string', 'enum': ['captcha', 'login', 'verification', 'final_submit', 'user_requested']}
-    TOOL_SCHEMAS['browser_shared_' + suffix] = {'description': description, 'parameters': _object(properties, ('task_id',))}
-TOOL_SCHEMAS['browser_shared_get']['description'] += ' 任务就绪时把本会话绑定到它（同一会话只绑定一个任务），供脚本与官方 browser_* 工具使用；结果见 sessionBinding。'
-TOOL_SCHEMAS['browser_shared_get']['parameters']['properties'].update({
+    TOOL_SCHEMAS['fast_browser_' + suffix] = {'description': description, 'parameters': _object(properties, ('task_id',))}
+TOOL_SCHEMAS['fast_browser_get']['description'] += ' 任务就绪时把本会话绑定到它（同一会话只绑定一个任务），供脚本与官方 browser_* 工具使用；结果见 sessionBinding。'
+TOOL_SCHEMAS['fast_browser_get']['parameters']['properties'].update({
     'until': {'type': 'string', 'enum': ['resumed']},
     'timeout_s': {'type': 'integer', 'minimum': 1, 'maximum': 3600},
     'include_log': {'type': 'boolean'},
     'log_limit': {'type': 'integer', 'minimum': 1, 'maximum': 100},
 })
-TOOL_SCHEMAS['browser_shared_get']['description'] += ' 接管暂停时设置 until=resumed 等待，默认最多 600 秒；恢复后先重新读页面。排查时设置 include_log=true、log_limit=N 获取最近步骤。'
+TOOL_SCHEMAS['fast_browser_get']['description'] += ' 接管暂停时设置 until=resumed 等待，默认最多 600 秒；恢复后先重新读页面。排查时设置 include_log=true、log_limit=N 获取最近步骤。'
 
 
 # 中文注释：只承认扩展的固定保护错误，未知页面异常不能借前缀进入公开文案。
@@ -380,7 +380,7 @@ def _validate(tool_name, args):
     extra = set(public) - set(schema['properties'])
     if extra:
         raise ArgumentFieldsError('invalid_fields', extra)
-    if tool_name == 'browser_shared_run' and public.get('action') == 'semantic_snapshot' and isinstance(public.get('options'), dict):
+    if tool_name == 'fast_browser_run' and public.get('action') == 'semantic_snapshot' and isinstance(public.get('options'), dict):
         invalid = set(public['options']) - set(_semantic_options()['properties'])
         if invalid:
             raise ArgumentFieldsError('invalid_semantic_options', invalid)
@@ -389,16 +389,16 @@ def _validate(tool_name, args):
             _validate_field(key, value, schema['properties'][key], public)
         except (ValueError, TypeError, OverflowError):
             raise ArgumentFieldsError('invalid_fields', [key]) from None
-    if tool_name == 'browser_shared_close':
+    if tool_name == 'fast_browser_close':
         if public.get('keep_tabs') is True and ('handoff_reason' not in public or 'cleanup_action' in public):
             raise ArgumentFieldsError('invalid_fields', ['handoff_reason', *(['cleanup_action'] if 'cleanup_action' in public else [])])
         if 'handoff_reason' in public and public.get('keep_tabs') is not True:
             raise ArgumentFieldsError('invalid_fields', ['handoff_reason'])
-    if tool_name == 'browser_shared_get' and 'timeout_s' in public and public.get('until') != 'resumed':
+    if tool_name == 'fast_browser_get' and 'timeout_s' in public and public.get('until') != 'resumed':
         raise ArgumentFieldsError('invalid_fields', ['timeout_s'])
-    if tool_name == 'browser_shared_get' and 'log_limit' in public and public.get('include_log') is not True:
+    if tool_name == 'fast_browser_get' and 'log_limit' in public and public.get('include_log') is not True:
         raise ArgumentFieldsError('invalid_fields', ['log_limit'])
-    if tool_name == 'browser_shared_cookie_mirror':
+    if tool_name == 'fast_browser_cookie_mirror':
         # 中文注释：动作只接受各自必需的参数，模型不能传入批准或 Cookie 载荷。
         action = public['action']
         required = {'list_sites': {'source'}, 'request_mirror': {'source', 'target', 'sites'}, 'status': {'transfer_id'}}[action]
@@ -407,7 +407,7 @@ def _validate(tool_name, args):
             raise ArgumentFieldsError('missing_fields', required - set(public))
         if set(public) - allowed:
             raise ArgumentFieldsError('invalid_fields', set(public) - allowed)
-    if tool_name == 'browser_shared_run':
+    if tool_name == 'fast_browser_run':
         action = public['action']
         fields = {
             'popup_catalog': (), 'popup_adopt': ('candidate_ref',),
@@ -480,15 +480,15 @@ def make_tool_handler(tool_name, profile_runtime, *, host_bridge=None, backend_c
                 _validate(tool_name, args)
             except ArgumentFieldsError as exc:
                 message = ('keep_tabs=true 必须补 handoff_reason（captcha/login/verification/final_submit/user_requested），或不传 keep_tabs 普通关闭。'
-                           if tool_name == 'browser_shared_close' and 'handoff_reason' in exc.fields else '浏览器动作参数不符合契约')
+                           if tool_name == 'fast_browser_close' and 'handoff_reason' in exc.fields else '浏览器动作参数不符合契约')
                 if exc.code == 'invalid_semantic_options':
                     message = 'semantic_snapshot 的 options 不支持所列字段；sections/maxScan/schema 请使用 page.parse。'
                 return json.dumps({'error': message, 'code': exc.code,
                                    'fields': exc.fields, 'retryable': False, 'outcome_unknown': False}, ensure_ascii=False)
             params = {'owner': lease.owner}
-            if tool_name in ('browser_shared_health', 'browser_shared_browsers'):
+            if tool_name in ('fast_browser_health', 'fast_browser_browsers'):
                 params = {}
-            if tool_name == 'browser_shared_get' and args.get('include_log') is True:
+            if tool_name == 'fast_browser_get' and args.get('include_log') is True:
                 params['includeLog'] = True
                 params['logLimit'] = args.get('log_limit', 20)
             mapping = {'title': 'title', 'instance_id': 'instanceId', 'allowed_origins': 'allowedOrigins',
@@ -515,9 +515,9 @@ def make_tool_handler(tool_name, profile_runtime, *, host_bridge=None, backend_c
             if isinstance(params.get('paths'), list):
                 params['paths'] = [os.path.abspath(os.path.expanduser(item)) if isinstance(item, str) else item
                                    for item in params['paths']]
-            if tool_name == 'browser_shared_run':
+            if tool_name == 'fast_browser_run':
                 params['requestId'] = args.get('request_id') or lease.tool_call_id
-            if tool_name == 'browser_shared_get' and args.get('until') == 'resumed':
+            if tool_name == 'fast_browser_get' and args.get('until') == 'resumed':
                 timeout = args.get('timeout_s', 600)
                 deadline = time.monotonic() + timeout
                 while True:
@@ -525,11 +525,11 @@ def make_tool_handler(tool_name, profile_runtime, *, host_bridge=None, backend_c
                     if observed.get('state') != 'paused':
                         break
                     if time.monotonic() >= deadline:
-                        return json.dumps({'code': 'task_paused', 'error': '接管等待超时；任务仍暂停，可再次调用 browser_shared_get 等待。',
+                        return json.dumps({'code': 'task_paused', 'error': '接管等待超时；任务仍暂停，可再次调用 fast_browser_get 等待。',
                                            'retryable': False, 'outcome_unknown': False}, ensure_ascii=False)
                     time.sleep(min(0.5, max(0, deadline - time.monotonic())))
             method = _METHODS[tool_name]
-            if tool_name == 'browser_shared_downloads':
+            if tool_name == 'fast_browser_downloads':
                 method = _DOWNLOAD_METHODS[args.get('action', 'list')]
                 params = {'owner': lease.owner, 'taskId': args['task_id']}
                 if method != 'shared.downloads':
@@ -537,26 +537,26 @@ def make_tool_handler(tool_name, profile_runtime, *, host_bridge=None, backend_c
                         return json.dumps({'error': '需要 download_id', 'code': 'invalid_arguments', 'retryable': False},
                                           ensure_ascii=False)
                     params['downloadId'] = args['download_id']
-            if tool_name == 'browser_shared_close' and 'cleanup_action' in args:
+            if tool_name == 'fast_browser_close' and 'cleanup_action' in args:
                 method = 'shared.cleanup_' + args['cleanup_action']
-            elif tool_name == 'browser_shared_close' and args.get('keep_tabs') is True:
+            elif tool_name == 'fast_browser_close' and args.get('keep_tabs') is True:
                 method = 'shared.handoff'
                 params['keepTabs'] = True
                 params['handoffReason'] = args['handoff_reason']
-            if host_bridge and (tool_name in ('browser_shared_cancel', 'browser_shared_close', 'browser_shared_resume')
+            if host_bridge and (tool_name in ('fast_browser_cancel', 'fast_browser_close', 'fast_browser_resume')
                                 and method not in ('shared.cleanup_status', 'shared.cleanup_retry')):
                 _revoke_bound_task(host_bridge, session_id, args['task_id'])
             result = profile_runtime.call(method, params)
             projected = _runtime._base._project_tool_result(tool_name, args, result)
             public = _public(projected, raw=result if tool_name in {
-                'browser_shared_create', 'browser_shared_get', 'browser_shared_list',
-                'browser_shared_cancel', 'browser_shared_close', 'browser_shared_resume'} else None)
+                'fast_browser_create', 'fast_browser_get', 'fast_browser_list',
+                'fast_browser_cancel', 'fast_browser_close', 'fast_browser_resume'} else None)
             # 中文注释：部分送达也是失败；任意 JS/API/CDP 的业务 JSON 不作为动作状态解释。
-            if (tool_name == 'browser_shared_run' and args.get('action') not in {'js.evaluate', 'api_request', 'cdp.send'}
+            if (tool_name == 'fast_browser_run' and args.get('action') not in {'js.evaluate', 'api_request', 'cdp.send'}
                     and isinstance(result, dict) and result.get('outcomeUnknown') is True):
                 public.update(error='动作结果不确定；请先读取页面核实，不要重放。', code='operation_outcome_unknown',
                               retryable=False, outcome_unknown=True)
-            if (tool_name == 'browser_shared_run' and args.get('action') == 'navigate'
+            if (tool_name == 'fast_browser_run' and args.get('action') == 'navigate'
                     and args.get('summary') is not False and isinstance(public, dict)
                     and type(public.get('tabId')) is int):
                 # 中文注释：导航成功后沿用 open 的语义摘要，读取失败不改写已确认的导航回执。
@@ -567,9 +567,9 @@ def make_tool_handler(tool_name, profile_runtime, *, host_bridge=None, backend_c
                                                                  public['tabId'], params['requestId'], public.get('url', args['url']))
                 except Exception:
                     public['summary'] = None
-            if host_bridge and tool_name in ('browser_shared_create', 'browser_shared_get', 'browser_shared_resume'):
+            if host_bridge and tool_name in ('fast_browser_create', 'fast_browser_get', 'fast_browser_resume'):
                 if isinstance(result, dict) and result.get('state') == 'ready' and result.get('id') == (
-                        args.get('task_id') if tool_name != 'browser_shared_create' else result.get('id')):
+                        args.get('task_id') if tool_name != 'fast_browser_create' else result.get('id')):
                     try:
                         if backend_check is not None:
                             backend_check()
@@ -591,7 +591,7 @@ def make_tool_handler(tool_name, profile_runtime, *, host_bridge=None, backend_c
             code = str(getattr(exc, 'code', ''))
             data = getattr(exc, 'data', None)
             data = data if isinstance(data, dict) else {}
-            if tool_name == 'browser_shared_cookie_mirror':
+            if tool_name == 'fast_browser_cookie_mirror':
                 # 中文注释：镜像错误独立投影，不能混入页面诊断字符串；状态失联也不能重发复制。
                 summary = _runtime._base._project_tool_result(tool_name, args,
                     {key: data[key] for key in ('count', 'success', 'failed', 'matched', 'missing', 'cleared', 'clearFailed', 'reasons', 'sites', 'reason') if key in data})
@@ -610,12 +610,12 @@ def make_tool_handler(tool_name, profile_runtime, *, host_bridge=None, backend_c
                 'foreign_tab': '标签页不属于本任务。',
                 'forbidden': '任务不属于当前会话。',
                 'api_not_approved': '浏览器外接口读取需要单独批准登录凭据使用。',
-                'origin_denied': '网址不在用户批准范围内；同站用 goto_url，新站用 browser_shared_open。',
+                'origin_denied': '网址不在用户批准范围内；同站用 goto_url，新站用 fast_browser_open。',
                 'tab_out_of_scope': '该工作页已离开授权网站（任务与标签组仍保留，未执行）。请用 navigate 把它导航回授权网站后继续；需要新网站时再向用户申请。',
-                'redirected_out_of_scope': '页面跳转到任务范围外的网站（finalOrigin），未在该页继续执行；需要该网站时用 browser_shared_open 以该来源新开任务。',
-                'task_closed': '任务已结束；请重新 browser_shared_open。',
+                'redirected_out_of_scope': '页面跳转到任务范围外的网站（finalOrigin），未在该页继续执行；需要该网站时用 fast_browser_open 以该来源新开任务。',
+                'task_closed': '任务已结束；请重新 fast_browser_open。',
                 'instance_unavailable': '浏览器扩展未连接；请检查连接后重新读取任务状态。',
-                'invalid_state': '任务未就绪；请查看状态。若已结束，请重新 browser_shared_open。',
+                'invalid_state': '任务未就绪；请查看状态。若已结束，请重新 fast_browser_open。',
                 'task_preparing': '任务授权正在准备或等待浏览器批准；请先查询任务状态，ready 后重新调用。本次未执行。',
                 # 中文注释：截图超时不返回图片，也不建议自动重试。
                 'screenshot_timeout': '截图超时，未返回截图；请核对页面状态后再操作。',
@@ -705,10 +705,10 @@ def make_tool_handler(tool_name, profile_runtime, *, host_bridge=None, backend_c
                     'overlay_injection_failed', 'overlay_scope_stale', 'overlay_frame_changed'}:
                 messages[code] = '页面高亮或目标确认失败；先核查页面状态，不要自动重试。'
             # 中文注释：滚动的未知结果保留桥接判断，不能按只读动作改写为确定失败。
-            read_only = tool_name in {'browser_shared_health', 'browser_shared_browsers', 'browser_shared_get', 'browser_shared_list', 'browser_shared_artifacts'} or (
-                tool_name == 'browser_shared_downloads' and args.get('action', 'list') != 'cancel') or (
-                tool_name == 'browser_shared_close' and args.get('cleanup_action') == 'status') or (
-                tool_name == 'browser_shared_run' and args.get('action') in {
+            read_only = tool_name in {'fast_browser_health', 'fast_browser_browsers', 'fast_browser_get', 'fast_browser_list', 'fast_browser_artifacts'} or (
+                tool_name == 'fast_browser_downloads' and args.get('action', 'list') != 'cancel') or (
+                tool_name == 'fast_browser_close' and args.get('cleanup_action') == 'status') or (
+                tool_name == 'fast_browser_run' and args.get('action') in {
                     'popup_catalog', 'tabs', 'snapshot', 'page.parse', 'semantic_snapshot', 'frame_catalog', 'screenshot', 'api_request',
                     'interaction.capture', 'interaction.bounds', 'cdp.events', 'images', 'console'})
             # user_input_declined: a manual-input request is never dispatched to the page.
@@ -738,7 +738,7 @@ def make_tool_handler(tool_name, profile_runtime, *, host_bridge=None, backend_c
             # 中文注释：协议层固定码必须始终传给模型，未知码仍有稳定的分类入口。
             result['bridgeCode'] = code or 'bridge_error'
             # 中文注释：协议保留 invalid_params；仅语义读取的固定字段诊断映射为模型可理解的提示。
-            if code == 'invalid_params' and tool_name == 'browser_shared_run' and args.get('action') == 'semantic_snapshot' and isinstance(data.get('fields'), list):
+            if code == 'invalid_params' and tool_name == 'fast_browser_run' and args.get('action') == 'semantic_snapshot' and isinstance(data.get('fields'), list):
                 fields = sorted(field for field in data['fields'] if isinstance(field, str) and field in {'sections', 'maxScan', 'schema'})
                 if fields:
                     result.update(code='invalid_semantic_options', fields=fields, retryable=False,
@@ -798,7 +798,7 @@ def register_native_context(ctx, profile_runtime, *, cleanup=None, host_bridge=N
     def record_activity(tool_name, args, **identity):
         decision = profile_runtime.authority.pre_tool_call(tool_name, args, **identity)
         # 中文注释：包含健康、reference、doctor、open、script 等无页面 RPC 的工具；只有可信租约才能取消计时。
-        if tool_name.startswith('browser_shared_') and isinstance(decision, dict) and decision.get('action') == 'modify':
+        if tool_name.startswith('fast_browser_') and isinstance(decision, dict) and decision.get('action') == 'modify':
             completed_sessions.discard(identity['session_id'])
             try:
                 params = {'owner': profile_runtime.authority.owner_for_session(identity['session_id'])}
@@ -806,7 +806,7 @@ def register_native_context(ctx, profile_runtime, *, cleanup=None, host_bridge=N
                     params['taskId'] = args['task_id']
                 profile_runtime.call('shared.activity', params)
             except Exception:
-                logging.getLogger('browser-link').warning('浏览器活动信号未送达，无法确认取消空闲计时。')
+                logging.getLogger('fast-browser-link').warning('浏览器活动信号未送达，无法确认取消空闲计时。')
         return decision
     register_hook('pre_tool_call', record_activity)
     def finalize_session(*, session_id=None, **_):
@@ -836,7 +836,7 @@ def register_native_context(ctx, profile_runtime, *, cleanup=None, host_bridge=N
             with ThreadPoolExecutor(max_workers=min(4, len(pending))) as pool:
                 complete = all(list(pool.map(close_task, pending)))
             if not complete:
-                logging.getLogger('browser-link').warning('会话浏览器任务已请求关闭，但部分清理结果未确认，请核对任务清理状态。')
+                logging.getLogger('fast-browser-link').warning('会话浏览器任务已请求关闭，但部分清理结果未确认，请核对任务清理状态。')
 
     def finalize_subagent(*, child_session_id=None, **_):
         # 中文注释：子代理结束只使用 child_session_id，绝不能把父会话作为清理对象。
@@ -864,7 +864,7 @@ def register_native_context(ctx, profile_runtime, *, cleanup=None, host_bridge=N
         # 中文注释：停止事件只带路由 key，映射失败不扩大清理范围，不输出可能含用户信息的 key。
         session_id = profile_runtime.session_for_key(session_key)
         if session_id is None:
-            logging.getLogger('browser-link').warning('停止事件的 session_key 无法映射到本 profile 已知会话，未关闭浏览器任务。')
+            logging.getLogger('fast-browser-link').warning('停止事件的 session_key 无法映射到本 profile 已知会话，未关闭浏览器任务。')
             return
         return finalize_session(session_id=session_id)
 
@@ -872,7 +872,7 @@ def register_native_context(ctx, profile_runtime, *, cleanup=None, host_bridge=N
     register_hook('agent_loop_stopped', stop_loop)
     for name in TOOL_NAMES:
         schema = TOOL_SCHEMAS[name]
-        ctx.register_tool(name=name, toolset='browser-link', schema=schema,
+        ctx.register_tool(name=name, toolset='fast-browser-link', schema=schema,
                           handler=make_tool_handler(name, profile_runtime, host_bridge=host_bridge,
                                                     backend_check=backend_check),
                           description=schema['description'], emoji='🌐')

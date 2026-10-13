@@ -81,7 +81,7 @@ export class PageRuntime{
    const key=`${p.tabId}|${target.sessionId||''}|${frame.id}|${frame.loaderId}`;
    contextId=resources.worlds.get(key);
    if(!contextId){
-    const created=await api.sendCommand(target,'Page.createIsolatedWorld',{frameId:frame.id,worldName:'hermes-page-runtime',grantUniveralAccess:false});guard();
+    const created=await api.sendCommand(target,'Page.createIsolatedWorld',{frameId:frame.id,worldName:'fast-page-runtime',grantUniveralAccess:false});guard();
     contextId=created.executionContextId;resources.worlds.set(key,contextId);
    }
   }else if(frame.parentId&&!target.sessionId)throw fail('MAIN_WORLD_FRAME_UNSUPPORTED');
@@ -91,13 +91,13 @@ export class PageRuntime{
   const evaluation=(async()=>{
    const callable=Object.hasOwn(p,'arguments');
    const value=await api.sendCommand(target,'Runtime.evaluate',{expression:callable?`(${p.expression})`:p.expression,...(contextId?{contextId}:{}),
-    returnByValue:false,awaitPromise:callable?false:p.awaitPromise!==false,timeout,userGesture:false,generatePreview:false,objectGroup:'hermes-page-runtime'});
+    returnByValue:false,awaitPromise:callable?false:p.awaitPromise!==false,timeout,userGesture:false,generatePreview:false,objectGroup:'fast-page-runtime'});
    check();
    if(!callable||value.exceptionDetails)return value;
    // 中文注释：表达式已经求值，类型校验失败不能撤销期间产生的页面副作用。
    if(value.result?.type!=='function'||!value.result.objectId)throw fail('INVALID_JS_FUNCTION',{outcomeUnknown:true});
    return api.sendCommand(target,'Runtime.callFunctionOn',{objectId:value.result.objectId,functionDeclaration:'function(argument){return this(argument)}',
-    arguments:[{value:p.arguments}],returnByValue:false,awaitPromise:true,userGesture:false,objectGroup:'hermes-page-runtime'});
+    arguments:[{value:p.arguments}],returnByValue:false,awaitPromise:true,userGesture:false,objectGroup:'fast-page-runtime'});
   })().then(async response=>{
    check();
    let coverage={complete:true,scope:'execution_result'};
@@ -125,7 +125,7 @@ export class PageRuntime{
   }finally{
    clearTimeout(timer);
    // 中文注释：包括撤权和序列化异常，所有已创建的远端句柄都走相同释放路径。
-   await api.sendCommand(target,'Runtime.releaseObjectGroup',{objectGroup:'hermes-page-runtime'}).catch(()=>{});
+   await api.sendCommand(target,'Runtime.releaseObjectGroup',{objectGroup:'fast-page-runtime'}).catch(()=>{});
   }
  }
  // 中文注释：结果以值返回；DOM 节点、循环对象等不可序列化值只给类型描述，不外泄调试句柄。
@@ -241,7 +241,7 @@ export class PageRuntime{
   // 中文注释：所有任务共享固定容量，超限明确拒绝，不挤掉其他正在读取的结果。
   if([...this.chunks.values()].reduce((count,row)=>count+row.parts.length,parts.length)>MAX_CHUNKS)throw fail('CHUNK_CAPACITY',{outcomeUnknown:true});
   this.chunks.set(id,{parts,at:this.now(),task:t,generation:t.generation,modeGeneration:t.policy.modeGeneration});
-  return {__hermesChunked:{id,count:parts.length,size:text.length}};
+  return {__fastChunked:{id,count:parts.length,size:text.length}};
  }
  chunk({id,index,taskId,generation,modeGeneration},t){
   const entry=this.chunks.get(id);

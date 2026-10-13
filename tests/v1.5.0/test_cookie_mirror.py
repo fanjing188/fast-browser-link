@@ -72,7 +72,7 @@ class CookieMirrorTests(unittest.TestCase):
         from types import SimpleNamespace
         profile = SimpleNamespace(authority=SimpleNamespace(consume=lambda *a, **k:
             SimpleNamespace(owner='owner', tool_call_id='call')), call=lambda *a: (_ for _ in ()).throw(error))
-        result = json.loads(tools.make_tool_handler('browser_shared_cookie_mirror', profile)(
+        result = json.loads(tools.make_tool_handler('fast_browser_cookie_mirror', profile)(
             {'action': 'status', 'transfer_id': 'a' * 32}))
         self.assertEqual((result['success'], result['failed'], result['matched'], result['missing']), (2, 1, 1, 1))
         self.assertEqual(result['sites'][0]['reasons'], {'write_failed': 1})
@@ -90,7 +90,7 @@ class CookieMirrorTests(unittest.TestCase):
                 ({'action': 'list_sites', 'source': 's', 'target': SECRET}, 'invalid_fields', ['target']),
                 ({'action': 'status', 'transfer_id': 'a' * 32, 'source': SECRET}, 'invalid_fields', ['source'])]:
             with self.subTest(action=args['action']), self.assertRaises(tools.ArgumentFieldsError) as caught:
-                tools._validate('browser_shared_cookie_mirror', args)
+                tools._validate('fast_browser_cookie_mirror', args)
             self.assertEqual(caught.exception.code, code)
             self.assertEqual(caught.exception.fields, fields)
             self.assertNotIn(SECRET, str(caught.exception))

@@ -5,7 +5,7 @@ import path from 'node:path';
 import {CdpClient,waitFor,fetchJson} from '../native-v2/cdp-client.mjs';
 export async function openPageBrowser(url,{browser='chrome',headed=false}={}){
  const binary=browser==='edge'?'/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge':'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
- const work=await mkdtemp('/private/tmp/hermes-audit-'),profile=path.join(work,'profile'),temp=path.join(work,'tmp');await mkdir(temp);
+ const work=await mkdtemp('/private/tmp/fast-audit-'),profile=path.join(work,'profile'),temp=path.join(work,'tmp');await mkdir(temp);
  const browserEnv={HOME:process.env.HOME,HERMES_HOME:path.join(work,'hermes'),TMPDIR:temp,PATH:process.env.PATH||'/usr/bin:/bin:/usr/sbin:/sbin',LANG:process.env.LANG||'en_US.UTF-8'};
  const proc=spawn(binary,[...(headed?[]:['--headless=new']),'--use-mock-keychain','--password-store=basic',`--user-data-dir=${profile}`,'--remote-debugging-port=0','--site-per-process','--no-first-run','--no-default-browser-check','--no-proxy-server',url],{env:browserEnv,stdio:'ignore',detached:true});
  let client;

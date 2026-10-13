@@ -216,7 +216,7 @@ class StartupGateRegressionTests(unittest.TestCase):
             worker_results.append({"returncode": process.returncode, "stdout": stdout, "stderr": stderr})
         self.assertTrue(all(item["returncode"] == 0 for item in worker_results), worker_results)
 
-        data_dir = self.home / "plugin-data" / "browser-link-native"
+        data_dir = self.home / "plugin-data" / "fast-browser-link-native"
         pid_path = data_dir / "daemon.pid"
         self._wait_for(pid_path.exists, "daemon pid file was not published")
         daemon_pid = int(pid_path.read_text(encoding="ascii"))
@@ -238,7 +238,7 @@ class StartupGateRegressionTests(unittest.TestCase):
         self.assertEqual(stat.S_IMODE(lock_info.st_mode), 0o600, evidence)
 
     def test_startup_lock_symlink_is_rejected_without_touching_target(self):
-        data_dir = self.home / "plugin-data" / "browser-link-native"
+        data_dir = self.home / "plugin-data" / "fast-browser-link-native"
         data_dir.mkdir(parents=True, mode=0o700)
         target = self.root / "do-not-touch"
         target.write_text("sentinel", encoding="ascii")

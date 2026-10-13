@@ -33,7 +33,7 @@ class DownloadFlowTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory(dir=scratch)
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
-        self.staging = self.root / "Downloads" / "hermes-tasks" / KEY
+        self.staging = self.root / "Downloads" / "fast-browser-tasks" / KEY
         self.staging.mkdir(parents=True)
         self.daemon = daemon_module.BridgeDaemon(self.root / "home")
         now = time.time()

@@ -1,4 +1,4 @@
-# Hermes Browser Link 1.8.1
+# Fast-browser-link 1.8.1
 
 1.8.1 为 macOS 正式稳定版，包含页面元素解析、任务结束清理、云端连接恢复和版本一致性修复。支持已安装扩展的 Chrome 与 Edge。
 
@@ -20,7 +20,7 @@
 
 ## 安装
 
-下载本 Release 的 `hermes-browser-link-1.8.1.zip`，解压后运行 `./install.sh`；已有安装运行 `./install.sh --upgrade`。更新后重载 Chrome/Edge 扩展，重启 Hermes。安装包不需要 Node.js。
+下载本 Release 的 `fast-browser-link-1.8.1.zip`，解压后运行 `./install.sh`；已有安装运行 `./install.sh --upgrade`。更新后重载 Chrome/Edge 扩展，重启 Hermes。安装包不需要 Node.js。
 
 云端 Sites 站点需同步更新自己的站点源码；本机升级不会自动替其他用户发布站点。参见 [云端连接](cloud-connection.md)。
 

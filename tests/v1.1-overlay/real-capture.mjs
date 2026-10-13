@@ -10,8 +10,8 @@ try{
  const a=await openTask(session,{origins:[origin],url:origin+'/',title:'截图甲'}),b=await openTask(session,{owner:'capture-b',origins:[origin],url:origin+'/other',title:'截图乙'});
  await a.run('snapshot');
  const send=(method,params={})=>session.ui.evaluate(`chrome.debugger.sendCommand({tabId:${a.tabId}},${JSON.stringify(method)},${JSON.stringify(params)})`);
- const state=()=>a.read(`(()=>{const host=document.querySelector('[data-hermes-automation-overlay]');return {connected:!!host,pointer:host?.style.pointerEvents,opacity:host?.style.opacity,clicks:window.clicks}})()`);
- await a.read("document.querySelector('[data-hermes-automation-overlay]').style.opacity='0'");const plain=await send('Page.captureScreenshot',{format:'png'});await a.read("document.querySelector('[data-hermes-automation-overlay]').style.removeProperty('opacity')");
+ const state=()=>a.read(`(()=>{const host=document.querySelector('[data-fast-automation-overlay]');return {connected:!!host,pointer:host?.style.pointerEvents,opacity:host?.style.opacity,clicks:window.clicks}})()`);
+ await a.read("document.querySelector('[data-fast-automation-overlay]').style.opacity='0'");const plain=await send('Page.captureScreenshot',{format:'png'});await a.read("document.querySelector('[data-fast-automation-overlay]').style.removeProperty('opacity')");
  const shot=await a.run('screenshot');assert.equal(shot.data,plain.data,'实际截图不能包含遮罩装饰');assert.equal((await state()).pointer,'auto');assert.notEqual((await state()).opacity,'0');
  assert.equal(await session.ui.evaluate('chrome.tabs.query({active:true,currentWindow:true}).then(t=>t[0].id)'),b.tabId,'后台截图不抢活动页');
  const target=await waitFor(async()=>(await fetchJson(session.base+'/json/list')).find(t=>t.type==='service_worker'&&t.url.startsWith(`chrome-extension://${session.extensionId}/`)));

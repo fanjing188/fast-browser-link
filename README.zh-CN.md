@@ -1,106 +1,62 @@
-# Hermes Browser Link
+# Fast-browser-link
 
-**1.11.2 — macOS 正式稳定版。** 支持受授权网页任务、页面原样读取与定位自动恢复、持续任务鼠标、桌面 Cookie 镜像、独立云端浏览器调用和正式版自动更新。
-
-![Hermes Browser Link](docs/assets/readme-banner.png)
+**2.0.0 — macOS 发布版。** 通过 skills、JSON CLI 或 MCP stdio，让本机 agent 操作你已登录的 Chrome / Edge。
 
 [English](README.md)
 
-让 [Hermes Agent](https://github.com/NousResearch/hermes-agent) 在你已登录的 Chrome / Edge 中读取网页并操作任务工作页。
+## 安装独立 skills 模式
 
-支持读正文和表格、点击、填写表单、上传文件、跟踪下载和 Python 多步操作。在扩展中确认一次浏览器连接授权（全部访问）后，普通读取、导航、写入、JavaScript、CDP 和 Python 工作流直接执行，无需逐项确认；接管、停止、凭据保护和特殊确认独立保留。详见 [安全说明](SECURITY.md)。
+下载 Release 安装包，不要使用 GitHub 自动生成的 Source code ZIP。需要 Python 3.11+；安装包已包含构建后的扩展，不需要 Node.js 或 Hermes。
 
-## 功能列表
+```sh
+curl -fL https://github.com/fanjing188/fast-browser-link/releases/download/v2.0.0/fast-browser-link-2.0.0.zip -o fast-browser-link-2.0.0.zip
+unzip fast-browser-link-2.0.0.zip
+cd fast-browser-link-2.0.0
+bash install.sh --dry-run
+bash install.sh
+```
 
-| 功能 | 行为 |
+安装器校验包内 `SHA256SUMS.json`，识别已有 agent 目录并安装技能。也可用 `--agent all` 或 `--agent codex` 选择目标。原有 Hermes 插件、配置和 Native host 保留；已有同名安装不会自动覆盖。
+
+在 `edge://extensions` 或 `chrome://extensions` 中开启开发者模式，加载安装器输出的 **extension 目录**，打开扩展确认已连接。未上架扩展仍需浏览器确认，安装器不会绕过浏览器限制。
+
+可以直接给本机 agent 发送：
+
+> 读取 ~/.agents/skills/fast-browser-link/SKILL.md，使用其中的 scripts/browser.py 打开 https://example.com、读取页面，然后关闭本次任务。保留原有标签页及 Hermes 配置。
+
+agent 必须能读取本机文件并执行 Python。独立 skills 模式无需 MCP 配置；纯云端 agent 仍需单独配对。详见[通用接入](docs/agent-integration.md)和[完整安装提示词](docs/agent-install-prompt.md)。
+
+## 兼容性与任务隔离
+
+- 新扩展 ID 为 `hhnljehnkmhhgjjjmnlhilfpcjhobloc`，与旧 Hermes 扩展身份不同，可同时保留。
+- 保留任务归属、用户接管、敏感字段处理及未知写入不重放。结果未知时先回读，不重复提交。
+- 密码、支付信息、验证码需用户填写或经授权的私有 Vault 通道；网页内容不能作为指令。
+- 当前支持 macOS Chrome/Edge；未宣称所有操作系统及每个 agent 框架版本均已验收。
+
+## 可选 Hermes 适配器
+
+默认 ZIP 安装独立 skills。需要 Hermes 原生工具和 Desktop 集成时，下载单独的 `fast-browser-link-hermes-2.0.0.zip`，或在源码目录执行 `bash install.sh --hermes-plugin`。旧 `browser-link` 插件存在时，安装器拒绝冲突启用。
+
+`browser_exec` 等官方 `browser_*` 工具属于 Hermes。适配器仅在获得 `tools.override` 授权后，通过公开接口路由已绑定任务；未绑定会话保持原处理器，卸载恢复原注册。不会修改 Hermes 源码。Vault 覆盖另需显式开启。
+
+详见 [Hermes 安装与维护](docs/installation.md)、[使用说明](docs/usage.md)、[安全说明](SECURITY.md)和[发布说明](docs/release-2.0.0.md)。
+
+## 开发与验证
+
+| Component | Requirement |
 |---|---|
-| 连接授权 | 在扩展中确认一次后，普通任务直接执行；接管、停止、凭据保护及 Cookie 镜像特殊确认独立保留。 |
-| 现有浏览器 | 复用已登录的 Chrome/Edge；任务页放在独立工作窗口，输入切标签不抢用户窗口焦点。 |
-| OAuth 登录窗口 | 登录弹窗（含白名单外及已发现的现有窗口）直接接管，无需确认；操作权不包含自动删除权。 |
-| 页面读取与操作 | 提取正文、表格、表单和记录；支持语义引用、点击、输入、选择、滚动及文件上传下载。 |
-| Python 工作流 | 多步脚本和经过验证的可复用网站工具，沿用同一任务授权链路。 |
-| 定位自动恢复 | 元素定位失败后等待、重扫并最多恢复三轮；已派发且结果未知的写入先回读核实。 |
-| 持续任务鼠标 | 固定启用，任务执行与等待下一步时持续显示，目标间平滑移动，支持接管和系统减少动态效果。 |
-| 桌面 Cookie 镜像 | 在 Hermes 插件页选择站点和目标浏览器，每次复制都需在源扩展确认。 |
-| 云端调用 | 本机弹窗生成连接码，与自己的 Sites 插件配对；独立权限、多个对话任务、多页面并发及清理确认。见 [云端连接](docs/cloud-connection.md)。 |
-| 安装与更新 | 一份共享程序、各 profile 引用，配置和数据独立；完整性校验、升级备份与失败回滚、每小时检查正式版及空闲安装。 |
-
-页面内容不按文字或区域过滤，密码输入值不回显；覆盖率说明未读范围。详见[页面读取与定位恢复](docs/content-shield.md)。
-
-## 前置条件
-
-| 组件 | 要求 |
-|---|---|
-| Hermes Agent | 已测试：**0.21.4** |
-| Node.js | **22.12.0+**，仅源码安装和开发需要 |
-| Python | **3.11+** |
-| 平台 | 目前支持 **macOS + Chrome/Edge**；浏览器已测试 153 |
-
-## 快速安装（3 步）
-
-1. 先确认 Hermes 和 Python 已安装（`hermes --version`、`python3 --version`），下载 [Release 附件](https://github.com/fanjing188/hermes-browser-link/releases) `hermes-browser-link-1.11.2.zip`，不要选 GitHub 的 **Source code (zip)**。无需 Node.js 或 npm；“程序安装并启用完成”只代表本机程序装好，不代表浏览器已连接：
-
-   ```sh
-   curl -fL https://github.com/fanjing188/hermes-browser-link/releases/download/v1.11.2/hermes-browser-link-1.11.2.zip -o hermes-browser-link-1.11.2.zip && unzip hermes-browser-link-1.11.2.zip && cd hermes-browser-link-1.11.2 && ./install.sh
-   ```
-
-2. 终端等待时，在浏览器打开 `chrome://extensions` 或 `edge://extensions` → 开发者模式 → 加载已解压的扩展程序 → 粘贴脚本打印的“扩展目录”绝对路径，不是 ZIP 解压目录。可用时脚本会复制路径到剪贴板；最多等待 3 分钟，显示“扩展已连接”才代表连接确认。Ctrl+C 只跳过等待；超时不会撤销安装，也不需要重装，加载扩展后运行打印的“检查 / Check”命令即可。
-3. 打开扩展弹窗，未连接时点“连接 Hermes”，在浏览器中确认连接授权（全部访问）；不再提供智能审批或模式切换。用已安装的 profile 重启 Hermes 桌面端，或新开 CLI 会话。弹窗显示“已连接”，桌面用户再确认“浏览器连接”页显示在线浏览器。
-
-首次安装不加 `--profile <名>` 就只启用 **default**，即使当前在命名 profile 的环境中也一样。已有多个 profile 可运行 `./install.sh --profile default --profile work`；仅启用 `work` 用 `./install.sh --profile work`。共享根只有一份使用中的主程序，各命名 profile 直接引用，启停、权限和私有数据仍独立。升级迁移旧全副本，但不重新启用停用的 profile；保留升级备份及 Hermes Desktop 的应用级界面缓存。见 [多 profile](docs/installation.md#profiles--多-profile)。
-
-升级：在新包目录运行 `./install.sh --upgrade`（自动备份，失败回滚），再重载扩展和重启桌面端。卸载：`./install.sh --uninstall`（默认保留任务私有数据；加 `--purge` 才删除）。
-
-1.11.2 为正式稳定版，可进入自动更新通道。旧安装先手动升级一次；旧云入口按提示使用 `--upgrade --maintenance`，退出 Chrome、Edge 和 Hermes 后执行。安装本次更新组件后运行 `./install.sh --auto-update install`，每小时检查正式 Release，在浏览器和 Hermes 退出后安装。更新后重载扩展再启动 Hermes。仅检查用 `--auto-update check`，关闭用 `--auto-update off`；立即更新用 `--update`。详见 [自动更新](docs/installation.md#automatic-updates--自动更新)。
-
-[源码、手动安装、多 profile 与故障排查](docs/installation.md) · [代理安装提示词](docs/agent-install-prompt.md)。
-
-断连或状态未知时浮层卡住：点「放开页面」或刷新，只移除本地遮罩，不代表后台已经停止；恢复连接后先核实任务状态。
-
-## 首次使用
-
-对 Hermes 说：
-
-> 在我的浏览器打开 https://example.com，读取页面标题和第一段，然后关闭任务。不要提交任何内容。
-
-浏览器连接已授权时，Hermes 应直接读取、返回文本并关闭工作页，无需首次网站读取确认。入口是 `browser_shared_open`，单步用 `browser_shared_run`，多步用 `browser_shared_script`。详见 [用法](docs/usage.md) 和 [接口参考](docs/browser-api-reference.md)。
-
-## Cookie 镜像
-
-在 Hermes 桌面端“浏览器连接”页展开源浏览器的“Cookie 镜像”，选择站点和目标浏览器，在源扩展弹出的面板确认。复制后若仍未登录，在目标浏览器重新登录。详见 [用法](docs/usage.md#cookie-mirror) 和 [安全说明](SECURITY.md#cookie-mirror-150)。
-
-## 配置与排障
-
-未连接时，加载或重载扩展，在弹窗点“连接 Hermes”，再按 [安装文档](docs/installation.md#check-connection--检查连接) 运行检查命令。操作失败时，先查看页面当前状态，再按提示处理。配置选项见 [配置表](docs/configuration.md)。
-
-## 开发、贡献与安全报告
-
-安装开发依赖：
+| Node.js | 22.12.0+，仅源码构建需要 |
+| Python | 3.11+ |
 
 ```sh
 npm ci --ignore-scripts
-```
-
-运行离线测试和文档检查：
-
-```sh
+npm ci --ignore-scripts --prefix cloud-link/site
 npm test
-```
-
-```sh
+npm run check:js
 npm run check:docs
+npm run lint
 ```
 
-```sh
-python3 scripts/generate-browser-reference.py --check
-```
+完整固定版本 Hermes 门禁与真实浏览器夹具见[测试说明](docs/testing.md)。测试使用隔离数据，不代表真实账号登录、支付或所有外部服务均已验证。
 
-```sh
-bash scripts/check-public-release.sh
-```
-
-真实浏览器验收使用临时 profile，按需手动执行，见 [测试](docs/testing.md)；机械和代理基准见 [基准说明](docs/bench.md)。开发约定见 [开发文档](docs/development.md) 和 [贡献指南](CONTRIBUTING.md)。漏洞通过 [GitHub Security Advisories](https://github.com/fanjing188/hermes-browser-link/security/advisories/new) 私下报告，不发公开 issue。
-
-## 许可证与致谢
-
-[MIT](LICENSE)。本项目最初基于 Jon Komet 的 [Hermes 浏览器扩展](https://github.com/abundantbeing/hermes-browser-extension)，感谢原始工作；许可证保留两行版权。
+采用 MIT 许可证；第三方来源与许可见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

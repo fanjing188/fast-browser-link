@@ -10,15 +10,15 @@ import {swapInstalledDirectory,rollbackDirectorySwaps,installedPluginTargets} fr
 
 async function developmentFixture(t,selectedHome){
  const base=await mkdtemp(path.join(tmpdir(),'bridge-development-'));t.after(()=>rm(base,{recursive:true,force:true}));
- const repo=path.join(base,'repo'),home=selectedHome||path.join(base,'home'),root=path.join(home,'plugins','browser-link');
+ const repo=path.join(base,'repo'),home=selectedHome||path.join(base,'home'),root=path.join(home,'plugins','fast-browser-link');
  await mkdir(path.join(repo,'scripts'),{recursive:true});
  for(const file of ['directory-swap.mjs','dev-sync-local.mjs','dev-watch-desktop.mjs','dev-sync-daemon.mjs','install-cli.py','install-executor.py'])
   await cp(path.resolve(import.meta.dirname,'../../scripts',file),path.join(repo,'scripts',file));
- const source=path.join(repo,'executor-plugin','desktop','plugin.js'),installed=path.join(root,'desktop','plugin.js'),desktop=path.join(home,'desktop-plugins','browser-link','plugin.js');
+ const source=path.join(repo,'executor-plugin','desktop','plugin.js'),installed=path.join(root,'desktop','plugin.js'),desktop=path.join(home,'desktop-plugins','fast-browser-link','plugin.js');
  for(const file of [source,installed,desktop]){await mkdir(path.dirname(file),{recursive:true});await writeFile(file,file===source?'globalThis.preview = "new";':'globalThis.preview = "old";');}
  const marker=path.join(path.dirname(desktop),'.hermes-package.json');
- await writeFile(marker,JSON.stringify({package:'browser-link',source:path.dirname(installed)}));
- const profile=path.join(home,'profiles','named'),link=path.join(profile,'plugins','browser-link');
+ await writeFile(marker,JSON.stringify({package:'fast-browser-link',source:path.dirname(installed)}));
+ const profile=path.join(home,'profiles','named'),link=path.join(profile,'plugins','fast-browser-link');
  await mkdir(path.dirname(link),{recursive:true});await symlink(root,link);
  // 中文注释：替身 hermes 只写临时 ESTOP，测试绝不调用用户真实的 Hermes。
  const hermes=path.join(base,'fake-hermes');
@@ -30,7 +30,7 @@ async function developmentFixture(t,selectedHome){
 
 test('dev watch normalizes a profile home and only updates the shared and application entries',async t=>{
  const f=await developmentFixture(t),linkBefore=await readlink(f.link);
- const profileDesktop=path.join(f.profile,'desktop-plugins','browser-link');await mkdir(profileDesktop,{recursive:true});
+ const profileDesktop=path.join(f.profile,'desktop-plugins','fast-browser-link');await mkdir(profileDesktop,{recursive:true});
  await writeFile(path.join(profileDesktop,'plugin.js'),'profile-ui-sentinel');
  const config=path.join(f.profile,'config.yaml');await writeFile(config,'disabled-sentinel');
  const result=f.run('dev-watch-desktop.mjs',f.profile);
@@ -60,7 +60,7 @@ test('dev watch refuses legacy copies and linked application ancestors before wr
 });
 
 async function syncConfiguration(f){
- const extension=path.join(f.home,'browser-link-releases','dev'),data=path.join(f.home,'plugin-data','browser-link-native');
+ const extension=path.join(f.home,'fast-browser-link-releases','dev'),data=path.join(f.home,'plugin-data','fast-browser-link-native');
  await mkdir(extension,{recursive:true});await mkdir(data,{recursive:true});
  const manifest={name:'Test extension',version:'1.0.0'};
  await writeFile(path.join(extension,'manifest.json'),JSON.stringify(manifest));
@@ -89,7 +89,7 @@ test('dev sync validates every Desktop entry and marker before any installed tar
  for(const kind of ['wrong-package','wrong-source','missing-entry','missing-marker','entry-directory']){
   await t.test(kind,async t=>{
    const f=await developmentFixture(t),{extension}=await syncConfiguration(f);
-   if(kind==='wrong-package'||kind==='wrong-source')await writeFile(f.marker,JSON.stringify({package:kind==='wrong-package'?'unknown':'browser-link',source:kind==='wrong-source'?f.base:path.dirname(f.installed)}));
+   if(kind==='wrong-package'||kind==='wrong-source')await writeFile(f.marker,JSON.stringify({package:kind==='wrong-package'?'unknown':'fast-browser-link',source:kind==='wrong-source'?f.base:path.dirname(f.installed)}));
    if(kind==='missing-entry'||kind==='entry-directory'){await rm(f.desktop);if(kind==='entry-directory')await mkdir(f.desktop);}
    if(kind==='missing-marker')await rm(f.marker);
    const rootBefore=await readFile(f.installed,'utf8'),extensionBefore=await readFile(path.join(extension,'manifest.json'),'utf8');
@@ -175,7 +175,7 @@ test('real dev sync packages and swaps the shared root once while preserving pro
 import json,runpy,sys
 from pathlib import Path
 home,user_home=map(Path,sys.argv[2:])
-launcher,text,manifests=runpy.run_path(sys.argv[1])['registration'](home/'plugins/browser-link/cloud_link',user_home,home,['chrome-extension://dhioigkigkkhceflkkkmoljhdaefjohb/'],sys.executable)
+launcher,text,manifests=runpy.run_path(sys.argv[1])['registration'](home/'plugins/fast-browser-link/cloud_link',user_home,home,['chrome-extension://hhnljehnkmhhgjjjmnlhilfpcjhobloc/'],sys.executable)
 launcher.parent.mkdir(parents=True,mode=0o700)
 launcher.write_text(text);launcher.chmod(0o700)
 for file,value in manifests:
@@ -191,7 +191,7 @@ for file,value in manifests:
  assert.equal(output.pluginCopies,1);assert.equal(output.daemonStopped,false);t.diagnostic(JSON.stringify(output));
  const repeated=run();assert.equal(repeated.status,0,repeated.stderr);
  assert.equal(await readlink(f.link),originalLink);assert.equal(await readFile(config,'utf8'),'disabled-sentinel');
- assert.deepEqual(await readdir(path.join(home,'plugins')),['browser-link']);
+ assert.deepEqual(await readdir(path.join(home,'plugins')),['fast-browser-link']);
  assert.deepEqual(await readdir(path.join(home,'plugin-backups')),[]);
  assert.equal(await readFile(f.installed,'utf8'),await readFile(path.join(f.repo,'executor-plugin','desktop','plugin.js'),'utf8'));
  assert.equal(await readFile(f.desktop,'utf8'),await readFile(f.installed,'utf8'));
@@ -200,12 +200,12 @@ for file,value in manifests:
 // 中文注释：验证真实目录切换时扫描根始终只有一个插件，且可以恢复原文件。
 test('directory swap keeps backup outside discovery and rollback restores original',async t=>{
  const root=await mkdtemp(path.join(tmpdir(),'bridge-swap-'));t.after(()=>rm(root,{recursive:true,force:true}));
- const registry=path.join(root,'plugins'),target=path.join(registry,'browser-link'),source=path.join(root,'source');
+ const registry=path.join(root,'plugins'),target=path.join(registry,'fast-browser-link'),source=path.join(root,'source');
  await mkdir(target,{recursive:true});await mkdir(source);await writeFile(path.join(target,'plugin.js'),'old');await writeFile(path.join(source,'plugin.js'),'new');
  const swap=await swapInstalledDirectory(target,source,path.join(root,'backups'));
- assert.deepEqual(await readdir(registry),['browser-link']);assert.equal(await readFile(path.join(target,'plugin.js'),'utf8'),'new');
+ assert.deepEqual(await readdir(registry),['fast-browser-link']);assert.equal(await readFile(path.join(target,'plugin.js'),'utf8'),'new');
  assert.equal(await readFile(path.join(swap.old,'plugin.js'),'utf8'),'old');
- await rollbackDirectorySwaps([swap]);assert.equal(await readFile(path.join(target,'plugin.js'),'utf8'),'old');assert.deepEqual(await readdir(registry),['browser-link']);
+ await rollbackDirectorySwaps([swap]);assert.equal(await readFile(path.join(target,'plugin.js'),'utf8'),'old');assert.deepEqual(await readdir(registry),['fast-browser-link']);
 });
 
 test('transaction directories inside the registry are rejected before replacement',async t=>{
@@ -218,24 +218,24 @@ test('transaction directories inside the registry are rejected before replacemen
 
 test('directory swap refuses target and transaction ancestor links without writes',async t=>{
  const root=await mkdtemp(path.join(tmpdir(),'bridge-swap-links-'));t.after(()=>rm(root,{recursive:true,force:true}));
- const target=path.join(root,'plugins','browser-link'),source=path.join(root,'source');
+ const target=path.join(root,'plugins','fast-browser-link'),source=path.join(root,'source');
  await mkdir(target,{recursive:true});await mkdir(source);await writeFile(path.join(target,'plugin.js'),'old');
  await symlink(root,path.join(root,'alias'));
- await assert.rejects(swapInstalledDirectory(path.join(root,'alias','plugins','browser-link'),source,path.join(root,'backups')),/link/i);
+ await assert.rejects(swapInstalledDirectory(path.join(root,'alias','plugins','fast-browser-link'),source,path.join(root,'backups')),/link/i);
  await assert.rejects(swapInstalledDirectory(target,source,path.join(root,'alias','backups')),/link/i);
  assert.equal(await readFile(path.join(target,'plugin.js'),'utf8'),'old');
- assert.deepEqual(await readdir(path.dirname(target)),['browser-link']);
+ assert.deepEqual(await readdir(path.dirname(target)),['fast-browser-link']);
  assert.ok(!(await readdir(root)).includes('backups'));
 });
 
 // 中文注释：旧副本必须由正式升级迁移，开发同步不能自行复制或启用。
 test('legacy profile copy is refused with the formal upgrade command',async t=>{
  const home=await mkdtemp(path.join(tmpdir(),'bridge-targets-'));t.after(()=>rm(home,{recursive:true,force:true}));
- const root=path.join(home,'plugins','browser-link'),named=path.join(home,'profiles','named','plugins','browser-link');
+ const root=path.join(home,'plugins','fast-browser-link'),named=path.join(home,'profiles','named','plugins','fast-browser-link');
  await mkdir(root,{recursive:true});assert.deepEqual(await installedPluginTargets(home),[root]);
  await mkdir(named,{recursive:true});
  await assert.rejects(installedPluginTargets(home),/\.\/install\.sh --upgrade/);
- assert.deepEqual(await readdir(path.dirname(root)),['browser-link']);
+ assert.deepEqual(await readdir(path.dirname(root)),['fast-browser-link']);
  assert.deepEqual(await readdir(named),[]);
 });
 
@@ -243,10 +243,10 @@ test('discovery rejects linked roots and linked profile ancestors before returni
  for(const kind of ['home','root','registry','profile','profiles','profile-registry','missing-root']){
   await t.test(kind,async t=>{
    const base=await mkdtemp(path.join(tmpdir(),'bridge-ancestors-'));t.after(()=>rm(base,{recursive:true,force:true}));
-   let home=path.join(base,'home');const root=path.join(home,'plugins','browser-link');
+   let home=path.join(base,'home');const root=path.join(home,'plugins','fast-browser-link');
    await mkdir(root,{recursive:true});
    const named=path.join(home,'profiles','named');await mkdir(path.join(named,'plugins'),{recursive:true});
-   await symlink(root,path.join(named,'plugins','browser-link'));
+   await symlink(root,path.join(named,'plugins','fast-browser-link'));
    if(kind==='missing-root')await rm(root,{recursive:true});
    else if(kind==='home'){await symlink(home,path.join(base,'alias'));home=path.join(base,'alias');}
    else {
@@ -260,7 +260,7 @@ test('discovery rejects linked roots and linked profile ancestors before returni
 
 test('profile references must be direct links to the exact shared root',async t=>{
  const home=await mkdtemp(path.join(tmpdir(),'bridge-links-'));t.after(()=>rm(home,{recursive:true,force:true}));
- const root=path.join(home,'plugins','browser-link'),registry=path.join(home,'profiles','named','plugins'),target=path.join(registry,'browser-link');
+ const root=path.join(home,'plugins','fast-browser-link'),registry=path.join(home,'profiles','named','plugins'),target=path.join(registry,'fast-browser-link');
  await mkdir(root,{recursive:true});await mkdir(registry,{recursive:true});
  for(const destination of [root,path.relative(registry,root)]){
   await symlink(destination,target);assert.deepEqual(await installedPluginTargets(home),[root]);
@@ -268,15 +268,15 @@ test('profile references must be direct links to the exact shared root',async t=
  }
  await symlink(root,path.join(home,'indirect'));
  await symlink(home,path.join(home,'ancestor'));
- const other=path.join(home,'other','plugins','browser-link');await mkdir(other,{recursive:true});
- for(const destination of [path.join(home,'indirect'),path.join(home,'ancestor','plugins','browser-link'),other,path.join(home,'missing')]){
+ const other=path.join(home,'other','plugins','fast-browser-link');await mkdir(other,{recursive:true});
+ for(const destination of [path.join(home,'indirect'),path.join(home,'ancestor','plugins','fast-browser-link'),other,path.join(home,'missing')]){
   await symlink(destination,target);
   await assert.rejects(installedPluginTargets(home),/link|链接/i);
   assert.equal(await readlink(target),destination);await rm(target);
  }
 });
 
-const ORIGIN='chrome-extension://dhioigkigkkhceflkkkmoljhdaefjohb/';
+const ORIGIN='chrome-extension://hhnljehnkmhhgjjjmnlhilfpcjhobloc/';
 const PYTHON=process.env.BROWSER_LINK_TEST_PYTHON||'python3';
 const REPO=path.resolve(import.meta.dirname,'../..');
 
@@ -284,7 +284,7 @@ const REPO=path.resolve(import.meta.dirname,'../..');
 async function maintenanceHome(t){
  const home=path.join(tmpdir(),`m${randomUUID().slice(0,4)}`);await mkdir(home,{mode:0o700});
  t.after(()=>rm(home,{recursive:true,force:true}));
- const data=path.join(home,'plugin-data','browser-link-native');
+ const data=path.join(home,'plugin-data','fast-browser-link-native');
  await mkdir(data,{recursive:true,mode:0o700});
  await writeFile(path.join(data,'host-config.json'),JSON.stringify({allowedOrigins:[ORIGIN]}),{mode:0o600});
  await writeFile(path.join(data,'maintenance.json'),JSON.stringify({version:1,pid:process.pid,token:'t'}),{mode:0o600});
@@ -321,7 +321,7 @@ test('维护标记存在时云端宿主不取锁直接退出；运行中的云�
  const {home,data}=await maintenanceHome(t);
  const early=spawnSync(PYTHON,[path.join(REPO,'cloud-link/native_host.py'),ORIGIN],{input:'',env:{...process.env,HERMES_HOME:home},timeout:10000});
  assert.equal(early.status,5,String(early.stderr));
- assert.ok(!(await readdir(path.join(home,'plugin-data'))).includes('browser-link-cloud'));
+ assert.ok(!(await readdir(path.join(home,'plugin-data'))).includes('fast-browser-link-cloud'));
  await rm(path.join(data,'maintenance.json'));
  const running=spawn(PYTHON,[path.join(REPO,'cloud-link/native_host.py'),ORIGIN],{stdio:['pipe','ignore','pipe'],env:{...process.env,HERMES_HOME:home}});
  t.after(async()=>{if(running.exitCode===null&&running.signalCode===null){running.kill('SIGKILL');await once(running,'exit');}});
@@ -365,6 +365,6 @@ test('扩展检测到已安装构建变化只重载一次，未构建源码和�
 test('扩展连接本地桥前先检查构建，握手前断开不快速重试',async()=>{
  const source=await readFile(path.join(REPO,'native-extension/background.mjs'),'utf8');
  const connect=source.slice(source.indexOf('async function connect(){'));
- assert.ok(connect.indexOf('reloadForInstalledBuild(')>0&&connect.indexOf('reloadForInstalledBuild(')<connect.indexOf("connectNative('com.hermes.browser_link')"));
+ assert.ok(connect.indexOf('reloadForInstalledBuild(')>0&&connect.indexOf('reloadForInstalledBuild(')<connect.indexOf("connectNative('com.fast.browser_link')"));
  assert.match(connect,/if\(wasConnected\)setTimeout\(\(\)=>\{connect\(\);\},1500\);/);
 });

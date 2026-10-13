@@ -150,7 +150,7 @@ test('large results are chunked and chunks expire after the last read',async()=>
  const big='x'.repeat(CHUNK_CHARS*2+10);
  f.replies['Page.captureScreenshot']=()=>({data:big});
  const result=await f.controller.send(f.task,{tabId:7,method:'Page.captureScreenshot'},guard,{gateway:true});
- const meta=result.__hermesChunked;assert.equal(meta.count,3);
+ const meta=result.__fastChunked;assert.equal(meta.count,3);
  const text=[0,1,2].map(index=>f.controller.chunk({id:meta.id,index,taskId:f.task.id,generation:f.task.generation},f.task).data).join('');
  assert.equal(JSON.parse(text).data,big);
  assert.throws(()=>f.controller.chunk({id:meta.id,index:0,taskId:f.task.id,generation:f.task.generation},f.task),/CHUNK_UNAVAILABLE/);
@@ -163,7 +163,7 @@ test('page events remain readable, subscriptions and buffers remain bounded',asy
   ['Network.responseReceivedExtraInfo',{headersText:'Set-Cookie: a=b',headers:{'Set-Cookie':'a=b','Proxy-Authorization':'Bearer secret'},blockedCookies:[{cookieLine:'a=b'}]}],
   ['Runtime.consoleAPICalled',{text:'Bearer synthetic-token'}],
  ])assert.deepEqual(scrubCdpEvent(method,params),params);
- assert.equal(scrubCdpEvent('Runtime.executionContextCreated',{context:{name:'hermes-automation-overlay'}}),null);
+ assert.equal(scrubCdpEvent('Runtime.executionContextCreated',{context:{name:'fast-automation-overlay'}}),null);
  const f=fixture();f.controller.assert(f.task,{tabId:7});
  f.controller.observe({tabId:7},'Page.loadEventFired',{});
  assert.equal(f.task.execution.buffers.size,0,'no subscription, no buffering');
@@ -253,7 +253,7 @@ test('大结果分块绑定任务、授权代次且过期后不可读取',async(
  const f=fixture(),result=await f.controller.send(f.task,{tabId:7,method:'Page.captureScreenshot'},guard);
  assert.deepEqual(result,{});
  f.replies['Page.captureScreenshot']=()=>({data:'x'.repeat(CHUNK_CHARS+1)});
- const value=await f.controller.send(f.task,{tabId:7,method:'Page.captureScreenshot'},guard),id=value.__hermesChunked.id;
+ const value=await f.controller.send(f.task,{tabId:7,method:'Page.captureScreenshot'},guard),id=value.__fastChunked.id;
  const foreign={...f.task,id:'other'};
  assert.throws(()=>f.controller.chunk({id,index:0,taskId:foreign.id,generation:foreign.generation},foreign),/CHUNK_UNAVAILABLE/);
  assert.throws(()=>f.controller.chunk({id,index:0,taskId:f.task.id,generation:99},f.task),/CHUNK_UNAVAILABLE/);
@@ -261,7 +261,7 @@ test('大结果分块绑定任务、授权代次且过期后不可读取',async(
  assert.throws(()=>f.controller.chunk({id,index:0,taskId:f.task.id,generation:f.task.generation},f.task),/CHUNK_UNAVAILABLE/);
  const next=await f.controller.send(f.task,{tabId:7,method:'Page.captureScreenshot'},guard);
  f.controller.clear(f.task);assert.equal(f.controller.chunks.size,0);
- assert.throws(()=>f.controller.chunk({id:next.__hermesChunked.id,index:0},f.task),/CHUNK_UNAVAILABLE/);
+ assert.throws(()=>f.controller.chunk({id:next.__fastChunked.id,index:0},f.task),/CHUNK_UNAVAILABLE/);
 });
 test('分块缓存总量有上限，不能通过反复大结果无限增长',async()=>{
  const f=fixture();f.replies['Page.captureScreenshot']=()=>({data:'x'.repeat(CHUNK_CHARS*8)});

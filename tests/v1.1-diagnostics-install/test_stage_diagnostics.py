@@ -13,7 +13,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 SCRATCH = Path.home() / ".hermes" / "cache" / "scratch"
 # 中文注释：固定身份的宿主只接受此来源，不能用旧随机 ID 绕过目标测试的预检。
-EXTENSION_ORIGIN = "chrome-extension://dhioigkigkkhceflkkkmoljhdaefjohb/"
+EXTENSION_ORIGIN = "chrome-extension://hhnljehnkmhhgjjjmnlhilfpcjhobloc/"
 
 _STAGED_DAEMON_CHECK = r'''
 import hashlib
@@ -147,7 +147,7 @@ class StagedDiagnosticsClosureTests(unittest.TestCase):
 
             staged = load_installer().stage(isolated_home, [EXTENSION_ORIGIN])
             host_bin = Path(staged["host"]).parent.resolve()
-            self.assertEqual(host_bin, isolated_home / ".hermes/plugin-data/browser-link-native/host-bin")
+            self.assertEqual(host_bin, isolated_home / ".hermes/plugin-data/fast-browser-link-native/host-bin")
 
             child_env = {
                 "HOME": str(isolated_home),
@@ -200,8 +200,8 @@ class StagedDiagnosticsClosureTests(unittest.TestCase):
         # 中文注释：合成目标里的链接不能让隔离安装覆盖外部目录或已有用户文件。
         installer = load_installer(ROOT / 'native-bridge/install.py')
         for relative, directory in (('.hermes', True),
-                ('.hermes/plugin-data/browser-link-native/host-bin/host.py', False),
-                ('Library/Application Support/Google/Chrome/NativeMessagingHosts/com.hermes.browser_link.json', False)):
+                ('.hermes/plugin-data/fast-browser-link-native/host-bin/host.py', False),
+                ('Library/Application Support/Google/Chrome/NativeMessagingHosts/com.fast.browser_link.json', False)):
             with self.subTest(relative=relative), tempfile.TemporaryDirectory(dir='/tmp') as work:
                 root = Path(work).resolve()
                 isolated = root / 'home'
@@ -216,7 +216,7 @@ class StagedDiagnosticsClosureTests(unittest.TestCase):
                     installer.stage(isolated, [EXTENSION_ORIGIN])
                 self.assertEqual(kept.read_text(), 'must remain unchanged')
                 self.assertEqual(list(outside.iterdir()), [kept])
-                self.assertFalse((isolated / '.hermes/plugin-data/browser-link-native/host-bin/daemon.py').exists())
+                self.assertFalse((isolated / '.hermes/plugin-data/fast-browser-link-native/host-bin/daemon.py').exists())
 
 
 if __name__ == "__main__":

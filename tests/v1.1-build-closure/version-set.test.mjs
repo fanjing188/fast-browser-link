@@ -91,7 +91,7 @@ test('预检拒绝已有草稿、损坏模板及版本漂移，避免部分更�
 }));
 
 test('文档、下载标签、锁根字段和握手漂移报告具体文件与行', async () => fixture(async work => {
- for (const file of [...JSON_VERSION_FILES, ...TEXT_VERSION_FILES.filter(file => file !== 'scripts/migrate-to-browser-link.py'), 'CHANGELOG.md', `docs/release-${current}.md`]) {
+ for (const file of [...JSON_VERSION_FILES, ...TEXT_VERSION_FILES.filter(file => file !== 'scripts/migrate-to-fast-browser-link.py'), 'CHANGELOG.md', `docs/release-${current}.md`]) {
   const target = path.join(work, file), original = await readFile(target, 'utf8');
   const offset = original.indexOf(current);
   assert.ok(offset >= 0, file);
@@ -107,7 +107,7 @@ test('文档、下载标签、锁根字段和握手漂移报告具体文件与�
   await writeFile(target, original.replace(token, `/download/v${next}/`));
   const line = original.slice(0, offset).split('\n').length;
   await assert.rejects(verifyReleaseVersions(work), error => error.message.includes(`${file}:${line}:`));
-  await writeFile(target, original.replace('https://github.com/fanjing188/hermes-browser-link/releases/download/', 'https://wrong.example/releases/download/'));
+  await writeFile(target, original.replace('https://github.com/fanjing188/fast-browser-link/releases/download/', 'https://wrong.example/releases/download/'));
   await assert.rejects(verifyReleaseVersions(work), /missing current release reference/);
   await writeFile(target, original);
  }

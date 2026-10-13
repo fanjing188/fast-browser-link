@@ -1,4 +1,4 @@
-# Hermes Browser Link 1.8.2
+# Fast-browser-link 1.8.2
 
 1.8.2 为 macOS 正式稳定版，修复已解析控件被无关 iframe 阻断的问题，并改善工作窗口回收、解析反馈和执行日志。
 
@@ -21,7 +21,7 @@
 
 ## 安装
 
-下载 `hermes-browser-link-1.8.2.zip`，解压后运行 `./install.sh`；已有安装按安装说明升级。更新后重新加载 Chrome/Edge 扩展并重新启动 Hermes。安装包不需要 Node.js。
+下载 `fast-browser-link-1.8.2.zip`，解压后运行 `./install.sh`；已有安装按安装说明升级。更新后重新加载 Chrome/Edge 扩展并重新启动 Hermes。安装包不需要 Node.js。
 
 独立云端站点保留原配对、登录与数据库配置；托管的 MCP 版本同步为 1.8.2。本机安装包不能代替站点所有者发布自己的云端站点。
 

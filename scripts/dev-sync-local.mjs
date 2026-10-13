@@ -10,11 +10,11 @@ import path from 'node:path';
 const repo=path.resolve(import.meta.dirname,'..');
 const home=await installationHome(process.env.HERMES_HOME||path.join(homedir(),'.hermes'));
 const configFile=path.join(repo,'.dev-sync.local.json');
-const pluginTarget=path.join(home,'plugins','browser-link');
+const pluginTarget=path.join(home,'plugins','fast-browser-link');
 const pluginTargets=await installedPluginTargets(home);
-const desktopTarget=path.join(home,'desktop-plugins','browser-link');
-const tasksFile=path.join(home,'plugin-data','browser-link-native','tasks.json');
-const daemonPidFile=path.join(home,'plugin-data','browser-link-native','daemon.pid');
+const desktopTarget=path.join(home,'desktop-plugins','fast-browser-link');
+const tasksFile=path.join(home,'plugin-data','fast-browser-link-native','tasks.json');
+const daemonPidFile=path.join(home,'plugin-data','fast-browser-link-native','daemon.pid');
 function digest(bytes){return createHash('sha256').update(bytes).digest('hex');}
 function reloadGateway(){
  const python=path.join(home,'hermes-agent','venv','bin','python');
@@ -38,8 +38,8 @@ const config=JSON.parse(await readFile(configFile,'utf8'));
 if(typeof config.extensionDir==='string')await rejectPathLinks(config.extensionDir);
 const extensionTarget=typeof config.extensionDir==='string'?path.resolve(config.extensionDir):'';
 if(!extensionTarget||!path.isAbsolute(config.extensionDir)||
-   !extensionTarget.startsWith(path.join(home,'browser-link-releases')+path.sep)){
- throw Error('本机配置的扩展目录必须是 ~/.hermes/browser-link-releases 下的绝对路径');
+   !extensionTarget.startsWith(path.join(home,'fast-browser-link-releases')+path.sep)){
+ throw Error('本机配置的扩展目录必须是 ~/.hermes/fast-browser-link-releases 下的绝对路径');
 }
 const desktopEntry=path.join(desktopTarget,'plugin.js');
 const desktopMarkerPath=path.join(desktopTarget,'.hermes-package.json');
@@ -60,7 +60,7 @@ const sameDesktopSource=async source=>{
  if(source===path.join(pluginTarget,'desktop'))return true;
  try{return await realpath(source)===await realpath(path.join(pluginTarget,'desktop'));}catch{return false;}
 };
-if(desktopMarker.package!=='browser-link'||!await sameDesktopSource(desktopMarker.source))throw Error('桌面插件来源不匹配');
+if(desktopMarker.package!=='fast-browser-link'||!await sameDesktopSource(desktopMarker.source))throw Error('桌面插件来源不匹配');
 const installedManifest=JSON.parse(await readFile(path.join(extensionTarget,'manifest.json'),'utf8'));
 const sourceManifest=JSON.parse(await readFile(path.join(repo,'native-extension','manifest.json'),'utf8'));
 // 中文注释：--allow-upgrade 只放行同名扩展的版本升级（源码版本更高），不允许降级或换扩展。
@@ -91,9 +91,9 @@ if(process.env.BROWSER_LINK_DEV_GUARDED!=='1'){
  });
  let output,daemonStopped=false,failure=null;
  try{
-  hermes.pause('browser-link dev:sync');paused=true;
+  hermes.pause('fast-browser-link dev:sync');paused=true;
   await waitForTasks(tasksFile,{timeoutMs:waitSeconds*1000});
-  token=runMaintenanceStep(home,repo,'enter',['browser-link dev:sync',process.pid]);
+  token=runMaintenanceStep(home,repo,'enter',['fast-browser-link dev:sync',process.pid]);
   daemonStopped=runMaintenanceStep(home,repo,'stop',[30]);
   runMaintenanceStep(home,repo,'cloud',[30]);
   assertDevelopmentIdle(home,repo);
@@ -115,16 +115,16 @@ if(process.env.BROWSER_LINK_DEV_GUARDED!=='1'){
 }
 assertDevelopmentIdle(home,repo);
 
-const scratch=await mkdtemp(path.join(tmpdir(),'hermes-browser-dev-sync-'));
+const scratch=await mkdtemp(path.join(tmpdir(),'fast-browser-dev-sync-'));
 const output=path.join(scratch,'package');
 const built=spawnSync(process.execPath,[path.join(repo,'scripts','package-executor.mjs'),'--output',output],
  {cwd:repo,encoding:'utf8',timeout:120000});
 if(built.status!==0){await rm(scratch,{recursive:true,force:true});throw Error(`打包失败：${built.stderr||built.stdout}`);}
 const packageHashes=JSON.parse(await readFile(path.join(output,'SHA256SUMS.json'),'utf8'));
 const token=`${new Date().toISOString().replace(/[:.]/g,'-')}-${randomUUID().slice(0,8)}`;
-const backup=path.join(home,'plugin-backups',`.browser-link-dev-tmp-${token}`);
+const backup=path.join(home,'plugin-backups',`.fast-browser-link-dev-tmp-${token}`);
 const swaps=[];
-const installStatePath=path.join(home,'plugin-data/browser-link-native/install-state.json');
+const installStatePath=path.join(home,'plugin-data/fast-browser-link-native/install-state.json');
 let installStateBytes;
 try{
  assertDevelopmentIdle(home,repo);
@@ -135,9 +135,9 @@ try{
  await cp(extensionTarget,path.join(backup,'extension'),{recursive:true});
  await cp(desktopTarget,path.join(backup,'desktop'),{recursive:true});
  // 中文注释：开发同步只替换共享根一次，命名 profile 引用保持原 readlink。
- for(const target of pluginTargets)swaps.push(await swapInstalledDirectory(target,path.join(output,'browser-link'),path.join(backup,'swaps')));
+ for(const target of pluginTargets)swaps.push(await swapInstalledDirectory(target,path.join(output,'fast-browser-link'),path.join(backup,'swaps')));
  swaps.push(await swapInstalledDirectory(extensionTarget,path.join(output,'native-extension'),path.join(backup,'swaps')));
- for(const target of pluginTargets)await verifyTree(target,packageHashes,'browser-link/');
+ for(const target of pluginTargets)await verifyTree(target,packageHashes,'fast-browser-link/');
  await verifyTree(extensionTarget,packageHashes,'native-extension/');
  // 中文注释：Hermes 桌面只监视 materialized 副本，更新入口文件会触发热重载。
  const desktopSource=path.join(pluginTarget,'desktop','plugin.js');
@@ -153,8 +153,8 @@ try{
  await rename(`${markerPath}.dev-${token}`,markerPath);
  if(digest(await readFile(entry))!==digest(await readFile(desktopSource)))throw Error('桌面插件副本校验失败');
  const installState=JSON.parse(installStateBytes);
- installState.cloudFence={version:1,hostSha256:packageHashes['browser-link/cloud_link/native_host.py'],
-  installerSha256:packageHashes['browser-link/maintenance/install-cli.py']};
+ installState.cloudFence={version:1,hostSha256:packageHashes['fast-browser-link/cloud_link/native_host.py'],
+  installerSha256:packageHashes['fast-browser-link/maintenance/install-cli.py']};
  if(!installState.cloudFence.hostSha256||!installState.cloudFence.installerSha256)throw Error('同步包缺少云端升级保护');
  await writeFile(`${installStatePath}.dev-${token}`,JSON.stringify(installState)+'\n',{mode:0o600});
  await rename(`${installStatePath}.dev-${token}`,installStatePath);

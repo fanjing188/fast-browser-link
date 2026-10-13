@@ -17,7 +17,7 @@ paths = fixture.paths(work)
 if not paths['plugin'].resolve().is_relative_to(work) or not paths['hermes'].resolve().is_relative_to(work) or not (paths['plugin'] / 'native_tools.py').is_file():
     raise RuntimeError('夹具插件不存在')
 os.environ['HERMES_HOME'] = str(paths['hermes'])
-os.environ.pop('HERMES_BROWSER_BRIDGE_HOME', None)
+os.environ.pop('FAST_BROWSER_BRIDGE_HOME', None)
 tools = fixture.load(paths['plugin'] / 'native_tools.py', 'round1f_real_tools')
 runtime = tools.runtime_module()
 profile = runtime.NativeProfileRuntime(paths['hermes'], paths['plugin'])
@@ -41,8 +41,8 @@ try:
     if action == 'open':
         module = runtime.load_module(paths['plugin'] / 'open_tool.py', 'round1f_real_open')
         args = json.loads(payload)
-        profile.authority.lease_tools(('browser_shared_open',))
-        decision = profile.authority.pre_tool_call('browser_shared_open', args, session_id=session, tool_call_id=uuid.uuid4().hex)
+        profile.authority.lease_tools(('fast_browser_open',))
+        decision = profile.authority.pre_tool_call('fast_browser_open', args, session_id=session, tool_call_id=uuid.uuid4().hex)
         if decision.get('action') != 'modify':
             raise RuntimeError('缺少可信身份')
         result = json.loads(module.make_handler(profile, bridge, lease_error=runtime.OwnerLeaseError)({**args, **decision['args']}, session_id=session))

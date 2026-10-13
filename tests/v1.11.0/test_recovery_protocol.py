@@ -24,17 +24,17 @@ class RecoveryProtocolTests(unittest.TestCase):
         details = {'triggered': True, 'rounds': 3, 'locator': 'role+name',
                    'strategies': [{'round': 3, 'scanned': 12, 'matched': 1}],
                    'candidates': [{'role': 'button', 'name': '保存', 'rect': {'x': 10, 'y': 20}}],
-                   'screenshotPath': '/tmp/hermes-recovery-fixture.png'}
+                   'screenshotPath': '/tmp/fast-recovery-fixture.png'}
         error = client.BridgeError('reference_target_missing', 'missing', {'outcomeUnknown': False, 'recovery': details})
         self.assertEqual(error.data['recovery'], details)
-        result = runtime._project_tool_result('browser_shared_run', {'action': 'ref_click'},
+        result = runtime._project_tool_result('fast_browser_run', {'action': 'ref_click'},
                                             {'error': 'missing', 'code': 'reference_target_missing', 'outcome_unknown': False, 'recovery': error.data['recovery']})
         self.assertEqual(result['recovery'], details)
         self.assertFalse(result['outcome_unknown'])
         self.assertEqual(result['code'], 'reference_target_missing')
 
     def test_raw_images_and_private_metadata_do_not_escape_projection(self):
-        result = runtime._project_tool_result('browser_shared_run', {'action': 'ref_click'},
+        result = runtime._project_tool_result('fast_browser_run', {'action': 'ref_click'},
                                             {'clicked': True, 'recovery': {'rounds': 1, 'screenshot': {'data': 'RAW'},
                                                                           'selected': {'role': 'button', 'name': '保存', 'owner': 'PRIVATE'}}})
         self.assertEqual(result['recovery'], {'rounds': 1, 'selected': {'role': 'button', 'name': '保存'}})

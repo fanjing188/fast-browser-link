@@ -10,7 +10,7 @@ import unittest
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
-spec = importlib.util.spec_from_file_location('migration', ROOT / 'scripts/migrate-to-browser-link.py')
+spec = importlib.util.spec_from_file_location('migration', ROOT / 'scripts/migrate-to-fast-browser-link.py')
 migration = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(migration)
 
@@ -72,16 +72,16 @@ class MigrationTests(unittest.TestCase):
         result = self.run_migration(True)
         self.assertEqual(result['status'], 'migrated')
         self.assertFalse(self.old.exists())
-        token = self.home / 'plugin-data/browser-link-native/vault-token'
+        token = self.home / 'plugin-data/fast-browser-link-native/vault-token'
         self.assertEqual(token.read_text(), 'synthetic-token')
         self.assertEqual(token.stat().st_mode & 0o777, 0o600)
         for name, value in self.persistent.items():
             copied = token.parent / name
             self.assertEqual(copied.read_bytes(), value)
             self.assertEqual(copied.stat().st_mode & 0o777, 0o600)
-        self.assertEqual((self.home / 'plugin-data/browser-link/records.json').read_text(), '{}')
+        self.assertEqual((self.home / 'plugin-data/fast-browser-link/records.json').read_text(), '{}')
         self.assertEqual(token.parent.stat().st_mode & 0o777, 0o700)
-        expected = self.raw.replace(migration.LEGACY['plugin'].encode(), b'browser-link')
+        expected = self.raw.replace(migration.LEGACY['plugin'].encode(), b'fast-browser-link')
         self.assertEqual(self.config.read_bytes(), expected)
         self.assertEqual(self.config.stat().st_mode & 0o777, 0o640)
         self.assertEqual((self.home / 'profiles/work/config.yaml').read_bytes(), expected)
@@ -102,7 +102,7 @@ class MigrationTests(unittest.TestCase):
         result = self.run_migration(True)
         self.assertEqual(result['status'], 'migrated')
         self.assertFalse(legacy.is_symlink())
-        self.assertEqual((plugins / 'browser-link').resolve(), self.home / 'plugins/browser-link')
+        self.assertEqual((plugins / 'fast-browser-link').resolve(), self.home / 'plugins/fast-browser-link')
         self.assertTrue(other.is_symlink())
 
     def test_already_migrated_install_repairs_old_profile_link(self):
@@ -116,7 +116,7 @@ class MigrationTests(unittest.TestCase):
         self.assertEqual(result['status'], 'profile_links_repaired')
         self.assertTrue(result['gatewayRestartRequired'])
         self.assertFalse(old.is_symlink())
-        self.assertTrue((plugins / 'browser-link').is_symlink())
+        self.assertTrue((plugins / 'fast-browser-link').is_symlink())
 
     def test_verification_failure_restores_files(self):
         with patch.object(migration, 'verify', side_effect=ValueError('injected')):
@@ -124,8 +124,8 @@ class MigrationTests(unittest.TestCase):
                 self.run_migration(True)
         self.assertEqual(self.config.read_bytes(), self.raw)
         self.assertTrue((self.old / 'vault-token').exists())
-        self.assertFalse((self.home / 'plugins/browser-link').exists())
-        self.assertFalse((self.home / 'browser-link-releases').exists())
+        self.assertFalse((self.home / 'plugins/fast-browser-link').exists())
+        self.assertFalse((self.home / 'fast-browser-link-releases').exists())
         self.assertEqual(self.run_migration(True)['status'], 'migrated')
 
     def test_stop_failure_leaves_old_installation(self):
@@ -136,7 +136,7 @@ class MigrationTests(unittest.TestCase):
         self.assertTrue(self.old.exists())
 
     def test_existing_target_and_symlink_rejected(self):
-        target = self.home / 'plugins/browser-link'
+        target = self.home / 'plugins/fast-browser-link'
         target.parent.mkdir()
         target.symlink_to(self.old, target_is_directory=True)
         with self.assertRaisesRegex(ValueError, '符号链接'):
@@ -157,13 +157,13 @@ class MigrationTests(unittest.TestCase):
         finally:
             os.chdir(cwd)
         result = self.run_migration(True)
-        self.assertFalse((self.home / 'plugin-data/browser-link-native/test.sock').exists())
+        self.assertFalse((self.home / 'plugin-data/fast-browser-link-native/test.sock').exists())
         self.assertFalse(any(p.name == 'test.sock' for p in Path(result['backup']).rglob('*')))
 
     def test_config_only_plugin_keys_and_values(self):
         old = migration.LEGACY['plugin']
         raw = f'# {old}\nplugins:\n  enabled:\n    - \'{old}\' # {old}\n  entries:\n    "{old}": {{}}\ntext: {old}\n'.encode()
-        expected = f'# {old}\nplugins:\n  enabled:\n    - \'browser-link\' # {old}\n  entries:\n    "browser-link": {{}}\ntext: {old}\n'.encode()
+        expected = f'# {old}\nplugins:\n  enabled:\n    - \'fast-browser-link\' # {old}\n  entries:\n    "fast-browser-link": {{}}\ntext: {old}\n'.encode()
         self.assertEqual(migration.rewrite_config(raw), expected)
 
     def test_failure_after_config_and_first_retirement_rolls_back(self):
@@ -182,15 +182,15 @@ class MigrationTests(unittest.TestCase):
                 self.run_migration(True)
         self.assertEqual(self.config.read_bytes(), self.raw)
         self.assertTrue((self.old / 'vault-token').exists())
-        self.assertFalse((self.home / 'plugins/browser-link').exists())
+        self.assertFalse((self.home / 'plugins/fast-browser-link').exists())
         self.assertEqual(self.run_migration(True)['status'], 'migrated')
 
     def test_config_indentless_list_and_conflict(self):
         old = migration.LEGACY['plugin']
         raw = f'plugins:\n  enabled:\n  - {old}\nother: unchanged\n'.encode()
-        self.assertEqual(migration.rewrite_config(raw), raw.replace(old.encode(), b'browser-link'))
+        self.assertEqual(migration.rewrite_config(raw), raw.replace(old.encode(), b'fast-browser-link'))
         with self.assertRaisesRegex(ValueError, '冲突'):
-            migration.rewrite_config(f'# comment\nplugins:\n  entries:\n    {old}: {{}}\n    browser-link: {{}}\n'.encode())
+            migration.rewrite_config(f'# comment\nplugins:\n  entries:\n    {old}: {{}}\n    fast-browser-link: {{}}\n'.encode())
 
     def test_fixed_origin_rejects_other_extension(self):
         with self.assertRaisesRegex(ValueError, '固定 ID'):

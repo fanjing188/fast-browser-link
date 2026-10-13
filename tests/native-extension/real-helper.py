@@ -31,7 +31,7 @@ def locations(work: Path) -> dict[str, Path]:
     home = work / "home"
     hermes_home = home / ".hermes"
     package = work / "package"
-    installed = hermes_home / "plugins" / "browser-link"
+    installed = hermes_home / "plugins" / "fast-browser-link"
     return {"work": work, "home": home, "hermes_home": hermes_home, "package": package, "installed": installed}
 
 
@@ -78,7 +78,7 @@ def prepare(work: Path, archive: Path) -> dict:
                 raise ValueError(f"candidate hash mismatch: {name}")
         bundle.extractall(package)
     extension = extension_root(package)
-    plugin = package / "browser-link"
+    plugin = package / "fast-browser-link"
     for required in (
         extension / "manifest.json",
         extension / "background.mjs",
@@ -118,7 +118,7 @@ def install(work: Path, origins: list[str]) -> dict:
     result = subprocess.run(command + ["--apply"], check=True, text=True, capture_output=True)
     json_start = result.stdout.rfind("\n{")
     payload = json.loads(result.stdout[json_start + 1:] if json_start >= 0 else result.stdout)
-    launcher = paths["hermes_home"] / "plugin-data" / "browser-link-native" / "com.hermes.browser_link"
+    launcher = paths["hermes_home"] / "plugin-data" / "fast-browser-link-native" / "com.fast.browser_link"
     launcher_text = launcher.read_text(encoding="utf-8")
     if str(paths["installed"] / "native_bridge" / "host.py") not in launcher_text:
         raise RuntimeError("installed launcher does not reference installed host")
@@ -126,7 +126,7 @@ def install(work: Path, origins: list[str]) -> dict:
         raise RuntimeError("installed launcher still references extracted package")
     manifests = {}
     for browser in ("Google/Chrome", "Microsoft Edge"):
-        manifest_path = paths["home"] / "Library/Application Support" / browser / "NativeMessagingHosts/com.hermes.browser_link.json"
+        manifest_path = paths["home"] / "Library/Application Support" / browser / "NativeMessagingHosts/com.fast.browser_link.json"
         manifests[browser] = str(manifest_path)
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         if manifest.get("path") != str(launcher) or manifest.get("allowed_origins") != list(dict.fromkeys(origins)):
@@ -146,7 +146,7 @@ def install(work: Path, origins: list[str]) -> dict:
 
 def cleanup(work: Path) -> dict:
     paths = locations(work)
-    pidfile = paths["hermes_home"] / "plugin-data" / "browser-link-native" / "daemon.pid"
+    pidfile = paths["hermes_home"] / "plugin-data" / "fast-browser-link-native" / "daemon.pid"
     if pidfile.exists():
         pid = int(pidfile.read_text())
         command = subprocess.run(["ps", "-p", str(pid), "-o", "command="], capture_output=True, text=True)
@@ -161,8 +161,8 @@ def cleanup(work: Path) -> dict:
 
 def inspect_install(work: Path) -> dict:
     paths = locations(work)
-    launcher = paths["hermes_home"] / "plugin-data" / "browser-link-native" / "com.hermes.browser_link"
-    pidfile = paths["hermes_home"] / "plugin-data" / "browser-link-native" / "daemon.pid"
+    launcher = paths["hermes_home"] / "plugin-data" / "fast-browser-link-native" / "com.fast.browser_link"
+    pidfile = paths["hermes_home"] / "plugin-data" / "fast-browser-link-native" / "daemon.pid"
     if not pidfile.is_file():
         raise RuntimeError("installed daemon is not running")
     pid = int(pidfile.read_text())
@@ -218,7 +218,7 @@ def rpc(work: Path, session: str, suffix: str, args: dict) -> str:
     profile.call = diagnostic_call
     manager = plugins.PluginManager()
     manager._hooks.setdefault("pre_tool_call", []).append(profile.authority.pre_tool_call)
-    name = "browser_shared_" + suffix
+    name = "fast_browser_" + suffix
     try:
         with patch.object(plugins, "_delivery_manager", return_value=manager):
             block, bounded = plugins._dispatch_pre_tool_call_hooks(

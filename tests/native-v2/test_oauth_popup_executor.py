@@ -72,13 +72,13 @@ class ExecutorPopupTests(unittest.TestCase):
         self.assertEqual(calls,[('run',['popup_catalog',{}]),('run',['popup_adopt',{'candidateRef':'ref-2'}])])
     def test_public_validator_exposes_candidate_ref_not_approval_authority(self):
         args={'task_id':'task','action':'popup_adopt','tab_id':1,'candidate_ref':'ref-2'}
-        native_tools._validate('browser_shared_run',args)
+        native_tools._validate('fast_browser_run',args)
         with self.assertRaises(native_tools.ArgumentFieldsError):
-            native_tools._validate('browser_shared_run',{**args,'popupScope':{}})
+            native_tools._validate('fast_browser_run',{**args,'popupScope':{}})
     def test_public_contract_and_script_selection_allow_only_explicit_adopted_popup(self):
         self.assertIn('popup_catalog',native_tools.PUBLIC_ACTIONS)
         self.assertIn('popup_adopt',native_tools.PUBLIC_ACTIONS)
-        schema=native_tools.TOOL_SCHEMAS['browser_shared_run']['parameters']
+        schema=native_tools.TOOL_SCHEMAS['fast_browser_run']['parameters']
         self.assertIn('candidate_ref',schema['properties'])
         self.assertEqual(action.ActionSession.SCRIPT_ACTIONS['popup_adopt'],frozenset({'candidateRef'}))
         task={'id':'task','instanceId':'instance','generation':1,'state':'ready','tabIds':[1,2,3],'workTabs':[{'tabId':1}], 'adoptedPopupTabIds':[2]}

@@ -98,14 +98,14 @@ test('background access window remains open and notification click only focuses 
  const windows=fakeWindows({popupUnfocused:true});const sent=[];
  const f=await loadAccessRequestHandler({windows,bridgeRequest:async(method)=>{sent.push(method);}});
  assert.equal((await f.handler(request)).status,'opened');
- assert.equal(f.events.notification.id,'hermes-browser-access');
+ assert.equal(f.events.notification.id,'fast-browser-access');
  assert.match(f.events.notification.options.message,/网站访问/);
  f.events.notificationClick('unrelated');assert.equal(windows.updates.length,0);
  windows.api.update=async(id,options)=>{windows.updates.push([id,options]);return {id,focused:true};};
- f.events.notificationClick('hermes-browser-access');await new Promise(resolve=>setImmediate(resolve));
+ f.events.notificationClick('fast-browser-access');await new Promise(resolve=>setImmediate(resolve));
  assert.equal(windows.updates.length,1);assert.equal(windows.updates[0][0],500);
  assert.deepEqual(sent,[],'notification clicks must not grant consent');
- assert.ok(f.events.cleared.includes('hermes-browser-access'),'focused window clears its reminder');
- windows.close(500);f.events.notificationClick('hermes-browser-access');
+ assert.ok(f.events.cleared.includes('fast-browser-access'),'focused window clears its reminder');
+ windows.close(500);f.events.notificationClick('fast-browser-access');
  assert.equal(windows.updates.length,1,'closed windows must not be focused');
 });

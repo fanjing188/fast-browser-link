@@ -78,11 +78,11 @@ test('多选、持久天数和清除选项通过请求发送；状态只查询�
     assert.equal(document.querySelector('dialog button:last-child').disabled, true)
     resolvePost(state('approval_required'))
     await h.tick()
-    await h.refetch(['browser-link', 'cookie-mirror', transferId])
+    await h.refetch(['fast-browser-link', 'cookie-mirror', transferId])
     assert.match(document.body.textContent, /复制中/)
     // 中文注释：通过 Query 的同一键刷新模拟轮询；生产轮询间隔由组件设置。
     phase = 'completed'
-    await h.refetch(['browser-link', 'cookie-mirror', transferId])
+    await h.refetch(['fast-browser-link', 'cookie-mirror', transferId])
     assert.match(document.body.textContent, /完成：成功 2 \/ 失败 1，回读匹配 1 \/ 缺失 1/)
     assert.match(document.body.textContent, /写入失败 1/)
     await h.click(h.button('收起 Cookie 镜像')); await h.click(h.button('Cookie 镜像'))

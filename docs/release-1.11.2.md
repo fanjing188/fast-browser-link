@@ -1,4 +1,4 @@
-# Hermes Browser Link 1.11.2
+# Fast-browser-link 1.11.2
 
 2026-10-12。macOS 稳定版补丁。
 
@@ -11,7 +11,7 @@
 
 ## 安装
 
-下载 `hermes-browser-link-1.11.2.zip`，解压后运行 `./install.sh`；已有安装运行 `./install.sh --upgrade`。更新后扩展会自动重载。仅在 macOS 上验证。
+下载 `fast-browser-link-1.11.2.zip`，解压后运行 `./install.sh`；已有安装运行 `./install.sh --upgrade`。更新后扩展会自动重载。仅在 macOS 上验证。
 
 ## 验证范围
 

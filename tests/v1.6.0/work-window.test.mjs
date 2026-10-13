@@ -29,18 +29,18 @@ test('并发任务只创建一个独立窗口，不聚焦、不最小化，关�
 test('保存编号丢失或浏览器恢复编号变化时复用已有首页，不新增窗口',async()=>{
  for(const reset of ['storage','ids']){
   const f=fixture(),first=new WorkWindow(f.api),id=await first.ensure();
-  if(reset==='storage')await f.api.storage.local.set({'hermes.workWindow.v1':null});
+  if(reset==='storage')await f.api.storage.local.set({'fast.workWindow.v1':null});
   else{const tab=[...f.tabs.values()][0];f.tabs.delete(tab.id);f.windows.delete(id);tab.id+=100;tab.windowId+=100;f.tabs.set(tab.id,tab);f.windows.set(tab.windowId,{id:tab.windowId,type:'normal'});}
   const restored=new WorkWindow(f.api),expected=[...f.tabs.values()][0].windowId;
   assert.equal(await restored.ensure(),expected);assert.equal(f.calls.length,1);
-  assert.equal((await f.api.storage.local.get())['hermes.workWindow.v1'].windowId,expected);
+  assert.equal((await f.api.storage.local.get())['fast.workWindow.v1'].windowId,expected);
  }
 });
 test('最后一个任务完成才关闭空工作窗口，下一任务可以重建',async()=>{
  const f=fixture(),w=new WorkWindow(f.api),id=await w.ensure('a');await w.ensure('b');
  await w.closeIdle('a',id);assert.ok(f.windows.has(id));
  await w.closeIdle('b',id);assert.ok(!f.windows.has(id));assert.equal(w.windowId,null);
- assert.equal((await f.api.storage.local.get())['hermes.workWindow.v1'],null);
+ assert.equal((await f.api.storage.local.get())['fast.workWindow.v1'],null);
  assert.notEqual(await w.ensure('c'),id);
 });
 test('保留结果页、用户页、被改写或拖走的首页都不自动关闭',async()=>{
@@ -139,15 +139,15 @@ for(const change of ['dom','focus','submit','request'])test(`${change} 效果返
    if(change==='submit')d.dispatchEvent(new f.dom.window.Event('submit'));
    if(change==='request')for(const listener of f.listeners)listener({tabId:1},'Network.requestWillBeSent');
    return {clicked:true,kind:'trusted-input',effect:'unverified'};
-  });assert.equal(r.effect,'observed');assert.equal(f.listeners.size,0);assert.equal(f.dom.window.__hermesInputEffect,undefined);
+  });assert.equal(r.effect,'observed');assert.equal(f.listeners.size,0);assert.equal(f.dom.window.__fastInputEffect,undefined);
  }finally{f.dom.window.close()}
 });
 test('迟到的探针清理不卸载下一动作的观察器',()=>{
  const f=effectFixture();try{
   const call=(op,token)=>f.dom.window.eval(`(${effectProbe.toString()})(${JSON.stringify(op)},${JSON.stringify(token)})`);
   call('arm','a');call('arm','b');call('clear','a');
-  assert.equal(f.dom.window.__hermesInputEffect.token,'b');
-  call('clear','b');assert.equal(f.dom.window.__hermesInputEffect,undefined);
+  assert.equal(f.dom.window.__fastInputEffect.token,'b');
+  call('clear','b');assert.equal(f.dom.window.__fastInputEffect,undefined);
  }finally{f.dom.window.close()}
 });
 test('Shadow DOM 内变化也返回 observed',async()=>{
@@ -159,7 +159,7 @@ test('Shadow DOM 内变化也返回 observed',async()=>{
 });
 test('合成点击无效果按成功返回 effect=unobserved 并附提示，装饰变化不算网页效果',async()=>{
  const f=effectFixture();try{
-  const r=await f.run(async()=>{const host=f.dom.window.document.createElement('div');host.setAttribute('data-hermes-automation-overlay','');f.dom.window.document.body.append(host);return {clicked:true,kind:'dom-synthetic',effect:'unverified'};});
+  const r=await f.run(async()=>{const host=f.dom.window.document.createElement('div');host.setAttribute('data-fast-automation-overlay','');f.dom.window.document.body.append(host);return {clicked:true,kind:'dom-synthetic',effect:'unverified'};});
   assert.equal(r.clicked,true);assert.equal(r.effect,'unobserved');assert.equal(r.suggestion,NO_EFFECT_HINT);
   assert.equal(f.listeners.size,0);
  }finally{f.dom.window.close()}

@@ -26,7 +26,7 @@ class LifecycleTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(dir='/private/tmp' if os.path.isdir('/private/tmp') else None, prefix='bl160-')
         self.addCleanup(self.temp.cleanup)
-        with patch.dict(os.environ, {'HERMES_BROWSER_WORK_WINDOW': 'separate', 'HERMES_BROWSER_TASK_IDLE_TIMEOUT_SECONDS': '1200'}):
+        with patch.dict(os.environ, {'FAST_BROWSER_WORK_WINDOW': 'separate', 'FAST_BROWSER_TASK_IDLE_TIMEOUT_SECONDS': '1200'}):
             self.daemon = BridgeDaemon(Path(self.temp.name))
         self.daemon._prepare_data_dir()
         self.daemon._notify_tasks_changed = lambda _: None
@@ -48,9 +48,9 @@ class LifecycleTests(unittest.TestCase):
         self.assertEqual(daemon.task_idle_timeout_seconds, 1200)
         self.assertEqual(daemon.idle_close_seconds, 0)
         self.assertEqual(daemon.work_window_mode, 'separate')
-        with patch.dict(os.environ, {'HERMES_BROWSER_WORK_WINDOW': 'current'}):
+        with patch.dict(os.environ, {'FAST_BROWSER_WORK_WINDOW': 'current'}):
             self.assertEqual(BridgeDaemon(Path(self.temp.name)).work_window_mode, 'current')
-        with patch.dict(os.environ, {'HERMES_BROWSER_WORK_WINDOW': 'invalid'}):
+        with patch.dict(os.environ, {'FAST_BROWSER_WORK_WINDOW': 'invalid'}):
             with self.assertRaises(ValueError):
                 BridgeDaemon(Path(self.temp.name))
 
@@ -145,7 +145,7 @@ class LifecycleTests(unittest.TestCase):
         for action in ('click', 'ref_click', 'ref_press', 'press', 'interaction.click'):
             result = RUNTIME._project_schema({'effect': 'observed', 'secret': 'discard'}, RUNTIME._RESULT_ACTIONS[action])
             self.assertEqual(result, {'effect': 'observed'})
-        self.assertEqual(RUNTIME._project_schema({'tabId': 7, 'open_tabs': 8, 'tab_hint': '不再用的网站先 browser_shared_close'},
+        self.assertEqual(RUNTIME._project_schema({'tabId': 7, 'open_tabs': 8, 'tab_hint': '不再用的网站先 fast_browser_close'},
             RUNTIME._RESULT_ACTIONS['new_tab'])['open_tabs'], 8)
 
 if __name__ == '__main__':

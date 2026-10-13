@@ -1,5 +1,5 @@
 {
-  "name": "hermes-browser-link-cloud",
+  "name": "fast-browser-link-cloud",
   "private": true,
   "type": "module",
   "scripts": {
@@ -18,5 +18,5 @@
     "drizzle-kit": "^0.31.0",
     "esbuild": "^0.25.0"
   },
-  "version": "1.11.2"
+  "version": "2.0.0"
 }

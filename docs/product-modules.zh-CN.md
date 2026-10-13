@@ -6,7 +6,7 @@
 
 连接用户正在使用的 Chrome / Edge，复用登录状态。任务绑定可信 Hermes 会话、浏览器实例、允许来源、标签租约和代次；扩展确认连接后普通任务直接执行，敏感操作独立确认。断线、取消、撤销或代次变化不自动恢复旧授权。
 
-- 入口：`browser_shared_open`、`browser_shared_browsers`、任务管理工具。
+- 入口：`fast_browser_open`、`fast_browser_browsers`、任务管理工具。
 - 实现：`executor-plugin/native_runtime.py`、`native-bridge/daemon.py`、`native-extension/core.mjs`。
 - 优化边界：标签组隔离资源，不隔离账号；新增网站工具不能绕过此链路。
 
@@ -38,7 +38,7 @@
 
 ### 3.1 一次性脚本
 
-`browser_shared_script` 在独立 Python 进程运行多步操作。每个 helper 复用现有受控动作，保留未知结果、等待审批和显式检查点语义。每次调用的内存变量不延续；工作目录文件延续。
+`fast_browser_script` 在独立 Python 进程运行多步操作。每个 helper 复用现有受控动作，保留未知结果、等待审批和显式检查点语义。每次调用的内存变量不延续；工作目录文件延续。
 
 ### 3.2 可复用网站工具
 
@@ -64,7 +64,7 @@
 
 断言结构为 `{path, equals? , min_items?}`。path 是相对业务返回值的点路径，支持数组下标；无 equals/min_items 时检查路径存在。空列表需显式使用 equals: []，字段缺失与 null 不混为一谈。一次通过只覆盖该样例，建议再验证空结果、分页、登录失效及字段缺失。
 
-存储位于 `$HERMES_HOME/plugin-data/browser-link-native/site-tools/`，目录 0700、记录 0600，跨进程非阻塞锁，原子替换。试运行期间其他管理操作返回 `store_busy`，不静默等待或重跑。最近保留 16 次试运行摘要。
+存储位于 `$HERMES_HOME/plugin-data/fast-browser-link-native/site-tools/`，目录 0700、记录 0600，跨进程非阻塞锁，原子替换。试运行期间其他管理操作返回 `store_busy`，不静默等待或重跑。最近保留 16 次试运行摘要。
 
 - 实现：`executor-plugin/site_tools/store.py`、`tools.py`，复用 `script_lane/`。
 - 权限：试运行和正式运行都要求绑定任务包含定义所需来源；实际每个动作继续执行既有授权检查。origins 是前置需求，access 是行为声明，均不是沙箱。
@@ -116,7 +116,7 @@
 
 ### 6.1 只读 doctor
 
-`browser_shared_doctor` 或源码命令 `python3 native-bridge/doctor.py --hermes-home <目录>` 检查：插件 manifest 是否存在、Chrome/Edge 的 Native Messaging 注册与可执行启动路径、已有宿主的认证连接、扩展连接状态。返回分层检查项和修复建议，不启动服务、不重启、不修改文件或恢复授权。
+`fast_browser_doctor` 或源码命令 `python3 native-bridge/doctor.py --hermes-home <目录>` 检查：插件 manifest 是否存在、Chrome/Edge 的 Native Messaging 注册与可执行启动路径、已有宿主的认证连接、扩展连接状态。返回分层检查项和修复建议，不启动服务、不重启、不修改文件或恢复授权。
 
 连接正常与浏览器访问授权分开报告。任一浏览器注册有效即可通过注册层；不要求同时安装两种浏览器。插件文件存在不证明 Hermes 已启用或加载插件，doctor 也不证明某个任务可执行。
 
@@ -124,7 +124,7 @@
 
 `python3 scripts/generate-browser-reference.py` 从实际 HELPERS 导出、函数签名、docstring 和工具 schema 生成 [接口参考](browser-api-reference.md)。`--check` 检查漂移，并已接入核心测试。
 
-`browser_shared_reference(instance_id=...)` 用只读探针读取当前已连接扩展上报的能力，仅展示该实例支持的 helper。未连接或没有上报能力时不推断支持；不指定实例时返回可选浏览器与工具入口。接口存在不等于当前任务获得授权。
+`fast_browser_reference(instance_id=...)` 用只读探针读取当前已连接扩展上报的能力，仅展示该实例支持的 helper。未连接或没有上报能力时不推断支持；不指定实例时返回可选浏览器与工具入口。接口存在不等于当前任务获得授权。
 
 实现：`executor-plugin/reference.py`、`native-bridge/doctor.py`、扩展握手及 daemon 的能力投影。
 
@@ -137,7 +137,7 @@
 
 ## 8. 正式版自动更新
 
-`plugins/browser-link` 是共享根中的唯一使用中主程序，命名 profile 只用受控直接链接引用；各自启停、可选权限、记忆、工作区、站点工具、任务身份和凭据数据不合并。旧全副本、未登记及停用入口参与迁移，不参与自动启用。升级备份在扫描目录之外，失败按原目录或原链接恢复；保留 Hermes Desktop 生成的应用级界面缓存。
+`plugins/fast-browser-link` 是共享根中的唯一使用中主程序，命名 profile 只用受控直接链接引用；各自启停、可选权限、记忆、工作区、站点工具、任务身份和凭据数据不合并。旧全副本、未登记及停用入口参与迁移，不参与自动启用。升级备份在扫描目录之外，失败按原目录或原链接恢复；保留 Hermes Desktop 生成的应用级界面缓存。
 
 `executor-plugin/maintenance/update.py` 提供正式版检查、手动更新和每小时检查/空闲安装。GitHub digest、ZIP 路径、完整包清单、版本及扩展身份校验后，复用 `install-cli.py` 和 `install-executor.py` 的事务、备份及回滚；安装、更新、卸载共用目录锁。应用运行时延后，不自动退出程序；开发预览版不进入自动更新通道。见 [安装与更新](installation.md#automatic-updates--自动更新)。
 

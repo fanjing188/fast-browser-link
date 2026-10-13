@@ -11,7 +11,7 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SKIP = {'.git', 'node_modules', 'release', 'dist', 'isolated', 'tmp', '.tmp',
+SKIP = {'.git', '.ci', 'artifacts', 'node_modules', 'release', 'dist', 'isolated', 'tmp', '.tmp',
         'results', 'evidence', '__pycache__'}
 LAUNCH = re.compile(r'launchPersistentContext|chromium\.launch\(|--user-data-dir')
 

@@ -1,17 +1,17 @@
 {
-  "name": "hermes-browser-link",
-  "version": "1.11.2",
+  "name": "fast-browser-link",
+  "version": "2.0.0",
   "private": true,
-  "description": "让 Hermes 在已登录的 Chrome/Edge 中完成网页任务，连接授权后直接执行，支持 Python 工作流、页面原样读取与定位自动恢复、持续任务鼠标和 Cookie 镜像。",
+  "description": "Fast-browser-link：通过 skills、JSON CLI 和 MCP 连接任意本机 agent 与已登录的 Chrome/Edge。",
   "type": "module",
   "author": "FanJean",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/fanjing188/hermes-browser-link.git"
+    "url": "git+https://github.com/fanjing188/fast-browser-link.git"
   },
-  "homepage": "https://github.com/fanjing188/hermes-browser-link#readme",
+  "homepage": "https://github.com/fanjing188/fast-browser-link#readme",
   "bugs": {
-    "url": "https://github.com/fanjing188/hermes-browser-link/issues"
+    "url": "https://github.com/fanjing188/fast-browser-link/issues"
   },
   "keywords": [
     "hermes",
@@ -41,7 +41,8 @@
     "verify": "python3 scripts/verify-v1.1-offline.py",
     "check:public": "bash scripts/check-public-release.sh",
     "version:set": "node scripts/version-set.mjs",
-    "check:version": "node scripts/package-version.mjs"
+    "check:version": "node scripts/package-version.mjs",
+    "package:agent": "python3 scripts/package-agent.py"
   },
   "engines": {
     "node": ">=22.12.0"

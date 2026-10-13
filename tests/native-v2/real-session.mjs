@@ -24,7 +24,7 @@ async function createCompactHome(scratch) {
   // 中文注释：四位随机名直接位于 scratch 下，独占创建；真实绝对 socket 路径按字节检查。
   for (let attempt = 0; attempt < 100; attempt++) {
     const home = path.join(scratch, randomBytes(2).toString('hex'));
-    if (Buffer.byteLength(path.join(home, 'plugin-data/browser-link-native/bridge.sock')) > 103) {
+    if (Buffer.byteLength(path.join(home, 'plugin-data/fast-browser-link-native/bridge.sock')) > 103) {
       throw Error('TMPDIR is too long for a compact fixture bridge socket');
     }
     try { await mkdir(home, {mode: 0o700}); return home; }
@@ -78,7 +78,7 @@ export async function stageRealSession({browser, packageMode = false, label = 'm
     const homeArgs = compactHome ? [compactHome] : [];
     // 中文注释：共享 fixture 不拥有源 Hermes home，关闭时不能删除它。
     const staged = sharedWith ? sharedWith.staged : packageMode ? await helperCall('stage_package', work, packageRoot, origins, ...homeArgs) : await helperCall('stage', work, origins, ...homeArgs);
-    const profileManifest = path.join(profile, 'NativeMessagingHosts/com.hermes.browser_link.json');
+    const profileManifest = path.join(profile, 'NativeMessagingHosts/com.fast.browser_link.json');
     await mkdir(path.dirname(profileManifest), {recursive: true});
     await copyFile(staged.manifests[browser === 'chrome' ? 0 : 1], profileManifest);
     return {work, profile, downloadsDir, temp, compactHome, staged, extensionRoot, expectedExtensionId, oauthFixture, dispose};
@@ -95,9 +95,9 @@ export async function openRealSession({browser, packageMode = false, hostRules =
     PATH: process.env.PATH || '/usr/bin:/bin:/usr/sbin:/sbin', LANG: process.env.LANG || 'en_US.UTF-8',
   };
   // 中文注释：生命周期验收仅在本次临时 profile 的 host/daemon 中缩短计时，不修改用户 .env。
-  if(workWindowMode!==undefined)browserEnv.HERMES_BROWSER_WORK_WINDOW=workWindowMode;
-  if(idleCloseSeconds!==undefined)browserEnv.HERMES_BROWSER_IDLE_CLOSE_SECONDS=String(idleCloseSeconds);
-  if(taskIdleTimeoutSeconds!==undefined)browserEnv.HERMES_BROWSER_TASK_IDLE_TIMEOUT_SECONDS=String(taskIdleTimeoutSeconds);
+  if(workWindowMode!==undefined)browserEnv.FAST_BROWSER_WORK_WINDOW=workWindowMode;
+  if(idleCloseSeconds!==undefined)browserEnv.FAST_BROWSER_IDLE_CLOSE_SECONDS=String(idleCloseSeconds);
+  if(taskIdleTimeoutSeconds!==undefined)browserEnv.FAST_BROWSER_TASK_IDLE_TIMEOUT_SECONDS=String(taskIdleTimeoutSeconds);
   const session = {work, profile, downloadsDir, compactHome, staged, browser, extensionId: expectedExtensionId, oauthFixture:fixture.oauthFixture, logs: ''};
   let proc, cdp, ui, popupTarget, base;
 

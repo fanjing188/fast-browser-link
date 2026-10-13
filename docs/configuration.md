@@ -5,13 +5,13 @@ Set runtime variables before starting Hermes or the Native Messaging host. Brows
 | Variable | Default | Consumer and meaning |
 |---|---|---|
 | `HERMES_HOME` | `$HOME/.hermes` | Hermes profile home; installer target and host launcher. The installer pins this home in the launcher. Use `--hermes-home` to choose the installation target. |
-| `HERMES_BROWSER_BRIDGE_HOME` | Shared Hermes root inferred from the profile home | Plugin's shared daemon home. Named profiles normally share the root daemon; set explicitly for custom layouts. Also used by the stale-task sweep. |
-| `HERMES_BROWSER_DEFAULT` | Unset | Plugin browser selection: `chrome`, `edge`, or an instance ID. Explicit `instance_id` and the selected primary connected browser take precedence. Process environment takes precedence over shared `.env`. Ambiguous matches still require selection. |
-| `HERMES_BROWSER_EXPORT_ROOTS` | Script workspace only | Colon-separated absolute export roots for screenshots/files. Plugin process environment takes precedence over shared `.env`. Existing files and paths outside permitted roots are refused. |
-| `HERMES_BROWSER_IDLE_CLOSE_SECONDS` | `0` | Daemon's grace after a completed turn; finite non-negative seconds, `0` closes immediately. Same-session activity cancels grace. |
-| `HERMES_BROWSER_TASK_IDLE_TIMEOUT_SECONDS` | `1200` | Daemon's ready-task inactivity timeout; finite non-negative seconds. Paused tasks and valid pending human requests are protected. |
-| `HERMES_BROWSER_WORK_WINDOW` | `separate` | `separate` reuses an unfocused normal work window per browser instance, including after saved window/tab IDs change. After task cleanup succeeds, the extension closes its homepage only if it is the window's sole tab and no task still uses the window. Retained results and user tabs keep the window open. Task tab groups use that window; pointer/keyboard actions activate only the target tab and are serialized within the window. Reads do not activate tabs. `current` retains task groups in the current window. |
-| `HERMES_BROWSER_PAUSE_TIMEOUT_S` | `600` | Script action session's takeover/resume wait; integer `1..3600`. |
+| `FAST_BROWSER_BRIDGE_HOME` | Shared Hermes root inferred from the profile home | Plugin's shared daemon home. Named profiles normally share the root daemon; set explicitly for custom layouts. Also used by the stale-task sweep. |
+| `FAST_BROWSER_DEFAULT` | Unset | Plugin browser selection: `chrome`, `edge`, or an instance ID. Explicit `instance_id` and the selected primary connected browser take precedence. Process environment takes precedence over shared `.env`. Ambiguous matches still require selection. |
+| `FAST_BROWSER_EXPORT_ROOTS` | Script workspace only | Colon-separated absolute export roots for screenshots/files. Plugin process environment takes precedence over shared `.env`. Existing files and paths outside permitted roots are refused. |
+| `FAST_BROWSER_IDLE_CLOSE_SECONDS` | `0` | Daemon's grace after a completed turn; finite non-negative seconds, `0` closes immediately. Same-session activity cancels grace. |
+| `FAST_BROWSER_TASK_IDLE_TIMEOUT_SECONDS` | `1200` | Daemon's ready-task inactivity timeout; finite non-negative seconds. Paused tasks and valid pending human requests are protected. |
+| `FAST_BROWSER_WORK_WINDOW` | `separate` | `separate` reuses an unfocused normal work window per browser instance, including after saved window/tab IDs change. After task cleanup succeeds, the extension closes its homepage only if it is the window's sole tab and no task still uses the window. Retained results and user tabs keep the window open. Task tab groups use that window; pointer/keyboard actions activate only the target tab and are serialized within the window. Reads do not activate tabs. `current` retains task groups in the current window. |
+| `FAST_BROWSER_PAUSE_TIMEOUT_S` | `600` | Script action session's takeover/resume wait; integer `1..3600`. |
 | `HERMES_BENCH_PROFILE` | `default` | Agent benchmark runner/scorer profile. Default database is `$HERMES_HOME/state.db`; named profile database is `$HERMES_HOME/profiles/<name>/state.db`. Use the same value for running and scoring. |
 
 Plugin options are separate from environment variables. `vault_tools.enabled` defaults to `false`; enabling it also needs a `tools.override` capability grant. The optional official `browser_*` overrides require that grant and a bound task; installation alone grants neither. Browser connection authorization is full-only and must be confirmed in the extension. Ordinary task actions then execute directly; there is no smart-approval setting. Offline or unknown connection state does not prove authorization.
@@ -45,7 +45,7 @@ These select test dependencies or fixtures; they are not required for installati
 | `BROWSER_USE_CLI_SOURCE` | Source checkout for the official browser inventory script |
 | `BROWSER_EXECUTOR_PACKAGE` | Optional existing archive for package tests; otherwise built from the current source |
 | `PUBLIC_RELEASE_EXTRA_KEYWORDS` | Newline-separated literal private markers for `check-public-release.sh`. Findings show file/line/type, never matched values. |
-| `HERMES_BROWSER_FD` | Internal inherited script socket, supplied by the host; do not set manually |
+| `FAST_BROWSER_FD` | Internal inherited script socket, supplied by the host; do not set manually |
 | `HERMES_NATIVE_FIXTURE` | Internal real-browser fixture directory; supplied by the test runner |
 
 `HOME`, `TMPDIR`, `PATH`, locale variables and `PYTHONDONTWRITEBYTECODE` have their standard process meanings. Keep the real `HOME` in browser tests; isolate `HERMES_HOME`, `TMPDIR` and the browser user-data directory instead. Never publish `.env`, token files, live task state, benchmark results or browser evidence.

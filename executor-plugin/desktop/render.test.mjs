@@ -8,7 +8,7 @@ test('连接授权后直接执行任务，桌面不再发起模式确认', async
   const h = await setup(async path => {
     assert.equal(path, '/shared/browsers')
     return [{instanceId:'edge-a',browser:'edge',connected:true,consentStatus:'enabled',accessRequestSupported:true,primary:true}]
-  }, '#/browser-link?task=old')
+  }, '#/fast-browser-link?task=old')
   try {
     assert.match(document.body.textContent,/本地桥接可用/)
     assert.match(document.body.textContent,/已授权 · 任务直接执行/)

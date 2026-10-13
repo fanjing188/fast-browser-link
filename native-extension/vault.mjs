@@ -5,7 +5,7 @@
 export function inspectControls(nonce){
  const elements=[...document.querySelectorAll('input, select')];
  const forms=[...document.forms];
- globalThis.__hermesVaultSlots={nonce,elements:elements.map(element=>new WeakRef(element)),origin:location.origin};
+ globalThis.__fastVaultSlots={nonce,elements:elements.map(element=>new WeakRef(element)),origin:location.origin};
  return {origin:location.origin,controls:elements.flatMap((element,index)=>{
   if(element.disabled||element.readOnly)return [];
   if(['hidden','submit','button','reset','file','image','checkbox','radio'].includes(element.type))return [];
@@ -24,7 +24,7 @@ export function inspectControls(nonce){
 // 中文注释：写入前同步核对来源与本次检查的 nonce；只报告填写数量，不回显任何值。
 export function fillControls(nonce,expectedOrigin,fills){
  if(location.origin!==expectedOrigin)return {refused:'origin_changed'};
- const slots=globalThis.__hermesVaultSlots;
+ const slots=globalThis.__fastVaultSlots;
  if(!slots||slots.nonce!==nonce||slots.origin!==expectedOrigin)return {refused:'inspection_stale'};
  // 中文注释：先核对整批目标，避免某个字段已变化时只填入前半批秘密。
  const targets=fills.map(fill=>slots.elements[fill.index]?.deref());
@@ -47,7 +47,7 @@ export function fillControls(nonce,expectedOrigin,fills){
   element.dispatchEvent(new Event('change',{bubbles:true}));
   if(element.value.length>0)filled++;
  }
- delete globalThis.__hermesVaultSlots;
+ delete globalThis.__fastVaultSlots;
  return {filled};
 }
 

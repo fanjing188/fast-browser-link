@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
-  "name": "Hermes Browser Link",
-  "version": "1.11.2",
+  "name": "Fast-browser-link",
+  "version": "2.0.0",
   "permissions": [
     "nativeMessaging",
     "debugger",
@@ -20,7 +20,7 @@
   },
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Hermes Browser Link",
+    "default_title": "Fast-browser-link",
     "default_icon": {
       "16": "icon-16.png",
       "32": "icon-32.png",
@@ -31,8 +31,8 @@
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'none'"
   },
-  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2sE/OUnb3h/Xji1/55NeU/P+ER81LNaaqgcCxf10CMVUEiENVgi1MGwkInekbI1iMUWtdGv1wSXd5PIEfiQJJaytHOBFONHkHQA+g92B3xxLl0UtCAG38sNegv41zlUgfm6nHoyd3GprdQEKH9S76NqMSeQNloPYodTfyQ2JNKZ2GfYpiSwfClD5nsVC3RDn9WTbVcgyWGO8m2vCbl2Pa47FjNbiqPBZ0serHX+RLpJ3yfxxbDWVYH2aMIMy1bjHa6Cp1GEQI1WhOLvGaTtn9DFYtVxWKpqjVHOfoscLZHqRNBIK2OBDWlz4C4iga9yYGWUaQceoiQWzeCDX/cq+PwIDAQAB",
-  "short_name": "Hermes Browser Link",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAh9dGmy2GiPkn9Yen4EZr437VacSJIJo0dt4IC83r1eCzvl2NV5yy3jQeGyIC8/3zosvCF254RoC6IqB9WLYKJeVkSmCt57Hg3CLYrjun7UO8TwpU1eBGGIKDsKt2uMJy06tTK+5lIIQ2k6Iy/TbgEPyBrUR4/dCt/xw5yYt/0E6IJ0StiS+XbTbg4p9/6XOBjNziAvDwhNZRADcFWhI3vUDhviorsOjKJXqHX68HmNlb9otS6hxnNhT81oI2cHBOs7daiO4j9aEvifDahypnHdTxnJEuSU3E6w6N1leTJ3v7Iqqf6rjpCaddi4MM0LVH3JMsZWQil8Jt0ZqHqIK6WwIDAQAB",
+  "short_name": "Fast-browser-link",
   "host_permissions": [
     "<all_urls>"
   ],
@@ -42,5 +42,5 @@
     "48": "icon-48.png",
     "128": "icon-128.png"
   },
-  "description": "连接 Hermes 与已登录的 Chrome/Edge，连接授权后直接执行任务页操作，保留接管、停止、凭据保护、自动文本与截图屏蔽及 Cookie 镜像。"
+  "description": "连接 Fast-browser-link 与已登录的 Chrome/Edge，连接授权后直接执行任务页操作，保留接管、停止、凭据保护、自动文本与截图屏蔽及 Cookie 镜像。"
 }

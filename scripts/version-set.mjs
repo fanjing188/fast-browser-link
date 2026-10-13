@@ -30,7 +30,7 @@ export async function setVersion(source, next) {
   return `${JSON.stringify(data, null, 2)}\n`;
  });
  for (const file of TEXT_VERSION_FILES) await add(file, text => {
-  if (file === 'scripts/migrate-to-browser-link.py') return text.replace(MIGRATION_VERSIONS, (match, versions) => match.replace(`{${versions}}`, `{${versions}, '${next}'}`));
+  if (file === 'scripts/migrate-to-fast-browser-link.py') return text.replace(MIGRATION_VERSIONS, (match, versions) => match.replace(`{${versions}}`, `{${versions}, '${next}'}`));
   if (file === 'executor-plugin/plugin.yaml') return text.replace(/^version:\s*\S+/m, `version: ${next}`);
   // 中文注释：按已校验的位置从后往前替换，保留外部依赖版本和其余正文。
   for (const match of documentVersionMatches(text).reverse()) text = text.slice(0, match.index) + next + text.slice(match.index + match[0].length);

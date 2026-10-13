@@ -214,7 +214,7 @@ test('解析元素边框有数量和矩形限制，新步骤或异常清除旧�
 test('overlay is scoped, decorative surfaces ignore pointers and screenshot hide restores',async()=>{
  const {doc}=fixture();const overlay=createAutomationOverlay({document:doc,...scope,onStop:async()=>({state:'stopped'}),onTakeover:async()=>({state:'paused'}),onResume:async()=>({state:'running'})});
  assert.equal(doc.documentElement.children.length,2);const host=doc.documentElement.children[1];
- assert.equal(host.dataset.hermesAutomationOverlay,'');assert.equal(host.style.pointerEvents,'auto');
+ assert.equal(host.dataset.fastAutomationOverlay,'');assert.equal(host.style.pointerEvents,'auto');
  assert.equal(host.shadow.children[0].style.pointerEvents,'none');
  // 截图期间遮罩只变透明，仍在布局中并继续拦截点击。
  const result=await overlay.withHidden(async()=>{assert.equal(host.style.opacity,'0');assert.notEqual(host.style.display,'none');assert.equal(host.style.pointerEvents,'auto');assert.equal(host.isConnected,true);return 42;});assert.equal(result,42);assert.notEqual(host.style.opacity,'0');
@@ -317,7 +317,7 @@ test('交互高亮带醒目边框并把标签贴在目标旁边',()=>{
  const binding={taskId:scope.taskId,generation:scope.generation,operationToken:'op'};
  assert.deepEqual(overlay.interactionSurface.update({...binding,kind:'click',rects:[{left:100,top:200,width:80,height:30}]}),{ok:true});
  const parts=overlay.host.shadow.children,target=parts.find(x=>x.dataset.role==='target'&&x.style.display==='block'),label=parts.find(x=>x.dataset.role==='interaction-status');
- assert.match(target.style.border,/^3px solid/);assert.match(target.style.animation,/hermes-pulse/);
+ assert.match(target.style.border,/^3px solid/);assert.match(target.style.animation,/fast-pulse/);
  assert.equal(label.style.top,'172px');assert.equal(label.style.left,'100px');assert.equal(label.textContent,'准备点击');
  overlay.remove();
 });

@@ -42,9 +42,9 @@ test('prepare outlines a click target in one closed, non-intercepting host witho
   const result = highlight.prepare({...request('op-click-1'), kind: 'click', target: f.target});
 
   assert.deepEqual(result, {ok: true});
-  const host = f.document.querySelector('[data-hermes-interaction-highlight]');
+  const host = f.document.querySelector('[data-fast-interaction-highlight]');
   assert.ok(host);
-  assert.equal(host.getAttribute('data-hermes-automation-overlay'), '');
+  assert.equal(host.getAttribute('data-fast-automation-overlay'), '');
   assert.equal(host.getAttribute('aria-hidden'), 'true');
   assert.equal(host.style.position, 'fixed');
   assert.equal(host.style.pointerEvents, 'none');
@@ -88,7 +88,7 @@ test('semantic extraction excludes the highlight host while retaining ordinary p
 
   assert.ok(names.includes('Ordinary target'));
   assert.equal(names.includes('准备点击'), false);
-  assert.equal(f.document.querySelector('[data-hermes-automation-overlay]').hasAttribute('aria-hidden'), true);
+  assert.equal(f.document.querySelector('[data-fast-automation-overlay]').hasAttribute('aria-hidden'), true);
   semantics.revoke();
 });
 
@@ -137,38 +137,38 @@ test('detaching the target cancels and removes the highlight without an action r
   t.after(() => {f.dom.window.close();});
   const highlight = createInteractionHighlight({...binding, document: f.document, isCurrent: () => true});
   assert.deepEqual(highlight.prepare({...request('op-detach-1'), kind: 'click', target: f.target}), {ok: true});
-  const host = f.document.querySelector('[data-hermes-interaction-highlight]');
+  const host = f.document.querySelector('[data-fast-interaction-highlight]');
 
   f.target.remove();
   await new Promise(resolve => f.window.requestAnimationFrame(resolve));
 
-  assert.equal(f.document.querySelector('[data-hermes-interaction-highlight]'), null);
+  assert.equal(f.document.querySelector('[data-fast-interaction-highlight]'), null);
   assert.equal(host.isConnected, false);
 });
 
 test('an existing automation overlay prevents a second simultaneous highlight host', async t => {
   const {createInteractionHighlight} = await loadModule(t);
-  const f = fixture('<div data-hermes-automation-overlay></div><button id="target">Run</button>');
+  const f = fixture('<div data-fast-automation-overlay></div><button id="target">Run</button>');
   t.after(() => {f.dom.window.close();});
   const highlight = createInteractionHighlight({...binding, document: f.document, isCurrent: () => true});
 
   const result = highlight.prepare({...request('op-conflict'), kind: 'click', target: f.target});
 
   assert.deepEqual(result, {ok: false, code: 'OVERLAY_CONFLICT'});
-  assert.equal(f.document.querySelector('[data-hermes-interaction-highlight]'), null);
+  assert.equal(f.document.querySelector('[data-fast-interaction-highlight]'), null);
 });
 
 test('a stale highlight host from another isolated execution context prevents duplicate hosts', async t => {
   const {createInteractionHighlight} = await loadModule(t);
-  const f = fixture('<div data-hermes-automation-overlay data-hermes-interaction-highlight></div><button id="target">Run</button>');
+  const f = fixture('<div data-fast-automation-overlay data-fast-interaction-highlight></div><button id="target">Run</button>');
   t.after(() => {f.dom.window.close();});
-  const existing = f.document.querySelector('[data-hermes-interaction-highlight]');
+  const existing = f.document.querySelector('[data-fast-interaction-highlight]');
   const highlight = createInteractionHighlight({...binding, document: f.document, isCurrent: () => true});
 
   const result = highlight.prepare({...request('op-duplicate'), kind: 'click', target: f.target});
 
   assert.deepEqual(result, {ok: false, code: 'OVERLAY_CONFLICT'});
-  assert.equal(f.document.querySelectorAll('[data-hermes-interaction-highlight]').length, 1);
+  assert.equal(f.document.querySelectorAll('[data-fast-interaction-highlight]').length, 1);
   assert.equal(existing.isConnected, true, 'a different context’s host is not ours to remove');
 });
 
@@ -194,7 +194,7 @@ test('clear requires the matching operation token and then removes the host', as
   t.after(() => {f.dom.window.close();});
   const highlight = createInteractionHighlight({...binding, document: f.document, isCurrent: () => true});
   assert.deepEqual(highlight.prepare({...request('op-clear-2'), kind: 'click', target: f.target}), {ok: true});
-  const host = f.document.querySelector('[data-hermes-interaction-highlight]');
+  const host = f.document.querySelector('[data-fast-interaction-highlight]');
 
   assert.deepEqual(highlight.clear(request('op-clear-1')), {ok: false, code: 'STALE_OPERATION'});
   assert.equal(host.isConnected, true);
@@ -208,7 +208,7 @@ test('complete keeps a matching operation visible briefly, then removes it', asy
   t.after(() => {f.dom.window.close();});
   const highlight = createInteractionHighlight({...binding, document: f.document, isCurrent: () => true});
   assert.deepEqual(highlight.prepare({...request('op-complete-1'), kind: 'click', target: f.target}), {ok: true});
-  const host = f.document.querySelector('[data-hermes-interaction-highlight]');
+  const host = f.document.querySelector('[data-fast-interaction-highlight]');
 
   assert.deepEqual(highlight.complete({...request('op-complete-1'), durationMs: 35}), {ok: true});
   assert.equal(host.isConnected, true);
@@ -235,7 +235,7 @@ test('an already-queued old completion cannot remove a newer operation highlight
     assert.deepEqual(highlight.prepare({...request('op-new'), kind: 'input', target: next}), {ok: true});
     queued[0]();
     assert.deepEqual(highlight.complete({...request('op-old'), durationMs: 30}), {ok: false, code: 'STALE_OPERATION'});
-    assert.equal(f.document.querySelector('[data-hermes-interaction-highlight]')?.isConnected, true);
+    assert.equal(f.document.querySelector('[data-fast-interaction-highlight]')?.isConnected, true);
     assert.equal(f.roots.at(-1).querySelector('[data-role="status"]').textContent, '正在输入');
   } finally {
     globalThis.setTimeout = realSetTimeout;
@@ -249,7 +249,7 @@ test('suspend hides the host during capture and scoped resume restores it', asyn
   t.after(() => {f.dom.window.close();});
   const highlight = createInteractionHighlight({...binding, document: f.document, isCurrent: () => true});
   assert.deepEqual(highlight.prepare({...request('op-capture-1'), kind: 'click', target: f.target}), {ok: true});
-  const host = f.document.querySelector('[data-hermes-interaction-highlight]');
+  const host = f.document.querySelector('[data-fast-interaction-highlight]');
 
   const lease = highlight.suspend({...request('op-capture-1'), reason: 'screenshot'});
   assert.equal(lease.ok, true);
@@ -268,7 +268,7 @@ test('screenshot suspension fails closed and removes the host if hidden state ca
   t.after(() => {f.dom.window.close();});
   const highlight = createInteractionHighlight({...binding, document: f.document, isCurrent: () => true});
   assert.deepEqual(highlight.prepare({...request('op-capture-fail'), kind: 'click', target: f.target}), {ok: true});
-  const host = f.document.querySelector('[data-hermes-interaction-highlight]');
+  const host = f.document.querySelector('[data-fast-interaction-highlight]');
   const getComputedStyle = f.window.getComputedStyle.bind(f.window);
   f.window.getComputedStyle = element => element === host ? {display: 'block'} : getComputedStyle(element);
   let captureCalled = false;
@@ -287,7 +287,7 @@ test('resume does not reveal a target that detached while screenshot capture was
   t.after(() => {f.dom.window.close();});
   const highlight = createInteractionHighlight({...binding, document: f.document, isCurrent: () => true});
   assert.deepEqual(highlight.prepare({...request('op-capture-detach'), kind: 'click', target: f.target}), {ok: true});
-  const host = f.document.querySelector('[data-hermes-interaction-highlight]');
+  const host = f.document.querySelector('[data-fast-interaction-highlight]');
   const lease = highlight.suspend({...request('op-capture-detach'), reason: 'screenshot'});
   assert.equal(lease.ok, true);
 

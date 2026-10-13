@@ -32,7 +32,7 @@ class ResultPrivacyTests(unittest.TestCase):
         error.data={'outcomeUnknown':False,'fields':['sections',CANARY,{}]}
         profile=SimpleNamespace(authority=SimpleNamespace(consume=lambda *a,**kw:SimpleNamespace(owner='tool:synthetic',tool_call_id='call-1')),
             call=lambda *a,**kw:(_ for _ in ()).throw(error))
-        handler=module.make_tool_handler('browser_shared_run',profile)
+        handler=module.make_tool_handler('fast_browser_run',profile)
         output=json.loads(handler({'task_id':'t','tab_id':1,'action':'semantic_snapshot','options':{'mode':'content'}},session_id='test'))
         self.assertEqual(output['bridgeCode'],'invalid_params')
         self.assertEqual(output['code'],'invalid_semantic_options')
@@ -45,7 +45,7 @@ class ResultPrivacyTests(unittest.TestCase):
         self.assertNotIn('fields',other)
 
     def test_connection_popup_description_adopts_non_provider_without_confirmation(self):
-        description=load('native_tools').TOOL_SCHEMAS['browser_shared_run']['description']
+        description=load('native_tools').TOOL_SCHEMAS['fast_browser_run']['description']
         self.assertIn('smart/full',description)
         self.assertIn('白名单外',description)
         self.assertIn('白名单外及已发现的现有登录弹窗同样无需确认',description)
@@ -65,7 +65,7 @@ class ResultPrivacyTests(unittest.TestCase):
             'options':{'sections':['blocks'],'composed':True}}, {})
         self.assertNotIn('error',parsed)
         self.assertTrue(calls)
-        schema=load('native_tools').TOOL_SCHEMAS['browser_shared_run']['parameters']
+        schema=load('native_tools').TOOL_SCHEMAS['fast_browser_run']['parameters']
         rule=next(row for row in schema['allOf'] if row.get('if',{}).get('properties',{}).get('action',{}).get('const')=='semantic_snapshot')
         self.assertNotIn('sections',rule['then']['properties']['options']['properties'])
 
@@ -86,7 +86,7 @@ class ResultPrivacyTests(unittest.TestCase):
         module = load('native_tools')
         profile = SimpleNamespace(authority=SimpleNamespace(consume=lambda *a, **kw: SimpleNamespace(owner='tool:synthetic', tool_call_id='c')),
             call=lambda *a, **kw: (_ for _ in ()).throw(error))
-        result = json.loads(module.make_tool_handler('browser_shared_run', profile)({'task_id': 't', 'tab_id': 1, 'action': 'ref_click',
+        result = json.loads(module.make_tool_handler('fast_browser_run', profile)({'task_id': 't', 'tab_id': 1, 'action': 'ref_click',
             'binding': {'taskId': 't', 'documentId': 'd', 'leaseId': 'l'}, 'snapshot_id': 's', 'ref': 'r'}, session_id='test'))
         self.assertEqual(result['code'], 'content_shield_stale'); self.assertIs(result['action_confirmed'], True)
         self.assertIs(result['outcome_unknown'], False); self.assertIs(result['retryable'], False)
@@ -119,13 +119,13 @@ class ResultPrivacyTests(unittest.TestCase):
         error.data = {'cookie': secret}
         profile = SimpleNamespace(authority=SimpleNamespace(consume=lambda *a, **k: SimpleNamespace(owner='o', tool_call_id='c')),
                                   call=lambda *a: (_ for _ in ()).throw(error))
-        result = module.make_tool_handler('browser_shared_cookie_mirror', profile)({'action': 'list_sites', 'source': 's'})
+        result = module.make_tool_handler('fast_browser_cookie_mirror', profile)({'action': 'list_sites', 'source': 's'})
         self.assertNotIn(secret, result)
         self.assertIn('cookie_mirror_denied', result)
 
     def test_upload_readback_exposes_names_but_not_local_paths(self):
         # 中文注释：只公开浏览器文件输入读回的文件名，不公开任务私有副本路径。
-        projected = load('runtime')._project_tool_result('browser_shared_run', {'action': 'files.upload'},
+        projected = load('runtime')._project_tool_result('fast_browser_run', {'action': 'files.upload'},
             {'selectedCount': 1, 'selectedFiles': ['logo.png'], 'selectionState': 'applied',
              'localPath': '/private/task/secret/logo.png'})
         self.assertEqual(projected['selectedFiles'], ['logo.png'])
@@ -143,7 +143,7 @@ class ResultPrivacyTests(unittest.TestCase):
         self.assertNotIn(CANARY, json.dumps(result))
         for action in ('ref_click', 'ref_fill', 'ref_press', 'ref_set_checked', 'ref_select_option'):
             with self.subTest(action=action):
-                projected = load('runtime')._project_tool_result('browser_shared_run', {'action': action},
+                projected = load('runtime')._project_tool_result('fast_browser_run', {'action': action},
                                                                 {'relocated': True, 'value': CANARY})
                 self.assertEqual(projected, {'relocated': True})
 
@@ -223,7 +223,7 @@ class ResultPrivacyTests(unittest.TestCase):
         self.assertEqual(output['tabId'], 2)
         self.assertIs(output['cleanupOwned'], False)
         self.assertNotIn(CANARY, json.dumps(output))
-        task = load('runtime')._project_tool_result('browser_shared_get', {},
+        task = load('runtime')._project_tool_result('fast_browser_get', {},
                                                    {'id': 't', 'adoptedPopupTabIds': [2], 'agentTabIds': [1]})
         self.assertEqual(task['adoptedPopupTabIds'], [2])
         self.assertNotIn('agentTabIds', task)
@@ -249,7 +249,7 @@ class ResultPrivacyTests(unittest.TestCase):
                 profile = SimpleNamespace(authority=SimpleNamespace(
                     consume=lambda *a, **kw: SimpleNamespace(owner='tool:synthetic', tool_call_id='c')),
                     call=lambda *a, **kw: (_ for _ in ()).throw(error))
-                result = json.loads(module.make_tool_handler('browser_shared_run', profile)(
+                result = json.loads(module.make_tool_handler('fast_browser_run', profile)(
                     {'task_id': 't', 'tab_id': 1, 'action': 'ref_click',
                      'binding': binding, 'snapshot_id': 's', 'ref': 'r'}, session_id='test'))
                 self.assertEqual(result['code'], 'stale_reference' if code.startswith('reference_target_') else code)
@@ -274,7 +274,7 @@ class ResultPrivacyTests(unittest.TestCase):
                 args = {'task_id': 't', 'action': action, 'url': 'https://example.test/'}
                 if action == 'navigate':
                     args['tab_id'] = 1
-                result = json.loads(module.make_tool_handler('browser_shared_run', profile)(args, session_id='test'))
+                result = json.loads(module.make_tool_handler('fast_browser_run', profile)(args, session_id='test'))
                 self.assertEqual(result['bridgeCode'], 'redirected_out_of_scope')
                 self.assertEqual(result['finalOrigin'], 'https://other.example')
                 self.assertFalse(result['outcome_unknown'])
@@ -295,7 +295,7 @@ class ResultPrivacyTests(unittest.TestCase):
                 profile = SimpleNamespace(authority=SimpleNamespace(
                     consume=lambda *a, **kw: SimpleNamespace(owner='tool:synthetic', tool_call_id='c')),
                     call=lambda *a, **kw: (_ for _ in ()).throw(error))
-                result = json.loads(module.make_tool_handler('browser_shared_run', profile)(
+                result = json.loads(module.make_tool_handler('fast_browser_run', profile)(
                     {'task_id': 't', 'tab_id': 1, 'action': 'semantic_snapshot'}, session_id='test'))
                 self.assertEqual(result['bridgeCode'], code)
                 self.assertEqual(result.get('user_action_required'), 'sign_in' if sign_in else None)
@@ -314,7 +314,7 @@ class ResultPrivacyTests(unittest.TestCase):
                     profile = SimpleNamespace(authority=SimpleNamespace(
                         consume=lambda *a, **kw: SimpleNamespace(owner='tool:synthetic', tool_call_id='c')),
                         call=lambda *a, **kw: (_ for _ in ()).throw(error))
-                    result = json.loads(module.make_tool_handler('browser_shared_run', profile)(
+                    result = json.loads(module.make_tool_handler('fast_browser_run', profile)(
                         {'task_id': 't', 'tab_id': 1, 'action': 'navigate', 'url': 'https://other.example/'}, session_id='test'))
                     self.assertIs(result['outcome_unknown'], expected)
 
@@ -330,7 +330,7 @@ class ResultPrivacyTests(unittest.TestCase):
                     profile = SimpleNamespace(authority=SimpleNamespace(
                         consume=lambda *a, **kw: SimpleNamespace(owner='tool:synthetic', tool_call_id='c')),
                         call=lambda *a, **kw: (_ for _ in ()).throw(error))
-                    result = json.loads(module.make_tool_handler('browser_shared_run', profile)(
+                    result = json.loads(module.make_tool_handler('fast_browser_run', profile)(
                         {'task_id': 't', 'tab_id': 1, 'action': 'cdp.send', 'method': 'Page.captureScreenshot'}, session_id='test'))
                     self.assertEqual(result['code'], code)
                     self.assertIs(result['outcome_unknown'], unknown)
@@ -371,7 +371,7 @@ class ResultPrivacyTests(unittest.TestCase):
             for action in ('snapshot', 'semantic_snapshot', 'page.parse', 'screenshot', 'interaction.capture'):
                 with self.subTest(action=action, restricted=restricted):
                     metadata = {'enabled': True, 'removedSegments': 2, 'siteAutomationRestricted': restricted}
-                    result = runtime._project_tool_result('browser_shared_run', {'action': action}, {
+                    result = runtime._project_tool_result('fast_browser_run', {'action': action}, {
                         'contentFilter': {**metadata, 'private': CANARY},
                     })
                     if action in ('screenshot', 'interaction.capture'):
@@ -392,7 +392,7 @@ class ResultPrivacyTests(unittest.TestCase):
         profile = SimpleNamespace(authority=SimpleNamespace(
             consume=lambda *a, **kw: SimpleNamespace(owner='tool:synthetic', tool_call_id='call-1')),
             call=call)
-        tool = 'browser_shared_' + suffix
+        tool = 'fast_browser_' + suffix
         output = json.loads(module.make_tool_handler(tool, profile)(args, session_id='test'))
         return output, calls
 
@@ -469,7 +469,7 @@ class ResultPrivacyTests(unittest.TestCase):
                 def call(*a, **kw):
                     raise error
                 profile.call = call
-                tool = 'browser_shared_list'
+                tool = 'fast_browser_list'
                 out = json.loads(module.make_tool_handler(tool, profile)({}, session_id='test'))
                 self.assertNotIn(CANARY, json.dumps(out))
                 self.assertIs(out.get('retryable'), False)
@@ -489,7 +489,7 @@ class ResultPrivacyTests(unittest.TestCase):
     def test_screenshot_artifact_and_tab_metadata_are_not_lost(self):
         runtime = load('runtime')
         tab = {'tabId': 'tab', 'url': 'https://example.com', 'title': 'page', 'selected': True}
-        self.assertEqual(runtime._project_tool_result('browser_shared_run', {'action': 'tabs'},
+        self.assertEqual(runtime._project_tool_result('fast_browser_run', {'action': 'tabs'},
                                                      [tab]), [tab])
         artifact = {'id': 'artifact', 'taskId': 't', 'mimeType': 'text/plain',
                     'size': 3, 'sha256': 'a' * 64}
@@ -498,7 +498,7 @@ class ResultPrivacyTests(unittest.TestCase):
         self.assertEqual(result, {'tabId': 'tab', 'data': 'AA==', 'artifact': artifact})
         self.assertNotIn(CANARY, json.dumps(result))
         # 中文注释：遮罩摘要通过公共工具投影，但任意页面值仍被剔除。
-        projected = runtime._project_tool_result('browser_shared_run', {'action': 'screenshot'},
+        projected = runtime._project_tool_result('fast_browser_run', {'action': 'screenshot'},
             {'data': 'AA==', 'masked': [{'kind': 'sensitive_field', 'role': 'input', 'name': '敏感字段', 'value': CANARY}]})
         self.assertEqual(projected, {'data': 'AA==', 'masked': [{'kind': 'sensitive_field', 'role': 'input', 'name': '敏感字段'}]})
 
@@ -511,7 +511,7 @@ class ResultPrivacyTests(unittest.TestCase):
             profile = SimpleNamespace(authority=SimpleNamespace(
                 consume=lambda *a, **kw: SimpleNamespace(owner='tool:synthetic', tool_call_id='c')),
                 call=lambda *a, **kw: (_ for _ in ()).throw(error))
-            result = json.loads(module.make_tool_handler('browser_shared_run', profile)(
+            result = json.loads(module.make_tool_handler('fast_browser_run', profile)(
                 {'task_id': 't', 'tab_id': 1, 'action': 'screenshot'}, session_id='test'))
             self.assertEqual(result['code'], code)
             self.assertNotIn(CANARY, json.dumps(result))
@@ -527,7 +527,7 @@ class ResultPrivacyTests(unittest.TestCase):
 
     def test_api_business_state_is_not_a_task_and_schema_coverage_is_complete(self):
         tools, runtime = load('native_tools'), load('runtime')
-        shared_actions = set(tools.TOOL_SCHEMAS['browser_shared_run']['parameters']['properties']['action']['enum'])
+        shared_actions = set(tools.TOOL_SCHEMAS['fast_browser_run']['parameters']['properties']['action']['enum'])
         # 中文注释：JS/CDP 经智能审批或全部访问后按既有体积限制返回，其余动作使用封闭投影。
         self.assertFalse(shared_actions - set(runtime._RESULT_ACTIONS) - {'api_request', 'js.evaluate', 'cdp.send', 'cdp.events'})
         rows = [{'name': 'business', 'state': 'pending_approval', 'value': 1}]

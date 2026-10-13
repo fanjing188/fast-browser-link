@@ -31,8 +31,8 @@ PY
   set -e
   END="$(date +%s)"
   # 中文注释：只读复制结束时的任务状态，避免评分时读取到下一项任务的状态。
-  if [[ -f "$HOME/.hermes/plugin-data/browser-link-native/tasks.json" ]]; then
-    cp "$HOME/.hermes/plugin-data/browser-link-native/tasks.json" "$RUN_DIR/$ITEM.tasks.json"
+  if [[ -f "$HOME/.hermes/plugin-data/fast-browser-link-native/tasks.json" ]]; then
+    cp "$HOME/.hermes/plugin-data/fast-browser-link-native/tasks.json" "$RUN_DIR/$ITEM.tasks.json"
   fi
   curl --silent --show-error --fail --noproxy '*' "http://127.0.0.1:$PORT/__bench/log" > "$RUN_DIR/$ITEM.log.json"
   # 中文注释：会话标题由本轮唯一 label 固定，按标题查只读 state.db 取得 session id。

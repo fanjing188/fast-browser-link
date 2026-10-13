@@ -17,10 +17,10 @@ def call(home, method, route, body):
     # 中文注释：生产宿主负责身份认证；此隔离夹具绑定临时 profile 的 UI owner，不能传入 owner。
     api._native_profile_runtime = lambda: runtime
     app = FastAPI()
-    app.include_router(api.router, prefix='/api/plugins/browser-link')
+    app.include_router(api.router, prefix='/api/plugins/fast-browser-link')
     try:
         with TestClient(app) as client:
-            response = client.request(method, '/api/plugins/browser-link' + route, **({'json': body} if body is not None else {}))
+            response = client.request(method, '/api/plugins/fast-browser-link' + route, **({'json': body} if body is not None else {}))
             return {'status': response.status_code, 'body': response.json()}
     finally:
         runtime.close()

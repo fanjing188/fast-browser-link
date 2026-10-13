@@ -67,11 +67,11 @@ test('宿主观察调用初始化 head，不解析整页，仍逐次运行 guard
    const result=await executor.callSemanticWorld({tabId:7},'main','page.observe',{binding,options:{selector:'#result'}},()=>{checks++;});
    assert.equal(result.count,1);assert.equal(result.text[0],'ready');assert.equal(result.complete,true);
   }
-  assert.equal(calls.filter(row=>row.p?.functionDeclaration?.includes('globalThis.__hermesSemanticLibrary={')).length,1);
-  assert.equal(vm.runInContext('globalThis.__hermesNativeSemanticsV2.parser===undefined',context),true);
+  assert.equal(calls.filter(row=>row.p?.functionDeclaration?.includes('globalThis.__fastSemanticLibrary={')).length,1);
+  assert.equal(vm.runInContext('globalThis.__fastNativeSemanticsV2.parser===undefined',context),true);
   assert.ok(checks>=8);
   await assert.rejects(executor.callSemanticWorld({tabId:7},'main','page.observe',{binding,options:{selector:'#result'}},()=>{throw Error('mode revoked');}),/mode revoked/);
- }finally{vm.runInContext('globalThis.__hermesNativeSemanticsV2?.semantics.revoke()',context);f.close();}
+ }finally{vm.runInContext('globalThis.__fastNativeSemanticsV2?.semantics.revoke()',context);f.close();}
 });
 
 // 中文注释：复用真实 NativeBridge 错误投影，既不返回网页异常原文，也不改旧结果未知判断。
@@ -94,14 +94,14 @@ test('overlay 细分阶段及文档原因只附固定码，拒绝行为保持不
 
 test('技能长度、直接 open、传值、同脚本读回和输出约定均有验收',async()=>{
  // 中文注释：固定已审阅的字符预算，保持原长度约束且不依赖私有历史提交。
- const characterBudgets={"use-my-browser": 11644, "batch-scrape": 12002};
- for(const name of ['use-my-browser','batch-scrape']){
+ const characterBudgets={"fast-browser-link": 11644, "fast-browser-batch-scrape": 12002};
+ for(const name of ['fast-browser-link','fast-browser-batch-scrape']){
   const file=`executor-plugin/skills/${name}/SKILL.md`;
   const after=await readFile(file,'utf8');
   assert.ok(after.length<=characterBudgets[name],`${name}: ${after.length} exceeds ${characterBudgets[name]}`);
-  assert.match(after,/browser_shared_open/);assert.match(after,/coverage/);assert.match(after,/same script|同.*脚本/);
+  assert.match(after,/fast_browser_open/);assert.match(after,/coverage/);assert.match(after,/same script|同.*脚本/);
  }
- const batch=await readFile('executor-plugin/skills/batch-scrape/SKILL.md','utf8');
+ const batch=await readFile('executor-plugin/skills/fast-browser-batch-scrape/SKILL.md','utf8');
  for(const term of ['arguments','isolated','main','satisfied','nextCursor','workspace','elements'])assert.ok(batch.includes(term),term);
  // 中文注释：共享语义库增加 slot、上下文及 AX 绑定；仍限制一次安装且保持后续调用的小消息。
  // 中文注释：账号字段、登录浮层和宿主 classifier 使声明由 HEAD 72883B 增至 75313B（+2430B），只随冷安装发送。

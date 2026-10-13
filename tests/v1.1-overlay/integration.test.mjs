@@ -18,7 +18,7 @@ function fixture(){
    if(method==='DOM.getDocument')return {root:{nodeName:'HTML',children:[]}};
    if(['DOM.enable','Target.setAutoAttach'].includes(method))return {};
    if(method==='Page.createIsolatedWorld')return {executionContextId:17};
-   if(method==='Runtime.callFunctionOn')return {result:{value:params.functionDeclaration.includes('globalThis.__hermesSemanticLibrary={')||params.functionDeclaration.includes('createAutomationOverlay')||params.functionDeclaration.includes('overlay.withHidden')?true:{hasSensitiveValue:false,ok:true}}};
+   if(method==='Runtime.callFunctionOn')return {result:{value:params.functionDeclaration.includes('globalThis.__fastSemanticLibrary={')||params.functionDeclaration.includes('createAutomationOverlay')||params.functionDeclaration.includes('overlay.withHidden')?true:{hasSensitiveValue:false,ok:true}}};
    if(method==='Page.captureScreenshot')return {data:'png'};
    return {};
   }
@@ -35,7 +35,7 @@ test('production executor installs isolated overlay only after authorized tab/fr
  await e.approve(task);
  await e.execute(request('snapshot'));
  const worlds=calls.filter(([m])=>m==='Page.createIsolatedWorld').map(([,p])=>p.worldName);
- assert.ok(worlds.some(x=>x.startsWith('hermes-automation-overlay')));
+ assert.ok(worlds.some(x=>x.startsWith('fast-automation-overlay')));
  const inject=calls.find(([m,p])=>m==='Runtime.callFunctionOn'&&p.functionDeclaration.includes('createAutomationOverlay'));
  assert.ok(inject);
  tab.url='https://other.test/';await e.tabEvent(1,'navigated',tab.url);
@@ -95,7 +95,7 @@ test('screenshot refuses capture when the page cannot confirm the overlay is hid
 
 test('production CDP declarations create and restore a real overlay in an isolated synthetic world',async()=>{
  const dom=new JSDOM('<!doctype html><button id="real">Real</button>',{url,runScripts:'outside-only'});
- const {window}=dom,{api}=fixture();window.hermesOverlayCommand=()=>{};
+ const {window}=dom,{api}=fixture();window.fastOverlayCommand=()=>{};
  api.debugger.sendCommand=async(_,method,params={})=>{
   if(method==='Page.getFrameTree')return {frameTree:{frame:{id:'main',url,loaderId:'doc-1'}}};
   if(method==='DOM.getDocument')return {root:{nodeName:'HTML',children:[]}};
@@ -106,7 +106,7 @@ test('production CDP declarations create and restore a real overlay in an isolat
    catch(error){throw Error(`synthetic CDP: ${error.message}`);}
   }
   if(method==='Page.captureScreenshot'){
-   const host=window.document.querySelector('[data-hermes-automation-overlay]');
+   const host=window.document.querySelector('[data-fast-automation-overlay]');
    // 截图时遮罩透明但仍在，继续拦截点击。
    assert.equal(host?.style.opacity,'0');assert.notEqual(host.style.display,'none');
    return {data:'png'};
@@ -115,10 +115,10 @@ test('production CDP declarations create and restore a real overlay in an isolat
  };
  const e=new Executor(api);await e.approve(task);
  await e.execute(request('screenshot'));
- assert.ok(window.document.querySelector('[data-hermes-automation-overlay]'));
- assert.notEqual(window.document.querySelector('[data-hermes-automation-overlay]').style.opacity,'0');
+ assert.ok(window.document.querySelector('[data-fast-automation-overlay]'));
+ assert.notEqual(window.document.querySelector('[data-fast-automation-overlay]').style.opacity,'0');
  await e.release({taskId:'work',generation:2,closeAgentTabs:false});
- assert.equal(window.document.querySelector('[data-hermes-automation-overlay]'),null);
+ assert.equal(window.document.querySelector('[data-fast-automation-overlay]'),null);
  dom.window.close();
 });
 
@@ -172,7 +172,7 @@ test('overlay stop binding cannot mark stopped without trusted host fence/readba
  const inject=calls.find(([m,p])=>m==='Runtime.callFunctionOn'&&p.functionDeclaration.includes('createAutomationOverlay'))[1];
  const nonce=inject.arguments[0].value.nonce;
  api.debugger.sendCommand=async(_,m,p)=>{if(m==='Runtime.callFunctionOn'&&p.arguments[0].value==='reply')reply=p.arguments[1].value.result;return {result:{value:true}};};
- const evt={name:'hermesOverlayCommand',executionContextId:17,payload:JSON.stringify({nonce,commandId:1,kind:'stop'})};
+ const evt={name:'fastOverlayCommand',executionContextId:17,payload:JSON.stringify({nonce,commandId:1,kind:'stop'})};
  for(const listener of listeners)listener({tabId:1},'Runtime.bindingCalled',evt);
  await new Promise(r=>setImmediate(r));
  assert.deepEqual(reply,{state:'unknown'});assert.equal(e.tasks.get('work').revoked,false);
@@ -184,14 +184,14 @@ test('stop intent fences new local actions while trusted host readback is pendin
  const e=new Executor(api,()=>{},{onOverlayCommand:async()=>{pending();await gate;return {state:'unknown'};}});
  await e.approve(task);await e.execute(request('snapshot'));
  const nonce=calls.find(([m,p])=>m==='Runtime.callFunctionOn'&&p.functionDeclaration.includes('createAutomationOverlay'))[1].arguments[0].value.nonce;
- for(const listener of listeners)listener({tabId:1},'Runtime.bindingCalled',{name:'hermesOverlayCommand',executionContextId:17,payload:JSON.stringify({nonce,commandId:1,kind:'stop'})});
+ for(const listener of listeners)listener({tabId:1},'Runtime.bindingCalled',{name:'fastOverlayCommand',executionContextId:17,payload:JSON.stringify({nonce,commandId:1,kind:'stop'})});
  await began;
  await assert.rejects(e.execute(request('snapshot')),/stop|fenc/i);
  finish();
 });
 
 test('overlay host is absent from legacy snapshot and semantic traversal, while unchanged accessible identity retains refs',()=>{
- const dom=new JSDOM('<!doctype html><button id="real" aria-label="Before">Before</button><div data-hermes-automation-overlay><button>Stop</button></div>',{url});
+ const dom=new JSDOM('<!doctype html><button id="real" aria-label="Before">Before</button><div data-fast-automation-overlay><button>Stop</button></div>',{url});
  dom.window.HTMLElement.prototype.getBoundingClientRect=()=>({left:20,top:20,right:120,bottom:50,width:100,height:30});
  const {window}=dom,doc=window.document;Object.defineProperty(window.HTMLElement.prototype,'getClientRects',{value(){return [{width:1,height:1}]}});
  const old={document:globalThis.document,location:globalThis.location};globalThis.document=doc;globalThis.location=window.location;
@@ -199,7 +199,7 @@ test('overlay host is absent from legacy snapshot and semantic traversal, while 
   assert.deepEqual(pageAction('snapshot',null,null,null,['https://example.com']).elements.map(x=>x.text),['Before']);
   const sem=createPageSemantics({document:doc,taskId:'t',documentId:'d',leaseId:'l'});
   const snap=sem.snapshot({mode:'interactive',budget:3000});assert.equal(snap.items.length,1);
-  doc.querySelector('[data-hermes-automation-overlay]').setAttribute('style','display:none');
+  doc.querySelector('[data-fast-automation-overlay]').setAttribute('style','display:none');
   assert.equal(sem.resolve({...snap.binding,snapshotId:snap.snapshotId,ref:snap.items[0].ref}).id,'real');
   doc.querySelector('#real').textContent='After';
   assert.equal(sem.resolve({...snap.binding,snapshotId:snap.snapshotId,ref:snap.items[0].ref}).id,'real');
@@ -208,7 +208,7 @@ test('overlay host is absent from legacy snapshot and semantic traversal, while 
 });
 
 test('CDP coordinate hit-test rejects an overlay control rather than clicking through it',async()=>{
- const calls=[],dom=new JSDOM('<!doctype html><div data-hermes-automation-overlay></div>',{url,runScripts:'outside-only'});
+ const calls=[],dom=new JSDOM('<!doctype html><div data-fast-automation-overlay></div>',{url,runScripts:'outside-only'});
  const {window}=dom,button=window.document.querySelector('div').attachShadow({mode:'closed'}).appendChild(window.document.createElement('button'));
  const adapter=createCDPAdapter(async(m,p)=>{
   calls.push([m,p]);
@@ -226,14 +226,14 @@ test('CDP coordinate hit-test rejects an overlay control rather than clicking th
 });
 
 test('interaction revision ignores overlay-only mutations but retains genuine page invalidation',async()=>{
- const dom=new JSDOM('<!doctype html><button id="real">Before</button><div data-hermes-automation-overlay></div>',{url,runScripts:'outside-only'});
+ const dom=new JSDOM('<!doctype html><button id="real">Before</button><div data-fast-automation-overlay></div>',{url,runScripts:'outside-only'});
  const {window}=dom,doc=window.document,old={document:globalThis.document,location:globalThis.location,MutationObserver:globalThis.MutationObserver};
  window.visualViewport={scale:1,offsetLeft:0,offsetTop:0};
  globalThis.document=doc;globalThis.location=window.location;globalThis.MutationObserver=window.MutationObserver;
  try{
   const send=async(m,p)=>{if(m==='Page.getFrameTree')return {frameTree:{frame:{id:'main',loaderId:'d'}}};if(m==='Page.createIsolatedWorld')return {executionContextId:2};if(m==='Runtime.evaluate')return {result:{value:window.eval(p.expression)}};};
   const adapter=createCDPAdapter(send),before=await adapter.evaluate('state');
-  doc.querySelector('[data-hermes-automation-overlay]').append(doc.createElement('span'));
+  doc.querySelector('[data-fast-automation-overlay]').append(doc.createElement('span'));
   assert.equal((await adapter.evaluate('state')).revision,before.revision);
   doc.querySelector('#real').textContent='After';
   assert.ok((await adapter.evaluate('state')).revision>before.revision);
@@ -254,7 +254,7 @@ test('same-document URL rewrites keep the overlay and snapshot document; real na
  assert.equal(e.docs.get(1),doc+1);
  for(let i=0;i<20;i++)await new Promise(resolve=>setImmediate(resolve));
  assert.equal(e.tasks.get('work').overlays.get(1)?.documentId,'doc-2');
- assert.ok(calls.some(([m,p])=>m==='Page.addScriptToEvaluateOnNewDocument'&&p.worldName==='hermes-automation-preveil'&&p.source.includes('https://example.com')));
+ assert.ok(calls.some(([m,p])=>m==='Page.addScriptToEvaluateOnNewDocument'&&p.worldName==='fast-automation-preveil'&&p.source.includes('https://example.com')));
 });
 
 test('DOM ready re-covers a new document before the page finishes loading',async()=>{
@@ -287,13 +287,13 @@ test('截图恢复失败后执行器仍保留页面输入拦截',async()=>{
  const dom=new JSDOM('<!doctype html><button>页面</button>',{url,runScripts:'outside-only'}),{api}=fixture();
  const send=api.debugger.sendCommand;
  api.debugger.sendCommand=async(target,method,params={})=>{
-  if(method==='Runtime.addBinding'){dom.window.hermesOverlayCommand=()=>{};return {};}
+  if(method==='Runtime.addBinding'){dom.window.fastOverlayCommand=()=>{};return {};}
   if(method==='Runtime.callFunctionOn')return {result:{value:dom.window.eval(`(${params.functionDeclaration})`)(...(params.arguments||[]).map(item=>item.value))}};
   return send(target,method,params);
  };
  const e=new Executor(api);await e.approve(task);const t=e.tasks.get(task.id);
  await e.lock(1,()=>e.ensureOverlay(t,1,{tabId:1},()=>{}));
- const entry=t.overlays.get(1),host=dom.window.document.querySelector('[data-hermes-automation-overlay]');
+ const entry=t.overlays.get(1),host=dom.window.document.querySelector('[data-fast-automation-overlay]');
  try{
   await assert.rejects(e.captureWithoutDecorations(t,1,entry,()=>{},async()=>{
    const computed=dom.window.getComputedStyle.bind(dom.window);
@@ -302,7 +302,7 @@ test('截图恢复失败后执行器仍保留页面输入拦截',async()=>{
   }),/overlay restore failed/);
   assert.equal(host.isConnected,true,'恢复失败不能删除拦截层');
   assert.equal(host.style.pointerEvents,'auto');assert.equal(t.overlays.get(1),entry);
- }finally{dom.window.__hermesAutomationOverlay?.overlay.remove();dom.window.close();}
+ }finally{dom.window.__fastAutomationOverlay?.overlay.remove();dom.window.close();}
 });
 
 // 中文注释：截图回执丢失时必须在桥接超时之前恢复遮罩并退出，迟到结果不能作为成功返回。
@@ -324,7 +324,7 @@ test('截图回执超时后恢复遮罩并丢弃迟到结果',async context=>{
 
 // 中文注释：CSS 伪元素的真实宿主仍须通过浮层和 Shadow 检查，不能因为有 element 属性就放行。
 for(const kind of ['public','overlay','missing'])test(`CDP CSSPseudoElement 宿主复核 ${kind}`,async()=>{
- const dom=new JSDOM('<button>公开</button><div data-hermes-automation-overlay><button>浮层</button></div>',{url,runScripts:'outside-only'}),calls=[];
+ const dom=new JSDOM('<button>公开</button><div data-fast-automation-overlay><button>浮层</button></div>',{url,runScripts:'outside-only'}),calls=[];
  const element=kind==='missing'?null:dom.window.document.querySelector(kind==='overlay'?'div button':'button');
  const adapter=createCDPAdapter(async(m,p)=>{
   calls.push(m);

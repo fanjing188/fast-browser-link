@@ -11,8 +11,8 @@ const exec=promisify(execFile),server=createBenchServer(),results=[];
 // 中文注释：原 helper 的工具进程和浏览器 native host 均继承测试秒数；两者使用同一隔离 daemon。
 // 中文注释：立即关闭验收不注入覆盖值，直接使用 daemon 的默认行为。
 const immediate=process.argv.includes('--immediate');
-if(immediate)delete process.env.HERMES_BROWSER_IDLE_CLOSE_SECONDS;else process.env.HERMES_BROWSER_IDLE_CLOSE_SECONDS='3';
-process.env.HERMES_BROWSER_TASK_IDLE_TIMEOUT_SECONDS='3600';
+if(immediate)delete process.env.FAST_BROWSER_IDLE_CLOSE_SECONDS;else process.env.FAST_BROWSER_IDLE_CLOSE_SECONDS='3';
+process.env.FAST_BROWSER_TASK_IDLE_TIMEOUT_SECONDS='3600';
 await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',resolve);});
 const origin=`http://www.bench.localhost:${server.address().port}`;
 let session;

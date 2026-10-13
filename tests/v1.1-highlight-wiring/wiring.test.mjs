@@ -42,7 +42,7 @@ function fixture({afterHighlight=null,afterHide=null,overlayEvents=true}={}){
   document.elementsFromPoint=(x,y)=>{const hit=hitTest(x,y);return hit?[hit]:[];};
   // 中文注释：按钮处理器产生实际 DOM 变化，验收目标高亮和输入后的效果。
   document.querySelector('#save').onclick=()=>document.querySelector('#save').setAttribute('aria-pressed',String(Date.now()));
-  const highlightHost=()=>document.querySelector('[data-hermes-interaction-highlight]');
+  const highlightHost=()=>document.querySelector('[data-fast-interaction-highlight]');
   const highlightRects=()=>{
     const host=highlightHost();if(!host||host.style.display==='none')return [];
     return [...(host.shadowRoot?.querySelectorAll('[data-role="target"],[data-role="drag-start"],[data-role="drag-end"]')||[])]
@@ -73,7 +73,7 @@ function fixture({afterHighlight=null,afterHide=null,overlayEvents=true}={}){
         if(method==='DOM.getDocument')return {root:{nodeName:'HTML',children:[]}};
         if(['DOM.enable','Target.setAutoAttach'].includes(method))return {};
         if(method==='Page.createIsolatedWorld')return {executionContextId:17};
-        if(method==='Runtime.addBinding'){window.hermesOverlayCommand=()=>{};return {};}
+        if(method==='Runtime.addBinding'){window.fastOverlayCommand=()=>{};return {};}
         if(method==='Runtime.callFunctionOn'){
           let value;
           if(params.objectId){
@@ -97,7 +97,7 @@ function fixture({afterHighlight=null,afterHide=null,overlayEvents=true}={}){
         if(method==='DOM.resolveNode')return {object:{objectId:`hit-${params.backendNodeId}`}};
         if(method==='Runtime.releaseObject')return {};
         if(method==='Page.captureScreenshot'){
-          const hosts=[...document.querySelectorAll('[data-hermes-automation-overlay]')];
+          const hosts=[...document.querySelectorAll('[data-fast-automation-overlay]')];
           if(hosts.some(host=>host.style.opacity!=='0'||host.style.display==='none'))throw Error('overlay visible in synthetic capture or not blocking');
           return {data:png()};
         }
@@ -123,9 +123,9 @@ async function authorizeFull(executor){await executor.approve(task);executor.set
   const activeBefore=f.document.activeElement;
   try{
     await f.executor.execute(request('click',{selector:'#save'}));
-    const hosts=[...f.document.querySelectorAll('[data-hermes-automation-overlay]')];
+    const hosts=[...f.document.querySelectorAll('[data-fast-automation-overlay]')];
     assert.equal(hosts.length,1,'automation controls and interaction highlight must share one host');
-    assert.equal(hosts[0].hasAttribute('data-hermes-interaction-highlight'),true);
+    assert.equal(hosts[0].hasAttribute('data-fast-interaction-highlight'),true);
     const buttons=[...hosts[0].shadowRoot.querySelectorAll('button')].map(button=>button.textContent);
     // 中文注释：恢复按钮也复用唯一宿主，正常任务中保持隐藏。
     assert.deepEqual(buttons,['接管页面','退出接管','停止任务','放开页面','重试']);
@@ -189,13 +189,13 @@ test('permission revocation after screenshot hide prevents capture and restores 
     await assert.rejects(f.executor.execute(request('screenshot')),/mode revoked|revoked/);
     assert.equal(f.calls.some(call=>call.method==='Page.captureScreenshot'),false,
       'the screenshot must not be captured after permission revocation');
-    const host=f.document.querySelector('[data-hermes-automation-overlay]');
+    const host=f.document.querySelector('[data-fast-automation-overlay]');
     assert.ok(host&&host.style.display!=='none'&&host.style.opacity!=='0','the unified host must be restored in finally');
   }finally{f.dom.window.close();}
 });
 
 test('overlay screenshot suppression leaves page elements that forge extension markers untouched',()=>{
-  const dom=new JSDOM('<!doctype html><html><body><div id="page" data-hermes-automation-overlay></div></body></html>',{url:origin+'/'});
+  const dom=new JSDOM('<!doctype html><html><body><div id="page" data-fast-automation-overlay></div></body></html>',{url:origin+'/'});
   const pageElement=dom.window.document.querySelector('#page');
   const overlay=createAutomationOverlay({document:dom.window.document,taskId:'t',generation:1,tabId:7,origin,
     onStop:async()=>({state:'unknown'}),onTakeover:async()=>({state:'unknown'}),onResume:async()=>({state:'unknown'})});
@@ -212,7 +212,7 @@ test('遮罩恢复失败仍保留拦截节点',()=>{
   const dom=new JSDOM('<!doctype html><html><body></body></html>',{url:origin+'/'});
   const overlay=createAutomationOverlay({document:dom.window.document,taskId:'t',generation:1,tabId:7,origin,
     onStop:async()=>({state:'unknown'}),onTakeover:async()=>({state:'unknown'}),onResume:async()=>({state:'unknown'})});
-  const host=dom.window.document.querySelector('[data-hermes-automation-overlay]');
+  const host=dom.window.document.querySelector('[data-fast-automation-overlay]');
   const realGetComputedStyle=dom.window.getComputedStyle.bind(dom.window);
   let restorationBlocked=false;
   dom.window.getComputedStyle=element=>element===host&&restorationBlocked?{display:'none'}:realGetComputedStyle(element);

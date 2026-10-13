@@ -52,6 +52,10 @@ test('page-load CDP protocol errors become retryable page_not_ready for reads, n
  assert.equal(error.code,'page_not_ready');assert.deepEqual(error.data,{outcomeUnknown:false,retryable:true});
  error=await run('ref_click','{"code":-32000,"message":"Execution context was destroyed."}');
  assert.equal(error.code,'page_not_ready');assert.equal(error.data.retryable,false);assert.equal(error.data.outcomeUnknown,true);
+ for(const detail of ['{"message": "Cannot find context with specified id", "code": -32000}', '{"code": -32000, "message": "Execution context was destroyed."}']){
+  error=await run('official.ready_state',detail);
+  assert.equal(error.code,'page_not_ready');assert.deepEqual(error.data,{outcomeUnknown:false,retryable:true});
+ }
  error=await run('semantic_snapshot','private Cannot find context with specified id');
  assert.equal(error.code,'execution_denied');
 });

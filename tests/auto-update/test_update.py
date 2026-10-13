@@ -26,9 +26,9 @@ spec.loader.exec_module(updater)
 def release_info(version='2.0.0'):
     # 中文注释：数据结构与 GitHub 正式发布 API 一致，不查询真实网络。
     return {'draft': False, 'prerelease': False, 'tag_name': f'v{version}', 'assets': [{
-        'name': f'hermes-browser-link-{version}.zip', 'state': 'uploaded', 'size': 100,
+        'name': f'fast-browser-link-hermes-{version}.zip', 'state': 'uploaded', 'size': 100,
         'digest': 'sha256:' + 'a' * 64,
-        'browser_download_url': f'https://github.com/{updater.REPOSITORY}/releases/download/v{version}/hermes-browser-link-{version}.zip'}]}
+        'browser_download_url': f'https://github.com/{updater.REPOSITORY}/releases/download/v{version}/fast-browser-link-hermes-{version}.zip'}]}
 
 
 class UpdateTests(unittest.TestCase):
@@ -38,7 +38,7 @@ class UpdateTests(unittest.TestCase):
         self.root = Path(self.temp.name).resolve()
         self.cli = updater.installer_modules()
         self.home, self.user_home = self.root / 'hermes', self.root / 'user'
-        plugin = self.home / 'plugins/browser-link'
+        plugin = self.home / 'plugins/fast-browser-link'
         plugin.mkdir(parents=True)
         (plugin / 'plugin.yaml').write_text('version: 1.6.1\n')
         self.args = argparse.Namespace(hermes_home=self.home, user_home=self.user_home,
@@ -86,19 +86,19 @@ class UpdateTests(unittest.TestCase):
         return payload, {'version': '2.0.0', 'size': len(payload), 'digest': hashlib.sha256(payload).hexdigest()}
 
     def test_archive_integrity_and_valid_extraction(self):
-        payload, release = self.archive([('hermes-browser-link-2.0.0/file.txt', 'valid')])
+        payload, release = self.archive([('fast-browser-link-hermes-2.0.0/file.txt', 'valid')])
         target = updater.extract_archive(payload, release, self.root, self.cli.EXECUTOR)
         self.assertEqual((target / 'file.txt').read_text(), 'valid')
         with self.assertRaisesRegex(ValueError, 'SHA256'):
             updater.extract_archive(payload + b'x', release, self.root, self.cli.EXECUTOR)
 
     def test_unsafe_archives_are_rejected(self):
-        link = zipfile.ZipInfo('hermes-browser-link-2.0.0/link')
+        link = zipfile.ZipInfo('fast-browser-link-hermes-2.0.0/link')
         link.external_attr = (stat.S_IFLNK | 0o777) << 16
         entries = [
-            [('hermes-browser-link-2.0.0/../escape', 'bad')], [('/absolute', 'bad')],
-            [('other-root/file', 'bad')], [('hermes-browser-link-2.0.0/a\\b', 'bad')],
-            [(link, '../bad')], [('hermes-browser-link-2.0.0/A', '1'), ('hermes-browser-link-2.0.0/a', '2')],
+            [('fast-browser-link-hermes-2.0.0/../escape', 'bad')], [('/absolute', 'bad')],
+            [('other-root/file', 'bad')], [('fast-browser-link-hermes-2.0.0/a\\b', 'bad')],
+            [(link, '../bad')], [('fast-browser-link-hermes-2.0.0/A', '1'), ('fast-browser-link-hermes-2.0.0/a', '2')],
         ]
         for index, values in enumerate(entries):
             folder = self.root / str(index)
@@ -129,7 +129,7 @@ class UpdateTests(unittest.TestCase):
                      'python /repo/hermes_cli/main.py', '/bin/hermes chat'):
             with self.subTest(line=line), mock.patch.object(updater.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, line)):
                 self.assertTrue(updater.applications_running())
-        with mock.patch.object(updater.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, '/bin/python /repo/hermes-browser-link/update.py')):
+        with mock.patch.object(updater.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, '/bin/python /repo/fast-browser-link/update.py')):
             self.assertFalse(updater.applications_running())
         with mock.patch.object(updater.subprocess, 'run', return_value=subprocess.CompletedProcess([], 1, '')):
             with self.assertRaises(ValueError):
@@ -145,7 +145,7 @@ class UpdateTests(unittest.TestCase):
                 handler.redirect_request(request, None, 302, '', {}, target)
 
     def test_schedule_uses_stable_path_hourly_and_captured_environment(self):
-        path = self.home / 'plugins/browser-link/maintenance/update.py'
+        path = self.home / 'plugins/fast-browser-link/maintenance/update.py'
         path.parent.mkdir()
         path.write_text('# 中文注释：合成维护入口\n')
         with mock.patch.object(updater.subprocess, 'run', side_effect=[subprocess.CompletedProcess([], 1), subprocess.CompletedProcess([], 0)]):
@@ -162,7 +162,7 @@ class UpdateTests(unittest.TestCase):
         self.assertFalse(agent.exists())
 
     def test_failed_schedule_switch_restores_previous_job(self):
-        path = self.home / 'plugins/browser-link/maintenance/update.py'
+        path = self.home / 'plugins/fast-browser-link/maintenance/update.py'
         path.parent.mkdir()
         path.touch()
         agent = updater.agent_path(self.home, self.user_home)
@@ -178,12 +178,12 @@ class UpdateTests(unittest.TestCase):
         with mock.patch.object(updater, 'latest_release', side_effect=ValueError('private external content')):
             with self.assertRaises(ValueError):
                 updater.run(self.args)
-        path = self.home / 'plugin-data/browser-link-native/update-status.json'
+        path = self.home / 'plugin-data/fast-browser-link-native/update-status.json'
         self.assertEqual(json.loads(path.read_text()), {'status': 'failed'})
         self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
 
     def test_cloud_gate_refusal_is_deferred_without_status_or_directory_writes(self):
-        data = self.home / 'plugin-data/browser-link-native'
+        data = self.home / 'plugin-data/fast-browser-link-native'
         before = {str(path.relative_to(self.root)): path.read_bytes() if path.is_file() else None
                   for path in self.root.rglob('*')}
         with mock.patch.object(updater, 'installer_modules', return_value=self.cli), \
@@ -196,7 +196,7 @@ class UpdateTests(unittest.TestCase):
 
     def test_concurrent_update_is_rejected_before_network_or_status_changes(self):
         # 中文注释：占用真实内核锁，验证更新和手动安装使用同一目录锁。
-        data = self.home / 'plugin-data/browser-link-native'
+        data = self.home / 'plugin-data/fast-browser-link-native'
         data.mkdir(parents=True)
         descriptor = os.open(data, os.O_RDONLY)
         self.addCleanup(os.close, descriptor)
@@ -209,7 +209,7 @@ class UpdateTests(unittest.TestCase):
         self.assertEqual(list(data.iterdir()), [])
 
     def test_check_schedule_and_off_never_query_releases(self):
-        entry = self.home / 'plugins/browser-link/maintenance/update.py'
+        entry = self.home / 'plugins/fast-browser-link/maintenance/update.py'
         entry.parent.mkdir()
         entry.touch()
         self.args.schedule = 'check'
@@ -221,7 +221,7 @@ class UpdateTests(unittest.TestCase):
         self.assertIn('--check', document['ProgramArguments'])
 
     def test_symbolic_link_status_cannot_redirect_writes(self):
-        data = self.home / 'plugin-data/browser-link-native'
+        data = self.home / 'plugin-data/fast-browser-link-native'
         data.mkdir(parents=True)
         outside = self.root / 'outside'
         outside.write_text('preserved')

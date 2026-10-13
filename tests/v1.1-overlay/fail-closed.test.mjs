@@ -47,9 +47,9 @@ test('已聚焦的 iframe 在拦截恢复时交还焦点，暂停时保留用户
 test('新文档预遮罩节点被页面删除后仍会恢复',async()=>{
  const dom=new JSDOM('<!doctype html><button>页面</button>',{url:'https://example.test',runScripts:'outside-only'});
  try{
-  dom.window.eval(preveilSource(['https://example.test']));const host=dom.window.document.querySelector('[data-hermes-preveil]');assert.ok(host);
-  host.remove();await tick();assert.ok(dom.window.document.querySelector('[data-hermes-preveil]'));
- }finally{const full=dom.window.document.createElement('div');full.setAttribute('data-hermes-automation-overlay','');dom.window.document.documentElement.append(full);await tick();dom.window.close();}
+  dom.window.eval(preveilSource(['https://example.test']));const host=dom.window.document.querySelector('[data-fast-preveil]');assert.ok(host);
+  host.remove();await tick();assert.ok(dom.window.document.querySelector('[data-fast-preveil]'));
+ }finally{const full=dom.window.document.createElement('div');full.setAttribute('data-fast-automation-overlay','');dom.window.document.documentElement.append(full);await tick();dom.window.close();}
 });
 for(const failure of [null,'异常','INTERACTION_HIGHLIGHT_FRAME_TIMEOUT','DOCUMENT_CHANGED','授权撤销'])test(`动作${failure||'成功'}在释放同页锁前收回放行`,async()=>{
  const e=new Executor({tabs:{},debugger:{}}),events=[];
@@ -75,7 +75,7 @@ test('两个任务不同页面并行时只恢复各自遮罩',async()=>{
 test('迟到的动作收尾不能收回下一次放行，撤销后旧授权不能重新放开',async()=>{
  const f=fixture();try{
   const state={nonce:'n',taskId:'t',generation:1,documentId:'d',modeGeneration:1,active:true,overlay:f.overlay};
-  f.dom.window.__hermesAutomationOverlay=state;
+  f.dom.window.__fastAutomationOverlay=state;
   const e=new Executor({tabs:{},debugger:{sendCommand:async(_target,_method,p)=>({result:{value:f.dom.window.eval(`(${p.functionDeclaration})`)(...p.arguments.map(arg=>arg.value))}})}});
   const entry={nonce:'n',contextId:1},scope={taskId:'t',generation:1,documentId:'d',modeGeneration:1,update:{state:'running',step:'click'}};
   await e.overlayCall(7,entry,'scope-running',{...scope,actionToken:'a'});

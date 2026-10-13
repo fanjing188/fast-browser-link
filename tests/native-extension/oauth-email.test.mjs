@@ -38,7 +38,7 @@ for(const origin of ['https://accounts.google.com','https://appleid.apple.com','
  }finally{f.close();}
 });
 for(const origin of ['https://example.test','http://accounts.google.com','https://accounts.google.com.evil.test'])test(`${origin} shows email regardless of page exemption claims`,()=>{
- const f=fixture(origin,{},`<main data-hermes-email-exempt="true"><base href="https://accounts.google.com/"><p>${email}</p><button>${email}</button></main>`);
+ const f=fixture(origin,{},`<main data-fast-email-exempt="true"><base href="https://accounts.google.com/"><p>${email}</p><button>${email}</button></main>`);
  try{for(const page of [f.semantics.snapshot(),f.parser.parse()]){assert.ok(JSON.stringify(page).includes(email));assert.ok(!JSON.stringify(page).includes('[email]'));}}
  finally{f.close();}
 });
@@ -65,7 +65,7 @@ test('isolated-world reads show emails independently of provider configuration',
   assert.equal(page.items[0].name,email);
   const parsed=await executor.callSemanticWorld({tabId:1},'main','page.parse',{binding,options:{sections:['blocks']}},()=>{});
   assert.ok(parsed.blocks.some(row=>row.text===email));
- }finally{f.dom.window.__hermesNativeSemanticsV2?.semantics.revoke();f.close();}
+ }finally{f.dom.window.__fastNativeSemanticsV2?.semantics.revoke();f.close();}
 });
 test('accessibility names and email query show emails on every origin',()=>{
  for(const origin of ['https://accounts.google.com','https://example.test']){

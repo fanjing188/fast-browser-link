@@ -15,7 +15,7 @@ PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 TOOLS = {
     # 中文注释：网站工具固定入口也必须由插件清单声明。
     'browser_site_search', 'browser_site_manage', 'browser_site_run',
-    *('browser_shared_' + name for name in (
+    *('fast_browser_' + name for name in (
         # 中文注释：用户登记的任务文件只公开元信息列表，不公开本地路径。
         'health', 'browsers', 'create', 'list', 'get', 'artifacts', 'run', 'cancel', 'resume', 'close', 'script', 'open', 'use_tab',
         'downloads', 'cookie_mirror', 'reference', 'doctor',
@@ -59,7 +59,7 @@ class _Context:
 class PluginManifestTests(unittest.TestCase):
     def test_manifest_and_runtime_registration_are_exactly_aligned(self):
         manifest = yaml.safe_load((PLUGIN_ROOT / "plugin.yaml").read_text(encoding="utf-8"))
-        self.assertEqual(manifest["name"], "browser-link")
+        self.assertEqual(manifest["name"], "fast-browser-link")
         self.assertEqual(manifest["manifest_version"], 2)
         self.assertNotIn("requires_hermes", manifest)
         self.assertEqual(set(manifest["provides_tools"]), TOOLS)
@@ -101,15 +101,15 @@ class PluginManifestTests(unittest.TestCase):
                 native_spec = importlib.util.spec_from_file_location('native_schema_under_test', PLUGIN_ROOT / 'native_tools.py')
                 native_module = importlib.util.module_from_spec(native_spec)
                 native_spec.loader.exec_module(native_module)
-                self.assertIn('同一会话', native_module.TOOL_SCHEMAS['browser_shared_get']['description'])
+                self.assertIn('同一会话', native_module.TOOL_SCHEMAS['fast_browser_get']['description'])
                 self.assertEqual(ctx.hooks, set(hooks))
-                self.assertEqual(set(ctx.skills), {"use-my-browser", "batch-scrape", "troubleshoot"})
+                self.assertEqual(set(ctx.skills), {"fast-browser-link", "fast-browser-batch-scrape", "fast-browser-troubleshoot"})
                 for name, path in ctx.skills.items():
                     self.assertIn(f"name: {name}", path.read_text(encoding="utf-8"))
                 import re
-                self.assertEqual(list(ctx.sections), ["browser-link.guide"])
-                self.assertTrue(re.fullmatch(r"[a-z0-9._-]{1,128}", "browser-link.guide"))
-                self.assertIn("browser-link:use-my-browser", ctx.sections["browser-link.guide"])
+                self.assertEqual(list(ctx.sections), ["fast-browser-link.guide"])
+                self.assertTrue(re.fullmatch(r"[a-z0-9._-]{1,128}", "fast-browser-link.guide"))
+                self.assertIn("fast-browser-link:fast-browser-link", ctx.sections["fast-browser-link.guide"])
                 self.assertEqual(len(ctx.unload), 2)
                 for cleanup in ctx.unload:
                     cleanup()
@@ -122,7 +122,7 @@ class PluginManifestTests(unittest.TestCase):
 
     def test_dashboard_manifest_is_hidden_api_host_not_standalone_ui(self):
         manifest = json.loads((PLUGIN_ROOT / "dashboard" / "manifest.json").read_text(encoding="utf-8"))
-        self.assertEqual(manifest["name"], "browser-link")
+        self.assertEqual(manifest["name"], "fast-browser-link")
         self.assertEqual(manifest["api"], "plugin_api.py")
         self.assertTrue(manifest["tab"]["hidden"])
         self.assertEqual(manifest["entry"], "noop.js")

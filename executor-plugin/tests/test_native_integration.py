@@ -59,13 +59,13 @@ class NativeIntegrationTests(unittest.TestCase):
                     return proc
                 try:
                     with patch.object(plugins, '_delivery_manager', return_value=manager), patch('subprocess.Popen', side_effect=tracked_popen):
-                        name = 'browser_shared_health'
+                        name = 'fast_browser_health'
                         block, args = plugins._dispatch_pre_tool_call_hooks(name, {}, session_id='fixture-session', tool_call_id='fixture-call')
                         self.assertIsNone(block)
                         self.assertIsInstance(args, dict)
                         result = json.loads(tools.make_tool_handler(name, profile)(args, session_id='fixture-session'))
                         self.assertEqual(result, {'ok': True, 'protocolVersion': 1})
-                        pid_path = Path(tmp) / 'plugin-data/browser-link-native/daemon.pid'
+                        pid_path = Path(tmp) / 'plugin-data/fast-browser-link-native/daemon.pid'
                         self.assertTrue(pid_path.is_file(), 'Real daemon must publish its process identity')
                         daemon_pid = int(pid_path.read_text())
                         command = subprocess.check_output(['ps', '-p', str(daemon_pid), '-o', 'command='], text=True)
@@ -74,18 +74,18 @@ class NativeIntegrationTests(unittest.TestCase):
                         self.assertTrue((pid_path.parent / 'bridge.sock').is_socket())
                         self.assertNotEqual(threads[0], threading.get_ident())
                         # Another session cannot consume this hook-issued lease.
-                        block, args = plugins._dispatch_pre_tool_call_hooks('browser_shared_browsers', {}, session_id='fixture-session', tool_call_id='fixture-call-2')
-                        result = json.loads(tools.make_tool_handler('browser_shared_browsers', profile)(args, session_id='foreign-session'))
+                        block, args = plugins._dispatch_pre_tool_call_hooks('fast_browser_browsers', {}, session_id='fixture-session', tool_call_id='fixture-call-2')
+                        result = json.loads(tools.make_tool_handler('fast_browser_browsers', profile)(args, session_id='foreign-session'))
                         self.assertEqual(result['code'], 'owner_denied')
-                        block, args = plugins._dispatch_pre_tool_call_hooks('browser_shared_browsers', {}, session_id='fixture-session', tool_call_id='fixture-call-3')
-                        result = json.loads(tools.make_tool_handler('browser_shared_browsers', profile)(args, session_id='fixture-session'))
+                        block, args = plugins._dispatch_pre_tool_call_hooks('fast_browser_browsers', {}, session_id='fixture-session', tool_call_id='fixture-call-3')
+                        result = json.loads(tools.make_tool_handler('fast_browser_browsers', profile)(args, session_id='fixture-session'))
                         self.assertEqual(result, [])
                 finally:
                     if profile._client is not None:
                         profile._client.close()
                     profile.close()
                     # Reap the exact daemon in this isolated home, regardless of launcher implementation.
-                    pid_path = Path(tmp) / 'plugin-data/browser-link-native/daemon.pid'
+                    pid_path = Path(tmp) / 'plugin-data/fast-browser-link-native/daemon.pid'
                     if pid_path.is_file():
                         pid = int(pid_path.read_text())
                         check = subprocess.run(['ps', '-p', str(pid), '-o', 'command='], capture_output=True, text=True)

@@ -5,10 +5,10 @@ import { load, content } from './test-harness.mjs'
 
 test('SDK contribution remains opt-in and uses the original route identity', async () => {
   const h = await load()
-  assert.equal(h.context.plugin.id, 'browser-link')
+  assert.equal(h.context.plugin.id, 'fast-browser-link')
   assert.equal(h.context.plugin.defaultEnabled, false)
   assert.deepEqual(h.registrations.map(row => row.area), ['routes', 'nav', 'palette'])
-  assert.equal(h.registrations[0].data.path, '/browser-link')
+  assert.equal(h.registrations[0].data.path, '/fast-browser-link')
 })
 
 function browserRow(nodes, instanceId) {

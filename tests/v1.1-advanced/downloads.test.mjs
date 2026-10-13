@@ -24,7 +24,7 @@ test('unique task-tab download is redirected into the task staging folder',async
  const suggestions=[];
  assert.equal(f.tracker.determine({id:5,url:'https://site.test/report',filename:'../../etc/report.csv'},value=>suggestions.push(value)),true);
  await f.advance(300);
- assert.deepEqual(suggestions,[{filename:'hermes-tasks/0123456789abcdef/report.csv',conflictAction:'uniquify'}]);
+ assert.deepEqual(suggestions,[{filename:'fast-browser-tasks/0123456789abcdef/report.csv',conflictAction:'uniquify'}]);
  assert.equal(f.reports[0].event,'attributed');assert.equal(f.reports[0].taskId,'task-a');assert.equal(f.reports[0].downloadRef,5);
 });
 
@@ -83,7 +83,7 @@ test('completion, oversize cancellation and task-scoped cancel',async()=>{
  f.tracker.created({id:9,url:'blob:https://site.test/1234'});
  f.tracker.determine({id:9,url:'blob:https://site.test/1234',filename:'blob.txt'},()=>{});
  await f.advance(300);
- f.items.set(9,{id:9,state:'complete',filename:'/Users/x/Downloads/hermes-tasks/0123456789abcdef/blob.txt',bytesReceived:4,totalBytes:4,fileSize:4,danger:'safe',exists:true});
+ f.items.set(9,{id:9,state:'complete',filename:'/Users/x/Downloads/fast-browser-tasks/0123456789abcdef/blob.txt',bytesReceived:4,totalBytes:4,fileSize:4,danger:'safe',exists:true});
  await f.tracker.changed({id:9,state:{current:'complete'}});
  const done=f.reports.at(-1);assert.equal(done.event,'complete');assert.equal(done.fileSize,4);
  await assert.rejects(f.tracker.cancel({taskId:'task-b',generation:1,downloadRef:9}),/DOWNLOAD_NOT_OWNED/);

@@ -31,7 +31,7 @@ export function groupTitle(title) {
 
 // 中文注释：启动监听必须在 worker 顶层注册；先同步撤权，再串行作废磁盘日志，避免 ready 的旧读取恢复删除权。
 const startupStates = new WeakMap();
-const storageKey = 'hermes.backgroundWorkspaces.v1';
+const storageKey = 'fast.backgroundWorkspaces.v1';
 export function registerWorkspaceStartup(chrome) {
   if (startupStates.has(chrome.storage)) return startupStates.get(chrome.storage);
   const state = {epoch: 0, barrier: Promise.resolve(), invalidate: new Set()};

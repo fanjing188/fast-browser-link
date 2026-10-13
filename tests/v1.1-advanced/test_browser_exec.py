@@ -16,7 +16,7 @@ spec = importlib.util.spec_from_file_location("v11_browser_exec", ROOT / "execut
 browser_exec = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(browser_exec)
 
-LEASE = "__hermes_owner_lease"
+LEASE = "__fast_owner_lease"
 
 
 class LeaseError(Exception):
@@ -128,15 +128,15 @@ class BrowserExecTests(unittest.TestCase):
         adapter.runner = runner
         adapter.cli_finder = lambda: ["/bin/browser-use"]
         result = json.loads(tool["handler"]({"code": "print(page_info())", "timeout_s": 9999, LEASE: "good"},
-                                            session_id="s", task_id="hermes-task"))
+                                            session_id="s", task_id="fast-browser-task"))
         self.assertTrue(result["success"])
-        self.assertEqual(result["backend"], "hermes-native-task")
+        self.assertEqual(result["backend"], "fast-native-task")
         self.assertEqual(seen["env"]["BU_CDP_WS"], "ws://127.0.0.1:5555/devtools/browser/tok")
-        self.assertTrue(seen["env"]["BU_NAME"].startswith("hermes-task-"))
+        self.assertTrue(seen["env"]["BU_NAME"].startswith("fast-browser-task-"))
         self.assertEqual(seen["timeout"], 1800)
         self.assertNotIn("PYTHONPATH", seen["env"])
         workspace = Path(seen["env"]["BH_AGENT_WORKSPACE"])
-        self.assertEqual(workspace.name, "hermes-task")
+        self.assertEqual(workspace.name, "fast-browser-task")
         self.assertEqual(runtime.calls[1][1]["workspace"], str(workspace))
         self.assertEqual(runtime.calls[-1][0], "shared.cdp_gateway_close")
         revoked = threading.Event()
@@ -144,6 +144,24 @@ class BrowserExecTests(unittest.TestCase):
         tool2, _ = self.register(runtime, {"s": ("owner-1", "task-1", "inst", None, None, revoked)})
         self.assertEqual(tool2["handler"]({"code": "x"}, session_id="s"), '{"original":true}')
 
+
+    def test_long_session_names_keep_the_task_digest_and_do_not_share_a_harness(self):
+        runtime = Runtime(gateway={"wsUrl": "ws://127.0.0.1:5555/devtools/browser/tok", "expiresAt": 1})
+        _, adapter = self.register(runtime, {})
+        names = []
+        def runner(cmd, code, env, timeout):
+            names.append(env['BU_NAME'])
+            return subprocess.CompletedProcess(cmd, 0, '', '')
+        adapter.runner = runner
+        adapter.cli_finder = lambda: ['/bin/browser-use']
+        for task in ('task-one', 'task-two'):
+            receipt = json.loads(adapter.run({'code': 'print(1)', 'session': 's' * 64},
+                                             owner='owner', native_task=task, hermes_task='fixture'))
+            self.assertTrue(receipt['success'])
+        self.assertNotEqual(names[0], names[1])
+        for name in names:
+            self.assertLessEqual(len(name), 64)
+            self.assertRegex(name, r'^fast-browser-s+-[a-f0-9]{12}$')
 
 if __name__ == "__main__":
     unittest.main()

@@ -10,7 +10,7 @@ import sys
 from runtime.client import private_directory, save_config
 from registration import registration
 
-HOST = 'com.hermes.browser_link.cloud'
+HOST = 'com.fast.browser_link.cloud'
 BROWSERS = ('Library/Application Support/Google/Chrome/NativeMessagingHosts',
             'Library/Application Support/Microsoft Edge/NativeMessagingHosts')
 
@@ -18,11 +18,11 @@ BROWSERS = ('Library/Application Support/Google/Chrome/NativeMessagingHosts',
 def install(user_home, hermes_home):
     user_home, hermes_home = Path(user_home), Path(hermes_home)
     root = Path(__file__).resolve().parent
-    settings = json.loads((hermes_home / 'plugin-data/browser-link-native/host-config.json').read_text())
+    settings = json.loads((hermes_home / 'plugin-data/fast-browser-link-native/host-config.json').read_text())
     origins = settings.get('allowedOrigins')
     if not isinstance(origins, list) or not origins or any(not re.fullmatch(r'chrome-extension://[a-p]{32}/', x) for x in origins):
         raise ValueError('缺少原扩展的有效 Native host 许可')
-    directory = hermes_home / 'plugin-data/browser-link-cloud'
+    directory = hermes_home / 'plugin-data/fast-browser-link-cloud'
     private_directory(directory)
     launcher, text, descriptions = registration(root, user_home, hermes_home, origins, sys.executable)
     fd = os.open(launcher, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o700)

@@ -172,7 +172,7 @@ try{
     return value.adoptedPopupTabIds?.includes(candidate.tabId)?value:null;
    },10000,{label:'原小窗接管授权读回'});
    assert.ok(current.tabIds.includes(candidate.tabId));assert.ok(current.allowedOrigins.includes(loginOrigin));
-   const hostTask=JSON.parse(await readFile(path.join(session.staged.hermesHome,'plugin-data/browser-link-native/tasks.json'),'utf8')).tasks.find(task=>task.id===tab.task.id);
+   const hostTask=JSON.parse(await readFile(path.join(session.staged.hermesHome,'plugin-data/fast-browser-link-native/tasks.json'),'utf8')).tasks.find(task=>task.id===tab.task.id);
    assert.ok(hostTask);assert.ok(!hostTask.agentTabIds.includes(candidate.tabId));
    const replay=await tab.run('popup_adopt',args,id);
    assert.equal(replay.bridgeCode,'request_outcome_unavailable');assert.equal(replay.retryable,false);
@@ -245,7 +245,7 @@ try{
   }
   return result;
  };
- const persistedTask=async handle=>(JSON.parse(await readFile(path.join(session.staged.hermesHome,'plugin-data/browser-link-native/tasks.json'),'utf8')).tasks.find(row=>row.id===handle.task.id));
+ const persistedTask=async handle=>(JSON.parse(await readFile(path.join(session.staged.hermesHome,'plugin-data/fast-browser-link-native/tasks.json'),'utf8')).tasks.find(row=>row.id===handle.task.id));
  const verifyAutoAudit=async(handle,popup)=>{
   const current=await waitFor(async()=>{
    const value=await taskState(handle);return value.adoptedPopupTabIds?.includes(popup.tabId)?value:null;
@@ -260,7 +260,7 @@ try{
   assert.ok(saved.operationTimeline.some(row=>row.action==='popup_adopt'&&row.automatic===true&&row.tabId===popup.tabId));
   assert.ok(!saved.requestHistory.some(row=>row.action==='popup_adopt'&&row.automatic!==true),'自动接管不能借人工 popup_adopt 完成');
   assert.ok(!saved.agentTabIds.includes(popup.tabId),'接管不能授予删除权');
-  const journal=(await readFile(path.join(session.staged.hermesHome,'plugin-data/browser-link-native/requests.jsonl'),'utf8')).trim().split('\n').filter(Boolean).map(line=>JSON.parse(line));
+  const journal=(await readFile(path.join(session.staged.hermesHome,'plugin-data/fast-browser-link-native/requests.jsonl'),'utf8')).trim().split('\n').filter(Boolean).map(line=>JSON.parse(line));
   assert.ok(journal.some(row=>row.task.id===handle.task.id&&row.entry.requestIdHash===entry.requestIdHash&&row.entry.automatic===true&&row.entry.state==='confirmed'));
   return {automatic:true,tabId:popup.tabId,modeGeneration:current.modeGeneration,requestIdHash:entry.requestIdHash};
  };
@@ -275,7 +275,7 @@ try{
   catch(error){
    clearInterval(timer);await sampling;await capture();
    for(const [key,read] of Object.entries({task:()=>taskState(handle),persistedTask:()=>persistedTask(handle),catalog:()=>handle.run('popup_catalog'),approvalPanelTargets:()=>session.approvalPanelTargets(),
-    journal:async()=>(await readFile(path.join(session.staged.hermesHome,'plugin-data/browser-link-native/requests.jsonl'),'utf8')).trim().split('\n').filter(Boolean).map(JSON.parse).filter(row=>row.task.id===handle.task.id)})){
+    journal:async()=>(await readFile(path.join(session.staged.hermesHome,'plugin-data/fast-browser-link-native/requests.jsonl'),'utf8')).trim().split('\n').filter(Boolean).map(JSON.parse).filter(row=>row.task.id===handle.task.id)})){
     try{diagnostics[key]=await read();}catch(failure){diagnostics[key]={error:failure.message};}
    }
    diagnostics.operationTimeline=diagnostics.persistedTask?.operationTimeline;

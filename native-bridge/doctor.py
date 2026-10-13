@@ -8,12 +8,12 @@ import socket
 import stat
 import sys
 
-HOST = 'com.hermes.browser_link'
+HOST = 'com.fast.browser_link'
 
 
 def probe(home):
     # 中文注释：直接连接已有套接字，不能调用会自动启动服务的 BridgeClient。
-    data = Path(home) / 'plugin-data/browser-link-native'
+    data = Path(home) / 'plugin-data/fast-browser-link-native'
     try:
         token_path = data / 'token'
         info = token_path.lstat()
@@ -55,7 +55,7 @@ def diagnose(home, user_home=None, probe_fn=probe):
     home = Path(home).expanduser().resolve()
     user_home = Path(user_home or Path.home()).expanduser().resolve()
     checks, advice = [], []
-    plugin = home / 'plugins/browser-link/plugin.yaml'
+    plugin = home / 'plugins/fast-browser-link/plugin.yaml'
     checks.append({'component': 'plugin', 'ok': plugin.is_file(), 'code': 'installed' if plugin.is_file() else 'plugin_missing'})
     if not plugin.is_file():
         advice.append('按安装文档安装插件；源码目录存在不代表 Hermes 已加载插件。')
@@ -80,7 +80,7 @@ def diagnose(home, user_home=None, probe_fn=probe):
     connected = [b for b in browsers if isinstance(b, dict) and b.get('connected') is True]
     checks.append({'component': 'extension', 'ok': bool(connected), 'code': 'connected' if connected else 'extension_disconnected'})
     if not live.get('ok'):
-        advice.append('本次未确认守护进程连接；先运行 browser_shared_health 和 browser_shared_browsers，再查看 daemon.pid 与 bridge.sock。doctor 不会启动服务。')
+        advice.append('本次未确认守护进程连接；先运行 fast_browser_health 和 fast_browser_browsers，再查看 daemon.pid 与 bridge.sock。doctor 不会启动服务。')
     elif not connected:
         advice.append('重新加载目标浏览器的扩展，确认弹窗显示已连接。')
     for browser in connected:

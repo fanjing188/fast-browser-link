@@ -55,7 +55,7 @@ except ImportError:
     _diagnostic_thread_lock_for = None
 
 # Source checkout places the projection under executor-plugin; the release
-# package places it at the browser-link root beside native_bridge/.
+# package places it at the fast-browser-link root beside native_bridge/.
 _projection_roots = (
     Path(__file__).resolve().parent,
     Path(__file__).resolve().parent.parent,
@@ -117,7 +117,7 @@ class ProtocolError(Exception):
         self.data = safe_summary(data) if code == 'cookie_mirror_denied' else _safe_error_data(data)
 
 
-_SCOPE_HINT = '同站用 goto_url，新站用 browser_shared_open。'
+_SCOPE_HINT = '同站用 goto_url，新站用 fast_browser_open。'
 
 
 def _safe_error_data(data: Any) -> dict:
@@ -196,7 +196,7 @@ class BridgeDaemon:
         if not isinstance(request_history_limit, int) or isinstance(request_history_limit, bool) or request_history_limit < 1:
             raise ValueError("request_history_limit must be a positive integer")
         self.home = home.resolve()
-        self.data_dir = self.home / "plugin-data" / "browser-link-native"
+        self.data_dir = self.home / "plugin-data" / "fast-browser-link-native"
         self.socket_path = self.data_dir / "bridge.sock"
         self.token_path = self.data_dir / "token"
         self.tasks_path = self.data_dir / "tasks.json"
@@ -252,13 +252,13 @@ class BridgeDaemon:
         # 中文注释：凭据填写只经独立套接字进入 daemon，不开放普通客户端 RPC。
         self.vault_private = VaultPrivateService(self)
         # 中文注释：计时归常驻 daemon 管理；非负秒数可为小数，便于临时 profile 验收。
-        self.idle_close_seconds = self._idle_seconds('HERMES_BROWSER_IDLE_CLOSE_SECONDS', 0)
-        self.task_idle_timeout_seconds = self._idle_seconds('HERMES_BROWSER_TASK_IDLE_TIMEOUT_SECONDS', 1200)
+        self.idle_close_seconds = self._idle_seconds('FAST_BROWSER_IDLE_CLOSE_SECONDS', 0)
+        self.task_idle_timeout_seconds = self._idle_seconds('FAST_BROWSER_TASK_IDLE_TIMEOUT_SECONDS', 1200)
 
         # 中文注释：配置从可信 daemon 环境下发，模型参数不能选择工作窗口。
-        self.work_window_mode = os.environ.get('HERMES_BROWSER_WORK_WINDOW', 'separate')
+        self.work_window_mode = os.environ.get('FAST_BROWSER_WORK_WINDOW', 'separate')
         if self.work_window_mode not in {'separate', 'current'}:
-            raise ValueError('HERMES_BROWSER_WORK_WINDOW must be separate or current')
+            raise ValueError('FAST_BROWSER_WORK_WINDOW must be separate or current')
         self.needs_sync_sweep_at = 0.0
 
     @staticmethod
@@ -323,7 +323,7 @@ class BridgeDaemon:
                                    handoff_if_pending=True, idle_check=(generation, deadline, activity))
                 self._flush_tasks()
             except (ProtocolError, OSError):
-                logging.getLogger('browser-link').warning('空闲任务关闭结果未确认，请核对清理状态。')
+                logging.getLogger('fast-browser-link').warning('空闲任务关闭结果未确认，请核对清理状态。')
 
     def _sweep_empty_needs_sync(self):
         # 中文注释：启动及每小时只核对旧 needs_sync，不关闭页面；未知页面证据、暂停和人工等待都保留。
@@ -824,9 +824,9 @@ class BridgeDaemon:
         self.data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
         info = os.lstat(self.data_dir)
         if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
-            raise RuntimeError("browser-link-native data path must be a real directory")
+            raise RuntimeError("fast-browser-link-native data path must be a real directory")
         if info.st_uid != os.getuid():
-            raise RuntimeError("browser-link-native data directory has the wrong owner")
+            raise RuntimeError("fast-browser-link-native data directory has the wrong owner")
         os.chmod(self.data_dir, 0o700)
 
     def _prepare_socket_path(self) -> None:
@@ -1349,7 +1349,7 @@ class BridgeDaemon:
                 "workTabs": [],
                 "workspaceState": "ready",
                 "requestHistory": [],
-                # 中文注释：浏览器把本任务下载写入 hermes-tasks/<downloadKey>/；代次变化时更换。
+                # 中文注释：浏览器把本任务下载写入 fast-browser-tasks/<downloadKey>/；代次变化时更换。
                 "downloadKey": new_download_key(),
                 "createdAt": now,
                 "updatedAt": now,
@@ -1537,7 +1537,7 @@ class BridgeDaemon:
                     raise ProtocolError('request_id_conflict', 'requestId is already bound to another payload')
                 raise ProtocolError('request_outcome_unavailable', 'request is in flight; it will not be replayed', {'outcomeUnknown': True, 'inFlight': True})
             if task['state'] in {'closed', 'cancelled'}:
-                raise ProtocolError('task_closed', '任务已结束；请重新 browser_shared_open', {'outcomeUnknown': False})
+                raise ProtocolError('task_closed', '任务已结束；请重新 fast_browser_open', {'outcomeUnknown': False})
             if task['state'] == 'paused' or task.get('controlEpoch', 0) != control_epoch:
                 raise ProtocolError('task_paused', '用户已接管，任务已暂停，请等待用户继续', {'outcomeUnknown': False, 'retryable': False})
             # 中文注释：新任务授权由扩展异步安装；未就绪时明确告知查询状态，不能把它当成已派发动作。
@@ -1704,7 +1704,7 @@ class BridgeDaemon:
                         except ProtocolError as exc:
                             # 中文注释：仅拒绝时回读当前来源，成功导航不增加往返；不读取正文或扩大授权。
                             if exc.code == 'origin_denied':
-                                exc.data['scopeHint'] = '同站用 goto_url，新站用 browser_shared_open。'
+                                exc.data['scopeHint'] = '同站用 goto_url，新站用 fast_browser_open。'
                             if exc.code == 'origin_denied' and type(params.get('tabId')) is int:
                                 scope = {'taskId': task_id, 'generation': task['generation'],
                                          'modeGeneration': task.get('modeGeneration', 1), 'tabId': params['tabId']}
@@ -1811,9 +1811,9 @@ class BridgeDaemon:
                         else:
                             timeout = 60.0 if action in {'click', 'fill', 'press', 'ref_click', 'ref_fill', 'ref_press', 'ref_set_checked', 'ref_select_option'} else 15.0
                             result = self._extension_call(extension, "browser.execute", command_params, timeout=timeout)
-                        if isinstance(result, dict) and "__hermesChunked" in result:
+                        if isinstance(result, dict) and "__fastChunked" in result:
                             # 中文注释：工具通道单行上限 1MB；超限结果已执行但不回传正文，改用网关或更小的请求。
-                            size = result["__hermesChunked"].get("size") if isinstance(result["__hermesChunked"], dict) else None
+                            size = result["__fastChunked"].get("size") if isinstance(result["__fastChunked"], dict) else None
                             result = {"executed": True, "resultTooLarge": True,
                                       "size": size if type(size) is int else None}
             except ProtocolError as exc:
@@ -1825,7 +1825,7 @@ class BridgeDaemon:
                         if not image.startswith(b'\x89PNG\r\n\x1a\n'):
                             raise ValueError('invalid_png')
                         # 中文注释：失败截图使用系统临时目录的独占文件，不覆盖已有文件。
-                        with tempfile.NamedTemporaryFile(prefix='hermes-recovery-', suffix='.png', delete=False) as artifact:
+                        with tempfile.NamedTemporaryFile(prefix='fast-recovery-', suffix='.png', delete=False) as artifact:
                             artifact.write(image)
                             recovery['screenshotPath'] = artifact.name
                     except (OSError, ValueError):
@@ -2006,7 +2006,7 @@ class BridgeDaemon:
                         if opened_task_tab and isinstance(result, dict):
                             result['open_tabs'] = self._public_task(task)['open_tabs']
                             if result['open_tabs'] > 6:
-                                result['tab_hint'] = '不再用的网站先 browser_shared_close'
+                                result['tab_hint'] = '不再用的网站先 fast_browser_close'
                         if action in {'new_tab', 'navigate'} and isinstance(result, dict) and isinstance(result.get('url'), str):
                             redirected = self._www_redirect_origin(params.get('url', ''), result['url'])
                             if redirected and redirected not in task['allowedOrigins']:
@@ -3319,8 +3319,8 @@ class BridgeDaemon:
             raise GatewayDenied("browser instance is not connected")
         try:
             result = self._extension_call(extension, method, params, timeout=60.0)
-            if isinstance(result, dict) and isinstance(result.get("__hermesChunked"), dict):
-                meta = result["__hermesChunked"]
+            if isinstance(result, dict) and isinstance(result.get("__fastChunked"), dict):
+                meta = result["__fastChunked"]
                 count = meta.get("count")
                 if type(count) is not int or not 1 <= count <= 64:
                     raise GatewayDenied("invalid chunked result")

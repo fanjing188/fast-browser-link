@@ -8,7 +8,7 @@ for(const [name,queries,expected] of [
  ['无浏览器',{browsers:{data:[]}},/本地桥接可用.*暂无浏览器/],
  ['在线和离线',{browsers:{data:[{instanceId:'a',browser:'edge',connected:true,consentStatus:'enabled'},{instanceId:'b',browser:'chrome',connected:false,consentStatus:'disabled'}]}},/在线浏览器.*Microsoft Edge.*已连接.*已授权.*任务直接执行.*离线浏览器.*Chrome.*未连接.*授权待确认/]
 ])test(`精简面板：${name}`,async()=>{
- const h=await mountDesktop({queries,initialHash:'#/browser-link?task=old'});
+ const h=await mountDesktop({queries,initialHash:'#/fast-browser-link?task=old'});
  try{
   assert.match(h.root.textContent,expected);
   assert.doesNotMatch(h.root.textContent,/智能审批|切换模式|查看模式/);

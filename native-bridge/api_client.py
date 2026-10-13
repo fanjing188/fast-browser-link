@@ -40,7 +40,7 @@ class ApiClient:
         if fixture is not None:
             o, prefix = fixture
             p = exact_url(o)
-            if p.hostname != '127.0.0.1' or p.scheme != 'http' or p.path or p.query or not p.port or not re.fullmatch(r'/__hermes_api_fixture__/[a-f0-9]{32}/', prefix):
+            if p.hostname != '127.0.0.1' or p.scheme != 'http' or p.path or p.query or not p.port or not re.fullmatch(r'/__fast_api_fixture__/[a-f0-9]{32}/', prefix):
                 raise ValueError('invalid isolated fixture policy')
 
     def target(self, url):

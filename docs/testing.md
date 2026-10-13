@@ -181,7 +181,7 @@ Run `node tests/v1.6.0/real-background-input.mjs --headed` and repeat with `--ed
 
 Run `node tests/v1.6.0/real-work-window.mjs --headed` and repeat with `--edge`. The temporary profiles verify three concurrent trusted clicks, unchanged user-window active tab/focus flags, background snapshot/coordinate input, minimized-window input, tool/script no-effect errors, session counts, and recreation after closure. `tests/native-v2/real-session.mjs` now also has a direct local-fixture smoke entry point.
 
-To keep gate scratch files outside the user's Hermes directory, set `HERMES_BROWSER_VERIFY_SCRATCH=/private/tmp/b16` together with `TMPDIR=/private/tmp` when running `npm run verify`. The existing gate still isolates HOME inside its scratch snapshot. No live browser profile or plugin installation is modified.
+To keep gate scratch files outside the user's Hermes directory, set `FAST_BROWSER_VERIFY_SCRATCH=/private/tmp/b16` together with `TMPDIR=/private/tmp` when running `npm run verify`. The existing gate still isolates HOME inside its scratch snapshot. No live browser profile or plugin installation is modified.
 
 ### Historical gate declaration (1.7.1)
 

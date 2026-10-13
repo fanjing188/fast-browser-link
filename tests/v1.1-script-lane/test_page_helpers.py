@@ -23,7 +23,7 @@ class PageHelpersTests(unittest.TestCase):
     def test_error_code_is_visible_without_exposing_extra_data(self):
         # 中文注释：回溯首行包含可信错误码，未知结果仍由独立标志判断。
         error = child.BrowserError('未执行，可重新读取页面后重试。', code='tab_out_of_scope', outcome_unknown=False)
-        self.assertEqual(str(error), 'BrowserError[tab_out_of_scope]: 未执行，可重新读取页面后重试。 当前来源：unavailable；同站用 goto_url，新站用 browser_shared_open。')
+        self.assertEqual(str(error), 'BrowserError[tab_out_of_scope]: 未执行，可重新读取页面后重试。 当前来源：unavailable；同站用 goto_url，新站用 fast_browser_open。')
         self.assertFalse(error.outcome_unknown)
         self.assertEqual(str(child.BrowserError('plain')), 'plain')
 

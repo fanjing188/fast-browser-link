@@ -54,7 +54,7 @@ class Runtime:
 class Round1fTests(unittest.TestCase):
     def test_run_fields_are_fixed_and_values_are_not_echoed(self):
         runtime = Runtime()
-        handler = TOOLS.make_tool_handler('browser_shared_run', runtime)
+        handler = TOOLS.make_tool_handler('fast_browser_run', runtime)
         result = json.loads(handler({'task_id': 'PRIVATE', 'action': 'semantic_snapshot'}))
         self.assertEqual((result['code'], result['fields']), ('missing_fields', ['tab_id']))
         self.assertNotIn('PRIVATE', str(result))
@@ -63,7 +63,7 @@ class Round1fTests(unittest.TestCase):
             self.assertEqual((result['code'], result['fields']), ('invalid_fields', fields))
             self.assertNotIn('PRIVATE', str(result))
         self.assertEqual(runtime.calls, [])
-        schema = TOOLS.TOOL_SCHEMAS['browser_shared_run']['parameters']['allOf'][0]
+        schema = TOOLS.TOOL_SCHEMAS['fast_browser_run']['parameters']['allOf'][0]
         self.assertNotIn('new_tab', schema['if']['properties']['action']['enum'])
         self.assertEqual(schema['then']['required'], ['tab_id'])
 
@@ -157,7 +157,7 @@ class Round1fTests(unittest.TestCase):
             self.assertEqual(error.data['currentOrigin'], 'https://fixture.test')
             runtime = Runtime()
             runtime.call = lambda *a, **k: (_ for _ in ()).throw(error)
-            result = json.loads(TOOLS.make_tool_handler('browser_shared_run', runtime)({'task_id': 't', 'action': 'snapshot', 'tab_id': 7}))
+            result = json.loads(TOOLS.make_tool_handler('fast_browser_run', runtime)({'task_id': 't', 'action': 'snapshot', 'tab_id': 7}))
             self.assertEqual(result['currentOrigin'], 'https://fixture.test')
             self.assertIn('goto_url', result['scopeHint'])
             self.assertNotIn('PRIVATE', str(result))

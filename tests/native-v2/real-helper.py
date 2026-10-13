@@ -36,12 +36,12 @@ def paths(work: Path):
     config_path = work / "fixture-paths.json"
     config = json.loads(config_path.read_text()) if config_path.is_file() else {}
     hermes = compact_home(work, Path(config["hermesHome"])) if config.get("hermesHome") else home / ".hermes"
-    installed = hermes / "plugins" / "browser-link"
+    installed = hermes / "plugins" / "fast-browser-link"
     return {
         "work": work,
         "home": home,
         "hermes": hermes,
-        "plugin": installed if installed.is_dir() else work / "plugin" / "browser-link",
+        "plugin": installed if installed.is_dir() else work / "plugin" / "fast-browser-link",
         "extension": work / "package/native-extension" if config.get("packageMode") else work / "dist-native",
     }
 
@@ -52,7 +52,7 @@ def compact_home(work: Path, home: Path):
     if (home.is_symlink() or home.resolve() != home or home.parent != work.parent
             or not re.fullmatch(r"[a-f0-9]{4}", home.name) or not home.is_dir()):
         raise ValueError("compact Hermes home must be a private scratch sibling")
-    if len(os.fsencode(home / "plugin-data/browser-link-native/bridge.sock")) > 103:
+    if len(os.fsencode(home / "plugin-data/fast-browser-link-native/bridge.sock")) > 103:
         raise ValueError("compact fixture socket path is too long")
     return home
 
@@ -153,7 +153,7 @@ def rpc(work: Path, session: str, suffix: str, args: dict):
     profile.call = recorded_call
     manager = plugins.PluginManager()
     manager._hooks.setdefault("pre_tool_call", []).append(profile.authority.pre_tool_call)
-    name = "browser_shared_" + suffix
+    name = "fast_browser_" + suffix
     try:
         with patch.object(plugins, "_delivery_manager", return_value=manager):
             result = _invoke(plugins, tools, profile, name, args, session)
@@ -208,7 +208,7 @@ def batch(work: Path, session: str, kind: str, args: dict):
             "task_id": args["task_id"], "request_id": f"{args['request_prefix']}-{sequence}",
             "action": action, "tab_id": args["tab_id"], **extra,
         }
-        result = _invoke(plugins, tools, profile, "browser_shared_run", payload, session)
+        result = _invoke(plugins, tools, profile, "fast_browser_run", payload, session)
         if result.get("error"):
             raise RuntimeError(json.dumps({**result, "diagnostic": diagnostic}, ensure_ascii=False))
         return result
@@ -219,7 +219,7 @@ def batch(work: Path, session: str, kind: str, args: dict):
                 shot = run("interaction.capture")
                 bounds = run("interaction.bounds", screenshot_id=shot["id"], selector=args["selector"])
                 clicked = run("interaction.click", screenshot_id=shot["id"], point=bounds["imageCenter"], expected_ref=bounds["ref"])
-                replay = _invoke(plugins, tools, profile, "browser_shared_run", {
+                replay = _invoke(plugins, tools, profile, "fast_browser_run", {
                     "task_id": args["task_id"], "request_id": f"{args['request_prefix']}-replay",
                     "action": "interaction.click", "tab_id": args["tab_id"],
                     "screenshot_id": shot["id"], "point": bounds["imageCenter"], "expected_ref": bounds["ref"],
@@ -246,14 +246,14 @@ def batch(work: Path, session: str, kind: str, args: dict):
 
 def inspect(work: Path):
     value = paths(work)
-    pid_path = value["hermes"] / "plugin-data/browser-link-native/daemon.pid"
+    pid_path = value["hermes"] / "plugin-data/fast-browser-link-native/daemon.pid"
     if not pid_path.is_file():
         raise RuntimeError("fixture daemon is not running")
     pid = int(pid_path.read_text())
     command = subprocess.run(["ps", "-p", str(pid), "-o", "command="], check=True, capture_output=True, text=True).stdout.strip()
     # 中文注释：源码阶段使用隔离 host-bin；正式包阶段必须核实 daemon 来自包内已安装的插件。
     installed_daemon = value["plugin"] / "native_bridge/daemon.py"
-    host_daemon = value["hermes"] / "plugin-data/browser-link-native/host-bin/daemon.py"
+    host_daemon = value["hermes"] / "plugin-data/fast-browser-link-native/host-bin/daemon.py"
     # 中文注释：源码阶段 daemon 可由隔离 host-bin 或临时安装的插件拉起，二者都必须在本次临时目录内。
     candidates = [path for path in (installed_daemon, host_daemon) if path.is_file() and
                   (path.is_relative_to(value["work"]) or path.is_relative_to(value["hermes"]))]
@@ -324,13 +324,13 @@ def fill_fixture_vault(work: Path, session: str, task_id: str, tab_id: int, hand
     os.environ["HERMES_HOME"] = str(value["hermes"])
     source = Path(os.environ["HERMES_SOURCE"]).resolve()
     sys.path.insert(0, str(source))
-    installed = value["hermes"] / "plugins" / "browser-link"
+    installed = value["hermes"] / "plugins" / "fast-browser-link"
     installed.parent.mkdir(parents=True, exist_ok=True)
     if value["plugin"] != installed:
         shutil.copytree(value["plugin"], installed, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
     # 中文注释：仅临时 Hermes 配置启用覆盖权限与 Vault；不改个人配置或外部密码管理器。
     (value["hermes"] / "config.yaml").write_text(
-        "plugins:\n  enabled: [browser-link]\n  entries:\n    browser-link:\n"
+        "plugins:\n  enabled: [fast-browser-link]\n  entries:\n    fast-browser-link:\n"
         "      allow_tool_override: true\n      settings:\n        vault_tools:\n          enabled: true\n",
         encoding="utf-8",
     )
@@ -341,7 +341,7 @@ def fill_fixture_vault(work: Path, session: str, task_id: str, tab_id: int, hand
         manager = plugins.get_plugin_manager()
         manager.discover_and_load()
         try:
-            loaded = manager._plugins.get("browser-link")
+            loaded = manager._plugins.get("fast-browser-link")
             if loaded is None or loaded.error or not loaded.enabled:
                 raise RuntimeError("official Vault plugin registration failed")
 
@@ -352,12 +352,15 @@ def fill_fixture_vault(work: Path, session: str, task_id: str, tab_id: int, hand
                 if block:
                     raise RuntimeError("official Vault hook denied")
                 entry = registry.get_entry(name, scope=manager.scope_key)
-                if entry is None or entry.toolset != "browser-link":
+                vault_tool = name.startswith('browser_vault_')
+                expected_toolset = 'browser' if vault_tool else 'fast-browser-link'
+                if (entry is None or entry.toolset != expected_toolset
+                        or (vault_tool and 'vault_integration_' not in entry.handler.__module__)):
                     raise RuntimeError("official Vault override is unavailable")
                 return json.loads(entry.handler(bounded, session_id=session))
 
             with patch.object(plugins, "_delivery_manager", return_value=manager):
-                bound = invoke("browser_shared_get", {"task_id": task_id})
+                bound = invoke("fast_browser_get", {"task_id": task_id})
                 if (bound.get("sessionBinding") != "ready" or bound.get("activeMode") != "full"
                         or tab_id not in bound.get("tabIds", [])):
                     raise RuntimeError("official Vault session binding unavailable")
@@ -381,12 +384,12 @@ def official_calls(work: Path, session: str, task_id: str, calls: str, options: 
     os.environ["HERMES_HOME"] = str(value["hermes"])
     source = Path(os.environ["HERMES_SOURCE"]).resolve()
     sys.path.insert(0, str(source))
-    installed = value["hermes"] / "plugins" / "browser-link"
+    installed = value["hermes"] / "plugins" / "fast-browser-link"
     installed.parent.mkdir(parents=True, exist_ok=True)
     if value["plugin"] != installed and not installed.exists():
         shutil.copytree(value["plugin"], installed, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
     (value["hermes"] / "config.yaml").write_text(
-        "plugins:\n  enabled: [browser-link]\n  entries:\n    browser-link:\n"
+        "plugins:\n  enabled: [fast-browser-link]\n  entries:\n    fast-browser-link:\n"
         "      allow_tool_override: true\n      settings:\n        vault_tools:\n          enabled: true\n",
         encoding="utf-8",
     )
@@ -416,7 +419,7 @@ def official_calls(work: Path, session: str, task_id: str, calls: str, options: 
         manager.discover_and_load()
         results = []
         try:
-            loaded = manager._plugins.get("browser-link")
+            loaded = manager._plugins.get("fast-browser-link")
             if loaded is None or loaded.error or not loaded.enabled:
                 raise RuntimeError("official plugin registration failed")
 
@@ -433,7 +436,7 @@ def official_calls(work: Path, session: str, task_id: str, calls: str, options: 
                 return json.loads(raw) if isinstance(raw, str) else {"multimodal": True, "meta": raw.get("meta", {})}
 
             with patch.object(plugins, "_delivery_manager", return_value=manager):
-                results.append(invoke("browser_shared_get", {"task_id": task_id}))
+                results.append(invoke("fast_browser_get", {"task_id": task_id}))
                 last_snapshot = ""
 
                 def resolve(value):
@@ -536,7 +539,7 @@ def script_run(work: Path, session: str, task_id: str, code: str, checkpoint: st
             return tool.run_script(bridge, session_id=session, tool_call_id="script-" + uuid.uuid4().hex,
                                    workspace=tool.workspace_for(value["hermes"], owner), code=code, timeout_s=180,
                                    resume_checkpoint=json.loads(checkpoint) if checkpoint else None,
-                                   export_roots=os.environ.get("HERMES_BROWSER_EXPORT_ROOTS", ""))
+                                   export_roots=os.environ.get("FAST_BROWSER_EXPORT_ROOTS", ""))
         finally:
             bridge.close()
     finally:
@@ -568,13 +571,13 @@ def harness_stop(work: Path, name: str):
 
 def cleanup(work: Path):
     value = paths(work)
-    pid_path = value["hermes"] / "plugin-data/browser-link-native/daemon.pid"
+    pid_path = value["hermes"] / "plugin-data/fast-browser-link-native/daemon.pid"
     if not pid_path.is_file():
         return {}
     pid = int(pid_path.read_text())
     command = subprocess.run(["ps", "-p", str(pid), "-o", "command="], capture_output=True, text=True)
     # 中文注释：daemon 可能由 Native host（host-bin）或插件客户端（插件内 native_bridge）拉起，二者都在本次临时目录内。
-    candidates = (value["plugin"] / "native_bridge/daemon.py", value["hermes"] / "plugin-data/browser-link-native/host-bin/daemon.py")
+    candidates = (value["plugin"] / "native_bridge/daemon.py", value["hermes"] / "plugin-data/fast-browser-link-native/host-bin/daemon.py")
     expected = [str(path) for path in candidates if path.is_relative_to(value["work"]) or path.is_relative_to(value["hermes"])]
     if command.returncode == 0 and any(path in command.stdout for path in expected) and str(value["hermes"]) in command.stdout:
         # 中文注释：daemon 被测试终止后可能由临时插件目录内的客户端重新拉起，该路径也在本次临时目录内。
@@ -587,7 +590,7 @@ def cleanup(work: Path):
 def kill_fixture_daemon(work: Path):
     value = paths(work)
     identity = inspect(work)
-    pid_path = value["hermes"] / "plugin-data/browser-link-native/daemon.pid"
+    pid_path = value["hermes"] / "plugin-data/fast-browser-link-native/daemon.pid"
     pid = identity["daemonPid"]
     # 中文注释：崩溃恢复验收需要 SIGKILL；先核对临时 daemon 的命令、认证套接字和未变的 PID 文件。
     if not _probe(value["hermes"]) or int(pid_path.read_text()) != pid:

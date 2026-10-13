@@ -131,7 +131,7 @@ class FaultingScratchBridge:
     def __init__(self, home, mode):
         self.home = Path(home)
         self.mode = mode
-        self.data_dir = self.home / "plugin-data" / "browser-link-native"
+        self.data_dir = self.home / "plugin-data" / "fast-browser-link-native"
         self.data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
         os.chmod(self.data_dir, 0o700)
         token_path = self.data_dir / "token"
@@ -207,7 +207,7 @@ class ScratchExtensionPeer:
     def __init__(self, home, client_module, instance_id):
         self.home = Path(home)
         client_module.ensure_service(self.home)
-        data_dir = self.home / "plugin-data" / "browser-link-native"
+        data_dir = self.home / "plugin-data" / "fast-browser-link-native"
         self.socket = socket_module.socket(socket_module.AF_UNIX, socket_module.SOCK_STREAM)
         self.socket.settimeout(3)
         self.socket.connect(str(data_dir / "bridge.sock"))
@@ -274,7 +274,7 @@ class NativeRuntimeConnectionBudgetTests(unittest.TestCase):
     def setUp(self):
         SCRATCH.mkdir(parents=True, exist_ok=True)
         self.home = self.enterContext(temporary_bridge_home())
-        socket_path = self.home / "plugin-data" / "browser-link-native" / "bridge.sock"
+        socket_path = self.home / "plugin-data" / "fast-browser-link-native" / "bridge.sock"
         self.assertLessEqual(len(os.fsencode(socket_path)), 103, str(socket_path))
 
         self.runtime_module = _load_native_runtime()
@@ -301,7 +301,7 @@ class NativeRuntimeConnectionBudgetTests(unittest.TestCase):
         self.client_module._spawn_detached = self.original_spawn
 
     def _stop_scratch_daemon(self):
-        pid_path = self.home / "plugin-data" / "browser-link-native" / "daemon.pid"
+        pid_path = self.home / "plugin-data" / "fast-browser-link-native" / "daemon.pid"
         if not pid_path.is_file():
             return
         try:
@@ -321,7 +321,7 @@ class NativeRuntimeConnectionBudgetTests(unittest.TestCase):
         result = self.profile.call("health", {})
 
         self.assertEqual(result, HEALTH_RESULT)
-        pid_path = self.home / "plugin-data" / "browser-link-native" / "daemon.pid"
+        pid_path = self.home / "plugin-data" / "fast-browser-link-native" / "daemon.pid"
         self.assertTrue(pid_path.is_file())
         self.assertGreater(self.monitor.metrics["probe_calls"], 0)
         self.assertGreater(self.monitor.metrics["health_probe_requests"], 0)
@@ -333,14 +333,14 @@ class NativeRuntimeConnectionBudgetTests(unittest.TestCase):
     def test_profile_call_recovers_after_scratch_daemon_restart(self):
         self.client_module.ensure_service(self.home)
         self.profile.call("health", {})
-        old_pid_path = self.home / "plugin-data" / "browser-link-native" / "daemon.pid"
+        old_pid_path = self.home / "plugin-data" / "fast-browser-link-native" / "daemon.pid"
         self.assertTrue(old_pid_path.is_file())
         self._stop_scratch_daemon()
         self.monitor.reset()
         # 中文注释：空闲长连接在发送前就能发现 daemon 已关闭，请求未发出，直接重连而不是报告未知。
         result = self.profile.call("health", {})
         self.assertEqual(result, HEALTH_RESULT)
-        new_pid_path = self.home / "plugin-data" / "browser-link-native" / "daemon.pid"
+        new_pid_path = self.home / "plugin-data" / "fast-browser-link-native" / "daemon.pid"
         self.assertTrue(new_pid_path.is_file())
         new_pid = int(new_pid_path.read_text(encoding="ascii").strip())
         self.assertGreater(new_pid, 0)

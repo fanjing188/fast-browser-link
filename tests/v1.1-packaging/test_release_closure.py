@@ -16,7 +16,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRATCH = Path.home() / '.hermes/cache/scratch'
-ORIGIN = 'chrome-extension://dhioigkigkkhceflkkkmoljhdaefjohb/'
+ORIGIN = 'chrome-extension://hhnljehnkmhhgjjjmnlhilfpcjhobloc/'
 OLD_RELEASE = '8b91fe844aa22c92cef0955b80414466c9e2ac71'  # 已发布 v1.8.5 的固定 Git 源码，不是个人安装副本。
 # 中文注释：版本闭包校验包含锁文件和云端版本元数据，fixture 不能遗漏这些输入。
 INPUTS = ('package.json', 'package-lock.json', 'executor-plugin', 'native-bridge', 'native-extension',
@@ -145,21 +145,23 @@ class ReleaseClosure(unittest.TestCase):
         cli = updater.installer_modules()
         self.assertFalse(cli.EXECUTOR.RELEASE_LINE.match((self.output / 'RELEASE-STATUS.txt').read_text()))
         home, user_home = self.root / 'hermes', self.root / 'home'
+        # 中文注释：执行真实旧更新器时保留它的安装与下载命名空间，不改写固定旧源码。
         plugin = home / 'plugins/browser-link'
         plugin.mkdir(parents=True)
         (plugin / 'plugin.yaml').write_bytes(subprocess.check_output(
             ['git', '-C', os.environ.get('BROWSER_LINK_RELEASE_HISTORY', str(ROOT)), 'show', f'{OLD_RELEASE}:executor-plugin/plugin.yaml']))
         before = (plugin / 'plugin.yaml').read_bytes()
+        legacy_asset = updater.REPOSITORY.rsplit('/', 1)[-1] + '-' + self.version
         archive = io.BytesIO()
         with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED) as zipped:
             for file in sorted(self.output.rglob('*')):
                 if file.is_file():
-                    zipped.write(file, f'hermes-browser-link-{self.version}/' + file.relative_to(self.output).as_posix())
+                    zipped.write(file, legacy_asset + '/' + file.relative_to(self.output).as_posix())
         payload = archive.getvalue()
-        url = f'https://github.com/{updater.REPOSITORY}/releases/download/v{self.version}/hermes-browser-link-{self.version}.zip'
+        url = f'https://github.com/{updater.REPOSITORY}/releases/download/v{self.version}/{legacy_asset}.zip'
         # 中文注释：只替换网络传输与外部空闲状态；API 解析、ZIP/包摘要、旧解析器及旧 CLI 保持真实逻辑。
         api = json.dumps({'draft': False, 'prerelease': False, 'tag_name': 'v' + self.version,
-                          'assets': [{'name': f'hermes-browser-link-{self.version}.zip',
+                          'assets': [{'name': legacy_asset + '.zip',
                                       'browser_download_url': url, 'state': 'uploaded', 'size': len(payload),
                                       'digest': 'sha256:' + hashlib.sha256(payload).hexdigest()}]}).encode()
         def fetch(address, limit):
@@ -181,11 +183,14 @@ class ReleaseClosure(unittest.TestCase):
             sys.setprofile(guard)
             with mock.patch.object(updater, 'fetch', side_effect=fetch), \
                     mock.patch.object(updater, 'applications_running', return_value=False), \
-                    self.assertRaisesRegex(ValueError, '拒绝缺少候选或正式发布状态声明'):
+                    self.assertRaisesRegex(ValueError, '安装包顶层布局无效'):
                 updater.update(argparse.Namespace(hermes_home=home, user_home=user_home, check=False), cli)
         finally:
             sys.setprofile(previous)
-        self.assertEqual(calls, ['verify_package', 'release_status'])
+        # 中文注释：改名包被旧更新器在布局检查时更早拒绝；旧状态解析器仍须单独拒绝新格式。
+        self.assertEqual(calls, ['verify_package'])
+        with self.assertRaisesRegex(ValueError, '拒绝缺少候选或正式发布状态声明'):
+            cli.EXECUTOR.release_status(self.output)
         self.assertEqual((plugin / 'plugin.yaml').read_bytes(), before)
         self.assertFalse(user_home.exists())
         self.assertEqual({p.relative_to(home).as_posix() for p in home.rglob('*') if p.is_file()},
@@ -209,7 +214,7 @@ class ReleaseClosure(unittest.TestCase):
         self.assertFalse(any(name.startswith('docs/upstream-patches/') for name in sums))
         self.assertFalse(any('official_adapter' in name for name in sums))
         for relative in ('host_bridge.py', 'action_session.py', 'child.py', 'tool.py'):
-            self.assertIn('browser-link/script_lane/' + relative, sums)
+            self.assertIn('fast-browser-link/script_lane/' + relative, sums)
         self.assertIn('docs/python-scripting.md', sums)
         self.assertIn('docs/CHANGELOG.md', sums)
         self.assertIn('README.md', sums)
@@ -238,14 +243,14 @@ class ReleaseClosure(unittest.TestCase):
     def test_package_describes_one_shared_program_with_isolated_profiles(self):
         self.built()
         instructions = (self.output / 'INSTALL.txt').read_text()
-        self.assertIn('One shared program at <shared-root>/plugins/browser-link', instructions)
+        self.assertIn('One shared program at <shared-root>/plugins/fast-browser-link', instructions)
         self.assertIn('direct links', instructions)
         self.assertIn('profile settings and private data remain separate', instructions)
         readme = (self.output / 'README.md').read_text()
         self.assertIn('one regular program directory', readme)
         self.assertIn('Disabled profiles stay disabled', readme)
         self.assertEqual((self.output / 'install-cli.py').read_bytes(),
-                         (self.output / 'browser-link/maintenance/install-cli.py').read_bytes())
+                         (self.output / 'fast-browser-link/maintenance/install-cli.py').read_bytes())
 
     def test_missing_canonical_runtime_dependency_rejected_before_output(self):
         dependency = self.source / 'browser-interactions/index.mjs'
@@ -274,11 +279,11 @@ class ReleaseClosure(unittest.TestCase):
 
     def test_installer_rejects_missing_script_lane_before_writes(self):
         self.built()
-        adapter = self.output / 'browser-link/script_lane/host_bridge.py'
+        adapter = self.output / 'fast-browser-link/script_lane/host_bridge.py'
         adapter.unlink()
         sums_path = self.output / 'SHA256SUMS.json'
         sums = json.loads(sums_path.read_text())
-        del sums['browser-link/script_lane/host_bridge.py']
+        del sums['fast-browser-link/script_lane/host_bridge.py']
         sums_path.write_text(json.dumps(sums))
         installer = load_installer()
         home, hermes = self.root / 'home', self.root / 'hermes'
@@ -300,11 +305,11 @@ class ReleaseClosure(unittest.TestCase):
         home, hermes = self.root / 'home', self.root / 'hermes'
         result = installer.install(self.output, home, hermes, [ORIGIN], apply=True)
         self.assertEqual(result['status'], 'installed_disabled')
-        target = hermes / 'plugins/browser-link'
+        target = hermes / 'plugins/fast-browser-link'
         installer.verify_installed(target, sums)
         for relative, digest in sums.items():
-            if relative.startswith('browser-link/'):
-                installed = target / relative.removeprefix('browser-link/')
+            if relative.startswith('fast-browser-link/'):
+                installed = target / relative.removeprefix('fast-browser-link/')
                 self.assertEqual(hashlib.sha256(installed.read_bytes()).hexdigest(), digest, relative)
 
 

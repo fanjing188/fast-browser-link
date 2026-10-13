@@ -256,6 +256,10 @@ class VaultBindingRegistry:
                 if tasks:
                     self._bindings[session_id] = next(reversed(tasks.values()))
 
+    def has_bindings(self):
+        with self._guard:
+            return bool(self._bindings)
+
     def close(self):
         with self._guard:
             sessions = list(self._task_bindings)
@@ -303,7 +307,17 @@ def register_vault_overrides(ctx, profile_runtime, bindings, adapter, *, lease_a
         original = registry.get_entry(name)
         if original is None or original.is_async:
             raise RuntimeError("official Vault tool unavailable")
-        schema = VAULT_TOOL_SCHEMAS[name]
+        # 中文注释：保留原工具的分类、可用性与参数，只补充已绑定任务的可选请求编号。
+        schema = json.loads(json.dumps(original.schema))
+        request_id = VAULT_TOOL_SCHEMAS[name]['parameters']['properties'].get('request_id')
+        if request_id is not None:
+            schema.setdefault('parameters', {}).setdefault('properties', {})['request_id'] = request_id
+        original_check = original.check_fn
+
+        def check_fn(original_check=original_check):
+            if bindings.has_bindings():
+                return True
+            return True if original_check is None else original_check()
 
         def handler(args, *, session_id=None, _name=name, _original=original, **context):
             public = {key: value for key, value in args.items() if key != lease_arg} if isinstance(args, dict) else args
@@ -320,8 +334,9 @@ def register_vault_overrides(ctx, profile_runtime, bindings, adapter, *, lease_a
             # 中文注释：未绑定本插件任务的会话保留 Hermes 官方 Vault 行为。
             return _original.handler(public, **accepted(_original.handler, {"session_id": session_id, **context}))
 
-        ctx.register_tool(name=name, toolset="browser-link", schema=schema,
-                          handler=handler, description=schema["description"], emoji="🔐", override=True)
+        ctx.register_tool(name=name, toolset=original.toolset, schema=schema,
+                          handler=handler, check_fn=check_fn, requires_env=list(original.requires_env or []),
+                          description=original.description, emoji=original.emoji, override=True)
         registered.append(name)
     ctx.on_unload(bindings.close)
     return tuple(registered)

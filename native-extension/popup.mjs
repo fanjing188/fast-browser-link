@@ -21,13 +21,13 @@ function render() {
   const title = $('#connection-label')
   title.textContent = !known ? '状态待确认' : connected ? '已连接' : busy ? '正在处理…' : '未连接'
   title.dataset.state = known && connected ? 'connected' : 'disconnected'
-  $('#connection-detail').textContent = known && connected ? '' : '确认连接即允许 Hermes 直接读取、点击和执行任务页脚本，无须逐站或逐项审批。请先启动本机服务。'
+  $('#connection-detail').textContent = known && connected ? '' : '确认连接即允许 Fast-browser-link 直接读取、点击和执行任务页脚本，无须逐站或逐项审批。请先启动本机服务。'
   $('#connect').hidden = known && connected || busy
   $('#connection-card').hidden = known && connected
-  $('#access-detail').textContent = !known ? '连接状态待确认。' : connected ? '已连接 · 任务页可由 Hermes 直接访问。' : '未连接 · 确认连接后才能直接访问任务页。'
+  $('#access-detail').textContent = !known ? '连接状态待确认。' : connected ? '已连接 · 任务页可由 Fast-browser-link 直接访问。' : '未连接 · 确认连接后才能直接访问任务页。'
   renderWork()
   // 中文注释：云端区域复用同一状态快照，避免增加本地桥轮询和任务查询。
-  window.dispatchEvent(new CustomEvent('browser-link-status',{detail:known?statusData?.cloud:null}))
+  window.dispatchEvent(new CustomEvent('fast-browser-link-status',{detail:known?statusData?.cloud:null}))
 }
 
 async function refresh() {

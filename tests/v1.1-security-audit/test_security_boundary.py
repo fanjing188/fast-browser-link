@@ -166,7 +166,7 @@ class SecurityBoundaryTests(unittest.TestCase):
         return json.loads(raw), patched
 
     def get_task(self, task_id="task-A", *, session="session-A"):
-        result, _ = self.tool("browser_shared_get", {"task_id": task_id}, session=session)
+        result, _ = self.tool("fast_browser_get", {"task_id": task_id}, session=session)
         return result
 
     def prepare_fd(self, *, session="session-A", task_id="task-A", call_id=None):
@@ -174,7 +174,7 @@ class SecurityBoundaryTests(unittest.TestCase):
         # HostBridge.close; use that exact production instance.
         bridge = self.context.cleanups[0].__self__
         self.assertEqual(type(bridge).__name__, "HostBridge")
-        self.assertIn("browser_shared_script", self.context.tools)
+        self.assertIn("fast_browser_script", self.context.tools)
         launch = bridge.prepare(
             session_id=session, tool_call_id=call_id or "fd-call-" + uuid.uuid4().hex,
             task_id=task_id, workspace=str(SCRATCH), code="pass",
@@ -201,26 +201,26 @@ class SecurityBoundaryTests(unittest.TestCase):
         bound = self.get_task()
         self.assertEqual(bound["sessionBinding"], "ready")
 
-        forged, _ = self.tool("browser_shared_get", {"task_id": "task-A", "owner": self.owner_b})
+        forged, _ = self.tool("fast_browser_get", {"task_id": "task-A", "owner": self.owner_b})
         self.assertEqual(forged["hook"]["action"], "block")
 
         # Reuse a trusted one-shot lease from session-A under session-B.
         hook = self.context.hooks["pre_tool_call"]
-        issued = hook("browser_shared_get", {"task_id": "task-A"},
+        issued = hook("fast_browser_get", {"task_id": "task-A"},
                       session_id="session-A", tool_call_id="cross-session")
         patched = {"task_id": "task-A", **issued["args"]}
-        replayed_cross_session = json.loads(self.context.tools["browser_shared_get"]["handler"](
+        replayed_cross_session = json.loads(self.context.tools["fast_browser_get"]["handler"](
             patched, session_id="session-B"))
         self.assertEqual(replayed_cross_session["code"], "owner_denied")
-        replayed = json.loads(self.context.tools["browser_shared_get"]["handler"](
+        replayed = json.loads(self.context.tools["fast_browser_get"]["handler"](
             patched, session_id="session-A"))
         self.assertEqual(replayed["code"], "owner_denied")
 
         # A same-session lease cannot be retargeted to another task after the hook.
-        issued = hook("browser_shared_get", {"task_id": "task-A"},
+        issued = hook("fast_browser_get", {"task_id": "task-A"},
                       session_id="session-A", tool_call_id="retarget-task")
         mutated = {"task_id": "task-B", **issued["args"]}
-        retargeted = json.loads(self.context.tools["browser_shared_get"]["handler"](
+        retargeted = json.loads(self.context.tools["fast_browser_get"]["handler"](
             mutated, session_id="session-A"))
         self.assertEqual(retargeted["code"], "owner_denied")
 
@@ -247,9 +247,9 @@ class SecurityBoundaryTests(unittest.TestCase):
         self.assertEqual([p["taskId"] for p in official_calls], ["task-A", "task-A"])
         self.assertEqual([p["generation"] for p in official_calls], [1, 1])
 
-        cancelled, _ = self.tool("browser_shared_cancel", {"task_id": "task-A"})
+        cancelled, _ = self.tool("fast_browser_cancel", {"task_id": "task-A"})
         self.assertEqual(cancelled["state"], "cancelled")
-        resumed, _ = self.tool("browser_shared_resume", {"task_id": "task-A"})
+        resumed, _ = self.tool("fast_browser_resume", {"task_id": "task-A"})
         self.assertEqual(resumed["generation"], 2)
         self.assertEqual(resumed["state"], "pending_approval")
         self.daemon._dispatch_extension("browser-A", "extension.approve", {
@@ -277,10 +277,10 @@ class SecurityBoundaryTests(unittest.TestCase):
 
         click = {"task_id": "task-A", "request_id": "click-v1", "action": "click",
                  "tab_id": 71, "selector": "#synthetic"}
-        pending, _ = self.tool("browser_shared_run", click)
+        pending, _ = self.tool("fast_browser_run", click)
         self.assertTrue(pending["clicked"])
         self.assertTrue(self.executed.is_set())
-        forged, _ = self.tool("browser_shared_run", {**click, "approval": {
+        forged, _ = self.tool("fast_browser_run", {**click, "approval": {
             "nonce": "model-nonce", "digest": "model-digest"}})
         self.assertEqual(forged["code"], "invalid_fields")
         self.assertEqual(forged["fields"], ["approval"])
@@ -294,9 +294,9 @@ class SecurityBoundaryTests(unittest.TestCase):
         self.assertEqual(direct_self_approval.exception.code, "invalid_params")
 
         # Revoke generation 1 through the registered tool, then resume as gen 2.
-        cancelled, _ = self.tool("browser_shared_cancel", {"task_id": "task-A"})
+        cancelled, _ = self.tool("fast_browser_cancel", {"task_id": "task-A"})
         self.assertEqual(cancelled["state"], "cancelled")
-        resumed, _ = self.tool("browser_shared_resume", {"task_id": "task-A"})
+        resumed, _ = self.tool("fast_browser_resume", {"task_id": "task-A"})
         self.assertEqual(resumed["generation"], 2)
         self.daemon._dispatch_extension("browser-A", "extension.approve", {
             "taskId": "task-A", "tabIds": [71],
@@ -304,17 +304,17 @@ class SecurityBoundaryTests(unittest.TestCase):
         })
 
         click_v2 = {**click, "request_id": "click-v2"}
-        pending_v2, _ = self.tool("browser_shared_run", click_v2)
+        pending_v2, _ = self.tool("fast_browser_run", click_v2)
         self.assertTrue(pending_v2["clicked"])
         self.assertEqual(self.daemon.action_approvals, {})
         self.assertEqual(len([1 for method, p in self.extension_calls
                               if method == "browser.execute" and p.get("requestId") == "click-v2"]), 1)
 
         # Identical tool request returns its cached result, never a second write.
-        self.tool("browser_shared_run", click_v2)
+        self.tool("fast_browser_run", click_v2)
         self.assertEqual(len([1 for method, p in self.extension_calls
                               if method == "browser.execute" and p.get("requestId") == "click-v2"]), 1)
-        changed, _ = self.tool("browser_shared_run", {**click_v2, "selector": "#changed"})
+        changed, _ = self.tool("fast_browser_run", {**click_v2, "selector": "#changed"})
         self.assertEqual(changed["bridgeCode"], "request_id_conflict")
 
     def test_plugin_unload_closes_idle_inherited_fd_server(self):

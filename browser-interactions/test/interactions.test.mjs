@@ -131,7 +131,7 @@ test('coordinate references are bounded in both adapter and page and cleared by 
  const b=new mod.Interactions(adapter,{...scope,ttlMs:30000});
  const shot=await b.capture(scope),request={...scope,screenshotId:shot.id},first=await b.bounds({...request,selector:'#target'});
  for(let i=0;i<256;i++)await b.bounds({...request,selector:'#target'});
- const count=async()=>(await session.send('Runtime.evaluate',{contextId,expression:'globalThis.__hermesInteractions.nodes.size',returnByValue:true})).result.value;
+ const count=async()=>(await session.send('Runtime.evaluate',{contextId,expression:'globalThis.__fastInteractions.nodes.size',returnByValue:true})).result.value;
  assert.equal(await count(),256);
  await assert.rejects(()=>b.clickCoordinates({...request,point:first.imageCenter,expectedRef:first.ref}),{code:'INVALID_NODE_REF'});
  await b.capture(scope);assert.equal(await count(),0);

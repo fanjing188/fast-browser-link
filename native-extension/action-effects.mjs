@@ -1,12 +1,12 @@
 // 中文注释：效果探针独立于冷启动语义声明，只存布尔状态，不保存页面正文、输入值或网络地址。
 export function effectProbe(op,token){
- const key='__hermesInputEffect',prior=globalThis[key];
+ const key='__fastInputEffect',prior=globalThis[key];
  // 中文注释：迟到清理只能收回自己的探针，不能卸载下一动作的观察器。
  if(op==='clear'){if(prior?.token===token){prior.observer.disconnect();document.removeEventListener('submit',prior.submit,true);delete globalThis[key];}return true;}
- const focus=()=>{let node=document.activeElement;for(let depth=0;depth<16;depth++){const shadow=node?.shadowRoot||globalThis.__hermesClosedShadowRoots?.get(node);if(!shadow?.activeElement)break;node=shadow.activeElement;}return node;};
+ const focus=()=>{let node=document.activeElement;for(let depth=0;depth<16;depth++){const shadow=node?.shadowRoot||globalThis.__fastClosedShadowRoots?.get(node);if(!shadow?.activeElement)break;node=shadow.activeElement;}return node;};
  if(op==='read')return Boolean(prior?.token===token&&(prior.changed||prior.submitted||prior.url!==location.href||prior.focus!==focus()));
  if(prior){prior.observer.disconnect();document.removeEventListener('submit',prior.submit,true);}
- const own=node=>(node?.nodeType===1?node:node?.parentElement)?.closest?.('[data-hermes-automation-overlay],[data-hermes-preveil]');
+ const own=node=>(node?.nodeType===1?node:node?.parentElement)?.closest?.('[data-fast-automation-overlay],[data-fast-preveil]');
  const state={token,changed:false,submitted:false,url:location.href,focus:focus()};
  state.submit=()=>{state.submitted=true};
  state.observer=new MutationObserver(rows=>{
@@ -18,7 +18,7 @@ export function effectProbe(op,token){
  for(const root of roots){
   state.observer.observe(root,options);
   for(const host of root.querySelectorAll('*')){
-   const shadow=host.shadowRoot||globalThis.__hermesClosedShadowRoots?.get(host);
+   const shadow=host.shadowRoot||globalThis.__fastClosedShadowRoots?.get(host);
    if(shadow&&!own(host)&&visited++<128)roots.push(shadow);
   }
  }

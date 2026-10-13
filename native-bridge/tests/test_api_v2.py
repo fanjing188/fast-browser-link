@@ -78,7 +78,7 @@ class ApiTests(unittest.TestCase):
         threading.Thread(target=site.serve_forever, daemon=True).start()
         self.addCleanup(site.server_close); self.addCleanup(site.shutdown)
         origin = f'http://127.0.0.1:{site.server_port}'
-        prefix = '/__hermes_api_fixture__/' + secrets.token_hex(16) + '/'
+        prefix = '/__fast_api_fixture__/' + secrets.token_hex(16) + '/'
         start = time.monotonic()
         with self.assertRaises(ApiDenied):
             ApiClient(fixture=(origin, prefix)).request(origin + prefix + 'slow', 'GET', ['count'], [], lambda: True, lambda c: None)
@@ -99,7 +99,7 @@ class ApiTests(unittest.TestCase):
         threading.Thread(target=site.serve_forever, daemon=True).start()
         self.addCleanup(site.server_close); self.addCleanup(site.shutdown); self.addCleanup(finish.set)
         origin = f'http://127.0.0.1:{site.server_port}'
-        prefix = '/__hermes_api_fixture__/' + secrets.token_hex(16) + '/'
+        prefix = '/__fast_api_fixture__/' + secrets.token_hex(16) + '/'
         tracked = []
         revoked = threading.Event()
         with ThreadPoolExecutor(max_workers=1) as pool:
@@ -125,7 +125,7 @@ class ApiTests(unittest.TestCase):
         threading.Thread(target=site.serve_forever, daemon=True).start()
         self.addCleanup(site.server_close); self.addCleanup(site.shutdown)
         origin = f'http://127.0.0.1:{site.server_port}'
-        prefix = '/__hermes_api_fixture__/' + secrets.token_hex(16) + '/'
+        prefix = '/__fast_api_fixture__/' + secrets.token_hex(16) + '/'
         handles, checks = [], []
         def valid():
             checks.append(True)
@@ -144,7 +144,7 @@ class ApiTests(unittest.TestCase):
             with patch('api_client.socket.getaddrinfo', return_value=answers), self.assertRaises(ApiDenied):
                 ApiClient().target('https://example.com/api')
         with self.assertRaises(ValueError): ApiClient(fixture=('http://127.0.0.1:1234', '/'))
-        with self.assertRaises(ValueError): ApiClient(fixture=('http://10.0.0.1:1234', '/__hermes_api_fixture__/' + 'a'*32 + '/'))
+        with self.assertRaises(ValueError): ApiClient(fixture=('http://10.0.0.1:1234', '/__fast_api_fixture__/' + 'a'*32 + '/'))
 
     def test_body_cap_no_retry_and_memory_cleanup_on_cancel_race(self):
         from api_client import ApiClient, ApiDenied
@@ -160,7 +160,7 @@ class ApiTests(unittest.TestCase):
         threading.Thread(target=site.serve_forever, daemon=True).start()
         self.addCleanup(site.server_close); self.addCleanup(site.shutdown)
         origin = f'http://127.0.0.1:{site.server_port}'
-        prefix = '/__hermes_api_fixture__/' + secrets.token_hex(16) + '/'
+        prefix = '/__fast_api_fixture__/' + secrets.token_hex(16) + '/'
         with self.assertRaises(ApiDenied): ApiClient(fixture=(origin, prefix)).request(origin+prefix+'big', 'GET', ['value'], [], lambda: True, lambda c: None)
         self.assertEqual(hits, [1])
         import tempfile
@@ -207,7 +207,7 @@ class ApiTests(unittest.TestCase):
         threading.Thread(target=site.serve_forever, daemon=True).start()
         self.addCleanup(site.server_close); self.addCleanup(site.shutdown)
         origin = f'http://127.0.0.1:{site.server_port}'
-        prefix = '/__hermes_api_fixture__/' + secrets.token_hex(16) + '/'
+        prefix = '/__fast_api_fixture__/' + secrets.token_hex(16) + '/'
         client = ApiClient(fixture=(origin, prefix))
         result = client.request(origin + prefix + 'data', 'GET', ['count', 'echo', 'access_token', 'nested'], [{'name': 'sid', 'value': value}], lambda: True, lambda c: None)
         self.assertEqual(result, {'status': 200, 'data': {'count': 3, 'echo': '[REDACTED]', 'access_token': '[REDACTED]'}})

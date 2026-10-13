@@ -245,7 +245,7 @@ test('adopted popup mounts a persistent cursor, veil and takeover/stop controls 
  await f.executor.withSpawnScope(t,1,async()=>{});await f.create();
  const dom=new JSDOM('<!doctype html><button>synthetic login</button>',{url:f.tabs.get(2).url,runScripts:'outside-only',pretendToBeVisual:true});
  let shadow;const attachShadow=dom.window.Element.prototype.attachShadow;
- dom.window.Element.prototype.attachShadow=function(options){const root=attachShadow.call(this,options);if(this.hasAttribute('data-hermes-automation-overlay'))shadow=root;return root;};
+ dom.window.Element.prototype.attachShadow=function(options){const root=attachShadow.call(this,options);if(this.hasAttribute('data-fast-automation-overlay'))shadow=root;return root;};
  const send=f.executor.api.debugger.sendCommand;
  f.executor.api.debugger.sendCommand=async(target,method,p)=>{
   if(target.tabId===2&&method==='Runtime.callFunctionOn'){
@@ -257,14 +257,14 @@ test('adopted popup mounts a persistent cursor, veil and takeover/stop controls 
  try{
   const b=publicBridge(f),response=await b.send(b.request(await prepared(f)));
   assert.equal(response.error,undefined);assert.equal(response.result.adopted,true);
-  const host=dom.window.document.querySelector('[data-hermes-automation-overlay]');assert.ok(host);
+  const host=dom.window.document.querySelector('[data-fast-automation-overlay]');assert.ok(host);
   assert.equal(host.style.pointerEvents,'auto');assert.ok(shadow.querySelector('[data-role="veil"]'));
   assert.equal(shadow.querySelector('[data-role="virtual-cursor"]').style.display,'block');
   assert.equal(shadow.querySelector('[data-action="takeover"]').textContent,'接管页面');assert.equal(shadow.querySelector('[data-action="stop"]').textContent,'停止任务');
   await f.executor.overlayCall(2,t.overlays.get(2),'update',{update:{state:'waiting'}});
   assert.equal(shadow.querySelector('[data-role="virtual-cursor"]').style.display,'block');
   await f.executor.release({taskId:'a',generation:1,closeAgentTabs:true});
-  assert.equal(dom.window.document.querySelector('[data-hermes-automation-overlay]'),null);assert.deepEqual(f.mutations,[]);
+  assert.equal(dom.window.document.querySelector('[data-fast-automation-overlay]'),null);assert.deepEqual(f.mutations,[]);
  }finally{dom.window.close();}
 });
 
@@ -478,7 +478,7 @@ for(const action of ['click','ref_click','interaction.click'])test(`${action} re
  const result=await f.executor.execute(f.command(action));
  assert.deepEqual(Object.keys(result.popupOpened).sort(),['candidateRef','origin','tabId','windowType']);
  assert.equal(result.popupOpened.origin,'https://accounts.google.com');assert.equal(result.popupOpened.tabId,2);
- assert.match(result.popupNextStep,/browser_shared_use_tab/);assert.equal(result.popupOwnership,undefined);
+ assert.match(result.popupNextStep,/fast_browser_use_tab/);assert.equal(result.popupOwnership,undefined);
  assert.equal(f.executor.leases.get(2),'a');assert.equal(audits.length,1);assert.equal(audits[0].popupScope.candidate.tabId,2);
  assert.ok(t.popupSources.get(2)===1);assert.ok(!t.agentTabs.has(2));assert.equal(f.executor.actionGrants.size,0);
  assert.ok(!JSON.stringify(result).includes('canary'));

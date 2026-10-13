@@ -55,7 +55,7 @@ test('Vault 检查后字段被禁用、只读、隐藏或改成新密码时拒�
    assert.equal(input.value,'');
   }
  }finally{
-  delete globalThis.__hermesVaultSlots;
+  delete globalThis.__fastVaultSlots;
   for(const name of names)if(previous[name]===undefined)delete globalThis[name];else globalThis[name]=previous[name];
   dom.window.close();
  }

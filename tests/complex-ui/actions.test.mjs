@@ -35,7 +35,7 @@ function installedCaller(f){
 async function selectionExecutor(f,{hidden=false}={}){
  f.dom.reconfigure({url:'https://example.com/'});
  if(hidden)Object.defineProperty(f.document,'visibilityState',{value:'hidden',configurable:true});
- f.window.__hermesAutomationOverlay={highlight:{prepare:()=>({ok:true}),verify:()=>({ok:true})}};
+ f.window.__fastAutomationOverlay={highlight:{prepare:()=>({ok:true}),verify:()=>({ok:true})}};
  const browser=workspaceFixture();
  browser.api.debugger=withSyntheticOverlay({attach:async()=>{},detach:async()=>{},sendCommand:async(_target,method,params)=>{
   if(method==='Page.getFrameTree')return {frameTree:{frame:{id:'main',url:'https://example.com/',loaderId:'loader'}}};

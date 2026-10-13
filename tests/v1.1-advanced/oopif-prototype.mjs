@@ -20,7 +20,7 @@ const mainUrl=`http://127.0.0.1:${server.address().port}/main`;
 const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 
 async function run(browser,binary){
- const work=await mkdtemp(path.join('/private/tmp',`hermes-oopif-${browser}-`));
+ const work=await mkdtemp(path.join('/private/tmp',`fast-oopif-${browser}-`));
  const profile=path.join(work,'profile'),extension=path.join(work,'extension');
  await mkdir(profile);await exec(process.execPath,['native-extension/build.mjs',extension]);
  const child=spawn(binary,['--headless=new','--use-mock-keychain','--password-store=basic',

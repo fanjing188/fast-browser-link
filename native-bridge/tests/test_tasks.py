@@ -31,7 +31,7 @@ class RedirectScopeTests(unittest.TestCase):
 
     def test_scope_error_fields_are_closed_at_daemon_boundary(self):
         # 中文注释：1.4.4 跨站诊断只放行纯来源、固定提示和短标识符，路径、查询、凭据与自由文本一律丢弃。
-        hint = '同站用 goto_url，新站用 browser_shared_open。'
+        hint = '同站用 goto_url，新站用 fast_browser_open。'
         safe = _safe_error_data({'currentOrigin': 'https://tools.example', 'scopeHint': hint,
                                  'stage': 'overlay', 'reasonCode': 'initialization_exception'})
         self.assertEqual(safe, {'currentOrigin': 'https://tools.example', 'scopeHint': hint,
@@ -93,7 +93,7 @@ class TaskTests(unittest.TestCase):
         stop_fixture_daemon(self.home)
 
     def test_fixture_socket_path_is_canonical_and_fits_macos_uds(self):
-        socket_path = self.home / "plugin-data" / "browser-link-native" / "bridge.sock"
+        socket_path = self.home / "plugin-data" / "fast-browser-link-native" / "bridge.sock"
         self.assertEqual(socket_path, socket_path.resolve())
         self.assertLessEqual(len(os.fsencode(socket_path)), 103)
 
@@ -295,7 +295,7 @@ class TaskTests(unittest.TestCase):
                 'instanceId': 'durable-stop', 'allowedOrigins': ['https://example.com']})
             params = {'taskId': task['id'], 'generation': 1} if method == 'extension.stop' else {}
             extension.request(method, params)
-            persisted = json.loads((self.home / 'plugin-data/browser-link-native/tasks.json').read_text())
+            persisted = json.loads((self.home / 'plugin-data/fast-browser-link-native/tasks.json').read_text())
             saved = next(row for row in persisted['tasks'] if row['id'] == task['id'])
             self.assertEqual(saved['state'], 'cancelled')
             if method == 'extension.revoke_access':
@@ -346,7 +346,7 @@ class TaskTests(unittest.TestCase):
             {"owner": "owner-p", "title": "persist me", "instanceId": "persist-profile", "allowedOrigins": origins},
         )
         extension.request("extension.approve", {"taskId": task["id"], "tabIds": [12], "allowedOrigins": origins})
-        data_dir = self.home / "plugin-data" / "browser-link-native"
+        data_dir = self.home / "plugin-data" / "fast-browser-link-native"
         stop_fixture_daemon(self.home)
         deadline = time.time() + 3
         while time.time() < deadline and (data_dir / "daemon.pid").exists():

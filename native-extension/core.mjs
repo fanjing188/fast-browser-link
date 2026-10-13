@@ -180,7 +180,7 @@ export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
  const same=(a,b)=>a&&b&&a.taskId===b.taskId&&a.documentId===b.documentId&&a.leaseId===b.leaseId;
  // 中文注释：扩展重载后旧隔离世界还可能存在；实现版本变化必须撤销旧引用并重新创建语义实例。
  const make=()=>({version:9,binding:p.binding,semantics:createPageSemantics({document,...p.binding,classifyField:classifySensitiveField,
-  shadowRootOf:node=>node.shadowRoot||globalThis.__hermesClosedShadowRoots?.get(node)||null})});
+  shadowRootOf:node=>node.shadowRoot||globalThis.__fastClosedShadowRoots?.get(node)||null})});
  const classifySensitiveField=${serializedFunction(classifySensitiveField)};
  const sensitive=e=>classifySensitiveField(e)!==null;
  const fieldKind=e=>classifySensitiveField(e)||'sensitive';
@@ -224,7 +224,7 @@ export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
    if(point.x<0||point.y<0||point.x>=view.innerWidth||point.y>=view.innerHeight)throw Error('TARGET_OUT_OF_VIEWPORT');
    const hit=(root.host?root:doc).elementFromPoint(point.x,point.y);
    // 中文注释：隐藏页合成点击容许空命中。
-   if(hit?.closest?.('[data-hermes-automation-overlay]')||(!hit&&!(p.syntheticHidden&&doc.visibilityState==='hidden'))||hit&&(hit!==current&&!current.contains(hit))){
+   if(hit?.closest?.('[data-fast-automation-overlay]')||(!hit&&!(p.syntheticHidden&&doc.visibilityState==='hidden'))||hit&&(hit!==current&&!current.contains(hit))){
     // 中文注释：遮挡摘要只取脱敏名称。
     let obstruction={role:hit?.getAttribute?.('role')||hit?.localName||'unknown',name:'',closeButton:null};
     if(hit?.ownerDocument===document&&state?.semantics){
@@ -254,7 +254,7 @@ export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
   }
  };
  const prepareHighlight=(kind,target)=>{
-  const overlay=globalThis.__hermesAutomationOverlay,highlight=overlay?.highlight;
+  const overlay=globalThis.__fastAutomationOverlay,highlight=overlay?.highlight;
   if(!highlight||!p.highlightBinding)return {ok:false,code:'HIGHLIGHT_UNAVAILABLE'};
   // 中文注释：只用控件可访问名称，绝不读取输入值作为可视化标签。
   const name=sensitive(target)?'敏感字段':semantics.parsingContext().describe(target).name.slice(0,48);
@@ -262,18 +262,18 @@ export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
   if(result?.ok!==true)return result;
   const token=p.highlightBinding.operationToken;overlay.operationToken=token;overlay.paintedToken=null;
   const raf=globalThis.requestAnimationFrame?.bind(globalThis)||(callback=>setTimeout(callback,16));
-  raf(()=>raf(()=>{if(globalThis.__hermesAutomationOverlay===overlay&&overlay.operationToken===token)overlay.paintedToken=token;}));
+  raf(()=>raf(()=>{if(globalThis.__fastAutomationOverlay===overlay&&overlay.operationToken===token)overlay.paintedToken=token;}));
   return {ok:true,targetSummary:{role:String(target.getAttribute?.('role')||target.localName||'元素').slice(0,32),name}};
  };
  const verifyHighlight=target=>{
-  const result=globalThis.__hermesAutomationOverlay?.highlight?.verify(p.highlightBinding,{target});
+  const result=globalThis.__fastAutomationOverlay?.highlight?.verify(p.highlightBinding,{target});
   if(result?.ok!==true)throw Error('INTERACTION_HIGHLIGHT_'+(result?.code||'UNAVAILABLE'));
   return result;
  };
- let state=globalThis.__hermesNativeSemanticsV2;
+ let state=globalThis.__fastNativeSemanticsV2;
  const validState=()=>state?.version===9&&typeof state.semantics?.interactionVisibility==='function';
  if(op==='semantic_snapshot'||op==='page.parse'||op==='recovery_scan'){
-  if(!validState()||!same(state.binding,p.binding)){try{state?.semantics.revoke();}catch{}state=make();globalThis.__hermesNativeSemanticsV2=state;}
+  if(!validState()||!same(state.binding,p.binding)){try{state?.semantics.revoke();}catch{}state=make();globalThis.__fastNativeSemanticsV2=state;}
   if(op==='recovery_scan'){
    const semantics=state.semantics,rows=[];let cursor;
    for(let page=0;page<5;page++){
@@ -291,7 +291,7 @@ export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
   }
   try{if(op==='page.parse'){state.parser??=createPageParser(state.semantics.parsingContext());return state.parser.parse(p.options||{});}return state.semantics.snapshot(p.options||{});}catch(error){
    if(error?.message!=='DOCUMENT_REPLACED'||p.requireCurrentDocument)throw error;
-   try{state.semantics.revoke();}catch{}state=make();globalThis.__hermesNativeSemanticsV2=state;if(op==='page.parse'){state.parser=createPageParser(state.semantics.parsingContext());return state.parser.parse(p.options||{});}return state.semantics.snapshot(p.options||{});
+   try{state.semantics.revoke();}catch{}state=make();globalThis.__fastNativeSemanticsV2=state;if(op==='page.parse'){state.parser=createPageParser(state.semantics.parsingContext());return state.parser.parse(p.options||{});}return state.semantics.snapshot(p.options||{});
   }
  }
  if(!validState()||!same(state.binding,p.binding))throw Error('BINDING_MISMATCH');
@@ -588,7 +588,7 @@ export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
 // Copyright (c) 2025 Nous Research；MIT，完整许可见 third-party/licenses/hermes-agent-MIT.txt。
 // 中文注释：富文本流程按需注入，避免所有普通读取承担编辑代码；页面只聚焦、全选和回读，不写正文。
 export function editableInputTarget(op,p){
- const state=globalThis.__hermesNativeSemanticsV2,semantics=state?.semantics;
+ const state=globalThis.__fastNativeSemanticsV2,semantics=state?.semantics;
  if(!semantics||!p.binding||Object.keys(state.binding).some(key=>state.binding[key]!==p.binding[key]))throw Error('BINDING_MISMATCH');
  const token={...p.binding,snapshotId:p.snapshotId,ref:p.ref};
  if(op==='prepare'){
@@ -623,14 +623,14 @@ export function editableInputTarget(op,p){
 }
 
 function interactionHighlightCommand(op,payload){
- const state=globalThis.__hermesAutomationOverlay;
+ const state=globalThis.__fastAutomationOverlay;
  const binding=payload?.binding;
  if(!state||!state.highlight||!binding||binding.taskId!==state.taskId||binding.generation!==state.generation||binding.documentId!==state.documentId)return {ok:false,code:'STALE_DOCUMENT'};
  const finishPrepare=result=>{
   if(result?.ok!==true)return result;
   const token=binding.operationToken;state.operationToken=token;state.paintedToken=null;
   const raf=globalThis.requestAnimationFrame?.bind(globalThis)||(callback=>setTimeout(callback,16));
-  raf(()=>raf(()=>{if(globalThis.__hermesAutomationOverlay===state&&state.operationToken===token)state.paintedToken=token;}));
+  raf(()=>raf(()=>{if(globalThis.__fastAutomationOverlay===state&&state.operationToken===token)state.paintedToken=token;}));
   return {ok:true};
  };
  const unique=selector=>{
@@ -672,9 +672,9 @@ function interactionHighlightCommand(op,payload){
 
 function hideCaptureDecorations(){
  // 中文注释：只调透明度，遮罩仍占位拦截点击。
- const nodes=[...new Set(document.querySelectorAll('[data-hermes-automation-overlay],[data-hermes-interaction-highlight]'))];
+ const nodes=[...new Set(document.querySelectorAll('[data-fast-automation-overlay],[data-fast-interaction-highlight]'))];
  const saved=nodes.map(element=>({element,opacity:element.style.getPropertyValue('opacity'),priority:element.style.getPropertyPriority('opacity'),computed:getComputedStyle(element).opacity}));
- globalThis.__hermesScreenshotSuppression={saved};
+ globalThis.__fastScreenshotSuppression={saved};
  try{
   for(const item of saved)item.element.style.setProperty('opacity','0','important');
   if(saved.some(item=>getComputedStyle(item.element).opacity!=='0'))throw Error('hide not confirmed');
@@ -684,7 +684,7 @@ function hideCaptureDecorations(){
  }
 }
 function restoreCaptureDecorations(){
- const saved=globalThis.__hermesScreenshotSuppression?.saved||[];let ok=true;
+ const saved=globalThis.__fastScreenshotSuppression?.saved||[];let ok=true;
  for(const item of saved){
   if(!item.element.isConnected)continue;
   try{
@@ -693,7 +693,7 @@ function restoreCaptureDecorations(){
   }catch{ok=false;}
  }
  if(!ok)for(const item of saved)if(item.element.isConnected)item.element.remove();
- delete globalThis.__hermesScreenshotSuppression;
+ delete globalThis.__fastScreenshotSuppression;
  return {ok};
 }
 
@@ -710,7 +710,7 @@ export function origin(url) {
 }
 
 export function pageAction(action,selector,text,key,allowedOrigins,highlightBinding=null) {
- const overlay=e=>!!e?.closest?.('[data-hermes-automation-overlay]');
+ const overlay=e=>!!e?.closest?.('[data-fast-automation-overlay]');
  const sensitive=e=>classifySensitiveField(e)!==null;
  if(action==='snapshot'){
   const redact=createPageTextRedactor();
@@ -795,25 +795,29 @@ const CAPTURE_TIMEOUT_MS=8000,OVERLAY_RESTORE_TIMEOUT_MS=3000,PREVEIL_COMMAND_TI
 export const PAGE_SETTLE_MS=8000;
 const SETTLING_READ_ACTIONS=new Set(['snapshot','page.observe','page.parse','semantic_snapshot','frame_catalog','screenshot','interaction.capture','interaction.bounds','images']);
 // 中文注释：页面加载途中旧文档被替换时 CDP 返回的瞬时错误；只读动作等加载完后自动重做一次。
-const TRANSIENT_LOAD_ERROR=/^\{"code":-?\d+,"message":"(?:Cannot find context with specified id|Execution context was destroyed|Inspected target navigated or closed|Cannot find frame|Frame with the given id was not found|No frame for given id)|^DOCUMENT_CHANGED$|^overlay frame changed$|^overlay injection failed$|^FRAME_COVERAGE_INCOMPLETE$/;
-export const isTransientLoadError=error=>TRANSIENT_LOAD_ERROR.test(String(error?.message||'').split(/\r?\n/,1)[0].replace(/^Error: /,''));
+export function isTransientLoadError(error){
+ const detail=String(error?.message||'').split(/\r?\n/,1)[0].replace(/^Error: /,'');
+ if(['DOCUMENT_CHANGED','overlay frame changed','overlay injection failed','FRAME_COVERAGE_INCOMPLETE'].includes(detail))return true;
+ // 中文注释：CDP JSON 字段顺序与空白不属于协议，解析后只识别固定错误，不回传页面正文。
+ try{const value=JSON.parse(detail);return Number.isInteger(value?.code)&&typeof value.message==='string'&&/^(?:Cannot find context with specified id|Execution context was destroyed|Inspected target navigated or closed|Cannot find frame|Frame with the given id was not found|No frame for given id)(?:[. :]|$)/.test(value.message);}catch{return false;}
+}
 const DISPATCHING_ACTIONS=new Set(['click','ref_click','interaction.click','press','ref_press','ref_set_checked','ref_select_option']);
 export function preveilSource(allowedOrigins,{taskId='',generation=0}={}){
  return `(()=>{try{
  if(window.top!==window||!${JSON.stringify(allowedOrigins)}.includes(location.origin))return;
- globalThis.__hermesRemovePreveil?.();let host=null,removed=false;
+ globalThis.__fastRemovePreveil?.();let host=null,removed=false;
  // 中文注释：预遮罩也在窗口捕获阶段拦截 top-layer 输入，不能仅依赖 host 命中。
  const keys=['keydown','keypress','keyup','beforeinput','pointerdown','pointerup','mousedown','mouseup','click','dblclick','auxclick','contextmenu','wheel','touchstart','touchmove'];
  const block=event=>{if(host?.isConnected&&event.isTrusted){event.preventDefault();event.stopImmediatePropagation();}};
  const observer=new MutationObserver(mount);
  function mount(){
   if(removed)return;const root=document.documentElement;if(!root)return;
-  if([...document.querySelectorAll('[data-hermes-automation-overlay]')].some(node=>!node.hasAttribute('data-hermes-preveil'))){observer.disconnect();host?.remove();for(const type of keys)window.removeEventListener(type,block,true);return;}
+  if([...document.querySelectorAll('[data-fast-automation-overlay]')].some(node=>!node.hasAttribute('data-fast-preveil'))){observer.disconnect();host?.remove();for(const type of keys)window.removeEventListener(type,block,true);return;}
   if(!host){
-   host=document.createElement('div');host.setAttribute('data-hermes-automation-overlay','');host.setAttribute('data-hermes-preveil','');host.dataset.hermesOverlayTask=${JSON.stringify(taskId)};host.dataset.hermesOverlayGeneration=${JSON.stringify(String(generation))};host.tabIndex=-1;
-   host.addEventListener('hermes-overlay-release',()=>globalThis.__hermesRemovePreveil?.());
+   host=document.createElement('div');host.setAttribute('data-fast-automation-overlay','');host.setAttribute('data-fast-preveil','');host.dataset.fastOverlayTask=${JSON.stringify(taskId)};host.dataset.fastOverlayGeneration=${JSON.stringify(String(generation))};host.tabIndex=-1;
+   host.addEventListener('fast-overlay-release',()=>globalThis.__fastRemovePreveil?.());
    host.style.cssText='position:fixed;inset:0;z-index:2147483647;pointer-events:auto;background:rgba(13,35,25,.10);border:2px solid rgba(31,117,75,.55);box-sizing:border-box;margin:0';
-   const label=document.createElement('div');label.textContent='Hermes 正在工作 · 页面加载中';
+   const label=document.createElement('div');label.textContent='Fast-browser-link 正在工作 · 页面加载中';
    label.style.cssText='position:fixed;top:16px;right:16px;padding:12px 16px;border-radius:14px;background:#172a20;color:#fff;font:600 14px/1.4 system-ui,sans-serif';
    host.attachShadow({mode:'closed'}).append(label);
    // 中文注释：预遮罩不会因等待超时自行放开，完整遮罩接手后才卸载。
@@ -824,8 +828,8 @@ export function preveilSource(allowedOrigins,{taskId='',generation=0}={}){
   if(['IFRAME','FRAME'].includes(document.activeElement?.tagName))host.focus({preventScroll:true});
  }
  // 中文注释：后台只能通过隔离世界卸载本地输入拦截，不能把任务标成暂停或授权。
- globalThis.__hermesRemovePreveil=()=>{removed=true;observer.disconnect();host?.remove();for(const type of keys)window.removeEventListener(type,block,true);delete globalThis.__hermesRemovePreveil;};
- globalThis.__hermesRemovePreveil.taskId=${JSON.stringify(taskId)};globalThis.__hermesRemovePreveil.generation=${generation};
+ globalThis.__fastRemovePreveil=()=>{removed=true;observer.disconnect();host?.remove();for(const type of keys)window.removeEventListener(type,block,true);delete globalThis.__fastRemovePreveil;};
+ globalThis.__fastRemovePreveil.taskId=${JSON.stringify(taskId)};globalThis.__fastRemovePreveil.generation=${generation};
  observer.observe(document,{childList:true,subtree:true});mount();
 }catch{}})()`;
 }
@@ -1095,7 +1099,7 @@ export class Executor {
   const candidate=row.candidate||{candidateRef:row.candidateRef,origin:null,windowType:row.windowType??null,tabId:row.tabId};
   const adopted=this.leases.get(candidate.tabId)===t.id&&t.adoptedPopupTabs?.has(candidate.tabId);
   const value={...result,popupOpened:{candidateRef:candidate.candidateRef,origin:candidate.origin,windowType:candidate.windowType,tabId:candidate.tabId},
-   popupNextStep:!candidate.origin?'已发现新登录标签，页面尚未就绪；用源 tabId 调用 popup_catalog；白名单授权页会自动接管，确认已在 adoptedPopupTabIds 后选页重读；未就绪时等待后重查；白名单外候选用 popup_adopt 直接接管，无需确认。':row.automaticBlocked?'自动接管未完成；先 browser_shared_get 核对任务状态，不重发点击；仍有效时重新 popup_catalog 核对候选。':adopted?'登录窗口已自动接管；用 browser_shared_use_tab 选择该 tabId，然后重新读取页面；密码、验证码和 2FA 请用户亲自填写。':'已发现登录窗口；先 popup_catalog，再 popup_adopt 直接接管，无需确认；选择返回的标签并重新读取。'};
+   popupNextStep:!candidate.origin?'已发现新登录标签，页面尚未就绪；用源 tabId 调用 popup_catalog；白名单授权页会自动接管，确认已在 adoptedPopupTabIds 后选页重读；未就绪时等待后重查；白名单外候选用 popup_adopt 直接接管，无需确认。':row.automaticBlocked?'自动接管未完成；先 fast_browser_get 核对任务状态，不重发点击；仍有效时重新 popup_catalog 核对候选。':adopted?'登录窗口已自动接管；用 fast_browser_use_tab 选择该 tabId，然后重新读取页面；密码、验证码和 2FA 请用户亲自填写。':'已发现登录窗口；先 popup_catalog，再 popup_adopt 直接接管，无需确认；选择返回的标签并重新读取。'};
   return value;
  }
  async assess(p){
@@ -1503,7 +1507,7 @@ export class Executor {
    const have=t.preveils?.get(tabId);
    if(want&&!have){
     await send('Page.enable',{});
-    const added=await send('Page.addScriptToEvaluateOnNewDocument',{source:preveilSource(t.allowedOrigins,{taskId:t.id,generation:t.generation}),worldName:'hermes-automation-preveil'});
+    const added=await send('Page.addScriptToEvaluateOnNewDocument',{source:preveilSource(t.allowedOrigins,{taskId:t.id,generation:t.generation}),worldName:'fast-automation-preveil'});
     if(typeof added?.identifier==='string'){if(!t.preveils)t.preveils=new Map();t.preveils.set(tabId,added.identifier);}
    }else if(!want&&have){
     t.preveils.delete(tabId);
@@ -1814,19 +1818,19 @@ export class Executor {
   const current=t.childHighlights.get(resolved.token);
   if(current?.documentId===resolved.frame.loaderId&&current.sessionId===resolved.record.sessionId)return current;
   const world=await this.api.debugger.sendCommand(resolved.target,'Page.createIsolatedWorld',{
-   frameId:resolved.frame.id,worldName:'hermes-native-semantics-v2',grantUniveralAccess:false,
+   frameId:resolved.frame.id,worldName:'fast-native-semantics-v2',grantUniveralAccess:false,
   });guard();
   const contextId=world.executionContextId,nonce=crypto.randomUUID();
   const declaration=`function(scope){
    const labels=Object.freeze({click:'准备点击',input:'正在输入',select:'正在选择',drag:'正在拖动'});
    const DEFAULT_COMPLETE_MS=600,MAX_COMPLETE_MS=2000,owners=new WeakMap();
    const createInteractionHighlight=${createInteractionHighlight.toString()};
-   const old=globalThis.__hermesAutomationOverlay;
+   const old=globalThis.__fastAutomationOverlay;
    if(old?.highlight&&old.operationToken)old.highlight.clear({taskId:old.taskId,generation:old.generation,documentId:old.documentId,operationToken:old.operationToken});
    const state={taskId:scope.taskId,generation:scope.generation,documentId:scope.documentId,nonce:scope.nonce,active:true,operationToken:null,paintedToken:null};
-   globalThis.__hermesAutomationOverlay=state;
+   globalThis.__fastAutomationOverlay=state;
    state.highlight=createInteractionHighlight({document,taskId:scope.taskId,generation:scope.generation,documentId:scope.documentId,
-    isCurrent:binding=>globalThis.__hermesAutomationOverlay===state&&state.active&&binding.taskId===state.taskId&&binding.generation===state.generation&&binding.documentId===state.documentId});
+    isCurrent:binding=>globalThis.__fastAutomationOverlay===state&&state.active&&binding.taskId===state.taskId&&binding.generation===state.generation&&binding.documentId===state.documentId});
    return true;
   }`;
   const result=await this.api.debugger.sendCommand(resolved.target,'Runtime.callFunctionOn',{
@@ -1864,7 +1868,7 @@ export class Executor {
    t.childHighlights.delete(token);
    const removed=await waitUntil(this.api.debugger.sendCommand(child.target,'Runtime.callFunctionOn',{
     executionContextId:child.contextId,
-    functionDeclaration:`function(){const s=globalThis.__hermesAutomationOverlay;if(s?.highlight&&s.operationToken)s.highlight.clear({taskId:s.taskId,generation:s.generation,documentId:s.documentId,operationToken:s.operationToken});delete globalThis.__hermesAutomationOverlay;return true;}`,
+    functionDeclaration:`function(){const s=globalThis.__fastAutomationOverlay;if(s?.highlight&&s.operationToken)s.highlight.clear({taskId:s.taskId,generation:s.generation,documentId:s.documentId,operationToken:s.operationToken});delete globalThis.__fastAutomationOverlay;return true;}`,
     returnByValue:true,
    }).catch(()=>false),Date.now()+INTERACTION_CLEANUP_TIMEOUT_MS);
    if(removed===RELEASE_DEADLINE_EXPIRED)cleanupState='unknown';
@@ -1900,8 +1904,8 @@ export class Executor {
  // 中文注释：DOM 事件仅卸载当前任务浮层，即使 debugger 被 DevTools 占用也能恢复本地输入。
  async removeLocalOverlayInput(task,tabId){
   await this.api.scripting.executeScript({target:{tabId},world:'ISOLATED',func:scope=>{
-   for(const host of document.querySelectorAll('[data-hermes-automation-overlay]')){
-    if(host.dataset.hermesOverlayTask===scope.taskId&&Number(host.dataset.hermesOverlayGeneration)<=scope.generation)host.dispatchEvent(new Event('hermes-overlay-release'));
+   for(const host of document.querySelectorAll('[data-fast-automation-overlay]')){
+    if(host.dataset.fastOverlayTask===scope.taskId&&Number(host.dataset.fastOverlayGeneration)<=scope.generation)host.dispatchEvent(new Event('fast-overlay-release'));
    }
   },args:[{taskId:task.id,generation:task.generation}]});
  }
@@ -1916,22 +1920,22 @@ export class Executor {
    const targets=await this.api.debugger.getTargets();if(targets.some(target=>target.tabId===tabId&&target.attached))return;
    await this.api.debugger.attach({tabId},'1.3');attached=true;
    const {frameTree}=await this.api.debugger.sendCommand({tabId},'Page.getFrameTree');
-   const world=await this.api.debugger.sendCommand({tabId},'Page.createIsolatedWorld',{frameId:frameTree.frame.id,worldName:'hermes-automation-overlay',grantUniveralAccess:false});
+   const world=await this.api.debugger.sendCommand({tabId},'Page.createIsolatedWorld',{frameId:frameTree.frame.id,worldName:'fast-automation-overlay',grantUniveralAccess:false});
    const result=await this.api.debugger.sendCommand({tabId},'Runtime.callFunctionOn',{
     executionContextId:world.executionContextId,
     functionDeclaration:`function(scope){
-     const state=globalThis.__hermesAutomationOverlay;
+     const state=globalThis.__fastAutomationOverlay;
      if(!state||state.taskId!==scope.taskId||state.generation>scope.generation)return false;
      state.active=false;
      if(state.operationToken)state.highlight?.clear({taskId:state.taskId,generation:state.generation,documentId:state.documentId,operationToken:state.operationToken});
      state.overlay.remove();for(const resolve of state.pending.values())resolve({state:'disconnected'});state.pending.clear();
-     delete globalThis.__hermesAutomationOverlay;return true;
+     delete globalThis.__fastAutomationOverlay;return true;
     }`,arguments:[{value:{taskId:task.id,generation:task.generation}}],returnByValue:true,
    });
    if(result.exceptionDetails)throw Error('orphan overlay cleanup failed');
    // 中文注释：加载中的预遮罩使用独立隔离世界，卸载它的观察器，避免移除后再次挂回。
-   const preveil=await this.api.debugger.sendCommand({tabId},'Page.createIsolatedWorld',{frameId:frameTree.frame.id,worldName:'hermes-automation-preveil',grantUniveralAccess:false});
-   await this.api.debugger.sendCommand({tabId},'Runtime.callFunctionOn',{executionContextId:preveil.executionContextId,functionDeclaration:'function(scope){const remove=globalThis.__hermesRemovePreveil;if(remove?.taskId===scope.taskId&&remove.generation<=scope.generation)remove();return true;}',arguments:[{value:{taskId:task.id,generation:task.generation}}],returnByValue:true});
+   const preveil=await this.api.debugger.sendCommand({tabId},'Page.createIsolatedWorld',{frameId:frameTree.frame.id,worldName:'fast-automation-preveil',grantUniveralAccess:false});
+   await this.api.debugger.sendCommand({tabId},'Runtime.callFunctionOn',{executionContextId:preveil.executionContextId,functionDeclaration:'function(scope){const remove=globalThis.__fastRemovePreveil;if(remove?.taskId===scope.taskId&&remove.generation<=scope.generation)remove();return true;}',arguments:[{value:{taskId:task.id,generation:task.generation}}],returnByValue:true});
   }catch{
    // 中文注释：页面关闭或其他调试器占用时不抢占；记录清理失败，页面本地超时仍可放开。
    this.diagnostics.recordSafely({component:'mv3_background',event_type:'action_state',stage:'overlay',status:'failed',error_code:'DISCONNECTED'});
@@ -1943,11 +1947,11 @@ export class Executor {
  async overlayCall(tabId,entry,op,extra={}){
   const result=await this.api.debugger.sendCommand({tabId},'Runtime.callFunctionOn',{
    executionContextId:entry.contextId,
-   functionDeclaration:`function(op,scope){const state=globalThis.__hermesAutomationOverlay;if(!state||state.nonce!==scope.nonce)return false;
+   functionDeclaration:`function(op,scope){const state=globalThis.__fastAutomationOverlay;if(!state||state.nonce!==scope.nonce)return false;
     if(scope.expectedActionToken&&state.actionToken!==scope.expectedActionToken)return false;
     if(scope.actionToken)state.actionToken=scope.actionToken;
     const binding={taskId:state.taskId,generation:state.generation,documentId:state.documentId,operationToken:state.operationToken};
-    if(op==='remove'){if(binding.operationToken)state.highlight?.clear(binding);state.active=false;state.overlay.remove();delete globalThis.__hermesAutomationOverlay;for(const node of document.querySelectorAll('[data-hermes-preveil]'))node.remove();return true;}
+    if(op==='remove'){if(binding.operationToken)state.highlight?.clear(binding);state.active=false;state.overlay.remove();delete globalThis.__fastAutomationOverlay;for(const node of document.querySelectorAll('[data-fast-preveil]'))node.remove();return true;}
     if(op==='hide'){if(typeof state.overlay.withHidden!=='function')return false;return state.overlay.hide()===true&&state.overlay.isHidden()===true;}
     if(op==='restore'){const ok=state.overlay.restore()===true&&state.overlay.isVisible()===true;if(!ok){if(binding.operationToken)state.highlight?.clear(binding);state.overlay.reblock();}return ok;}
     if(op==='update'){if(!state.active&&scope.update?.state==='running')return false;state.overlay.update(scope.update);return true;}
@@ -2150,7 +2154,7 @@ export class Executor {
     if(await bounded(this.overlayCall(tabId,entry,'hide'))!==true)throw Error('overlay hide failed');
    }else{
     const tree=await bounded(this.checkedFrameTree({tabId},t,guard,false));
-    const world=await bounded(this.api.debugger.sendCommand({tabId},'Page.createIsolatedWorld',{frameId:tree.frame.id,worldName:'hermes-screenshot-suppression',grantUniveralAccess:false}));guard();
+    const world=await bounded(this.api.debugger.sendCommand({tabId},'Page.createIsolatedWorld',{frameId:tree.frame.id,worldName:'fast-screenshot-suppression',grantUniveralAccess:false}));guard();
     fallbackContextId=world.executionContextId;hideAttempted=true;
     const declaration=`function(){const restoreCaptureDecorations=${restoreCaptureDecorations.toString()};const hideCaptureDecorations=${hideCaptureDecorations.toString()};return hideCaptureDecorations();}`;
     const hidden=await bounded(this.api.debugger.sendCommand({tabId},'Runtime.callFunctionOn',{executionContextId:fallbackContextId,functionDeclaration:declaration,returnByValue:true}));guard();
@@ -2196,8 +2200,8 @@ export class Executor {
   if(entry)await this.closeTabResources(t,tabId,null,{keepNetwork:true});
   const tab=initialTab||await this.api.tabs.get(tabId);guard();this.allowed(t,tab.url);
   if(origin(tab.url)!==origin(frame.url))throw Error('overlay frame changed');
-  const world=await this.api.debugger.sendCommand(target,'Page.createIsolatedWorld',{frameId:frame.id,worldName:'hermes-automation-overlay',grantUniveralAccess:false});guard();
-  const nonce=crypto.randomUUID(),binding='hermesOverlayCommand',contextId=world.executionContextId;
+  const world=await this.api.debugger.sendCommand(target,'Page.createIsolatedWorld',{frameId:frame.id,worldName:'fast-automation-overlay',grantUniveralAccess:false});guard();
+  const nonce=crypto.randomUUID(),binding='fastOverlayCommand',contextId=world.executionContextId;
   await this.api.debugger.sendCommand(target,'Runtime.addBinding',{name:binding,executionContextId:contextId});guard();
   entry={contextId,documentId:frame.loaderId,nonce};
   entry.listener=(source,method,params)=>{
@@ -2233,7 +2237,7 @@ export class Executor {
   try{
    const result=await this.api.debugger.sendCommand(target,'Runtime.callFunctionOn',{executionContextId:contextId,
     functionDeclaration:`function(scope){
-     const states={waiting:'Hermes 正在工作',running:'Hermes 正在工作',pausing:'正在暂停…',paused:'已暂停 · 你可以操作页面',resuming:'正在恢复…',stopping:'正在停止…',stopped:'已停止',disconnected:'与扩展的连接已断开',unknown:'状态待核查'};
+     const states={waiting:'Fast-browser-link 正在工作',running:'Fast-browser-link 正在工作',pausing:'正在暂停…',paused:'已暂停 · 你可以操作页面',resuming:'正在恢复…',stopping:'正在停止…',stopped:'已停止',disconnected:'与扩展的连接已断开',unknown:'状态待核查'};
      const interactionLabels={click:'准备点击',input:'正在输入',select:'正在选择',drag:'正在拖动'};
      const stepLabels=${JSON.stringify(stepLabels)};
      const rectOk=r=>r&&[r.x,r.y,r.width,r.height].every(Number.isFinite)&&r.x>=0&&r.y>=0&&r.width>0&&r.height>0&&r.width<=100000&&r.height<=100000;
@@ -2242,9 +2246,9 @@ export class Executor {
      const DEFAULT_COMPLETE_MS=600,MAX_COMPLETE_MS=2000,owners=new WeakMap();
      const createAutomationOverlay=${createAutomationOverlay.toString()};
      const createInteractionHighlight=${createInteractionHighlight.toString()};
-     globalThis.__hermesAutomationOverlay?.highlight?.clear({taskId:globalThis.__hermesAutomationOverlay.taskId,generation:globalThis.__hermesAutomationOverlay.generation,documentId:globalThis.__hermesAutomationOverlay.documentId,operationToken:globalThis.__hermesAutomationOverlay.operationToken});
-     globalThis.__hermesAutomationOverlay?.overlay.remove();
-     for(const node of document.querySelectorAll('[data-hermes-preveil]'))node.remove();
+     globalThis.__fastAutomationOverlay?.highlight?.clear({taskId:globalThis.__fastAutomationOverlay.taskId,generation:globalThis.__fastAutomationOverlay.generation,documentId:globalThis.__fastAutomationOverlay.documentId,operationToken:globalThis.__fastAutomationOverlay.operationToken});
+     globalThis.__fastAutomationOverlay?.overlay.remove();
+     for(const node of document.querySelectorAll('[data-fast-preveil]'))node.remove();
      const pending=new Map();let commandId=0;
      // 中文注释：超时或本地卸载时移除 pending，迟到回执不能改写下一次重试；不向后台发取消或授权。
      const command=(kind,{signal,onProgress})=>new Promise((resolve,reject)=>{
@@ -2256,9 +2260,9 @@ export class Executor {
      });
      const overlay=createAutomationOverlay({document,taskId:scope.taskId,generation:scope.generation,tabId:scope.tabId,origin:scope.origin,documentId:scope.documentId,onStop:(_scope,options)=>command('stop',options),onTakeover:(_scope,options)=>command('takeover',options),onResume:(_scope,options)=>command('resume',options)});
      const state={overlay,nonce:scope.nonce,pending,taskId:scope.taskId,generation:scope.generation,documentId:scope.documentId,origin:scope.origin,modeGeneration:scope.modeGeneration,active:true,operationToken:null,paintedToken:null};
-     globalThis.__hermesAutomationOverlay=state;
+     globalThis.__fastAutomationOverlay=state;
      state.highlight=createInteractionHighlight({document,taskId:scope.taskId,generation:scope.generation,documentId:scope.documentId,surface:overlay.interactionSurface,
-      isCurrent:binding=>globalThis.__hermesAutomationOverlay===state&&state.active&&binding.taskId===state.taskId&&binding.generation===state.generation&&binding.documentId===state.documentId});
+      isCurrent:binding=>globalThis.__fastAutomationOverlay===state&&state.active&&binding.taskId===state.taskId&&binding.generation===state.generation&&binding.documentId===state.documentId});
      return true;}`,
     arguments:[{value:{taskId:t.id,generation:t.generation,tabId,origin:origin(tab.url),documentId:frame.loaderId,modeGeneration:t.policy.modeGeneration,nonce,binding}}],returnByValue:true});
    // 中文注释：保留原拒绝码与重试行为，仅增加固定阶段原因，不回传异常原文。
@@ -2335,7 +2339,7 @@ export class Executor {
   return tree.frameTree;
  }
  async callWorld(target,frameId,t,action,selector,text,key,guard,executionContextId=null,highlightBinding=null) {
-  const world=executionContextId?{executionContextId}:await this.api.debugger.sendCommand(target,'Page.createIsolatedWorld',{frameId,worldName:'hermes-native',grantUniveralAccess:false});guard();
+  const world=executionContextId?{executionContextId}:await this.api.debugger.sendCommand(target,'Page.createIsolatedWorld',{frameId,worldName:'fast-native',grantUniveralAccess:false});guard();
   const fn=action==='inspect'?inspectPage:pageAction;
   const args=action==='inspect'?[t.allowedOrigins]:[action,selector??null,text??null,key??null,t.allowedOrigins,highlightBinding??null];
   const result=await this.api.debugger.sendCommand(target,'Runtime.callFunctionOn',{executionContextId:world.executionContextId,functionDeclaration:withSensitiveClassifier(fn),arguments:args.map(value=>({value})),returnByValue:true});
@@ -2352,13 +2356,13 @@ export class Executor {
    const {accessibility:_accessibility,...options}=payload.options;
    if(typeof options.root!=='string'||!options.root||(options.mode&&options.mode!=='interactive')||options.cursor||options.baselineId)throw Error('INVALID_OPTIONS');
    const page=await this.callSemanticWorld(target,frameId,op,{...payload,options:{...options,query:'',roles:[]}},guard,executionContextId);
-   const context=executionContextId||(await this.api.debugger.sendCommand(target,'Page.createIsolatedWorld',{frameId,worldName:'hermes-native-semantics-v2',grantUniveralAccess:false})).executionContextId;guard();
+   const context=executionContextId||(await this.api.debugger.sendCommand(target,'Page.createIsolatedWorld',{frameId,worldName:'fast-native-semantics-v2',grantUniveralAccess:false})).executionContextId;guard();
    const candidates=page.items.filter(item=>!item.name||item.inferred||item.nameSource==='accessibility'),values=[];
    await this.api.debugger.sendCommand(target,'Accessibility.enable');guard();
    try{
     for(const item of candidates.slice(0,16)){
      const response=await this.api.debugger.sendCommand(target,'Runtime.callFunctionOn',{executionContextId:context,
-      functionDeclaration:'function(p){return globalThis.__hermesSemanticLibrary.call("accessibility_node",p);}',
+      functionDeclaration:'function(p){return globalThis.__fastSemanticLibrary.call("accessibility_node",p);}',
       arguments:[{value:{binding:page.binding,snapshotId:page.snapshotId,ref:item.ref}}],returnByValue:false});guard();
      if(response.exceptionDetails)throw Error('ACCESSIBILITY_UNAVAILABLE');
      const objectId=response.result?.objectId;if(!objectId)continue;
@@ -2385,11 +2389,11 @@ export class Executor {
    return enriched;
   }
   // 中文注释：隔离世界保存版本化实现；只在确定尚未调用动作时重装，不重放未知写入。
-  const createWorld=()=>this.api.debugger.sendCommand(target,'Page.createIsolatedWorld',{frameId,worldName:'hermes-native-semantics-v2',grantUniveralAccess:false});
+  const createWorld=()=>this.api.debugger.sendCommand(target,'Page.createIsolatedWorld',{frameId,worldName:'fast-native-semantics-v2',grantUniveralAccess:false});
   let world=executionContextId?{executionContextId}:await createWorld();guard();
   const key=()=>JSON.stringify([target.tabId,target.sessionId,world.executionContextId]);
-  const install=async()=>{const installed=await this.api.debugger.sendCommand(target,'Runtime.callFunctionOn',{executionContextId:world.executionContextId,functionDeclaration:`function(){globalThis.__hermesSemanticLibrary={version:1,call:(${semanticWorldDeclaration})};return true;}`,returnByValue:true});guard();if(installed.exceptionDetails||installed.result?.value!==true)throw Object.assign(Error('SEMANTIC_LIBRARY_UNAVAILABLE'),{preDispatch:true});this.semanticWorlds.add(key());};
-  const invoke=()=>this.api.debugger.sendCommand(target,'Runtime.callFunctionOn',{executionContextId:world.executionContextId,functionDeclaration:op==='page.observe'?`function(op,p){const library=globalThis.__hermesSemanticLibrary;if(library?.version!==1)return {hermesSemanticMissing:true};const state=globalThis.__hermesNativeSemanticsV2;if(!state||state.version!==9||typeof state.semantics?.interactionVisibility!=='function'||JSON.stringify(state.binding)!==JSON.stringify(p.binding))library.call('semantic_snapshot',{binding:p.binding,options:{root:'head',mode:'content',budget:512}});return (${observePage.toString()})(globalThis.__hermesNativeSemanticsV2.semantics.parsingContext(),p.options);}`:'function(op,p){const library=globalThis.__hermesSemanticLibrary;return library?.version===1?library.call(op,p):{hermesSemanticMissing:true};}',arguments:[{value:op},{value:payload}],returnByValue:true,awaitPromise:true});
+  const install=async()=>{const installed=await this.api.debugger.sendCommand(target,'Runtime.callFunctionOn',{executionContextId:world.executionContextId,functionDeclaration:`function(){globalThis.__fastSemanticLibrary={version:1,call:(${semanticWorldDeclaration})};return true;}`,returnByValue:true});guard();if(installed.exceptionDetails||installed.result?.value!==true)throw Object.assign(Error('SEMANTIC_LIBRARY_UNAVAILABLE'),{preDispatch:true});this.semanticWorlds.add(key());};
+  const invoke=()=>this.api.debugger.sendCommand(target,'Runtime.callFunctionOn',{executionContextId:world.executionContextId,functionDeclaration:op==='page.observe'?`function(op,p){const library=globalThis.__fastSemanticLibrary;if(library?.version!==1)return {hermesSemanticMissing:true};const state=globalThis.__fastNativeSemanticsV2;if(!state||state.version!==9||typeof state.semantics?.interactionVisibility!=='function'||JSON.stringify(state.binding)!==JSON.stringify(p.binding))library.call('semantic_snapshot',{binding:p.binding,options:{root:'head',mode:'content',budget:512}});return (${observePage.toString()})(globalThis.__fastNativeSemanticsV2.semantics.parsingContext(),p.options);}`:'function(op,p){const library=globalThis.__fastSemanticLibrary;return library?.version===1?library.call(op,p):{hermesSemanticMissing:true};}',arguments:[{value:op},{value:payload}],returnByValue:true,awaitPromise:true});
   let result;
   try{if(!this.semanticWorlds.has(key()))await install();result=await invoke();}
   catch(error){
@@ -2416,15 +2420,22 @@ export class Executor {
  }
  // 中文注释：经调试接口把封闭 Shadow Root 交给隔离世界；组合模式仅补充同源 frame，数量有上限。
  async exposeClosedShadowRoots(target,frameId,guard,executionContextId=null,includeFrameDocuments=false){
-  const contextId=executionContextId||(await this.api.debugger.sendCommand(target,'Page.createIsolatedWorld',{frameId,worldName:'hermes-native-semantics-v2',grantUniveralAccess:false})).executionContextId;guard();
-  const {root}=await this.api.debugger.sendCommand(target,'DOM.getDocument',{depth:-1,pierce:true});guard();
+  const contextId=executionContextId||(await this.api.debugger.sendCommand(target,'Page.createIsolatedWorld',{frameId,worldName:'fast-native-semantics-v2',grantUniveralAccess:false})).executionContextId;guard();
+  // 中文注释：getDocument 会重置共享 CDP 会话的前端节点编号，不能让内部扫描使外部上传等操作失效。
+  const document=await this.api.debugger.sendCommand(target,'Runtime.evaluate',{expression:'document',contextId,returnByValue:false});
+  const objectId=document.result?.objectId;
+  let root;
+  try{
+   guard();
+   ({node:root}=await this.api.debugger.sendCommand(target,'DOM.describeNode',{objectId,depth:-1,pierce:true}));guard();
+  }finally{await this.api.debugger.sendCommand(target,'Runtime.releaseObject',{objectId});}
   if(!root)return contextId;
   const closed=[],stack=[root];
   while(stack.length){
    const node=stack.pop();
    // 中文注释：扩展自己的浮层不属于网页内容，也不占组件扫描额度。
    const attributes=node?.attributes||[];
-   if(attributes.some((value,index)=>index%2===0&&['data-hermes-automation-overlay','data-hermes-interaction-highlight'].includes(value)))continue;
+   if(attributes.some((value,index)=>index%2===0&&['data-fast-automation-overlay','data-fast-interaction-highlight'].includes(value)))continue;
    for(const shadow of node?.shadowRoots||[]){
     if(shadow.shadowRootType==='closed'){
      if(!Number.isSafeInteger(shadow.backendNodeId)||closed.length>=200)continue;
@@ -2452,7 +2463,7 @@ export class Executor {
    if(!object?.objectId)continue;
    try{
     const exposed=await this.api.debugger.sendCommand(target,'Runtime.callFunctionOn',{objectId:object.objectId,returnByValue:true,
-     functionDeclaration:'function(){const roots=globalThis.__hermesClosedShadowRoots||(globalThis.__hermesClosedShadowRoots=new WeakMap());roots.set(this.host,this);return true;}'});guard();
+     functionDeclaration:'function(){const roots=globalThis.__fastClosedShadowRoots||(globalThis.__fastClosedShadowRoots=new WeakMap());roots.set(this.host,this);return true;}'});guard();
     if(exposed.exceptionDetails||exposed.result?.value!==true)continue;
    }finally{await this.api.debugger.sendCommand(target,'Runtime.releaseObject',{objectId:object.objectId}).catch(()=>{});}
   }
@@ -2600,7 +2611,7 @@ export class Executor {
      await new Promise(resolve=>setTimeout(resolve,100));
     }
     const tree=await this.checkedFrameTree(target,t,guard,false);
-    const world=await this.api.debugger.sendCommand(target,'Page.createIsolatedWorld',{frameId:tree.frame.id,worldName:'hermes-recovery'});
+    const world=await this.api.debugger.sendCommand(target,'Page.createIsolatedWorld',{frameId:tree.frame.id,worldName:'fast-recovery'});
     await this.api.debugger.sendCommand(target,'Runtime.evaluate',{contextId:world.executionContextId,awaitPromise:true,returnByValue:true,
      expression:`new Promise(resolve=>{let quiet;const finish=()=>{clearTimeout(quiet);clearTimeout(limit);observer.disconnect();resolve(true);};const observer=new MutationObserver(()=>{clearTimeout(quiet);quiet=setTimeout(finish,300);});observer.observe(document,{subtree:true,childList:true,attributes:true,characterData:true});const limit=setTimeout(finish,${Math.max(1,deadline-Date.now())});quiet=setTimeout(finish,300);})`});guard();
    },scan,
@@ -2671,7 +2682,7 @@ export class Executor {
   while(Date.now()<deadline){
    try{
     const tree=await this.checkedFrameTree(target,t,guard,false);
-    const world=await this.api.debugger.sendCommand(target,'Page.createIsolatedWorld',{frameId:tree.frame.id,worldName:'hermes-native',grantUniveralAccess:false});guard();
+    const world=await this.api.debugger.sendCommand(target,'Page.createIsolatedWorld',{frameId:tree.frame.id,worldName:'fast-native',grantUniveralAccess:false});guard();
     const result=await this.api.debugger.sendCommand(target,'Runtime.callFunctionOn',{executionContextId:world.executionContextId,functionDeclaration:'function(){return document.readyState;}',arguments:[],returnByValue:true});guard();
     if(['interactive','complete'].includes(result.result?.value))return {tab,ready:true};
    }catch(error){if(!isTransientLoadError(error))throw error;}
@@ -2703,7 +2714,7 @@ export class Executor {
      if(!this.attached.has(tabId)){await this.api.debugger.attach(target,'1.3');guard();this.attached.add(tabId);}
      const tree=await this.checkedFrameTree(target,t,guard,false);
      if(origin(tree.frame.url)===origin(tab.url)){
-      const world=await this.api.debugger.sendCommand(target,'Page.createIsolatedWorld',{frameId:tree.frame.id,worldName:'hermes-native',grantUniveralAccess:false});guard();
+      const world=await this.api.debugger.sendCommand(target,'Page.createIsolatedWorld',{frameId:tree.frame.id,worldName:'fast-native',grantUniveralAccess:false});guard();
       const receipt=await this.api.debugger.sendCommand(target,'Runtime.callFunctionOn',{executionContextId:world.executionContextId,functionDeclaration:'function(){const body=document.body;return {ready:document.readyState,title:document.title,heading:!!body?.querySelector("h1,h2"),textLength:body?.innerText?.length||0,elementCount:body?.getElementsByTagName("*").length||0};}',arguments:[],returnByValue:true});guard();
       content=receipt.result?.value;state=content?.ready;
      }
@@ -2896,7 +2907,7 @@ export class Executor {
   if(p.action==='console')return this.observers.console(t,p,target,guard);
   if(p.action==='images'){
    const tree=await this.checkedFrameTree(target,t,guard,false);
-   const world=await this.api.debugger.sendCommand(target,'Page.createIsolatedWorld',{frameId:tree.frame.id,worldName:'hermes-native',grantUniveralAccess:false});guard();
+   const world=await this.api.debugger.sendCommand(target,'Page.createIsolatedWorld',{frameId:tree.frame.id,worldName:'fast-native',grantUniveralAccess:false});guard();
    const listed=await this.api.debugger.sendCommand(target,'Runtime.callFunctionOn',{executionContextId:world.executionContextId,functionDeclaration:listImages.toString(),returnByValue:true});guard();
    if(listed.exceptionDetails)throw Error('page action failed');
    return listed.result?.value;
@@ -2912,7 +2923,7 @@ export class Executor {
    const fileOrigin=p.artifactOrigin??origin(tab.url);
    // 中文注释：文件选择已通过本次智能审批或全部访问，仍须与当前任务页来源一致。
    if(origin(tab.url)!==fileOrigin||!t.allowedOrigins.includes(fileOrigin))throw Error('ARTIFACT_ORIGIN_DENIED');
-   const artifactPrefix=`/plugin-data/browser-link-native/artifacts/${t.id}/${t.generation}/`;
+   const artifactPrefix=`/plugin-data/fast-browser-link-native/artifacts/${t.id}/${t.generation}/`;
    // 中文注释：UUID 目录隔离私有副本，末段保留原文件名；仍限定为本任务本代次的路径。
    if(!Array.isArray(p.filePaths)||!p.filePaths.length||p.filePaths.length>10||p.filePaths.some(file=>
     typeof file!=='string'||!file.startsWith('/')||!file.includes(artifactPrefix)
@@ -2999,7 +3010,7 @@ export class Executor {
   if(p.action==='screenshot'){
    if(p.selector){
     // 中文注释：按唯一选择器滚到中央，不读取字段值。
-    const world=await this.api.debugger.sendCommand(target,'Page.createIsolatedWorld',{frameId:initialTree.frame.id,worldName:'hermes-screenshot-target'});guard();
+    const world=await this.api.debugger.sendCommand(target,'Page.createIsolatedWorld',{frameId:initialTree.frame.id,worldName:'fast-screenshot-target'});guard();
     const shown=await this.api.debugger.sendCommand(target,'Runtime.callFunctionOn',{executionContextId:world.executionContextId,
      functionDeclaration:'function(selector){const rows=[...document.querySelectorAll(selector)];if(rows.length!==1)return false;rows[0].scrollIntoView({behavior:"instant",block:"center",inline:"center"});return true;}',
      arguments:[{value:p.selector}],returnByValue:true});guard();

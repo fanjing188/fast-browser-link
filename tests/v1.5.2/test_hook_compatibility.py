@@ -66,19 +66,19 @@ class HookCompatibilityTests(unittest.TestCase):
                                                    'hermes_cli.plugins': host}):
                     spec.loader.exec_module(plugin)
                     ctx = Context(supported)
-                    with self.assertNoLogs('browser-link', level='WARNING'):
+                    with self.assertNoLogs('fast-browser-link', level='WARNING'):
                         plugin.register(ctx)
                     native = plugin._load_native_tools()
-                    self.assertEqual(set(ctx.tools), {*native.TOOL_NAMES, 'browser_shared_script', 'browser_shared_open',
-                                                     'browser_shared_use_tab', 'browser_shared_reference', 'browser_shared_doctor',
+                    self.assertEqual(set(ctx.tools), {*native.TOOL_NAMES, 'fast_browser_script', 'fast_browser_open',
+                                                     'fast_browser_use_tab', 'fast_browser_reference', 'fast_browser_doctor',
                                                      'browser_site_search', 'browser_site_manage', 'browser_site_run'})
                     self.assertEqual(set(ctx.hooks), supported)
                     self.assertTrue(all(callable(handler) for handler in ctx.tools.values()))
                     # 中文注释：缺少预调用钩子也不能绕过授权；无租约调用在本地直接拒绝。
-                    result = json.loads(ctx.tools['browser_shared_get']({'task_id': 'fixture'}, session_id='unbound'))
+                    result = json.loads(ctx.tools['fast_browser_get']({'task_id': 'fixture'}, session_id='unbound'))
                     self.assertIn('error', result)
-                    self.assertEqual(ctx.skills, {'use-my-browser', 'batch-scrape', 'troubleshoot'})
-                    self.assertEqual(ctx.sections, {'browser-link.guide'})
+                    self.assertEqual(ctx.skills, {'fast-browser-link', 'fast-browser-batch-scrape', 'fast-browser-troubleshoot'})
+                    self.assertEqual(ctx.sections, {'fast-browser-link.guide'})
                     self.assertEqual(len(ctx.unload), 2)
                     for cleanup in ctx.unload:
                         cleanup()

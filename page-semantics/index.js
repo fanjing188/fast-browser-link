@@ -19,7 +19,7 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
   const computed=node=>{if(!styles.has(node))styles.set(node,node.ownerDocument.defaultView.getComputedStyle(node));return styles.get(node);};
   const documentRoot=doc.documentElement;
   const isOverlay=node=>{
-    for(let n=node;n;n=n.parentNode || n.host){if(n.nodeType===1 && n.hasAttribute?.('data-hermes-automation-overlay'))return true;}
+    for(let n=node;n;n=n.parentNode || n.host){if(n.nodeType===1 && n.hasAttribute?.('data-fast-automation-overlay'))return true;}
     return false;
   };
   const realMutation=record=>{

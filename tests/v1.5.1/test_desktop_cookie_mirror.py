@@ -17,7 +17,7 @@ from daemon import BridgeDaemon
 
 SOURCE, TARGET = 'a' * 32, 'b' * 32
 SECRET = '_'.join(('SECRET', 'COOKIE', 'VALUE'))
-PREFIX = '/api/plugins/browser-link/shared'
+PREFIX = '/api/plugins/fast-browser-link/shared'
 
 
 def wait_for(predicate):
@@ -60,7 +60,7 @@ class DesktopCookieMirrorTests(unittest.TestCase):
         self.api._native_profile_runtime = lambda: self.runtime
         self.api._runtime_profile_selector_matches = lambda selector: selector == 'test-profile'
         app = FastAPI()
-        app.include_router(self.api.router, prefix='/api/plugins/browser-link')
+        app.include_router(self.api.router, prefix='/api/plugins/fast-browser-link')
         self.client = TestClient(app)
         self.addCleanup(self.client.close)
         self.addCleanup(self.finish.set)

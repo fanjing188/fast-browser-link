@@ -220,3 +220,9 @@
 - `tests/native-v2/compact-scratch.test.mjs`：scratch-only；隔离源码/包 staging、真实临时 UDS bind、仅查询空实例的临时 daemon、布局恢复和清理，不启动或注册个人浏览器。与上述两个 Node runner 一并进入核心 Node 清单；baseline 增至 51 步，reviewed/supplemental 不变。
 - `tests/complex-ui/real-login-windows.mjs`：non-offline；仅手动真实临时 profile 验收，不进入 `npm test` 或 `npm run verify` 的默认执行清单。
 - 相对 HEAD：语义声明 72883→75313 字节（+2430），首批九条 CDP 消息 76910→79371 字节（+2461）；账号字段、登录浮层及宿主 classifier 只增加冷安装。声明仍受 ≤76000、冷消息 ≤80000 的硬上限约束；只安装一次，八次热调用仍为 2600 字节，保留 `<6000` 上限。
+
+## 通用入口与旧 Hermes 兼容
+
+- `tests/agent-link/test_agent_link.py`：独立安装、旧 Native host 与配置字节/mtime 保持、扩展身份隔离、MCP 与未知写入不重放。
+- `tests/v1.1-compatibility/test_hermes_registry.py`：真实 Hermes 注册表无授权/有授权/Vault/旧插件四种模式，非浏览器工具不变、未绑定回退和卸载恢复。
+- `tests/agent-link/real-agent.mjs`：非离线，临时 Chrome/Edge profile 的 CLI 读写回读与任务隔离。

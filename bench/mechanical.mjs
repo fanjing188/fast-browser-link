@@ -22,12 +22,12 @@ async function measure(name,work,verify){const result=await measureSample(work,v
 
 async function promptSize() {
   // 中文注释：动态导入注册表获取实际工具 schema；系统片段以插件技能原文计量。
-  const code=`import importlib.util,json\ndef load(name,path):\n s=importlib.util.spec_from_file_location(name,path);m=importlib.util.module_from_spec(s);s.loader.exec_module(m);return m\np='executor-plugin/'\nschemas=load('native',p+'native_tools.py').TOOL_SCHEMAS.copy()\no=load('open',p+'open_tool.py');schemas[o.TOOL_NAME]=o.SCHEMA;schemas['browser_shared_use_tab']=o.USE_TAB_SCHEMA\ns=load('script',p+'script_lane/tool.py');schemas[s.TOOL_NAME]=s.SCHEMA\nschemas.update(load('site',p+'site_tools/tools.py').SCHEMAS)\nschemas.update(load('reference',p+'reference.py').SCHEMAS)\nguide=load('plugin',p+'__init__.py')\nprint(json.dumps({'schemas':schemas,'system_prompt':guide._PROMPT},ensure_ascii=False,separators=(',',':')))\n`;
+  const code=`import importlib.util,json\ndef load(name,path):\n s=importlib.util.spec_from_file_location(name,path);m=importlib.util.module_from_spec(s);s.loader.exec_module(m);return m\np='executor-plugin/'\nschemas=load('native',p+'native_tools.py').TOOL_SCHEMAS.copy()\no=load('open',p+'open_tool.py');schemas[o.TOOL_NAME]=o.SCHEMA;schemas['fast_browser_use_tab']=o.USE_TAB_SCHEMA\ns=load('script',p+'script_lane/tool.py');schemas[s.TOOL_NAME]=s.SCHEMA\nschemas.update(load('site',p+'site_tools/tools.py').SCHEMAS)\nschemas.update(load('reference',p+'reference.py').SCHEMAS)\nguide=load('plugin',p+'__init__.py')\nprint(json.dumps({'schemas':schemas,'system_prompt':guide._PROMPT},ensure_ascii=False,separators=(',',':')))\n`;
   const result=spawnSync('python3',['-c',code],{cwd:root,encoding:'utf8'});
   if(result.status!==0)throw Error(result.stderr);
   const registered=JSON.parse(result.stdout.trim());
   const schema=JSON.stringify(registered.schemas);
-  const files=['use-my-browser','batch-scrape','troubleshoot'].map(name=>path.join(root,'executor-plugin/skills',name,'SKILL.md'));
+  const files=['fast-browser-link','fast-browser-batch-scrape','troubleshoot'].map(name=>path.join(root,'executor-plugin/skills',name,'SKILL.md'));
   const skills=await Promise.all(files.map(file=>readFile(file,'utf8')));
   const parts={systemPromptFragments:{count:1,characters:registered.system_prompt.length,estimatedTokens:Math.ceil(registered.system_prompt.length/4)},toolSchemasAndDescriptions:schema.length,registeredToolCount:Object.keys(registered.schemas).length,skillFiles:skills.map((s,i)=>({file:path.relative(root,files[i]),characters:s.length,estimatedTokens:Math.ceil(s.length/4)}))};
   const skillCharacters=skills.reduce((n,s)=>n+s.length,0);

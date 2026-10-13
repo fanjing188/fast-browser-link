@@ -20,7 +20,7 @@ import urllib.request
 import zipfile
 
 # 中文注释：正式附件来自当前公开仓库，使用实际命名空间，避免旧 API 重定向及附件地址不匹配。
-REPOSITORY = 'fanjing188/hermes-browser-link'
+REPOSITORY = 'fanjing188/fast-browser-link'
 API = f'https://api.github.com/repos/{REPOSITORY}/releases/latest'
 MAX_ARCHIVE = 64 * 1024 * 1024
 MAX_EXPANDED = 256 * 1024 * 1024
@@ -61,7 +61,7 @@ class GithubRedirect(urllib.request.HTTPRedirectHandler):
 
 
 def fetch(url, limit):
-    request = urllib.request.Request(url, headers={'User-Agent': 'hermes-browser-link-updater',
+    request = urllib.request.Request(url, headers={'User-Agent': 'fast-browser-link-updater',
         'Accept': 'application/vnd.github+json' if url == API else 'application/octet-stream'})
     # 中文注释：无依赖网络请求有超时和体积限制，错误不改写安装文件。
     with urllib.request.build_opener(GithubRedirect()).open(request, timeout=30) as response:
@@ -86,7 +86,7 @@ def latest_release():
         raise ValueError('发布标签无效')
     version = tag[1:]
     version_tuple(version)
-    name = f'hermes-browser-link-{version}.zip'
+    name = f'fast-browser-link-hermes-{version}.zip'
     assets = release.get('assets')
     if not isinstance(assets, list):
         raise ValueError('发布附件清单无效')
@@ -109,7 +109,7 @@ def extract_archive(payload, release, destination, verifier):
         raise ValueError('更新 ZIP 大小或 SHA256 校验失败')
     archive = destination / 'release.zip'
     archive.write_bytes(payload)
-    root = f'hermes-browser-link-{release["version"]}'
+    root = f'fast-browser-link-hermes-{release["version"]}'
     with zipfile.ZipFile(archive) as zipped:
         entries = zipped.infolist()
         if len(entries) > 10000 or sum(entry.file_size for entry in entries) > MAX_EXPANDED:
@@ -143,12 +143,12 @@ def applications_running():
 def agent_path(home, user_home):
     # 中文注释：不同 Hermes 根目录使用不同调度标识，避免互相覆盖。
     suffix = hashlib.sha256(str(home).encode()).hexdigest()[:12]
-    return user_home / 'Library/LaunchAgents' / f'com.hermes.browser-link.update.{suffix}.plist'
+    return user_home / 'Library/LaunchAgents' / f'com.hermes.fast-browser-link.update.{suffix}.plist'
 
 
 def configure_schedule(mode, home, user_home, cli):
     path = agent_path(home, user_home)
-    updater = home / 'plugins/browser-link/maintenance/update.py'
+    updater = home / 'plugins/fast-browser-link/maintenance/update.py'
     cli.EXECUTOR.reject_target_symlinks([path, updater])
     if mode != 'off' and not updater.is_file():
         raise ValueError('先运行 ./install.sh --upgrade 安装自动更新组件')
@@ -195,7 +195,7 @@ def save_status(path, value):
 
 def update(args, cli):
     home, user_home = args.hermes_home, args.user_home
-    current = cli.installed_version(home / 'plugins/browser-link')
+    current = cli.installed_version(home / 'plugins/fast-browser-link')
     version_tuple(current)
     release = latest_release()
     status = {'currentVersion': current, 'status': 'no_stable_release' if release is None else 'up_to_date'}
@@ -208,11 +208,11 @@ def update(args, cli):
         if applications_running():
             status['status'] = 'deferred'
         else:
-            with tempfile.TemporaryDirectory(prefix='browser-link-update-') as scratch:
+            with tempfile.TemporaryDirectory(prefix='fast-browser-link-update-') as scratch:
                 package = extract_archive(fetch(release['url'], MAX_ARCHIVE), release, Path(scratch), cli.EXECUTOR)
                 cli.EXECUTOR.verify_package(package)
                 if (cli.EXECUTOR.release_status(package) != f'RELEASE V{release["version"]}'
-                        or cli.installed_version(package / 'browser-link') != release['version']
+                        or cli.installed_version(package / 'fast-browser-link') != release['version']
                         or json.loads((package / 'native-extension/manifest.json').read_text())['version'] != release['version']):
                     raise ValueError('安装包版本与正式发布标签不一致')
                 # 中文注释：下载期间可能重新打开应用，写入前再次确认；安装器沿用备份和回滚。
@@ -237,11 +237,11 @@ def run(args):
     if args.hermes_home.parent.name == 'profiles':
         args.hermes_home = args.hermes_home.parent.parent
     home = args.hermes_home
-    data = home / 'plugin-data/browser-link-native'
+    data = home / 'plugin-data/fast-browser-link-native'
     status_path = data / 'update-status.json'
     cli.EXECUTOR.reject_target_symlinks([data, status_path, status_path.with_suffix('.tmp'),
-                                      home / 'plugins/browser-link'])
-    if not (home / 'plugins/browser-link/plugin.yaml').is_file():
+                                      home / 'plugins/fast-browser-link'])
+    if not (home / 'plugins/fast-browser-link/plugin.yaml').is_file():
         raise ValueError('尚未安装 Browser Link')
     # 中文注释：内核锁在异常退出后自动释放，手动更新与后台任务不会并发安装。
     with cli.install_lock(data) if data.is_dir() else nullcontext():
@@ -253,8 +253,8 @@ def run(args):
         try:
             if not args.check:
                 with cli.root_fence(home), cli.cloud_gate(home, user_home=args.user_home, installed=(
-                        (home / 'plugins/browser-link/cloud_link/native_host.py').exists()
-                        or (home / 'plugin-data/browser-link-cloud').exists())):
+                        (home / 'plugins/fast-browser-link/cloud_link/native_host.py').exists()
+                        or (home / 'plugin-data/fast-browser-link-cloud').exists())):
                     pass
             status = update(args, cli)
         except cli.CloudGateError:

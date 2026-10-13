@@ -58,7 +58,7 @@ _CODE_MESSAGES = {
     "approval_revoked": "这次确认已撤销；请先检查页面状态，不要自动重试。",
     "forbidden": "当前会话无权访问此浏览器任务。",
     "invalid_state": "浏览器任务未就绪；请先查看任务状态。",
-    "task_closed": "任务已结束；请重新 browser_shared_open。",
+    "task_closed": "任务已结束；请重新 fast_browser_open。",
     "task_paused": "用户已接管，任务已暂停；请等待用户继续，不会自动重试。",
     "invalid_url": "网址格式不受支持。",
     "origin_denied": "网址不在已批准的来源范围内。",
@@ -113,8 +113,8 @@ _CODE_MESSAGES = {
     "target_unstable": "目标位置持续变化，未派发；请稍后重新读取。",
     "unsupported_frame_transform": "目标所在 frame 有旋转或倾斜变换，暂不支持；未派发。",
     "interaction_highlight_failed": "页面高亮确认失败；请先核实页面状态，不要自动重试。",
-    "tab_out_of_scope": "当前工作页已离开授权网站（任务与标签组仍保留）；请用 browser_navigate 导航回授权网站，或用 browser_shared_open 打开新网站。",
-    "redirected_out_of_scope": "页面跳转到任务范围外；请用返回的来源调用 browser_shared_open 新开任务。",
+    "tab_out_of_scope": "当前工作页已离开授权网站（任务与标签组仍保留）；请用 browser_navigate 导航回授权网站，或用 fast_browser_open 打开新网站。",
+    "redirected_out_of_scope": "页面跳转到任务范围外；请用返回的来源调用 fast_browser_open 新开任务。",
 }
 
 _SAFE_BRIDGE_CODES = frozenset(_CODE_MESSAGES) | frozenset({
@@ -563,7 +563,7 @@ class SingleToolAdapter:
                 **popup_metadata,
                 "native_adapter": "Page Semantics v2 ref",
                 # 中文注释：点击已派发且页面跳出授权网站时如实告知，后续读取会返回 tab_out_of_scope。
-                **({"navigated_out_of_scope": True, "next": "browser_navigate 回授权网站或 browser_shared_open 新网站"}
+                **({"navigated_out_of_scope": True, "next": "browser_navigate 回授权网站或 fast_browser_open 新网站"}
                    if receipt.get("outOfScope") is True else {}),
                 # 中文注释：点击打开了 JS 对话框时如实告知，模型用 browser_dialog 处理后再继续。
                 **({"dialog": {key: str(receipt["dialogOpened"].get(key, ""))[:500] for key in ("type", "message")},

@@ -67,7 +67,7 @@ class OverrideRegistrationTests(unittest.TestCase):
         if hook is not None:
             self.assertEqual(hook["action"], "modify", hook)
             args = {**args, **hook["args"]}
-        return self.ctx.registered[name]["handler"](args, session_id=session_id, task_id="hermes-task")
+        return self.ctx.registered[name]["handler"](args, session_id=session_id, task_id="fast-browser-task")
 
     def test_only_existing_official_tools_are_registered_with_override(self):
         self.assertEqual(set(self.names), {"browser_navigate", "browser_click", "browser_vision"})
@@ -81,7 +81,7 @@ class OverrideRegistrationTests(unittest.TestCase):
         self.assertEqual(result, {"built_in": "browser_navigate"})
         name, args, task_id = self.registry.calls[-1]
         self.assertEqual(args, {"url": "https://example.com/"})
-        self.assertEqual(task_id, "hermes-task")
+        self.assertEqual(task_id, "fast-browser-task")
 
     def test_missing_identity_is_passed_through_not_blocked(self):
         self.assertIsNone(self.runtime.authority.pre_tool_call(

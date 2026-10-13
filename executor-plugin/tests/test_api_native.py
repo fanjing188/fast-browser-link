@@ -23,7 +23,7 @@ def load_api():
     spec.loader.exec_module(module)
     return module
 
-PREFIX = '/api/plugins/browser-link/shared'
+PREFIX = '/api/plugins/fast-browser-link/shared'
 
 class Bridge:
     def __init__(self):
@@ -60,13 +60,13 @@ class NativeApiTests(unittest.TestCase):
         tools = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(tools)
         self.runtime = tools.runtime_module().NativeProfileRuntime(Path(self.tmp.name), path.parent, bridge_client=self.bridge)
-        self.runtime.authority.pre_tool_call('browser_shared_list', {}, session_id='trusted-session', tool_call_id='call-1')
+        self.runtime.authority.pre_tool_call('fast_browser_list', {}, session_id='trusted-session', tool_call_id='call-1')
         self.owner = self.runtime.authority.owner_for_session('trusted-session')
         self.bridge.tasks = {'tool-task': {'id': 'tool-task', 'owner': self.owner, 'state': 'ready'},
                              'foreign': {'id': 'foreign', 'owner': 'unregistered-owner', 'state': 'ready'}}
         self.api._native_profile_runtime = lambda: self.runtime
         app = FastAPI()
-        app.include_router(self.api.router, prefix='/api/plugins/browser-link')
+        app.include_router(self.api.router, prefix='/api/plugins/fast-browser-link')
         self.client = TestClient(app)
 
     def test_list_and_controls_resolve_only_registered_native_owners(self):

@@ -5,7 +5,7 @@ export function passwordValues(){
   const root=roots.pop();if(seen.has(root))continue;seen.add(root);
   for(const node of root.querySelectorAll('*')){
    if(node.localName==='input'&&node.type==='password'){if(node.value)values.add(node.value);if(node.getAttribute('value'))values.add(node.getAttribute('value'));}
-   const shadow=node.shadowRoot||globalThis.__hermesClosedShadowRoots?.get(node);
+   const shadow=node.shadowRoot||globalThis.__fastClosedShadowRoots?.get(node);
    if(shadow)roots.push(shadow);
    if(node.localName==='iframe'){try{if(node.contentDocument)roots.push(node.contentDocument);}catch{}}
   }

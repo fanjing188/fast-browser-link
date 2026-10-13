@@ -36,7 +36,7 @@ export async function mountApprovalPanel({document:doc=globalThis.document,chrom
  const manual=view.kind==='manual_input';
  if(manual){
   const heading=text(doc,'h1',`请你亲自填写${FIELD[view.fieldKind]}`);
-  const status=text(doc,'p','为保护你的信息，Hermes 不会代填这个字段，也看不到你填写的内容。');status.setAttribute?.('role','status');
+  const status=text(doc,'p','为保护你的信息，Fast-browser-link 不会代填这个字段，也看不到你填写的内容。');status.setAttribute?.('role','status');
   root.replaceChildren(heading,text(doc,'p',`任务：${view.taskTitle}`),text(doc,'p',`网站：${view.origin}`),
    text(doc,'p','请切到该网页，在对应输入框中填写，然后回到这里点“我已填写”。'),status);
   mountDecisions(doc,chrome,root,view,status,[['我已填写','approve'],['不填写','reject'],['稍后','later']]);

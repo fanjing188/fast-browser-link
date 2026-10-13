@@ -47,7 +47,7 @@ def item(d,key):
     return next((v for k,v in zip(d.keys,d.values) if isinstance(k,ast.Constant) and k.value==key),None)
 def tool_props(t):
     all_tools=assigns(t,'TOOL_SCHEMAS')
-    tool=item(all_tools[0],'browser_shared_run') if all_tools and isinstance(all_tools[0],ast.Dict) else None
+    tool=item(all_tools[0],'fast_browser_run') if all_tools and isinstance(all_tools[0],ast.Dict) else None
     params=item(tool,'parameters') if tool else None
     return params.args[0] if isinstance(params,ast.Call) and params.args and isinstance(params.args[0],ast.Dict) else None
 def public_enum(t):
@@ -84,7 +84,7 @@ def run_method(t,names):
     if not isinstance(z.args[0],ast.Name) or z.args[0].id!='TOOL_NAMES': return None
     try: methods=value(z.args[1])
     except Exception: return None
-    i=names.index('browser_shared_run') if 'browser_shared_run' in names else -1
+    i=names.index('fast_browser_run') if 'fast_browser_run' in names else -1
     return methods[i] if 0<=i<len(methods) else None
 def native_info():
     t=tree('executor-plugin/native_tools.py'); rt=tree('executor-plugin/native_runtime.py')
@@ -103,11 +103,11 @@ def native_info():
             if isinstance(n,ast.Assign) and any(isinstance(x,ast.Name) and x.id=='mapping' for x in n.targets):
                 try: mapping=value(n.value)
                 except Exception: pass
-    schema=sorted(set(public)&set(enum)&set(fields)) if registered and handler_ok and method=='shared.run' and 'browser_shared_run' in names and mapping.get('action')=='action' else []
+    schema=sorted(set(public)&set(enum)&set(fields)) if registered and handler_ok and method=='shared.run' and 'fast_browser_run' in names and mapping.get('action')=='action' else []
     # 中文注释：已删除旧版动作契约，候选动作只来自当前公开工具。
     deferred=[]
     return {'public':public,'schema':schema,'deferred':deferred,'tools':names,'runMethod':method,'toolRegistration':registered and handler_ok,
-      'debug':{'enumCount':len(enum),'fieldKeys':sorted(fields),'runToolIndex':names.index('browser_shared_run') if 'browser_shared_run' in names else -1,'mappedAction':mapping.get('action')}}
+      'debug':{'enumCount':len(enum),'fieldKeys':sorted(fields),'runToolIndex':names.index('fast_browser_run') if 'fast_browser_run' in names else -1,'mappedAction':mapping.get('action')}}
 def daemon_info():
     t=tree('native-bridge/daemon.py')
     try: allowed=sorted(value(assigns(t,'V1_ACTIONS')[0]))
@@ -251,9 +251,9 @@ function packageInfo(root) {
   const hasDep=(target,source)=>new RegExp(`['"]${escapeRegExp(target)}['"]\\s*:\\s*path\\.join\\(repo,\\s*['"]${escapeRegExp(source)}['"]\\)`).test(depBody);
   // 中文注释：当前桥接候选包不包含独立 Node 引擎或其依赖锁文件。
   const plugin=read(root,'executor-plugin/plugin.yaml');
-  const pluginOk=/python_dependencies:\s*\[\s*\]/.test(plugin)&&/copyTree\(path\.join\(source,'executor-plugin'\),path\.join\(output,'browser-link'\)\)/.test(pack);
+  const pluginOk=/python_dependencies:\s*\[\s*\]/.test(plugin)&&/copyTree\(path\.join\(source,'executor-plugin'\),path\.join\(output,'fast-browser-link'\)\)/.test(pack);
   const base=inputs.includes('executor-plugin')&&inputs.includes('native-bridge')&&inputs.includes('native-extension')&&inputs.includes('browser-workspaces')
-    &&/copyTree\(path\.join\(source,'native-bridge'\),path\.join\(output,'browser-link','native_bridge'\)\)/.test(pack)
+    &&/copyTree\(path\.join\(source,'native-bridge'\),path\.join\(output,'fast-browser-link','native_bridge'\)\)/.test(pack)
     &&/path\.join\(source,'native-extension\/build\.mjs'\)/.test(pack)&&pluginOk;
   const ext=manifest.background?.service_worker==='background.mjs'&&buildFiles.includes('manifest.json')&&buildFiles.includes('background.mjs')&&buildFiles.includes('bridge.mjs')
     &&/writeFile\(path\.join\(dest, 'core\.mjs'\)/.test(build)&&/path\.join\(source,'native-extension\/build\.mjs'\)/.test(pack);
@@ -263,7 +263,7 @@ function packageInfo(root) {
   const files=pack.includes('native-bridge/artifacts.py')&&install.includes('"artifacts.py"')
     &&read(root,'native-bridge/artifacts.py').includes('class ArtifactStore');
   const workspace=hasDep('vendor/browser-workspaces.mjs','browser-workspaces/index.mjs')&&inputs.includes('browser-workspaces')&&build.includes("from '../browser-workspaces/index.mjs'");
-  const api=pack.includes('native-bridge/api_client.py')&&/copyTree\(path\.join\(source,'native-bridge'\),path\.join\(output,'browser-link','native_bridge'\)\)/.test(pack);
+  const api=pack.includes('native-bridge/api_client.py')&&/copyTree\(path\.join\(source,'native-bridge'\),path\.join\(output,'fast-browser-link','native_bridge'\)\)/.test(pack);
   const actionDependency=action=>action==='files.upload'?base&&ext&&files:action.startsWith('files.')?false:action.startsWith('interaction.')?base&&ext&&interactions:
     ['ref_click','ref_set_checked','ref_select_option'].includes(action)?base&&ext&&semantics&&interactions:
     ['semantic_snapshot','ref_fill','ref_press'].includes(action)?base&&ext&&semantics:action==='api_request'?base&&ext&&api:base&&ext&&workspace;
@@ -285,12 +285,12 @@ export function analyzeRepository(root=rootDefault) {
     const layers={declaration:publicAction||deferred,schema,daemon,extension:ext,package:pkg};
     const gaps=[], add=(code,layer,detail)=>gaps.push({code,layer,detail});
     if(!publicAction)add('not_in_public_tool','schema','Only the deferred action-schema table declares this action; no active public tool schema exposes it.');
-    if(!schema)add('missing_public_schema','schema','The registered browser_shared_run action enum or its parameter validator does not expose this action.');
+    if(!schema)add('missing_public_schema','schema','The registered fast_browser_run action enum or its parameter validator does not expose this action.');
     if(!daemon)add('missing_daemon_allowlist','daemon','The daemon allowlist, per-action required-field validation, or shared.run dispatch omits this action.');
     if(!ext)add('missing_extension_route','extension','The extension Bridge/Executor dispatch path does not implement this action.');
     if(!pkg)add('missing_package_dependency','package','The release packager does not stage this action runtime and its required local/dependency closure.');
     const supported=Object.values(layers).every(Boolean);
-    return {action,declaredBy:[...(publicAction?['browser_shared_run']:[]),...(deferred?['deferred_action_schema']:[])],layers,supported,
+    return {action,declaredBy:[...(publicAction?['fast_browser_run']:[]),...(deferred?['deferred_action_schema']:[])],layers,supported,
       classification:supported?'integrated':pkg&&!schema?'module_only_or_deferred':'incomplete',gaps};
   });
   const gaps=actions.flatMap(row=>row.gaps.map(gap=>({action:row.action,...gap})));

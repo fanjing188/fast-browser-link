@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for your interest in Hermes Browser Link. Bug reports, fixes, tests and documentation improvements are all welcome.
+Thanks for your interest in Fast-browser-link. Bug reports, fixes, tests and documentation improvements are all welcome.
 
 ## Before you start
 

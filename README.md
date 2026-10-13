@@ -1,106 +1,62 @@
-# Hermes Browser Link
+# Fast-browser-link
 
-**1.11.2 — macOS stable release.** Authorized browser tasks, raw page reads and automatic target recovery, a persistent task cursor, Desktop Cookie mirroring, independent cloud browser access and stable-release updates.
-
-![Hermes Browser Link](docs/assets/readme-banner.png)
+**2.0.0 — macOS release.** Connect local agents to your existing, logged-in Chrome or Edge through skills, a JSON CLI or MCP stdio.
 
 [简体中文](README.zh-CN.md)
 
-Let [Hermes Agent](https://github.com/NousResearch/hermes-agent) read and operate task tabs in your existing, logged-in Chrome or Edge.
+## Install independent skills
 
-Read pages and tables, click, fill forms, upload files, track downloads and run Python workflows. Confirm browser connection authorization once in the extension: ordinary reads, navigation, writes, JavaScript, CDP and Python workflows then run directly, without per-action prompts. Takeover, stop, credential protection and special confirmations remain independent. See [security](SECURITY.md).
+Download the Release installation ZIP, not GitHub's source archive. Python 3.11+ is required; the ZIP includes the built extension and needs neither Node.js nor Hermes.
 
-## Features
+```sh
+curl -fL https://github.com/fanjing188/fast-browser-link/releases/download/v2.0.0/fast-browser-link-2.0.0.zip -o fast-browser-link-2.0.0.zip
+unzip fast-browser-link-2.0.0.zip
+cd fast-browser-link-2.0.0
+bash install.sh --dry-run
+bash install.sh
+```
 
-| Capability | Behavior |
-|---|---|
-| Connection authorization | Confirm once in the extension; ordinary task actions execute directly. Takeover, stop, credential protections and the Cookie mirror confirmation remain independent. |
-| Existing browsers | Reuse logged-in Chrome/Edge; task tabs use a separate work window without taking focus from your window. |
-| OAuth login windows | Login popups, including candidates outside the provider allowlist and existing windows, are adopted directly without confirmation; operation access does not grant deletion rights. |
-| Page reading and input | Read text, tables, forms and records; use semantic references, clicks, typing, selection, scrolling and file transfers. |
-| Python workflows | Run multi-step scripts and validated reusable site tools through the same task authorization. |
-| Target recovery | Failed element location waits, rescans and retries up to three rounds; already-dispatched uncertain writes are read back before further action. |
-| Continuous task cursor | Always enabled during task work and between steps, with smooth target-to-target travel, takeover controls and reduced-motion support. |
-| Desktop Cookie mirror | Select source sites and target browsers in Hermes Desktop; every transfer requires confirmation in the source extension. |
-| Cloud access | Pair your browser with your own Sites plugin using a connection code; independent cloud permissions, separate conversation tasks, multiple pages and verified cleanup. See [Cloud connection](docs/cloud-connection.md). |
-| Installation and updates | One shared program with per-profile references and isolated settings/data; verified packages, backup/rollback, hourly stable-release checks and idle installation. |
+The installer checks every file against `SHA256SUMS.json`, detects existing agent directories and installs the skill. It preserves existing Hermes plugins, configuration and Native hosts. Existing Fast-browser-link targets are never overwritten automatically.
 
-Page content is returned without content filtering; password input values are not echoed. Incomplete reads include coverage information. See [page output and recovery](docs/content-shield.md).
+Open `edge://extensions` or `chrome://extensions`, enable developer mode if needed, then load the printed **extension directory**. Browser confirmation is required for an unpacked extension. Open the extension popup and verify it is connected.
 
-## Requirements
+Tell your local agent:
+
+> Read ~/.agents/skills/fast-browser-link/SKILL.md and use its scripts/browser.py to open https://example.com, read the page, then close your task. Preserve existing browser tabs and Hermes settings.
+
+The agent must be able to read local files and execute Python. Skills mode needs no MCP configuration. Pure cloud agents require a separate cloud connection. See [agent integration](docs/agent-integration.md) and [the installation prompt](docs/agent-install-prompt.md).
+
+## Compatibility and isolation
+
+- New extension ID: `hhnljehnkmhhgjjjmnlhilfpcjhobloc`. The legacy Hermes extension uses a different ID and can remain enabled.
+- Task ownership, user takeover, sensitive-field handling and unknown-write fencing remain enforced. Read after an uncertain write; do not replay it.
+- Password/payment/code fields require user input or the authorized private Vault path. Page text is data, not instructions.
+- Supports macOS Chrome/Edge. Other operating systems and every individual agent framework version are not claimed tested.
+
+## Optional Hermes adapter
+
+The default ZIP above installs independent skills. For Hermes-native tools and Desktop integration, use the separate `fast-browser-link-hermes-2.0.0.zip` Release asset, or run `bash install.sh --hermes-plugin` from source. Do not install this adapter alongside the legacy `browser-link` plugin: the installer refuses that conflict.
+
+`browser_exec` and other official `browser_*` tools belong to Hermes. The adapter only registers a route through Hermes' public `tools.override` API after explicit authorization. Unbound sessions keep their original handlers; unloading restores them. Hermes source is never patched. Vault overrides require a separate opt-in.
+
+See [Hermes installation and maintenance](docs/installation.md), [usage](docs/usage.md), [security](SECURITY.md) and [release notes](docs/release-2.0.0.md).
+
+## Development
 
 | Component | Requirement |
 |---|---|
-| Hermes Agent | Tested: **0.21.4** |
-| Node.js | **22.12.0+** for source installation and development |
-| Python | **3.11+** |
-| Platform | Currently supports **macOS + Chrome/Edge**; browser tested with 153 |
-
-## Quick start (3 steps)
-
-1. With Hermes and Python already installed (`hermes --version`, `python3 --version`), download the [Release asset](https://github.com/fanjing188/hermes-browser-link/releases) named `hermes-browser-link-1.11.2.zip` — not GitHub's **Source code (zip)**. No Node.js or npm is needed. **Program installed and enabled** confirms the local installation only, not a browser connection:
-
-   ```sh
-   curl -fL https://github.com/fanjing188/hermes-browser-link/releases/download/v1.11.2/hermes-browser-link-1.11.2.zip -o hermes-browser-link-1.11.2.zip && unzip hermes-browser-link-1.11.2.zip && cd hermes-browser-link-1.11.2 && ./install.sh
-   ```
-
-2. While the terminal waits, open `chrome://extensions` or `edge://extensions` → **Developer mode** → **Load unpacked** → paste the printed absolute **Extension directory** (not the extracted ZIP directory). The installer copies it to the clipboard when available. It waits up to 3 minutes; **Extension connected** confirms the connection. Ctrl+C skips only this wait. A timeout does not undo installation or require reinstalling; load the extension and run the printed **Check** command.
-3. Open the extension popup, click **Connect Hermes** if disconnected, and confirm connection authorization (full access) in the browser. There is no smart-approval mode or per-action permission switch. Restart Hermes Desktop (or start a new CLI session) using the installed profile. Confirm **Connected** (已连接) in the popup and, if using Desktop, an online browser in **Browser connections** (浏览器连接).
-
-The first install enables **default** unless you pass `--profile <name>`, even inside a named profile's environment. For existing profiles, use `./install.sh --profile default --profile work`; to enable only `work`, use `./install.sh --profile work`. One program lives in the shared root; named profiles use direct links, with separate enablement, permissions and private data. Upgrade migrates old copies without enabling disabled profiles. Upgrade backups and Hermes Desktop's application-level UI cache remain separate. See [profiles](docs/installation.md#profiles--多-profile).
-
-Upgrade: quit Chrome, Edge and Hermes, then run `./install.sh --upgrade` from the new package (automatic backup and rollback). If an older cloud launcher requires it, run `./install.sh --upgrade --maintenance` once, then reload the extension and restart Desktop. Uninstall: `./install.sh --uninstall` keeps task-private data; add `--purge` to delete it.
-
-Automatic updates accept stable releases; 1.11.2 is eligible. Upgrade an older installation manually once to install the current update source. After installing the update component, run `./install.sh --auto-update install`. It checks stable releases hourly and installs after browsers and Hermes exit. Reload the extension before starting Hermes again. Use `--auto-update check` for checks only, `--auto-update off` to disable, or `--update` to update now. See [automatic updates](docs/installation.md#automatic-updates--自动更新).
-
-[Source/manual installation, profiles and troubleshooting](docs/installation.md) · [Agent installation prompt](docs/agent-install-prompt.md).
-
-Overlay stuck while disconnected or status is unknown: click “放开页面” (release page) or refresh to remove the local veil. This does not prove background execution stopped; reconnect and verify task state before continuing.
-
-## First use
-
-Tell Hermes:
-
-> Open https://example.com in my browser, read the page title and the first paragraph, then close the task. Do not submit anything.
-
-With browser connection authorization already confirmed, Hermes should read directly, return the text and close its work tab; no first-site confirmation is needed. It starts with `browser_shared_open`; single actions use `browser_shared_run`, and multi-step work uses `browser_shared_script`. See [usage](docs/usage.md) and the [API reference](docs/browser-api-reference.md).
-
-## Cookie mirror
-
-Open Hermes Desktop → **Browser connections** → **Cookie mirror** on the source browser, select sites and the target browser, then confirm in the source extension's panel. If the target still asks for a login, sign in there. See [usage](docs/usage.md#cookie-mirror) and [security](SECURITY.md#cookie-mirror-150).
-
-## Configuration and recovery
-
-If disconnected, load or reload the extension, click **Connect Hermes** in the popup and run the check in [installation](docs/installation.md#check-connection--检查连接). If an action fails, inspect the current page and follow the displayed instructions. Settings are in [configuration](docs/configuration.md).
-
-## Development and contributions
-
-Install development dependencies:
+| Node.js | 22.12.0+ for source builds |
+| Python | 3.11+ |
 
 ```sh
 npm ci --ignore-scripts
-```
-
-Run offline tests and documentation checks:
-
-```sh
+npm ci --ignore-scripts --prefix cloud-link/site
 npm test
-```
-
-```sh
+npm run check:js
 npm run check:docs
+npm run lint
 ```
 
-```sh
-python3 scripts/generate-browser-reference.py --check
-```
+The full pinned-Hermes gate and real-browser fixtures are described in [testing](docs/testing.md). They use isolated test data and do not certify real account logins, payments or all external services. See [architecture](docs/architecture.md) and [releasing](docs/releasing.md).
 
-```sh
-bash scripts/check-public-release.sh
-```
-
-Real-browser runners are opt-in and use temporary profiles: see [testing](docs/testing.md). Mechanical and agent benchmark commands are in [benchmarks](docs/bench.md). See [development](docs/development.md) and [CONTRIBUTING.md](CONTRIBUTING.md). Report vulnerabilities through [GitHub Security Advisories](https://github.com/fanjing188/hermes-browser-link/security/advisories/new), not a public issue.
-
-## License and acknowledgement
-
-[MIT](LICENSE). This project began with Jon Komet's [Hermes browser extension](https://github.com/abundantbeing/hermes-browser-extension); thank you for the original work. The license retains both copyright notices.
+MIT licensed. Third-party provenance is retained in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

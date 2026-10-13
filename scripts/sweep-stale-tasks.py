@@ -35,14 +35,14 @@ def main(argv=None):
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument('--dry-run', action='store_true')
     mode.add_argument('--apply', action='store_true')
-    parser.add_argument('--home', type=Path, default=Path(os.environ.get('HERMES_BROWSER_BRIDGE_HOME', '~/.hermes')).expanduser())
+    parser.add_argument('--home', type=Path, default=Path(os.environ.get('FAST_BROWSER_BRIDGE_HOME', '~/.hermes')).expanduser())
     parser.add_argument('--idle-seconds', type=float, default=600)
     parser.add_argument('--task-id', action='append', default=[])
     args = parser.parse_args(argv)
     if not math.isfinite(args.idle_seconds) or args.idle_seconds < 0:
         parser.error('--idle-seconds 必须为非负有限秒数')
     home = args.home.expanduser().resolve()
-    tasks = json.loads((home / 'plugin-data/browser-link-native/tasks.json').read_text())['tasks']
+    tasks = json.loads((home / 'plugin-data/fast-browser-link-native/tasks.json').read_text())['tasks']
     selected = candidates(tasks, time.time(), args.idle_seconds, args.task_id)
     for task in selected:
         print(json.dumps({'id': task['id'], 'title': task['title'], 'state': task['state'],

@@ -48,7 +48,7 @@ try{
   assert.equal(result?.error,undefined,JSON.stringify(result));
   assert.equal(await tab.read(`document.getElementById('freemium').checked`),true);return result.recovery;
  });
- const exportRoot=await realpath(await mkdtemp('/tmp/bl142-export-'));process.env.HERMES_BROWSER_EXPORT_ROOTS=exportRoot;
+ const exportRoot=await realpath(await mkdtemp('/tmp/bl142-export-'));process.env.FAST_BROWSER_EXPORT_ROOTS=exportRoot;
  const script=async code=>{const value=await helperCall('script',session.work,tab.owner,tab.task.id,code);assert.equal(value?.exit_code,0,(value.stderr||JSON.stringify(value)).slice(-400));return value.stdout.trim();};
  await check('脚本 fill_element：同名只读+可编辑选可编辑，(optional) 后缀可匹配',async()=>{
   const out=await script(`r=fill_element('Description','EDITED');print(r.get('verified'))\nr=fill_element('Tool Description','OPT');print(r.get('verified'))`);

@@ -10,8 +10,8 @@ import path from 'node:path';
 const repo=path.resolve(import.meta.dirname,'..');
 const source=path.join(repo,'executor-plugin','desktop','plugin.js');
 const home=await installationHome(process.env.HERMES_HOME||path.join(homedir(),'.hermes'));
-const installed=path.join(home,'plugins','browser-link','desktop','plugin.js');
-const desktop=path.join(home,'desktop-plugins','browser-link','plugin.js');
+const installed=path.join(home,'plugins','fast-browser-link','desktop','plugin.js');
+const desktop=path.join(home,'desktop-plugins','fast-browser-link','plugin.js');
 const markerPath=path.join(path.dirname(desktop),'.hermes-package.json');
 let pending=Promise.resolve(),timer=null;
 
@@ -34,7 +34,7 @@ async function sync(){
  if(hash(bytes)===hash(await readFile(installed))&&hash(bytes)===hash(await readFile(desktop)))return;
  // 中文注释：写入两个已安装入口前先校验身份，单文件原子替换供 Hermes 热重载。
  const marker=JSON.parse(await readFile(markerPath,'utf8'));
- if(marker.package!=='browser-link'||marker.source!==path.dirname(installed))throw Error('桌面插件来源不匹配');
+ if(marker.package!=='fast-browser-link'||marker.source!==path.dirname(installed))throw Error('桌面插件来源不匹配');
  await atomicWrite(installed,bytes);
  await atomicWrite(desktop,bytes);
  marker.sourceMtimeMs=(await stat(installed)).mtimeMs;

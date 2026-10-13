@@ -25,7 +25,7 @@ test('弹窗入口保留中文状态语义、连接授权说明和任务控制',
   // 中文注释：常用鼠标固定启用，镜像入口只放桌面，额外区域不在浏览器弹窗显示。
   assert.equal(document.querySelector('#cursor-toggle,#cookie-mirror,#shield-settings'),null)
   assert.ok(document.querySelector('.header-meta #version-label'))
-  assert.equal(document.querySelector('#browser-links,#set-primary,details.settings'),null)
+  assert.equal(document.querySelector('#fast-browser-links,#set-primary,details.settings'),null)
   assert.equal(document.querySelector('#diagnostics'), null)
   assert.match(css, /:focus-visible/)
   dom.window.close()

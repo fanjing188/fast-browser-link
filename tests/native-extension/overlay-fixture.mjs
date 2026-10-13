@@ -18,7 +18,7 @@ export function withSyntheticOverlay(debuggerApi, {calls = null} = {}) {
     onEvent: {addListener: fn => listeners.add(fn), removeListener: fn => listeners.delete(fn)},
     overlayListeners: listeners,
     sendCommand: async (target, method, params = {}) => {
-      if (method === 'Page.createIsolatedWorld' && params.worldName === 'hermes-automation-overlay') {
+      if (method === 'Page.createIsolatedWorld' && params.worldName === 'fast-automation-overlay') {
         calls?.push(['overlay.createIsolatedWorld']);
         return {executionContextId: OVERLAY_CONTEXT_ID};
       }
@@ -31,7 +31,7 @@ export function withSyntheticOverlay(debuggerApi, {calls = null} = {}) {
           calls?.push(['overlay.highlight', op]);
           return {result: {value: {ok: true}}};
         }
-        if (declaration.startsWith('function(op,scope){const state=globalThis.__hermesAutomationOverlay')) {
+        if (declaration.startsWith('function(op,scope){const state=globalThis.__fastAutomationOverlay')) {
           calls?.push(['overlay', op]);
           return {result: {value: true}};
         }

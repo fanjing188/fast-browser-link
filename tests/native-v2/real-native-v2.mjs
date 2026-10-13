@@ -599,7 +599,13 @@ async function run(browser) {
     assert.equal(returned.url,`${origin}/fixture`,JSON.stringify(returned));
     await waitFor(()=>readPage('location.pathname==="/fixture"&&document.querySelector("#same-frame")?.contentDocument?.readyState==="complete"'));
     assert.equal((await run('cdp.send',{method:'DOM.getDocument',cdp_params:{depth:1}})).root.nodeName,'#document');
-    assert.equal((await run('cdp.send',{method:'DOM.getDocument',cdp_params:{depth:1},timeout_ms:5000})).root.nodeName,'#document');
+    const sharedDocument=await run('cdp.send',{method:'DOM.getDocument',cdp_params:{depth:1},timeout_ms:5000});
+    assert.equal(sharedDocument.root.nodeName,'#document');
+    // 中文注释：内部密码扫描不能重置外部客户端持有的节点编号，否则后续 Browser Use 上传会失效。
+    const sharedFile=await run('cdp.send',{method:'DOM.querySelector',cdp_params:{nodeId:sharedDocument.root.nodeId,selector:'#upload-input'}});
+    assert.ok(sharedFile.nodeId>0,JSON.stringify(sharedFile));
+    const sharedNode=await run('cdp.send',{method:'DOM.describeNode',cdp_params:{nodeId:sharedFile.nodeId}});
+    assert.equal(sharedNode.node.nodeName,'INPUT');
     // 中文注释：原始 Target 列表按浏览器结果返回；显式 target_id 与 frame_token 仍逐次核对任务归属。
     const rawTargets=await run('cdp.send',{method:'Target.getTargets'});
     assert.notEqual(rawTargets.bridgeCode,'cdp_method_denied',JSON.stringify(rawTargets));
@@ -621,8 +627,8 @@ async function run(browser) {
     // 中文注释：前面的网络/导航矩阵已有大量事件，先显式消费旧缓冲再观察本次日志。
     await run('cdp.events',{max:500});
     // 中文注释：1.11.0 CDP 事件原样返回，普通 Bearer 文本不再过滤；只保留密码输入值不回显的保护。
-    await run('js.evaluate',{expression:'document.querySelector("#password").value="native-v2-event-password-2026";console.log("hermes-console-probe","Bearer synthetic-event-token",document.querySelector("#password").value)',world:'main'});
-    const drained=await waitFor(async()=>{const reply=await run('cdp.events',{max:200});return reply.events?.some(e=>e.method==='Runtime.consoleAPICalled'&&JSON.stringify(e.params).includes('hermes-console-probe'))?reply:null;});
+    await run('js.evaluate',{expression:'document.querySelector("#password").value="native-v2-event-password-2026";console.log("fast-console-probe","Bearer synthetic-event-token",document.querySelector("#password").value)',world:'main'});
+    const drained=await waitFor(async()=>{const reply=await run('cdp.events',{max:200});return reply.events?.some(e=>e.method==='Runtime.consoleAPICalled'&&JSON.stringify(e.params).includes('fast-console-probe'))?reply:null;});
     const eventText=JSON.stringify(drained.events);
     assert.ok(eventText.includes('Bearer synthetic-event-token'),'ordinary event text must remain readable');
     assert.ok(eventText.includes('[password]'),'password event value must be replaced');
@@ -750,10 +756,10 @@ print('RESULT=' + json.dumps(out))`;
     const installed = await helperCall('inspect', work);
     // 中文注释：包模式必须来自包内已安装插件；源码模式可来自隔离 host-bin 或临时安装的插件副本。
     if(packageMode)assert.equal(installed.daemonPath,path.join(staged.plugin,'native_bridge/daemon.py'));
-    else assert.ok([path.join(staged.hermesHome,'plugin-data/browser-link-native/host-bin/daemon.py'),
-      path.join(staged.hermesHome,'plugins/browser-link/native_bridge/daemon.py')].includes(installed.daemonPath),installed.daemonPath);
+    else assert.ok([path.join(staged.hermesHome,'plugin-data/fast-browser-link-native/host-bin/daemon.py'),
+      path.join(staged.hermesHome,'plugins/fast-browser-link/native_bridge/daemon.py')].includes(installed.daemonPath),installed.daemonPath);
     if(packageMode)assert.equal(installed.pluginPath, staged.plugin);
-    else assert.ok([staged.plugin,path.join(staged.hermesHome,'plugins/browser-link')].includes(installed.pluginPath),installed.pluginPath);
+    else assert.ok([staged.plugin,path.join(staged.hermesHome,'plugins/fast-browser-link')].includes(installed.pluginPath),installed.pluginPath);
 
     report = {
       timestamp: new Date().toISOString(), browser, browserVersion: version.Browser,

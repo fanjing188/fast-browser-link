@@ -114,7 +114,7 @@ async function run(browser) {
     const {id: extensionId} = await cdp.call('Extensions.loadUnpacked', {path: extensionRoot});
     const staged = await helperCall('stage', work, JSON.stringify([`chrome-extension://${extensionId}/`]));
     const manifestSource = staged.manifests[browser === 'chrome' ? 0 : 1];
-    const profileManifest = path.join(profile, 'NativeMessagingHosts/com.hermes.browser_link.json');
+    const profileManifest = path.join(profile, 'NativeMessagingHosts/com.fast.browser_link.json');
     await mkdir(path.dirname(profileManifest), {recursive: true});
     await copyFile(manifestSource, profileManifest);
 
@@ -153,7 +153,7 @@ async function run(browser) {
     await waitFor(() => ui.evaluate(`Boolean(document.querySelector(${JSON.stringify(connectAction)})) || document.querySelector('#connection').dataset.state==='connected'`));
     // Extension autoconnect may race the temporary native-host manifest write.
     const hostReady = await ui.evaluate(`new Promise(resolve=>{
-      const port=chrome.runtime.connectNative('com.hermes.browser_link');
+      const port=chrome.runtime.connectNative('com.fast.browser_link');
       const timer=setTimeout(()=>{port.disconnect();resolve('no response')},3000);
       port.onMessage.addListener(message=>{clearTimeout(timer);port.disconnect();resolve(message?.result?.connected===true?'connected':'unexpected response')});
       port.onDisconnect.addListener(()=>{clearTimeout(timer);resolve(chrome.runtime.lastError?.message||'disconnected')});

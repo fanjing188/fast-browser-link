@@ -67,7 +67,7 @@ export class DownloadTracker{
    const {begin,task}=decision,filename=safeDownloadName(item.filename||begin.suggested);
    const record={taskId:task.id,generation:task.generation,tabId:begin.tabId,url:begin.url,filename,state:'in_progress',reported:0};
    this.attributed.set(item.id,record);
-   try{suggest({filename:`hermes-tasks/${task.downloadKey}/${filename}`,conflictAction:'uniquify'});}
+   try{suggest({filename:`fast-browser-tasks/${task.downloadKey}/${filename}`,conflictAction:'uniquify'});}
    catch{this.attributed.delete(item.id);return;}
    void this.send(record,{event:'attributed',downloadRef:item.id,url:begin.url,filename,
     mimeType:typeof item.mime==='string'?item.mime.slice(0,128):'',totalBytes:Number.isSafeInteger(item.totalBytes)?item.totalBytes:-1});

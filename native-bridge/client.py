@@ -24,7 +24,7 @@ _STARTUP_LOCKS: dict[Path, threading.Lock] = {}
 
 
 def _data_dir(home: os.PathLike[str] | str) -> Path:
-    return Path(home).expanduser().resolve() / "plugin-data" / "browser-link-native"
+    return Path(home).expanduser().resolve() / "plugin-data" / "fast-browser-link-native"
 
 
 def _read_token(home: os.PathLike[str] | str) -> str:
@@ -151,7 +151,7 @@ class BridgeError(RuntimeError):
                     if parts.scheme in {'http', 'https'} and parts.hostname and not parts.username and not parts.password:
                         parts.port
                         self.data['currentOrigin'] = f'{parts.scheme}://{parts.netloc}'
-                        self.data['scopeHint'] = '同站用 goto_url，新站用 browser_shared_open。'
+                        self.data['scopeHint'] = '同站用 goto_url，新站用 fast_browser_open。'
                 except ValueError:
                     pass
         # 中文注释：跨站跳转仅传已验证的来源，不转发路径或异常原文。

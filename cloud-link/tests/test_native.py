@@ -23,7 +23,7 @@ class NativeCloudTests(unittest.TestCase):
             try:
                 fcntl.flock(descriptor,fcntl.LOCK_EX|fcntl.LOCK_NB)
                 result=subprocess.run([sys.executable,str(ROOT/'cloud-link/native_host.py'),
-                    'chrome-extension://dhioigkigkkhceflkkkmoljhdaefjohb/'],input=b'',capture_output=True,
+                    'chrome-extension://hhnljehnkmhhgjjjmnlhilfpcjhobloc/'],input=b'',capture_output=True,
                     env={**os.environ,'HERMES_HOME':str(home)},timeout=5)
                 self.assertEqual(result.returncode,4,result.stderr.decode())
                 self.assertEqual(list(home.iterdir()),[])
@@ -34,7 +34,7 @@ class NativeCloudTests(unittest.TestCase):
         spec=importlib.util.spec_from_file_location('cloud_native_test',ROOT/'cloud-link/native_host.py')
         assert spec is not None and spec.loader is not None
         native_host=importlib.util.module_from_spec(spec);spec.loader.exec_module(native_host)
-        origin='chrome-extension://dhioigkigkkhceflkkkmoljhdaefjohb/'
+        origin='chrome-extension://hhnljehnkmhhgjjjmnlhilfpcjhobloc/'
         service=Mock();service.view.return_value={'state':'active','paired':True,'fullAccess':True}
         service.set_full_access.return_value={'state':'active','paired':True,'fullAccess':False}
         messages=[{'id':'hello','method':'hello','params':{'instance_id':'11111111-1111-4111-8111-111111111111','browser':'Chrome'}},
@@ -67,8 +67,8 @@ class NativeCloudTests(unittest.TestCase):
 
     def test_native_channel_does_not_start_local_daemon_or_accept_unpaired_full_access(self):
         with tempfile.TemporaryDirectory(prefix='hcn-') as scratch:
-            home=Path(scratch).resolve();native=home/'plugin-data/browser-link-native';native.mkdir(parents=True)
-            origin='chrome-extension://dhioigkigkkhceflkkkmoljhdaefjohb/'
+            home=Path(scratch).resolve();native=home/'plugin-data/fast-browser-link-native';native.mkdir(parents=True)
+            origin='chrome-extension://hhnljehnkmhhgjjjmnlhilfpcjhobloc/'
             config=native/'host-config.json';config.write_text(json.dumps({'allowedOrigins':[origin]}));before=config.read_bytes()
             messages=[{'id':'hello','method':'hello','params':{'instance_id':'11111111-1111-4111-8111-111111111111','browser':'Chrome'}},
                       {'id':'full','method':'full_access','params':{'enabled':True}}]
@@ -85,7 +85,7 @@ class NativeCloudTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix='hcn-') as scratch:
             result=subprocess.run([sys.executable,str(ROOT/'cloud-link/native_host.py'),'chrome-extension://wrong/'],capture_output=True,env={**os.environ,'HERMES_HOME':scratch},timeout=5)
             self.assertEqual(result.returncode,3);self.assertEqual(result.stdout,b'')
-            self.assertFalse((Path(scratch)/'plugin-data/browser-link-cloud').exists())
+            self.assertFalse((Path(scratch)/'plugin-data/fast-browser-link-cloud').exists())
     def test_connection_code_is_readable_and_unique(self):
         codes={connection_code() for _ in range(100)};self.assertEqual(len(codes),100)
         for code in codes:self.assertRegex(code,r'^[2-9A-HJ-NP-Z]{6}-[2-9A-HJ-NP-Z]{6}$')

@@ -1,5 +1,5 @@
-name: browser-link
-version: 1.11.2
+name: fast-browser-link
+version: 2.0.0
 manifest_version: 2
 api_version: 1
 # 中文注释：按宿主钩子能力注册，不用版本号阻止加载。
@@ -8,27 +8,27 @@ author: FanJean
 license: MIT
 tags: [browser, automation, native-messaging, desktop, privacy, python, cookie-mirror]
 provides_tools:
-  - browser_shared_health
-  - browser_shared_browsers
-  - browser_shared_create
-  - browser_shared_list
-  - browser_shared_get
-  - browser_shared_artifacts
-  - browser_shared_run
-  - browser_shared_cancel
-  - browser_shared_resume
-  - browser_shared_close
+  - fast_browser_health
+  - fast_browser_browsers
+  - fast_browser_create
+  - fast_browser_list
+  - fast_browser_get
+  - fast_browser_artifacts
+  - fast_browser_run
+  - fast_browser_cancel
+  - fast_browser_resume
+  - fast_browser_close
   # 中文注释：镜像仅返回站点与计数，用户必须在源扩展确认。
-  - browser_shared_cookie_mirror
-  - browser_shared_downloads
-  - browser_shared_open
-  - browser_shared_use_tab
-  - browser_shared_script
+  - fast_browser_cookie_mirror
+  - fast_browser_downloads
+  - fast_browser_open
+  - fast_browser_use_tab
+  - fast_browser_script
   - browser_site_search
   - browser_site_manage
   - browser_site_run
-  - browser_shared_reference
-  - browser_shared_doctor
+  - fast_browser_reference
+  - fast_browser_doctor
 hooks:
   - pre_tool_call
   # 中文注释：轮次完成启动宽限；中断、会话与子代理结束按实际钩子清理。
@@ -45,7 +45,7 @@ provides_hooks:
 python_dependencies: []
 external_dependencies: []
 # Optional, and never implied by installing: when the operator grants this
-# plugin tools.override (Hermes consent flow, or plugins.entries.browser-link
+# plugin tools.override (Hermes consent flow, or plugins.entries.fast-browser-link
 # .allow_tool_override: true), Hermes' official browser_* tools are routed to the
 # session's bound native task. Unbound sessions keep Hermes' built-in behavior.
 # No Hermes source is patched.

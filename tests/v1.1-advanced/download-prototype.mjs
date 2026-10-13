@@ -23,7 +23,7 @@ const url=`http://127.0.0.1:${server.address().port}/`;
 const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 
 async function run(browser,binary){
- const work=await mkdtemp(path.join('/private/tmp',`hermes-download-${browser}-`));
+ const work=await mkdtemp(path.join('/private/tmp',`fast-download-${browser}-`));
  const profile=path.join(work,'profile'),extension=path.join(work,'extension');
  const taskDir=path.join(work,'task-downloads'),userDir=path.join(work,'user-downloads');
  await Promise.all([mkdir(profile),mkdir(taskDir),mkdir(userDir)]);

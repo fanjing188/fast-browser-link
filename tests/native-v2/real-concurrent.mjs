@@ -81,7 +81,7 @@ async function click(ui, selector) {
 }
 
 async function connectBrowser(state, manifest) {
-  const dest = path.join(state.profile, 'NativeMessagingHosts/com.hermes.browser_link.json');
+  const dest = path.join(state.profile, 'NativeMessagingHosts/com.fast.browser_link.json');
   await mkdir(path.dirname(dest), {recursive: true});
   await copyFile(manifest, dest);
   const url = `chrome-extension://${state.extensionId}/popup.html`;
@@ -92,7 +92,7 @@ async function connectBrowser(state, manifest) {
   await waitFor(() => state.ui.evaluate(`document.querySelector('#primary')!==null`));
   // Check the actual native host, not a stubbed extension status. The probe disconnects.
   const probe = await state.ui.evaluate(`new Promise(resolve=>{
-    const p=chrome.runtime.connectNative('com.hermes.browser_link');
+    const p=chrome.runtime.connectNative('com.fast.browser_link');
     const timer=setTimeout(()=>{p.disconnect();resolve('timeout')},3000);
     p.onMessage.addListener(m=>{clearTimeout(timer);p.disconnect();resolve(m?.result?.connected===true?'connected':'unexpected response')});
     p.onDisconnect.addListener(()=>{clearTimeout(timer);resolve(chrome.runtime.lastError?.message||'disconnected')});
@@ -158,7 +158,7 @@ async function stopOwnedBrowser(state) {
 try {
   await Promise.all([access(binaries.chrome), access(binaries.edge), access(python), mkdir(scratch, {recursive: true})]);
   work = await mkdtemp(path.join(scratch, 'nc-'));
-  const socket = path.join(work, 'h/.hermes/plugin-data/browser-link-native/bridge.sock');
+  const socket = path.join(work, 'h/.hermes/plugin-data/fast-browser-link-native/bridge.sock');
   assert.ok(Buffer.byteLength(socket) < 104, `macOS AF_UNIX socket path too long: ${socket}`);
   const extensionRoot = path.join(work, 'dist-native');
   await exec(process.execPath, [path.join(root, 'native-extension/build.mjs'), extensionRoot], {cwd: root});
@@ -179,7 +179,7 @@ try {
   const states = await settledValues([openBrowser('chrome'), openBrowser('edge')]);
   const origins = [...new Set(states.map(s => `chrome-extension://${s.extensionId}/`))];
   const staged = await helperCall('stage', work, JSON.stringify(origins));
-  assert.equal(staged.plugin, path.join(work, 'plugin/browser-link'));
+  assert.equal(staged.plugin, path.join(work, 'plugin/fast-browser-link'));
   await settledValues(states.map(s => connectBrowser(s, staged.manifests[s.browser === 'chrome' ? 0 : 1])));
   const both = await waitFor(async () => {
     const found = await rpc('acceptance-discovery', 'browsers');

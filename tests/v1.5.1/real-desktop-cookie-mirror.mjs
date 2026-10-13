@@ -65,13 +65,13 @@ try{
   if(!entry.isFile())continue;scanned.push(full);let text;try{text=(await readFile(full)).toString('latin1');}catch{continue;}
   if(secrets.some(secret=>text.includes(secret)))leaks.push(path.relative(dir,full)||entry.name);}};
  // 中文注释：自检模式往守护进程目录写入一个夹具值，必须被扫描抓到（验证扫描本身有效）。
- if(process.env.COOKIE_LEAK_SELFTEST==='1'){const daemonDir=(await readdir(source.work,{recursive:true})).find(p=>p.endsWith('browser-link-native'));assert.ok(daemonDir,'未找到守护进程目录');await writeFile(path.join(source.work,daemonDir,'selftest-leak.txt'),secrets[0]);}
+ if(process.env.COOKIE_LEAK_SELFTEST==='1'){const daemonDir=(await readdir(source.work,{recursive:true})).find(p=>p.endsWith('fast-browser-link-native'));assert.ok(daemonDir,'未找到守护进程目录');await writeFile(path.join(source.work,daemonDir,'selftest-leak.txt'),secrets[0]);}
  for(const session of new Set([source,target]))await walk(session.work);
  for(const session of new Set([source,target]))if(secrets.some(secret=>String(session.logs||'').includes(secret)))leaks.push('session.logs');
  // 中文注释：反向对照——守护进程数据目录必须在扫描范围内，否则"干净"没有意义。
- assert.ok(scanned.some(file=>file.includes('browser-link-native')),'泄漏扫描未覆盖守护进程数据目录');
+ assert.ok(scanned.some(file=>file.includes('fast-browser-link-native')),'泄漏扫描未覆盖守护进程数据目录');
  assert.deepEqual(leaks,[],'Cookie 值出现在临时环境文件或日志中（仅列文件名，不打印值）');
- console.log(JSON.stringify({ok:true,panelFallback:false,entry:'desktop-api',leakScan:'clean',scannedFiles:scanned.length,daemonFiles:scanned.filter(file=>file.includes('browser-link-native')).map(file=>path.basename(file)).slice(0,12),source:'chrome',target:target.browser,site,count:3,success:3,failed:0,matched:3,missing:0,authenticated:true,partitioned:true}));
+ console.log(JSON.stringify({ok:true,panelFallback:false,entry:'desktop-api',leakScan:'clean',scannedFiles:scanned.length,daemonFiles:scanned.filter(file=>file.includes('fast-browser-link-native')).map(file=>path.basename(file)).slice(0,12),source:'chrome',target:target.browser,site,count:3,success:3,failed:0,matched:3,missing:0,authenticated:true,partitioned:true}));
 }finally{
  await target?.close();await source?.close();await new Promise(resolve=>server.close(resolve));
 }

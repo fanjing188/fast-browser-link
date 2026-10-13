@@ -12,7 +12,7 @@ import shutil
 import sys
 from typing import Iterable
 
-HOST_NAME = "com.hermes.browser_link"
+HOST_NAME = "com.fast.browser_link"
 _ORIGIN_RE = re.compile(r"^chrome-extension://[a-p]{32}/$")
 _BROWSER_DIRS = (
     Path("Library/Application Support/Google/Chrome/NativeMessagingHosts"),
@@ -29,16 +29,16 @@ def _write_private_json(path: Path, value: object) -> None:
     os.chmod(path, 0o600)
 
 
-def stage(home: Path, extension_origins: Iterable[str]) -> dict:
+def stage(home: Path, extension_origins: Iterable[str], *, runtime_home: Path | None = None) -> dict:
     target_home = home.expanduser().resolve()
-    if target_home == Path.home().resolve():
+    if runtime_home is None and target_home == Path.home().resolve():
         raise ValueError("refusing to stage into the active user HOME")
     origins = list(dict.fromkeys(extension_origins))
     if not origins or any(not _ORIGIN_RE.fullmatch(origin) for origin in origins):
         raise ValueError("extension origins must be exact chrome-extension://<32 a-p chars>/ values")
 
     # 中文注释：固定身份不允许通过安装参数放行其他扩展。
-    if origins != ['chrome-extension://dhioigkigkkhceflkkkmoljhdaefjohb/']:
+    if origins != ['chrome-extension://hhnljehnkmhhgjjjmnlhilfpcjhobloc/']:
         raise ValueError("扩展来源必须匹配 manifest key 固定 ID")
 
     source_dir = Path(__file__).resolve().parent
@@ -65,8 +65,8 @@ def stage(home: Path, extension_origins: Iterable[str]) -> dict:
     if missing:
         raise ValueError("native host runtime is incomplete; missing: " + ", ".join(missing))
 
-    hermes_home = target_home / ".hermes"
-    data_dir = hermes_home / "plugin-data" / "browser-link-native"
+    hermes_home = runtime_home.resolve() if runtime_home is not None else target_home / ".hermes"
+    data_dir = hermes_home / "plugin-data" / "fast-browser-link-native"
     host_bin = data_dir / "host-bin"
     # 中文注释：隔离 HOME 内的任何目标或祖先链接都可能越界，必须在第一次写入前统一拒绝。
     targets = [host_bin / name for name in (*native_files, "task_diagnostics.py", HOST_NAME)]
@@ -104,7 +104,7 @@ def stage(home: Path, extension_origins: Iterable[str]) -> dict:
     shutil.copyfile(projection_source, projection_target)
     os.chmod(projection_target, 0o600)
 
-    launcher = host_bin / "com.hermes.browser_link"
+    launcher = host_bin / "com.fast.browser_link"
     launcher_text = (
         f"#!{sys.executable}\n"
         "import os, runpy\n"
@@ -117,7 +117,7 @@ def stage(home: Path, extension_origins: Iterable[str]) -> dict:
     _write_private_json(data_dir / "host-config.json", {"allowedOrigins": origins})
     manifest = {
         "name": HOST_NAME,
-        "description": "Hermes Browser Link native bridge",
+        "description": "Fast-browser-link native bridge",
         "path": str(launcher),
         "type": "stdio",
         "allowed_origins": origins,

@@ -4,12 +4,12 @@
 
 ## 配置站点
 
-安装当前版本后，本机云端 host 已注册；站点访问配置仍需初始化一次。先用 [站点源码](https://github.com/fanjing188/hermes-browser-link/tree/v1.9.0/cloud-link/site) 在 Sites 创建自己的私有站点，保留 D1 和 MCP 能力，发布后安装该站点创建的插件。源码里的托管配置不包含任何个人站点 ID；Sites 注册会写入你自己的 ID。
+安装当前版本后，本机云端 host 已注册；站点访问配置仍需初始化一次。先用 [站点源码](https://github.com/fanjing188/fast-browser-link/tree/v1.9.0/cloud-link/site) 在 Sites 创建自己的私有站点，保留 D1 和 MCP 能力，发布后安装该站点创建的插件。源码里的托管配置不包含任何个人站点 ID；Sites 注册会写入你自己的 ID。
 
 在本机运行以下命令，将网址换成自己的站点来源。命令隐藏询问 Sites 服务访问凭据，不要把凭据放到命令参数、Git 或 ChatGPT 消息里。
 
 ```sh
-python3 "${HERMES_HOME:-$HOME/.hermes}/plugins/browser-link/cloud_link/client.py" \
+python3 "${HERMES_HOME:-$HOME/.hermes}/plugins/fast-browser-link/cloud_link/client.py" \
   --home "${HERMES_HOME:-$HOME/.hermes}" configure --site https://your-site.chatgpt.site
 ```
 
@@ -54,13 +54,13 @@ Chrome 和 Edge 分别配对。弹窗可以管理连接、重新配对或断开�
 
 ## 数据保存
 
-执行日志继续由原 daemon 写入 `$HERMES_HOME/plugin-data/browser-link-native/task-logs/`。云端不提供执行历史。
+执行日志继续由原 daemon 写入 `$HERMES_HOME/plugin-data/fast-browser-link-native/task-logs/`。云端不提供执行历史。
 
 网页右上角“最近步骤”显示操作结果和固定错误码，新写入的失败或未知结果记录用 `errorCode` 保留具体原因，工具读取日志时也保留该字段。“结果不确定”表示操作可能已经发生，应先核对页面实际状态，不能直接重复提交。
 
 云端保存配对、路由和去重摘要。请求被领取后清除输入与动作名；回执正文取走即清除，未取走回执两分钟后失效，在后续通信中清除。平台的基础 HTTP 访问记录不属于应用执行日志；应用不向这些记录输出网页正文或输入。
 
-本机云端配置位于 `$HERMES_HOME/plugin-data/browser-link-cloud/`，按浏览器实例隔离，凭据文件权限为 0600。不要提交该目录。
+本机云端配置位于 `$HERMES_HOME/plugin-data/fast-browser-link-cloud/`，按浏览器实例隔离，凭据文件权限为 0600。不要提交该目录。
 
 ## 验证范围
 

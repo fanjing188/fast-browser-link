@@ -1,6 +1,6 @@
 # Python scripting
 
-`browser_shared_script` runs a short Python script against the task bound to the current Hermes session. Use it for paging, collecting data, multi-step forms and anything else that would otherwise need many model round trips.
+`fast_browser_script` runs a short Python script against the task bound to the current Hermes session. Use it for paging, collecting data, multi-step forms and anything else that would otherwise need many model round trips.
 
 ## How it runs
 
@@ -170,15 +170,15 @@ Network inspection, raw CDP and `page_request` share the task’s existing brows
 
 Network summaries omit query strings and headers. JSON detail filters credential-like keys, with explicit withheld/pending/evicted states. It is not general-purpose PII filtering. Capture IDs survive script process changes and navigation within authorized origins in the same live task; Python variables do not. Leaving the authorized origins or closing the tab clears its capture. Network inspection does not drain the raw CDP event buffer.
 
-See the [module catalog](product-modules.zh-CN.md) for contracts and limits, and the [generated API reference](browser-api-reference.md) for exact helper and tool schemas. `browser_shared_reference` projects helpers for a connected instance; `browser_shared_doctor` checks installation and connection without starting the service.
+See the [module catalog](product-modules.zh-CN.md) for contracts and limits, and the [generated API reference](browser-api-reference.md) for exact helper and tool schemas. `fast_browser_reference` projects helpers for a connected instance; `fast_browser_doctor` checks installation and connection without starting the service.
 
 ## 显式选择工作页
 
-`new_tab(url)` 返回 tab id，并将它设为当前页。使用 `current_tab()` 查看、`use_tab(tab_id)` 切换；页面 helper 支持关键字 `tab=`，只作用于指定页，不改变当前页。多页脚本推荐始终传 `tab=`。官方工具使用 `browser_shared_use_tab(tab_id)` 选择当前页；`browser_shared_open` 成功后自动选择刚打开或复用的页。不同网站的任务同时保留，撤销一个任务不撤销其他任务。
+`new_tab(url)` 返回 tab id，并将它设为当前页。使用 `current_tab()` 查看、`use_tab(tab_id)` 切换；页面 helper 支持关键字 `tab=`，只作用于指定页，不改变当前页。多页脚本推荐始终传 `tab=`。官方工具使用 `fast_browser_use_tab(tab_id)` 选择当前页；`fast_browser_open` 成功后自动选择刚打开或复用的页。不同网站的任务同时保留，撤销一个任务不撤销其他任务。
 
 读动作只等待 DOM 的 `interactive`/`complete`，上限 1.5 秒。导航和新建页最多等待 8 秒，`ready` 返回 `interactive`、`complete` 或 `loading`。等具体元素用 `wait_for(selector, ...)`，等完整加载用 `wait_for_load()`；`goto_url()` 已等待 DOM 可交互，不再叠加 `wait_for_load()` 或 `time.sleep()`。
 
-`redirected_out_of_scope` 表示页面跳到其他来源，错误的 `final_origin` 只含来源；用该来源调用 `browser_shared_open` 新开任务。多台浏览器时，在 Hermes 进程环境设置 `HERMES_BROWSER_DEFAULT=edge`、`chrome` 或具体 instance ID；显式 `instance_id` 优先，未配置仍返回 `browser_choice_required`。
+`redirected_out_of_scope` 表示页面跳到其他来源，错误的 `final_origin` 只含来源；用该来源调用 `fast_browser_open` 新开任务。多台浏览器时，在 Hermes 进程环境设置 `FAST_BROWSER_DEFAULT=edge`、`chrome` 或具体 instance ID；显式 `instance_id` 优先，未配置仍返回 `browser_choice_required`。
 
 `parallel(fn, tabs)` 对每个页执行 `fn(tab)`，最多八个线程，结果按输入顺序返回。任一分支失败后汇总 `BrowserError.errors` 与已成功的 `BrowserError.results`，不重试动作；用显式 `tab=` 核实未知结果。同一页的动作仍串行，同一会话仍只能运行一个脚本进程。
 

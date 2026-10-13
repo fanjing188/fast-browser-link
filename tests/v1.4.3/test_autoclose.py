@@ -100,10 +100,10 @@ class AutocloseTests(unittest.TestCase):
         self.assertEqual(set(ctx.hooks), {'pre_tool_call'})
         self.now += 3000
         args = {'task_id': self.task['id']}
-        decision = ctx.hooks['pre_tool_call']('browser_shared_get', args,
+        decision = ctx.hooks['pre_tool_call']('fast_browser_get', args,
                                              session_id='session-a', tool_call_id='read')
         self.assertEqual(decision['action'], 'modify')
-        value = json.loads(TOOLS.make_tool_handler('browser_shared_get', self.runtime)(
+        value = json.loads(TOOLS.make_tool_handler('fast_browser_get', self.runtime)(
             {**args, **decision['args']}, session_id='session-a'))
         self.assertEqual(value['id'], self.task['id'])
         self.assertEqual(value['state'], 'ready')
@@ -160,16 +160,16 @@ class AutocloseTests(unittest.TestCase):
         self.assertNotIn('idleCloseAt', restored.tasks[self.task['id']])
 
     def test_all_shared_calls_signal_activity_even_without_page_rpc(self):
-        self.runtime.authority.lease_tools(['browser_shared_reference', 'browser_shared_doctor', 'browser_shared_script'])
-        for name in ['browser_shared_health', 'browser_shared_browsers', 'browser_shared_reference',
-                     'browser_shared_doctor', 'browser_shared_script', 'browser_shared_run']:
+        self.runtime.authority.lease_tools(['fast_browser_reference', 'fast_browser_doctor', 'fast_browser_script'])
+        for name in ['fast_browser_health', 'fast_browser_browsers', 'fast_browser_reference',
+                     'fast_browser_doctor', 'fast_browser_script', 'fast_browser_run']:
             self.completed()
             self.ctx.hooks['pre_tool_call'](name, {}, session_id='session-a', tool_call_id=name)
             self.assertNotIn('idleCloseAt', self.task, name)
 
     def test_foreign_or_forged_activity_cannot_cancel_grace(self):
         self.completed()
-        self.ctx.hooks['pre_tool_call']('browser_shared_get', {'owner': self.owner}, session_id='forged', tool_call_id='x')
+        self.ctx.hooks['pre_tool_call']('fast_browser_get', {'owner': self.owner}, session_id='forged', tool_call_id='x')
         with self.assertRaises(ProtocolError):
             self.daemon._dispatch_client('shared.get', {'owner': 'other', 'taskId': self.task['id']})
         self.assertIn('idleCloseAt', self.task)
@@ -206,7 +206,7 @@ class AutocloseTests(unittest.TestCase):
         self.assertNotEqual(self.owner, self.runtime.authority.owner_for_session(key))
 
     def test_unknown_key_never_treated_as_session_id(self):
-        with self.assertLogs('browser-link', 'WARNING'):
+        with self.assertLogs('fast-browser-link', 'WARNING'):
             self.ctx.hooks['agent_loop_stopped'](session_key='session-a')
         self.assertEqual(self.task['state'], 'ready')
         self.assertEqual(self.releases, [])
@@ -222,7 +222,7 @@ class AutocloseTests(unittest.TestCase):
             with sqlite3.connect(self.home / 'state.db') as db:
                 db.execute('DELETE FROM gateway_routing')
                 db.execute('INSERT INTO gateway_routing VALUES (?, ?, ?)', (scope, 'route', json.dumps(entry)))
-            with self.assertLogs('browser-link', 'WARNING'):
+            with self.assertLogs('fast-browser-link', 'WARNING'):
                 self.ctx.hooks['agent_loop_stopped'](session_key='route')
             self.assertEqual(self.task['state'], 'ready')
         self.assertEqual(self.releases, [])
@@ -371,11 +371,11 @@ class AutocloseTests(unittest.TestCase):
                 client.close()
 
     def test_environment_values(self):
-        with patch.dict('os.environ', {'HERMES_BROWSER_IDLE_CLOSE_SECONDS': '2.5', 'HERMES_BROWSER_TASK_IDLE_TIMEOUT_SECONDS': '99'}):
+        with patch.dict('os.environ', {'FAST_BROWSER_IDLE_CLOSE_SECONDS': '2.5', 'FAST_BROWSER_TASK_IDLE_TIMEOUT_SECONDS': '99'}):
             daemon = BridgeDaemon(self.home)
         self.assertEqual(daemon.idle_close_seconds, 2.5)
         self.assertEqual(daemon.task_idle_timeout_seconds, 99)
-        with patch.dict('os.environ', {'HERMES_BROWSER_IDLE_CLOSE_SECONDS': '-1'}):
+        with patch.dict('os.environ', {'FAST_BROWSER_IDLE_CLOSE_SECONDS': '-1'}):
             with self.assertRaises(ValueError):
                 BridgeDaemon(self.home)
 

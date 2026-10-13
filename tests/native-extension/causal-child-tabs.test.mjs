@@ -31,7 +31,7 @@ function cdp(f,inspect=()=>({kind:'blank_anchor',url:'https://example.com/child'
    // 中文注释：外部效果探针不伪造效果，只有模拟派发发出的网络事件能让生产观察器确认。
    if(params.functionDeclaration.startsWith('function effectProbe'))return {result:{value:params.arguments[0].value!=='read'}};
    // 中文注释：语义库安装与动作调用分开模拟，动作断言仍执行生产函数。
-   if(params.functionDeclaration.includes('globalThis.__hermesSemanticLibrary={')){installDeclaration=params.functionDeclaration;return {result:{value:true}};}
+   if(params.functionDeclaration.includes('globalThis.__fastSemanticLibrary={')){installDeclaration=params.functionDeclaration;return {result:{value:true}};}
    return {result:{value:inspect({...params,installDeclaration})}};
   }
   throw Error(`unexpected CDP ${method}`);
@@ -57,11 +57,11 @@ function pageFixture(html){
  window.HTMLElement.prototype.getClientRects=()=>[{}];
  document.elementFromPoint=()=>node;
  // 中文注释：只替换渲染边界，生产 prepare 与 confirm 不跳过。
- window.__hermesAutomationOverlay={highlight:{prepare:()=>({ok:true}),verify:()=>({ok:true})}};
+ window.__fastAutomationOverlay={highlight:{prepare:()=>({ok:true}),verify:()=>({ok:true})}};
  const call=window.eval(`(${semanticWorldDeclaration})`);
  return {window,document,node,close:()=>window.close(),token(binding){
   const page=call('semantic_snapshot',{binding,options:{root:'#target',mode:'interactive',budget:5000}});
-  assert.equal(window.__hermesNativeSemanticsV2.version,8);
+  assert.equal(window.__fastNativeSemanticsV2.version,8);
   assert.equal(page.items.length,1);
   return {binding,snapshotId:page.snapshotId,ref:page.items[0].ref};
  }};
@@ -273,7 +273,7 @@ test('semantic production world invokes the resolved target handler after action
  const result=await e.execute(request);
  assert.equal(clicked,1);assert.equal(result.kind,'trusted-input');
  // 中文注释：准备成功后目标被禁用，真实 confirm_ref 必须在下一次派发前拒绝。
- pageWindow.__hermesAutomationOverlay.highlight.prepare=()=>{node.disabled=true;return {ok:true};};
+ pageWindow.__fastAutomationOverlay.highlight.prepare=()=>{node.disabled=true;return {ok:true};};
  await assert.rejects(e.execute(request),error=>error.message==='TARGET_DISABLED'&&error.preDispatch===true);
  assert.equal(clicked,1);
 });

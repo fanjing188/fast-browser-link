@@ -23,7 +23,7 @@ test('延迟出现：每轮重新扫描，元素出现后只点击一次',async(
  try{
   const result=await recoverTarget({...defaults,hint:{role:'button',name:'保存'},wait:async delay=>delays.push(delay),
    scan:async()=>{if(++scans===2){const b=f.w.document.createElement('button');b.textContent='保存';b.onclick=()=>clicks++;f.w.document.body.append(b);}return f.scan();},
-   run:async chosen=>{if(!chosen)throw missing();f.w.__hermesNativeSemanticsV2.semantics.resolve({...chosen.binding,snapshotId:chosen.snapshotId,ref:chosen.ref}).click();return {clicked:true};}});
+   run:async chosen=>{if(!chosen)throw missing();f.w.__fastNativeSemanticsV2.semantics.resolve({...chosen.binding,snapshotId:chosen.snapshotId,ref:chosen.ref}).click();return {clicked:true};}});
   assert.equal(clicks,1);assert.equal(scans,2);assert.deepEqual(delays,[300,800]);assert.equal(result.recovery.rounds,2);
  }finally{f.close();}
 });

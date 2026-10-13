@@ -1,5 +1,5 @@
 ---
-name: troubleshoot
+name: fast-browser-troubleshoot
 description: Handle browser connection errors, failed element recovery, incomplete coverage and uncertain action results while continuing the remaining task.
 ---
 

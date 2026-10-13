@@ -20,7 +20,7 @@ async function daemonHome(){
 
 test('dev-sync 不向 PID 文件指向的无关进程发送 SIGTERM',async t=>{
  const home=await mkdtemp(path.join(tmpdir(),'dev-sync-pid-'));
- const dataDir=path.join(home,'plugin-data','browser-link-native');
+ const dataDir=path.join(home,'plugin-data','fast-browser-link-native');
  await mkdir(dataDir,{recursive:true});
  const child=spawn(process.execPath,['-e','process.stdout.write("ready\\n");setInterval(()=>{},1000)'],{stdio:['ignore','pipe','ignore']});
  t.after(async()=>{
@@ -43,11 +43,11 @@ test('dev-sync 拒绝真实活 daemon 且不发送信号',async t=>{
   if(daemon&&daemon.exitCode===null&&daemon.signalCode===null){daemon.kill('SIGKILL');await once(daemon,'exit');}
   await rm(home,{recursive:true,force:true});
  });
- const pidFile=path.join(home,'plugin-data','browser-link-native','daemon.pid');
+ const pidFile=path.join(home,'plugin-data','fast-browser-link-native','daemon.pid');
  // 中文注释：macOS 的 AF_UNIX 路径最多 103 字节；启动前核对最终路径的 UTF-8 长度。
  const socketPath=path.join(path.dirname(pidFile),'bridge.sock');
  assert.ok(Buffer.byteLength(socketPath,'utf8')<=103,'临时 daemon 的 socket 路径超过 103 字节');
- const daemonScript=path.join(home,'plugins/browser-link/native_bridge/daemon.py');
+ const daemonScript=path.join(home,'plugins/fast-browser-link/native_bridge/daemon.py');
  await mkdir(path.dirname(daemonScript),{recursive:true});
  await cp(path.resolve('native-bridge'),path.dirname(daemonScript),{recursive:true});
  daemon=spawn(process.env.BROWSER_LINK_TEST_PYTHON||'python3',[daemonScript,'--home',home],{stdio:'ignore'});
@@ -79,10 +79,10 @@ async function syncFixture(t){
  await mkdir(path.join(repo,'scripts'),{recursive:true});
  for(const file of ['directory-swap.mjs','dev-sync-local.mjs','dev-sync-daemon.mjs','install-cli.py','install-executor.py'])
   await cp(path.resolve(import.meta.dirname,'../../scripts',file),path.join(repo,'scripts',file));
- const installed=path.join(home,'plugins/browser-link/desktop/plugin.js');
- const desktop=path.join(home,'desktop-plugins/browser-link/plugin.js');
- const extension=path.join(home,'browser-link-releases/dev');
- const data=path.join(home,'plugin-data/browser-link-native');
+ const installed=path.join(home,'plugins/fast-browser-link/desktop/plugin.js');
+ const desktop=path.join(home,'desktop-plugins/fast-browser-link/plugin.js');
+ const extension=path.join(home,'fast-browser-link-releases/dev');
+ const data=path.join(home,'plugin-data/fast-browser-link-native');
  for(const directory of [path.dirname(installed),path.dirname(desktop),extension,path.join(repo,'native-extension')])
   await mkdir(directory,{recursive:true});
  // 中文注释：与真实 daemon 一致，私有数据目录为 0700，维护标记才允许写入。
@@ -91,12 +91,12 @@ async function syncFixture(t){
  const manifest=JSON.stringify({name:'Test extension',version:'1.0.0'});
  await writeFile(path.join(extension,'manifest.json'),manifest);
  await writeFile(path.join(repo,'native-extension/manifest.json'),manifest);
- await writeFile(path.join(path.dirname(desktop),'.hermes-package.json'),JSON.stringify({package:'browser-link',source:path.dirname(installed)}));
+ await writeFile(path.join(path.dirname(desktop),'.hermes-package.json'),JSON.stringify({package:'fast-browser-link',source:path.dirname(installed)}));
  await writeFile(path.join(repo,'.dev-sync.local.json'),JSON.stringify({extensionDir:extension}));
- await mkdir(path.join(home,'plugins/browser-link/cloud_link'),{recursive:true});
- await mkdir(path.join(home,'plugins/browser-link/maintenance'),{recursive:true});
- const cloudHost=path.join(home,'plugins/browser-link/cloud_link/native_host.py');
- const cli=path.join(home,'plugins/browser-link/maintenance/install-cli.py');
+ await mkdir(path.join(home,'plugins/fast-browser-link/cloud_link'),{recursive:true});
+ await mkdir(path.join(home,'plugins/fast-browser-link/maintenance'),{recursive:true});
+ const cloudHost=path.join(home,'plugins/fast-browser-link/cloud_link/native_host.py');
+ const cli=path.join(home,'plugins/fast-browser-link/maintenance/install-cli.py');
  await cp(path.resolve(import.meta.dirname,'../../cloud-link/native_host.py'),cloudHost);
  await cp(path.join(repo,'scripts/install-cli.py'),cli);
  const hash=async file=>createHash('sha256').update(await readFile(file)).digest('hex');
@@ -106,7 +106,7 @@ async function syncFixture(t){
 import json,runpy,sys
 from pathlib import Path
 home,user_home=map(Path,sys.argv[2:])
-launcher,text,manifests=runpy.run_path(sys.argv[1])['registration'](home/'plugins/browser-link/cloud_link',user_home,home,['chrome-extension://dhioigkigkkhceflkkkmoljhdaefjohb/'],sys.executable)
+launcher,text,manifests=runpy.run_path(sys.argv[1])['registration'](home/'plugins/fast-browser-link/cloud_link',user_home,home,['chrome-extension://hhnljehnkmhhgjjjmnlhilfpcjhobloc/'],sys.executable)
 launcher.parent.mkdir(parents=True,mode=0o700)
 launcher.write_text(text);launcher.chmod(0o700)
 for file,value in manifests:
@@ -145,7 +145,7 @@ test('dev-sync 打包期间新增活动必须拒绝且目标字节和 mtime 不�
  import path from 'node:path';
  await writeFile(${JSON.stringify(path.join(f.data,'tasks.json'))},JSON.stringify({version:1,tasks:[{state:'running'}]}));
  const output=process.argv[process.argv.indexOf('--output')+1];
- const files={'browser-link/desktop/plugin.js':'new-desktop','native-extension/manifest.json':JSON.stringify({name:'Test extension',version:'1.0.0'})};
+ const files={'fast-browser-link/desktop/plugin.js':'new-desktop','native-extension/manifest.json':JSON.stringify({name:'Test extension',version:'1.0.0'})};
  const hashes={};
  for(const [name,content] of Object.entries(files)){
   await mkdir(path.dirname(path.join(output,name)),{recursive:true});await writeFile(path.join(output,name),content);
@@ -166,7 +166,7 @@ test('dev-sync 打包期间新增活动必须拒绝且目标字节和 mtime 不�
 test('dev-sync 正式守卫覆盖整个子进程并阻止真实 daemon 启动',async t=>{
  const f=await syncFixture(t);
  await writeFile(path.join(f.data,'tasks.json'),JSON.stringify({version:1,tasks:[]}),{mode:0o600});
- const bridge=path.join(f.home,'plugins/browser-link/native_bridge');
+ const bridge=path.join(f.home,'plugins/fast-browser-link/native_bridge');
  await cp(path.resolve(import.meta.dirname,'../../native-bridge'),bridge,{recursive:true});
  const result=runDevelopmentGuard(f.home,f.repo,[process.execPath,'--input-type=module','-e',`
   import {spawnSync} from 'node:child_process';
@@ -187,10 +187,10 @@ const exists=async file=>{try{await lstat(file);return true;}catch{return false;
 
 // 中文注释：从已安装路径启动真实 daemon，命令行与正式身份核对一致。
 async function startInstalledDaemon(t,home){
- const data=path.join(home,'plugin-data','browser-link-native');
+ const data=path.join(home,'plugin-data','fast-browser-link-native');
  const socketPath=path.join(data,'bridge.sock');
  assert.ok(Buffer.byteLength(socketPath,'utf8')<=103,'临时 daemon 的 socket 路径超过 103 字节');
- const script=path.join(home,'plugins/browser-link/native_bridge/daemon.py');
+ const script=path.join(home,'plugins/fast-browser-link/native_bridge/daemon.py');
  await mkdir(path.dirname(script),{recursive:true});
  await cp(path.join(REPO,'native-bridge'),path.dirname(script),{recursive:true});
  const daemon=spawn(PYTHON,[script,'--home',home],{stdio:'ignore'});
@@ -204,15 +204,15 @@ async function startInstalledDaemon(t,home){
 
 // 中文注释：替身打包器生成同步所需的最小产物与哈希清单，其余流程走真实 dev-sync。
 async function fakePackager(f){
- const cloudHost=await readFile(path.join(f.home,'plugins/browser-link/cloud_link/native_host.py'),'utf8');
- const cli=await readFile(path.join(f.home,'plugins/browser-link/maintenance/install-cli.py'),'utf8');
+ const cloudHost=await readFile(path.join(f.home,'plugins/fast-browser-link/cloud_link/native_host.py'),'utf8');
+ const cli=await readFile(path.join(f.home,'plugins/fast-browser-link/maintenance/install-cli.py'),'utf8');
  await writeFile(path.join(f.repo,'scripts/package-executor.mjs'),`
  import {mkdir,writeFile} from 'node:fs/promises';
  import {createHash} from 'node:crypto';
  import path from 'node:path';
  const output=process.argv[process.argv.indexOf('--output')+1];
- const files=${JSON.stringify({'browser-link/desktop/plugin.js':'new-desktop','browser-link/cloud_link/native_host.py':cloudHost,
-  'browser-link/maintenance/install-cli.py':cli,'native-extension/manifest.json':JSON.stringify({name:'Test extension',version:'1.0.0'})})};
+ const files=${JSON.stringify({'fast-browser-link/desktop/plugin.js':'new-desktop','fast-browser-link/cloud_link/native_host.py':cloudHost,
+  'fast-browser-link/maintenance/install-cli.py':cli,'native-extension/manifest.json':JSON.stringify({name:'Test extension',version:'1.0.0'})})};
  const hashes={};
  for(const [name,content] of Object.entries(files)){
   await mkdir(path.dirname(path.join(output,name)),{recursive:true});await writeFile(path.join(output,name),content);
@@ -239,7 +239,7 @@ test('dev-sync 一条命令：暂停 Hermes、写维护标记、停止已核实 
  assert.equal(code,0);assert.equal(signal,null);
  assert.equal(await readFile(f.installed,'utf8'),'new-desktop');
  assert.equal(await exists(path.join(f.data,'maintenance.json')),false,'同步结束必须删除维护标记');
- assert.deepEqual(await f.hermesCalls(),['pause --reason browser-link dev:sync','resume']);
+ assert.deepEqual(await f.hermesCalls(),['pause --reason fast-browser-link dev:sync','resume']);
  assert.equal(await exists(path.join(f.home,'ESTOP')),false);
 });
 
@@ -258,7 +258,7 @@ test('dev-sync 等待任务超时列出 id 与标题，不停止任何进程并�
  assert.equal(daemon.exitCode,null);assert.equal(daemon.signalCode,null);
  assert.equal(await exists(path.join(f.data,'maintenance.json')),false);
  assert.equal(await readFile(f.installed,'utf8'),'installed-sentinel');
- assert.deepEqual(await f.hermesCalls(),['pause --reason browser-link dev:sync','resume']);
+ assert.deepEqual(await f.hermesCalls(),['pause --reason fast-browser-link dev:sync','resume']);
 });
 
 test('dev-sync 开始前已暂停则不暂停也不恢复，结束后保持暂停',async t=>{
@@ -277,7 +277,7 @@ test('dev-sync 已关闭但清理未知的任务立即列出并提示 tasks:ack�
  const result=f.run(['--wait-seconds','30']);
  assert.notEqual(result.status,0);
  assert.match(result.stderr,/edge-old/);assert.match(result.stderr,/tasks:ack/);
- assert.deepEqual(await f.hermesCalls(),['pause --reason browser-link dev:sync','resume']);
+ assert.deepEqual(await f.hermesCalls(),['pause --reason fast-browser-link dev:sync','resume']);
 });
 
 test('daemon 已停止时已关闭且清理成功任务的残留历史不再阻塞守卫',async t=>{
@@ -306,7 +306,7 @@ import importlib.util,sys
 from pathlib import Path
 spec=importlib.util.spec_from_file_location('cli',sys.argv[1]);cli=importlib.util.module_from_spec(spec);spec.loader.exec_module(cli)
 cli.EXECUTOR=cli.load_module('ex',sys.argv[2])
-home=Path(sys.argv[3]);(home/'plugin-data/browser-link-native/tasks.json').write_text('{"version":1,"tasks":[{"id":"a","owner":"o","state":"closed","cleanupState":"succeeded","requestHistory":[{"state":"dispatched"}]}]}')
+home=Path(sys.argv[3]);(home/'plugin-data/fast-browser-link-native/tasks.json').write_text('{"version":1,"tasks":[{"id":"a","owner":"o","state":"closed","cleanupState":"succeeded","requestHistory":[{"state":"dispatched"}]}]}')
 try:
     cli.assert_tasks_idle(home)
 except cli.CloudGateError:
@@ -320,7 +320,7 @@ except cli.CloudGateError:
 async function ackFixture(t,tasks){
  const home=await daemonHome();
  t.after(()=>rm(home,{recursive:true,force:true}));
- const data=path.join(home,'plugin-data','browser-link-native');
+ const data=path.join(home,'plugin-data','fast-browser-link-native');
  await mkdir(data,{recursive:true,mode:0o700});
  const bytes=JSON.stringify({version:1,tasks});
  await writeFile(path.join(data,'tasks.json'),bytes,{mode:0o600});

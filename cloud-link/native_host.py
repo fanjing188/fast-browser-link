@@ -29,7 +29,7 @@ MAINTENANCE_EXIT = 5
 
 def maintenance_active(home):
     # 中文注释：开发同步的维护标记与本地桥共用；只判断存在，不跟随链接也不读取内容。
-    return os.path.lexists(home / 'plugin-data/browser-link-native/maintenance.json')
+    return os.path.lexists(home / 'plugin-data/fast-browser-link-native/maintenance.json')
 
 
 def watch_maintenance(home, stopped):
@@ -61,7 +61,7 @@ def main():
 
 
 def serve(home):
-    if len(sys.argv) < 2 or sys.argv[1] not in framing._load_allowed_origins(home / 'plugin-data/browser-link-native'):
+    if len(sys.argv) < 2 or sys.argv[1] not in framing._load_allowed_origins(home / 'plugin-data/fast-browser-link-native'):
         return 3
     write_lock = threading.Lock()
     pending = {}

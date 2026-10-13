@@ -1,6 +1,6 @@
-"""FastAPI backend for the browser-link dashboard/desktop surface.
+"""FastAPI backend for the fast-browser-link dashboard/desktop surface.
 
-Hermes mounts ``router`` below ``/api/plugins/browser-link``. The host owns
+Hermes mounts ``router`` below ``/api/plugins/fast-browser-link``. The host owns
 authentication; this module never accepts an owner from HTTP clients.
 """
 from __future__ import annotations
@@ -338,7 +338,7 @@ async def _cookie_mirror_body(request: Request):
         body = await request.json()
         if not isinstance(body, dict) or set(body) - {'source', 'target', 'sites', 'options'}:
             raise ValueError('invalid cookie selection')
-        _native_tools()._validate('browser_shared_cookie_mirror', {'action': 'request_mirror', **body})
+        _native_tools()._validate('fast_browser_cookie_mirror', {'action': 'request_mirror', **body})
         if body['source'] == body['target']:
             raise ValueError('invalid cookie target')
         # 中文注释：沿用站点白名单，重复站点在进入守护进程前拒绝。
@@ -416,7 +416,7 @@ def shared_browser_access_request(instance_id: str):
 @router.post('/shared/tasks', status_code=201, dependencies=[Depends(_shared_http_guard)])
 def shared_create(body: SharedCreateBody):
     try:
-        _native_tools()._validate('browser_shared_create', {
+        _native_tools()._validate('fast_browser_create', {
             'title': body.title, 'instance_id': body.instanceId, 'allowed_origins': body.allowedOrigins})
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc

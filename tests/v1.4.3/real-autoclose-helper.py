@@ -15,7 +15,7 @@ value = fixture.paths(work)
 if not work.is_relative_to(Path('/tmp').resolve()) or not value['plugin'].is_relative_to(work) or not (value['plugin'] / 'native_tools.py').is_file():
     raise RuntimeError('拒绝非临时验收目录')
 os.environ['HERMES_HOME'] = str(value['hermes'])
-os.environ.pop('HERMES_BROWSER_BRIDGE_HOME', None)
+os.environ.pop('FAST_BROWSER_BRIDGE_HOME', None)
 tools = fixture.load(value['plugin'] / 'native_tools.py', 'autoclose_real_tools')
 profile = tools.runtime_module().NativeProfileRuntime(value['hermes'], value['plugin'])
 

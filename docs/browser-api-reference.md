@@ -10,9 +10,9 @@
 
 ## Task lifecycle
 
-每轮 `on_session_end(completed=True)` 默认立即关闭工作页；显式设置宽限时，同会话再次调用任意 `browser_shared_*` 取消计时。失败、中断和成功映射 owner 的 `agent_loop_stopped(session_key)` 立即按 handoff 结束。
+每轮 `on_session_end(completed=True)` 默认立即关闭工作页；显式设置宽限时，同会话再次调用任意 `fast_browser_*` 取消计时。失败、中断和成功映射 owner 的 `agent_loop_stopped(session_key)` 立即按 handoff 结束。
 
-`HERMES_BROWSER_IDLE_CLOSE_SECONDS` 设置完成宽限（0 为立即关闭）；`HERMES_BROWSER_TASK_IDLE_TIMEOUT_SECONDS` 设置 ready 任务空闲上限（默认 1200 秒）。计时由常驻 daemon 管理并持久化，CLI 退出不丢失。
+`FAST_BROWSER_IDLE_CLOSE_SECONDS` 设置完成宽限（0 为立即关闭）；`FAST_BROWSER_TASK_IDLE_TIMEOUT_SECONDS` 设置 ready 任务空闲上限（默认 1200 秒）。计时由常驻 daemon 管理并持久化，CLI 退出不丢失。
 
 暂停或仍等待人工批准/敏感填写的任务免于空闲扫描。`keep_tabs=true` 仅用于本轮回复明确请用户现在去该页完成验证码、登录、核验或最终提交，或用户明确要求保留；必须传 `handoff_reason`（captcha/login/verification/final_submit/user_requested）。遇阻、结果未知、读不到或被遮挡，记录 URL 和停点后普通关闭；任务结束撤权并收组，保留这些页面和用户页面。浏览器重启后无法验证的旧创建记录不授予清理权限。
 
@@ -320,7 +320,7 @@ Wait for the same approval/manual-input request (max 300 s), without creating a 
 
 ## Tool schemas
 
-### `browser_shared_cookie_mirror`
+### `fast_browser_cookie_mirror`
 
 ```json
 {
@@ -385,7 +385,7 @@ Wait for the same approval/manual-input request (max 300 s), without creating a 
 }
 ```
 
-### `browser_shared_health`
+### `fast_browser_health`
 
 ```json
 {
@@ -399,11 +399,11 @@ Wait for the same approval/manual-input request (max 300 s), without creating a 
 }
 ```
 
-### `browser_shared_browsers`
+### `fast_browser_browsers`
 
 ```json
 {
-  "description": "仅在多实例歧义或诊断时调用；通常直接 browser_shared_open。只读列出 Chrome/Edge 实例和主要链接标记；多台可用时 browser_shared_open 优先使用已启用的主要链接。",
+  "description": "仅在多实例歧义或诊断时调用；通常直接 fast_browser_open。只读列出 Chrome/Edge 实例和主要链接标记；多台可用时 fast_browser_open 优先使用已启用的主要链接。",
   "parameters": {
     "type": "object",
     "properties": {},
@@ -413,11 +413,11 @@ Wait for the same approval/manual-input request (max 300 s), without creating a 
 }
 ```
 
-### `browser_shared_create`
+### `fast_browser_create`
 
 ```json
 {
-  "description": "在指定浏览器实例中为给定网站建任务（共享该浏览器的登录状态）。通常直接用 browser_shared_open；就绪后用 new_tab 打开工作页。详见技能 browser-link:use-my-browser。",
+  "description": "在指定浏览器实例中为给定网站建任务（共享该浏览器的登录状态）。通常直接用 fast_browser_open；就绪后用 new_tab 打开工作页。详见技能 fast-browser-link:fast-browser-link。",
   "parameters": {
     "type": "object",
     "properties": {
@@ -452,7 +452,7 @@ Wait for the same approval/manual-input request (max 300 s), without creating a 
 }
 ```
 
-### `browser_shared_list`
+### `fast_browser_list`
 
 ```json
 {
@@ -466,7 +466,7 @@ Wait for the same approval/manual-input request (max 300 s), without creating a 
 }
 ```
 
-### `browser_shared_artifacts`
+### `fast_browser_artifacts`
 
 ```json
 {
@@ -488,7 +488,7 @@ Wait for the same approval/manual-input request (max 300 s), without creating a 
 }
 ```
 
-### `browser_shared_downloads`
+### `fast_browser_downloads`
 
 ```json
 {
@@ -523,11 +523,11 @@ Wait for the same approval/manual-input request (max 300 s), without creating a 
 }
 ```
 
-### `browser_shared_run`
+### `fast_browser_run`
 
 ```json
 {
-  "description": "同一页需要两步以上（填表、翻页、采集、点击后读结果）请用一次 browser_shared_script；打开或导航后先看回执摘要，不足再读取页面；同一页不要混用 browser_exec。需要用户处理时列出标签页；会话结束会保留待处理页。在任务的工作页执行一个动作。浏览器连接授权后，普通读取、导航、写入和 Python 工作流直接执行，不逐项确认；tabs 只返回任务标签。返回 user_input_required 时，等用户处理后用相同 request_id 和参数再查一次，不要改参重发；登录弹窗 popup_adopt 直接接管，无需确认，成功回执只交付一次，不重发接管。outcome_unknown 为真时不要重试，先读页面核实。详见技能 browser-link:use-my-browser。 点击第三方登录后查看 popupOpened 和 popupNextStep；smart/full（连接授权后的全部访问）模式下内置身份提供方授权页由本任务新打开时自动接管，直接 browser_shared_use_tab 到 popupOpened.tabId 并重读页面选账号。密码、验证码、2FA 用 manual_input 请用户亲自填写。弹窗关闭时 popupClosed.returnedTo 指向源页，返回后重读，不复用旧引用。白名单外及已发现的现有登录弹窗同样无需确认；popup_catalog 保留候选后用 popup_adopt 直接接管，再 use_tab 到返回的 tabId 并读取。用 browser_shared_get 核对 generation 与 adoptedPopupTabIds；成功回执只交付一次，不重发接管。不得另开登录网址替代原弹窗，不自动移动或关闭，不授予清理权；未知或变化的授权不能重放。 所有网站的结构读取显示真实邮箱，便于找联系人或选账号；卡号、密钥、Bearer 和密码保护不变。 semantic_snapshot 不接受 sections/maxScan/schema；需要 regions/blocks/forms/collections 等分区时用 page.parse。 页面执行：连接授权后 js.evaluate / cdp.send / cdp.events 直接执行，不逐项确认。发生过凭据填写的页面不能运行任意 JS/CDP。原始脚本结果不做字段级脱敏。 read_page/page_text 返回 dict：读 page[\"items\"] / page[\"elements\"]，不能切片 dict；wait_for timeout 上限 60 秒。 JS 用 evaluate(\"(selector)=>document.querySelector(selector)?.textContent\", \"#result\") 传值；isolated 共享 DOM，不共享网站 JS 全局变量，main 需明确理由且不自动切换。 上传：files.upload 传 selector 与 paths（用户在对话中给出的本地文件路径，可用 ~）。",
+  "description": "同一页需要两步以上（填表、翻页、采集、点击后读结果）请用一次 fast_browser_script；打开或导航后先看回执摘要，不足再读取页面；同一页不要混用 browser_exec。需要用户处理时列出标签页；会话结束会保留待处理页。在任务的工作页执行一个动作。浏览器连接授权后，普通读取、导航、写入和 Python 工作流直接执行，不逐项确认；tabs 只返回任务标签。返回 user_input_required 时，等用户处理后用相同 request_id 和参数再查一次，不要改参重发；登录弹窗 popup_adopt 直接接管，无需确认，成功回执只交付一次，不重发接管。outcome_unknown 为真时不要重试，先读页面核实。详见技能 fast-browser-link:fast-browser-link。 点击第三方登录后查看 popupOpened 和 popupNextStep；smart/full（连接授权后的全部访问）模式下内置身份提供方授权页由本任务新打开时自动接管，直接 fast_browser_use_tab 到 popupOpened.tabId 并重读页面选账号。密码、验证码、2FA 用 manual_input 请用户亲自填写。弹窗关闭时 popupClosed.returnedTo 指向源页，返回后重读，不复用旧引用。白名单外及已发现的现有登录弹窗同样无需确认；popup_catalog 保留候选后用 popup_adopt 直接接管，再 use_tab 到返回的 tabId 并读取。用 fast_browser_get 核对 generation 与 adoptedPopupTabIds；成功回执只交付一次，不重发接管。不得另开登录网址替代原弹窗，不自动移动或关闭，不授予清理权；未知或变化的授权不能重放。 所有网站的结构读取显示真实邮箱，便于找联系人或选账号；卡号、密钥、Bearer 和密码保护不变。 semantic_snapshot 不接受 sections/maxScan/schema；需要 regions/blocks/forms/collections 等分区时用 page.parse。 页面执行：连接授权后 js.evaluate / cdp.send / cdp.events 直接执行，不逐项确认。发生过凭据填写的页面不能运行任意 JS/CDP。原始脚本结果不做字段级脱敏。 read_page/page_text 返回 dict：读 page[\"items\"] / page[\"elements\"]，不能切片 dict；wait_for timeout 上限 60 秒。 JS 用 evaluate(\"(selector)=>document.querySelector(selector)?.textContent\", \"#result\") 传值；isolated 共享 DOM，不共享网站 JS 全局变量，main 需明确理由且不自动切换。 上传：files.upload 传 selector 与 paths（用户在对话中给出的本地文件路径，可用 ~）。",
   "parameters": {
     "type": "object",
     "properties": {
@@ -1148,7 +1148,7 @@ Wait for the same approval/manual-input request (max 300 s), without creating a 
 }
 ```
 
-### `browser_shared_get`
+### `fast_browser_get`
 
 ```json
 {
@@ -1189,7 +1189,7 @@ Wait for the same approval/manual-input request (max 300 s), without creating a 
 }
 ```
 
-### `browser_shared_cancel`
+### `fast_browser_cancel`
 
 ```json
 {
@@ -1211,7 +1211,7 @@ Wait for the same approval/manual-input request (max 300 s), without creating a 
 }
 ```
 
-### `browser_shared_resume`
+### `fast_browser_resume`
 
 ```json
 {
@@ -1233,11 +1233,11 @@ Wait for the same approval/manual-input request (max 300 s), without creating a 
 }
 ```
 
-### `browser_shared_close`
+### `fast_browser_close`
 
 ```json
 {
-  "description": "关闭任务并关掉它新建的工作页；结果看 cleanupState。每轮成功完成默认立即关闭工作页并收组；显式设置完成宽限时，同会话 browser_shared_* 调用取消计时；失败或中断立即按 handoff 结束。keep_tabs=true 仅用于本轮回复明确请用户现在去该页完成一步，必须同时传 handoff_reason（captcha/login/verification/final_submit/user_requested）。遇阻、结果未知、读不到或遮挡时记录 URL 和停点后普通关闭；真正交接时：撤销任务权限、移除遮罩并收组，但不关页面，cleanupReason 为 handed_to_user。cleanup_action=status 只读核实；仅当状态为 pending 且 cleanupRemainingCount 大于 0 时可用 retry。unknown 或 failed 不满足重试门禁，不能重试删页。不会关闭用户自己的页面。",
+  "description": "关闭任务并关掉它新建的工作页；结果看 cleanupState。每轮成功完成默认立即关闭工作页并收组；显式设置完成宽限时，同会话 fast_browser_* 调用取消计时；失败或中断立即按 handoff 结束。keep_tabs=true 仅用于本轮回复明确请用户现在去该页完成一步，必须同时传 handoff_reason（captcha/login/verification/final_submit/user_requested）。遇阻、结果未知、读不到或遮挡时记录 URL 和停点后普通关闭；真正交接时：撤销任务权限、移除遮罩并收组，但不关页面，cleanupReason 为 handed_to_user。cleanup_action=status 只读核实；仅当状态为 pending 且 cleanupRemainingCount 大于 0 时可用 retry。unknown 或 failed 不满足重试门禁，不能重试删页。不会关闭用户自己的页面。",
   "parameters": {
     "type": "object",
     "properties": {
@@ -1275,11 +1275,11 @@ Wait for the same approval/manual-input request (max 300 s), without creating a 
 }
 ```
 
-### `browser_shared_script`
+### `fast_browser_script`
 
 ```json
 {
-  "description": "同一页两步以上时，在本会话已就绪的任务中运行一次 Python 脚本并读回核对（填表、翻页、提取、保存）。脚本内可用 new_tab、goto_url、read_page、wait_for_element、click_element、fill_element、scroll、semantic_snapshot、screenshot、reconcile、wait_pending 等函数，连接授权后普通动作直接执行，仍校验任务归属与租约；同一页可跨站，定位失败自动恢复。page_text/read_page 返回 dict，读 elements/items 字段，不能切片 dict；wait_for timeout 上限 60 秒，先检查 satisfied。JS 用 evaluate(function, arguments) 传值。stdout 只打印目标项、coverage、计数和文件路径，大提取物保存在脚本工作区。用法与模板见技能 browser-link:batch-scrape。",
+  "description": "同一页两步以上时，在本会话已就绪的任务中运行一次 Python 脚本并读回核对（填表、翻页、提取、保存）。脚本内可用 new_tab、goto_url、read_page、wait_for_element、click_element、fill_element、scroll、semantic_snapshot、screenshot、reconcile、wait_pending 等函数，连接授权后普通动作直接执行，仍校验任务归属与租约；同一页可跨站，定位失败自动恢复。page_text/read_page 返回 dict，读 elements/items 字段，不能切片 dict；wait_for timeout 上限 60 秒，先检查 satisfied。JS 用 evaluate(function, arguments) 传值。stdout 只打印目标项、coverage、计数和文件路径，大提取物保存在脚本工作区。用法与模板见技能 fast-browser-link:fast-browser-batch-scrape。",
   "parameters": {
     "type": "object",
     "properties": {
@@ -1306,11 +1306,11 @@ Wait for the same approval/manual-input request (max 300 s), without creating a 
 }
 ```
 
-### `browser_shared_open`
+### `fast_browser_open`
 
 ```json
 {
-  "description": "一步开始浏览器工作：按显式 instance_id、主要链接、环境默认值或唯一实例选择浏览器，为该网址的网站建立或复用本会话任务，等待授权、绑定会话并打开工作标签页。同源默认复用当前工作页；new_task=true 才新建任务。回执默认含可直接用于 ref 动作的摘要，read_intent=content 读正文，interactive 读控件；loading 时 summary_missing.reason=page_loading，按 read_hint 在原页有界等待后读取。多步页面操作用一次 browser_shared_script，单步用 browser_shared_run；同一页不要混用 browser_exec。",
+  "description": "一步开始浏览器工作：按显式 instance_id、主要链接、环境默认值或唯一实例选择浏览器，为该网址的网站建立或复用本会话任务，等待授权、绑定会话并打开工作标签页。同源默认复用当前工作页；new_task=true 才新建任务。回执默认含可直接用于 ref 动作的摘要，read_intent=content 读正文，interactive 读控件；loading 时 summary_missing.reason=page_loading，按 read_hint 在原页有界等待后读取。多步页面操作用一次 fast_browser_script，单步用 fast_browser_run；同一页不要混用 browser_exec。",
   "parameters": {
     "type": "object",
     "properties": {
@@ -1360,7 +1360,7 @@ Wait for the same approval/manual-input request (max 300 s), without creating a 
 }
 ```
 
-### `browser_shared_use_tab`
+### `fast_browser_use_tab`
 
 ```json
 {
@@ -1488,7 +1488,7 @@ Wait for the same approval/manual-input request (max 300 s), without creating a 
 }
 ```
 
-### `browser_shared_reference`
+### `fast_browser_reference`
 
 ```json
 {
@@ -1508,7 +1508,7 @@ Wait for the same approval/manual-input request (max 300 s), without creating a 
 }
 ```
 
-### `browser_shared_doctor`
+### `fast_browser_doctor`
 
 ```json
 {

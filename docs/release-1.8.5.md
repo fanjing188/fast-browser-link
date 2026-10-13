@@ -1,10 +1,10 @@
-# Hermes Browser Link 1.8.5
+# Fast-browser-link 1.8.5
 
 1.8.5 为 macOS 正式稳定版，修复任务结束后工作页被过度保留，并提升页面元素点击、填写和选择的稳定性。
 
 ## 任务结束与工作页
 
-- `browser_shared_close(keep_tabs=true)` 必须同时传 `handoff_reason`（captcha、login、verification、final_submit、user_requested），缺失或不合法时拒绝，任务保持原状态。
+- `fast_browser_close(keep_tabs=true)` 必须同时传 `handoff_reason`（captcha、login、verification、final_submit、user_requested），缺失或不合法时拒绝，任务保持原状态。
 - 工具说明改为：只有本轮明确请用户立即在该页完成一步时才保留页面；遇阻、结果未知、读不到或被遮挡时记录 URL 和停点后普通关闭。
 - 交接原因写入任务记录并在清理回执中返回。清理状态区分日志恢复异常（`workspace_unknown`）与缺少创建记录（`no_journal`），不扩大标签页清理权限。
 
@@ -20,7 +20,7 @@
 
 ## 安装
 
-下载 `hermes-browser-link-1.8.5.zip`，解压后运行 `./install.sh`；已有安装运行 `./install.sh --upgrade`。更新后重载 Chrome/Edge 扩展，并重新加载或重启 Hermes 插件运行时。安装包无需 Node.js。
+下载 `fast-browser-link-1.8.5.zip`，解压后运行 `./install.sh`；已有安装运行 `./install.sh --upgrade`。更新后重载 Chrome/Edge 扩展，并重新加载或重启 Hermes 插件运行时。安装包无需 Node.js。
 
 ## 验证范围
 

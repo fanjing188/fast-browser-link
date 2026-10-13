@@ -25,7 +25,7 @@ CLOUD_ACTIONS = native_tools.PUBLIC_ACTIONS - {
 
 def schemas():
     # 中文注释：复制已有契约，避免修改本地工具的共享 schema 对象。
-    result = json.loads(json.dumps({suffix: native_tools.TOOL_SCHEMAS['browser_shared_' + suffix]['parameters']
+    result = json.loads(json.dumps({suffix: native_tools.TOOL_SCHEMAS['fast_browser_' + suffix]['parameters']
                                    for suffix in TOOL_SUFFIXES}))
     create = result['create']
     del create['properties']['instance_id']

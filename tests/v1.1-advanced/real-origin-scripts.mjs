@@ -13,10 +13,10 @@ try{
  const executor={tasks:new Map([[task.id,task]]),leases:new Map([[7,task.id]]),allowed(_task,url){if(new URL(url).origin!==allowed)throw Error('origin denied');},api:{tabs:{get:async()=>({url:await client.evaluate('location.href')})},debugger:{sendCommand:async(_target,method,params)=>{if(method==='Page.addScriptToEvaluateOnNewDocument')registrations++;return client.call(method,params);}}}};
  await client.call('Page.enable');
  const runtime=new PageRuntime(executor);let denied=false;
- try{await runtime.send(task,{tabId:7,method:'Page.addScriptToEvaluateOnNewDocument',params:{source:'globalThis.__hermesAuditPersisted=1'}},()=>{});}
+ try{await runtime.send(task,{tabId:7,method:'Page.addScriptToEvaluateOnNewDocument',params:{source:'globalThis.__fastAuditPersisted=1'}},()=>{});}
  catch(error){assert.equal(error.message,'CDP_METHOD_DENIED');denied=true;}
  await client.call('Page.navigate',{url:outside+'/'});await waitFor(()=>client.evaluate(`location.origin===${JSON.stringify(outside)}&&document.readyState==='complete'`));
- const executed=await client.evaluate('globalThis.__hermesAuditPersisted===1');
+ const executed=await client.evaluate('globalThis.__fastAuditPersisted===1');
  console.log(JSON.stringify({browser,version:session.version.Browser,registrations,denied,executedOutside:executed}));
  assert.equal(executed,false,'持久脚本不能在任务范围外执行');
 }finally{await session?.close();for(const s of servers)await new Promise(resolve=>s.close(resolve));}

@@ -44,7 +44,7 @@ async function mcp(store, request) {
   // 中文注释：每次 HTTP 创建独立实例，业务状态统一保存在 D1，身份由 Sites 平台注入。
   const handler = createMcpHandler(() => {
     // 中文注释：版本取自包元数据；云端无法获知对话结束，要求调用方结束前关闭并核实回执。
-    const server = new McpServer({ name: 'hermes-browser-link-cloud', version: packageInfo.version },
+    const server = new McpServer({ name: 'fast-browser-link-cloud', version: packageInfo.version },
       { instructions: '每个对话独立创建浏览器任务。完成网页任务后、回复用户之前，必须调用 cloud_browser_close，并用 cloud_browser_result 核实 state=closed 和 cleanupState。需要用户继续操作时才设置 keep_tabs=true。关闭结果未知时只查询状态，不重放动作。' });
     for (const definition of toolDefinitions) server.registerTool(definition.name, {
       description: definition.description, inputSchema: fromJsonSchema(definition.inputSchema, validator),

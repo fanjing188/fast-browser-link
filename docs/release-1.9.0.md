@@ -1,4 +1,4 @@
-# Hermes Browser Link 1.9.0
+# Fast-browser-link 1.9.0
 
 macOS 版本，适用于已登录的 Chrome / Edge。日期：2026-10-09。
 
@@ -17,7 +17,7 @@ macOS 版本，适用于已登录的 Chrome / Edge。日期：2026-10-09。
 
 ## 安装
 
-下载本版本的 `hermes-browser-link-1.9.0.zip`，不要下载 GitHub 自动生成的 Source code ZIP。解压后运行 `./install.sh`；已有安装运行 `./install.sh --upgrade`。安装包无需 Node.js，需要 Python 3.11+ 和 Hermes；源码安装另需 Node.js 22.12+。Hermes 验证版本为 0.21.4。
+下载本版本的 `fast-browser-link-1.9.0.zip`，不要下载 GitHub 自动生成的 Source code ZIP。解压后运行 `./install.sh`；已有安装运行 `./install.sh --upgrade`。安装包无需 Node.js，需要 Python 3.11+ 和 Hermes；源码安装另需 Node.js 22.12+。Hermes 验证版本为 0.21.4。
 
 加载安装器打印的扩展目录，在扩展中确认连接授权；更新后分别重载 Chrome / Edge 扩展，并重启使用该插件的 Hermes 会话。安装完成不等于浏览器已连接，文件更新不等于旧会话已生效。
 

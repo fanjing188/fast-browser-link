@@ -24,7 +24,7 @@ export async function readyState(executor,task,p,guard) {
  const tree=await executor.checkedFrameTree(target,task,guard,false);
  if(origin(tree.frame.url)!==origin(tab.url))throw Error('DOCUMENT_CHANGED');
  const world=await executor.api.debugger.sendCommand(target,'Page.createIsolatedWorld',{
-  frameId:tree.frame.id,worldName:'hermes-official-ready-state',grantUniveralAccess:false});guard();
+  frameId:tree.frame.id,worldName:'fast-official-ready-state',grantUniveralAccess:false});guard();
  const receipt=await executor.api.debugger.sendCommand(target,'Runtime.callFunctionOn',{
   executionContextId:world.executionContextId,
   functionDeclaration:'function(){return document.readyState}',arguments:[],returnByValue:true});guard();

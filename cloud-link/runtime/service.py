@@ -44,7 +44,7 @@ class CloudService:
         self.request_browser = request_browser
         self.notify = notify
         self.published = None
-        self.base = self.home / 'plugin-data/browser-link-cloud'
+        self.base = self.home / 'plugin-data/fast-browser-link-cloud'
         self.directory = self.base / 'instances' / instance_id
         private_directory(self.directory)
         self.lock_fd = os.open(self.directory / 'native.lock', os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)

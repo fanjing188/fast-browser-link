@@ -23,7 +23,7 @@ await verifyPackageVersions(root);
 const manifest = JSON.parse(await readFile(path.join(root, 'native-extension/manifest.json'), 'utf8'));
 // 中文注释：公钥固定扩展身份，防止路径变更或构建过程意外改变宿主允许来源。
 const extensionId = createHash('sha256').update(Buffer.from(manifest.key, 'base64')).digest('hex').slice(0,32).replace(/[0-9a-f]/g, c => String.fromCharCode(97 + parseInt(c,16)));
-if (extensionId !== 'dhioigkigkkhceflkkkmoljhdaefjohb') throw Error('Extension key does not match the fixed host identity');
+if (extensionId !== 'hhnljehnkmhhgjjjmnlhilfpcjhobloc') throw Error('Extension key does not match the fixed host identity');
 if (manifest.manifest_version !== 3 || !manifest.permissions.includes('nativeMessaging')) throw Error('Invalid native manifest');
 for (const relative of [manifest.background.service_worker, manifest.action.default_popup]) {
   if (!(await stat(path.join(root, 'native-extension', relative))).isFile()) throw Error(`Missing ${relative}`);

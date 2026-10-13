@@ -3,11 +3,11 @@
 const PANEL = 'approval-panel.html';
 // 中文注释：调试命令可能附带多个子框架来源，审批按钮须保留可见空间。
 const WIDTH = 420, HEIGHT = 450;
-const NOTIFICATION = 'hermes-browser-approval';
+const NOTIFICATION = 'fast-browser-approval';
 
 // 中文注释：系统通知只提醒打开扩展面板，不携带网站、任务、浏览器标识或 Cookie 值。
 export async function showPanelNotification(chrome,id,message) {
- try { await chrome.notifications.create(id,{type:'basic',iconUrl:chrome.runtime.getURL('icon-128.png'),title:'Hermes Browser Link 需要你确认',message}); }
+ try { await chrome.notifications.create(id,{type:'basic',iconUrl:chrome.runtime.getURL('icon-128.png'),title:'Fast-browser-link 需要你确认',message}); }
  catch { /* 中文注释：系统禁用通知时保留面板和角标，不能把提醒失败解释为批准。 */ }
 }
 export async function clearPanelNotification(chrome,id) {
@@ -40,7 +40,7 @@ const identity = r => JSON.stringify([r.instanceId,r.taskId,r.generation,r.modeG
 export function createApprovalNotifier({chrome,instanceId,now=()=>Date.now(),panelPath=PANEL}={}) {
  if (!chrome?.runtime?.id || panelPath !== PANEL || !instanceId) throw Error('invalid notifier setup');
  const requests = new Map(), attempted = new Map(), settled = new Map(); let active=null, panel=null, serial=Promise.resolve(), disposed=false;
- const badge = async () => { const count=requests.size,unknown=[...requests.values()].some(r=>r.unknown);await chrome.action?.setBadgeText?.({text:unknown?'!':count?String(count):''}); await chrome.action?.setTitle?.({title:unknown?'浏览器批准结果待核查':count?'有待处理的浏览器批准':'Hermes 浏览器'}); };
+ const badge = async () => { const count=requests.size,unknown=[...requests.values()].some(r=>r.unknown);await chrome.action?.setBadgeText?.({text:unknown?'!':count?String(count):''}); await chrome.action?.setTitle?.({title:unknown?'浏览器批准结果待核查':count?'有待处理的浏览器批准':'Fast-browser-link 浏览器'}); };
  const close = async () => { const old=panel;panel=null;if(old){await clearPanelNotification(chrome,NOTIFICATION);try{await chrome.windows.remove(old.windowId);}catch{}} };
  async function display() {
   if(disposed || active || panel)return;

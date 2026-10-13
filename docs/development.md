@@ -46,16 +46,16 @@ docs/                   Documentation
 
 `npm run dev:sync` copies the current source into your local Hermes plugin directory and your already-loaded extension directory, so you can try changes in your real browser.
 
-1. Create `.dev-sync.local.json` (ignored by Git) with the extension directory that Chrome and Edge currently load. The development sync helper accepts an existing directory under `$HERMES_HOME/browser-link-releases/` (the standard Hermes home is used when unset):
+1. Create `.dev-sync.local.json` (ignored by Git) with the extension directory that Chrome and Edge currently load. The development sync helper accepts an existing directory under `$HERMES_HOME/fast-browser-link-releases/` (the standard Hermes home is used when unset):
 
    ```json
    {"extensionDir": "/absolute/path/to/native-extension"}
    ```
 
 2. Run `npm run dev:sync`. One command performs the whole local deployment; you do not need to quit the browsers, stop the Hermes gateway, edit `tasks.json` or reload the extension by hand:
-   1. It runs `hermes pause --reason "browser-link dev:sync"` so Hermes starts no new work. If Hermes was already paused (`$HERMES_HOME/ESTOP` exists) it neither pauses nor resumes. `BROWSER_LINK_HERMES` selects a different `hermes` executable.
+   1. It runs `hermes pause --reason "fast-browser-link dev:sync"` so Hermes starts no new work. If Hermes was already paused (`$HERMES_HOME/ESTOP` exists) it neither pauses nor resumes. `BROWSER_LINK_HERMES` selects a different `hermes` executable.
    2. It polls `tasks.json` until every task is `closed`, `cancelled` or `failed` with cleanup `succeeded`. The limit is 300 seconds; change it with `--wait-seconds <n>` or `BROWSER_LINK_DEV_SYNC_WAIT_SECONDS`. On timeout it lists the unfinished task ids and titles and exits without stopping any process. A task that already ended but whose cleanup is `unknown` or `failed` is listed at once, because waiting will not change it (see step 4 below).
-   3. It writes the maintenance marker `$HERMES_HOME/plugin-data/browser-link-native/maintenance.json` (0600, private directory, links refused). While it exists the Native host and plugin client do not start the daemon, a daemon started anyway exits immediately, and cloud hosts close themselves and release their instance locks. The extension waits for its regular 30-second reconnect instead of retrying quickly.
+   3. It writes the maintenance marker `$HERMES_HOME/plugin-data/fast-browser-link-native/maintenance.json` (0600, private directory, links refused). While it exists the Native host and plugin client do not start the daemon, a daemon started anyway exits immediately, and cloud hosts close themselves and release their instance locks. The extension waits for its regular 30-second reconnect instead of retrying quickly.
    4. It sends SIGTERM only to a daemon whose PID file and command line match this installation, waits for it to exit by itself, and waits for the cloud instance locks to be released. Unknown processes are refused and never signalled.
    5. It packages the source and, under the formal installation locks, updates the shared root program once plus the extension and Desktop UI cache. Named profile references follow the root without being replaced. Old profile copies must first be migrated with `./install.sh --upgrade`; unknown, indirect or linked ancestor paths are rejected before writing targets. A temporary backup is kept only if the sync fails.
    6. Whether the sync succeeded or failed, it removes the maintenance marker, runs `hermes resume` (unless Hermes was paused before), and reloads Hermes plugins.
@@ -91,16 +91,16 @@ See [product modules](product-modules.zh-CN.md) for source ownership and limits.
 
 ## Installation internals
 
-`install.sh` uses the existing package verifier and transactional installer. Default output shows the extension directory needed for loading; `--verbose` also shows the Hermes/plugin directories and upgrade backup path. Resolve a profile-shaped `HERMES_HOME` to the shared root: one regular program lives in `<shared-root>/plugins/browser-link/`, named profiles use direct links in `<shared-root>/profiles/<name>/plugins/browser-link/`, and the extension lives in `<shared-root>/browser-link-releases/native-extension/`. Profile enablement, capabilities and private data remain isolated; the native connection is shared. Upgrade backups live outside plugin registries in `<shared-root>/plugin-backups/`, retaining original node types and link targets. Hermes Desktop materializes its existing application-level UI cache separately.
+`install.sh` uses the existing package verifier and transactional installer. Default output shows the extension directory needed for loading; `--verbose` also shows the Hermes/plugin directories and upgrade backup path. Resolve a profile-shaped `HERMES_HOME` to the shared root: one regular program lives in `<shared-root>/plugins/fast-browser-link/`, named profiles use direct links in `<shared-root>/profiles/<name>/plugins/fast-browser-link/`, and the extension lives in `<shared-root>/fast-browser-link-releases/native-extension/`. Profile enablement, capabilities and private data remain isolated; the native connection is shared. Upgrade backups live outside plugin registries in `<shared-root>/plugin-backups/`, retaining original node types and link targets. Hermes Desktop materializes its existing application-level UI cache separately.
 
 Hermes `VALID_HOOKS` controls lifecycle callback registration. Unsupported callbacks are skipped without warnings; daemon task-idle cleanup remains active. The required owner-lease and authorization checks are unchanged. Version numbers describe tested environments rather than an installation gate; unknown version output is left to the actual activation command.
 
 Manual operators can build with `node scripts/package-executor.mjs --output out/manual-package` and use the package's lower-level installer:
 
 ```sh
-python3 install-executor.py --extension-origin chrome-extension://dhioigkigkkhceflkkkmoljhdaefjohb/
-python3 install-executor.py --extension-origin chrome-extension://dhioigkigkkhceflkkkmoljhdaefjohb/ --apply
-hermes --profile default plugins enable browser-link
+python3 install-executor.py --extension-origin chrome-extension://hhnljehnkmhhgjjjmnlhilfpcjhobloc/
+python3 install-executor.py --extension-origin chrome-extension://hhnljehnkmhhgjjjmnlhilfpcjhobloc/ --apply
+hermes --profile default plugins enable fast-browser-link
 ```
 
 The first command returns a plan; apply returns `installed_disabled` and activation is separate. This lower-level interface installs only the root and refuses existing installations; use `install.sh` for shared profile references and `install.sh --upgrade` for replacement. Manual operators still handle extension loading and app restart. Neither installation interface grants optional `tools.override` or Vault access. See [security](../SECURITY.md#extension-identity-and-installation-packages) for identity and checksum checks, and [testing](testing.md) for isolated acceptance.

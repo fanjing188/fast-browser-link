@@ -1,4 +1,4 @@
-"""browser_shared_script: the plugin's own Python batch tool.
+"""fast_browser_script: the plugin's own Python batch tool.
 
 Runs model-written Python in a fresh interpreter against the session's bound
 native task, without touching Hermes' browser_exec. The child gets a scrubbed
@@ -17,7 +17,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-TOOL_NAME = 'browser_shared_script'
+TOOL_NAME = 'fast_browser_script'
 MAX_CODE_CHARS = 200_000
 MAX_OUTPUT_CHARS = 20_000
 DEFAULT_TIMEOUT_S = 720
@@ -27,7 +27,7 @@ SCHEMA = {
     'description': (
         '同一页两步以上时，在本会话已就绪的任务中运行一次 Python 脚本并读回核对（填表、翻页、提取、保存）。脚本内可用 new_tab、goto_url、'
         'read_page、wait_for_element、click_element、fill_element、scroll、semantic_snapshot、screenshot、reconcile、wait_pending 等函数，'
-        '连接授权后普通动作直接执行，仍校验任务归属与租约；同一页可跨站，定位失败自动恢复。page_text/read_page 返回 dict，读 elements/items 字段，不能切片 dict；wait_for timeout 上限 60 秒，先检查 satisfied。JS 用 evaluate(function, arguments) 传值。stdout 只打印目标项、coverage、计数和文件路径，大提取物保存在脚本工作区。用法与模板见技能 browser-link:batch-scrape。'),
+        '连接授权后普通动作直接执行，仍校验任务归属与租约；同一页可跨站，定位失败自动恢复。page_text/read_page 返回 dict，读 elements/items 字段，不能切片 dict；wait_for timeout 上限 60 秒，先检查 satisfied。JS 用 evaluate(function, arguments) 传值。stdout 只打印目标项、coverage、计数和文件路径，大提取物保存在脚本工作区。用法与模板见技能 fast-browser-link:fast-browser-batch-scrape。'),
     'parameters': {
         'type': 'object',
         'properties': {
@@ -67,7 +67,7 @@ def _valid_checkpoint(value):
 def workspace_for(hermes_home: Path, owner: str) -> Path:
     """One private directory per trusted session owner; never model-chosen."""
     digest = hashlib.sha256(owner.encode('utf-8')).hexdigest()[:24]
-    root = Path(hermes_home) / 'plugin-data' / 'browser-link-native' / 'scripts'
+    root = Path(hermes_home) / 'plugin-data' / 'fast-browser-link-native' / 'scripts'
     path = root / digest
     for directory in (root, path, path / 'tmp'):
         directory.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -144,8 +144,8 @@ def run_script(bridge, *, session_id, tool_call_id, workspace: Path, code: str, 
     env = {
         'PATH': os.defpath, 'HOME': str(workspace), 'TMPDIR': str(workspace / 'tmp'),
         'LANG': 'C.UTF-8', 'PYTHONIOENCODING': 'utf-8', 'PYTHONDONTWRITEBYTECODE': '1',
-        'HERMES_BROWSER_FD': str(launch.fd),
-        'HERMES_BROWSER_EXPORT_ROOTS': export_roots,
+        'FAST_BROWSER_FD': str(launch.fd),
+        'FAST_BROWSER_EXPORT_ROOTS': export_roots,
     }
     child = Path(__file__).with_name('child.py')
     process = None
@@ -182,13 +182,13 @@ def run_script(bridge, *, session_id, tool_call_id, workspace: Path, code: str, 
 
 def _export_roots(shared_home: Path):
     # 中文注释：进程环境优先；非默认 profile 读取共享桥接 home 的 .env。
-    configured = os.environ.get('HERMES_BROWSER_EXPORT_ROOTS')
+    configured = os.environ.get('FAST_BROWSER_EXPORT_ROOTS')
     if configured is not None:
         return configured
     try:
         for line in (Path(shared_home) / '.env').read_text(encoding='utf-8').splitlines():
             key, separator, value = line.strip().partition('=')
-            if separator and key.strip() == 'HERMES_BROWSER_EXPORT_ROOTS':
+            if separator and key.strip() == 'FAST_BROWSER_EXPORT_ROOTS':
                 return value.strip().strip('"\'')
     except (OSError, UnicodeError):
         pass
@@ -228,14 +228,14 @@ def make_handler(bridge, authority, hermes_home: Path, *, lease_error, bridge_de
             if getattr(error, 'code', None) == 'task_paused':
                 return _error('用户已接管，任务已暂停；请等待用户继续，不会自动重试。', 'task_paused')
             return _error('当前会话没有就绪的共享浏览器任务，或同一会话已有脚本在运行；'
-                          '请先用 browser_shared_create/get 让任务就绪。', 'binding_missing')
+                          '请先用 fast_browser_create/get 让任务就绪。', 'binding_missing')
         return json.dumps(result, ensure_ascii=False)
     return handler
 
 
 def register(ctx, bridge, runtime, hermes_home: Path, *, lease_error, bridge_denied):
     runtime.authority.lease_tools((TOOL_NAME,))
-    ctx.register_tool(name=TOOL_NAME, toolset='browser-link', schema=SCHEMA,
+    ctx.register_tool(name=TOOL_NAME, toolset='fast-browser-link', schema=SCHEMA,
                       handler=make_handler(bridge, runtime.authority, hermes_home,
                                            lease_error=lease_error, bridge_denied=bridge_denied,
                                            shared_home=runtime.bridge_home),

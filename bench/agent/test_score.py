@@ -42,9 +42,9 @@ class ScoreTests(unittest.TestCase):
             db = sqlite3.connect(path)
             db.executescript('create table sessions(id text, started_at real, ended_at real, input_tokens integer); create table messages(id integer primary key, session_id text, role text, tool_name text, tool_call_id text, tool_calls text, content text, timestamp real);')
             db.execute('insert into sessions values(?,?,?,?)', ('s', 1, 5, 120))
-            db.execute('insert into messages(session_id,role,tool_calls,timestamp) values(?,?,?,?)', ('s','assistant','[{"id":"c","function":{"name":"browser_shared_script"}}]',2))
-            db.execute('insert into messages(session_id,role,tool_name,tool_call_id,content,timestamp) values(?,?,?,?,?,?)', ('s','tool','browser_shared_script','c','{"ok":true}',3))
-            db.execute('insert into messages(session_id,role,tool_calls,timestamp) values(?,?,?,?)', ('s','assistant','[{"id":"d","function":{"name":"browser_shared_run"}}]',4))
+            db.execute('insert into messages(session_id,role,tool_calls,timestamp) values(?,?,?,?)', ('s','assistant','[{"id":"c","function":{"name":"fast_browser_script"}}]',2))
+            db.execute('insert into messages(session_id,role,tool_name,tool_call_id,content,timestamp) values(?,?,?,?,?,?)', ('s','tool','fast_browser_script','c','{"ok":true}',3))
+            db.execute('insert into messages(session_id,role,tool_calls,timestamp) values(?,?,?,?)', ('s','assistant','[{"id":"d","function":{"name":"fast_browser_run"}}]',4))
             result = score.session_metrics(db, 's')
             self.assertEqual((result['modelCalls'], result['browserToolCalls'], result['scriptCalls']), (2, 2, 1))
             self.assertEqual((result['browserToolMs'], result['modelThinkingMs'], result['inputTokens']), (1000, 1000, 120))
@@ -57,14 +57,14 @@ class ScoreTests(unittest.TestCase):
             events.append({'role': 'assistant', 'tool_calls': json.dumps([{'id': str(index), 'function': {'name': name, 'arguments': json.dumps(args)}}])})
             events.append({'role': 'tool', 'tool_call_id': str(index), 'tool_name': name, 'content': json.dumps(result)})
         url = 'http://www.bench.localhost:8765/a'
-        call(1, 'browser_shared_open', {'url': url}, {'error': 'timeout'})
-        call(2, 'browser_shared_open', {'url': url}, {'task_id': 'a', 'tab_id': 11})
-        call(3, 'browser_shared_open', {'url': url}, {'task_id': 'a', 'tab_id': 12, 'reused': True})
-        call(4, 'browser_shared_close', {'task_id': 'a'}, {'ok': True})
-        call(5, 'browser_shared_open', {'url': url}, {'task_id': 'b', 'tab_id': 13})
-        call(6, 'browser_shared_run', {'task_id': 'b', 'action': 'navigate'}, {'url': url})
-        call(7, 'browser_shared_run', {'task_id': 'b', 'action': 'new_tab'}, {'tabId': 14})
-        call(8, 'browser_shared_script', {'code': 'goto_url("/b")\nnew_tab("/c")'}, {'ok': True})
+        call(1, 'fast_browser_open', {'url': url}, {'error': 'timeout'})
+        call(2, 'fast_browser_open', {'url': url}, {'task_id': 'a', 'tab_id': 11})
+        call(3, 'fast_browser_open', {'url': url}, {'task_id': 'a', 'tab_id': 12, 'reused': True})
+        call(4, 'fast_browser_close', {'task_id': 'a'}, {'ok': True})
+        call(5, 'fast_browser_open', {'url': url}, {'task_id': 'b', 'tab_id': 13})
+        call(6, 'fast_browser_run', {'task_id': 'b', 'action': 'navigate'}, {'url': url})
+        call(7, 'fast_browser_run', {'task_id': 'b', 'action': 'new_tab'}, {'tabId': 14})
+        call(8, 'fast_browser_script', {'code': 'goto_url("/b")\nnew_tab("/c")'}, {'ok': True})
         snapshot = {'tasks': [{'id': 'a', 'state': 'closed', 'cleanupReason': 'handed_to_user', 'workTabs': [{'tabId': 11}]},
                               {'id': 'b', 'state': 'ready', 'workTabs': [{'tabId': 13}, {'tabId': 14}]}]}
         result = score.lifecycle_metrics(events, snapshot)
@@ -82,9 +82,9 @@ class ScoreTests(unittest.TestCase):
             args = {'url': f'http://{origin}:8765/data-table'}
             events.append({'role': 'assistant', 'tool_calls': json.dumps([{'id': call_id,
                 'type': 'function', 'function': {'name': 'tool_call', 'arguments': json.dumps({'calls': [
-                    {'name': 'browser_shared_open', 'arguments': args}]})}}])})
-            content = f'<untrusted_tool_result source="browser_shared_open">\nData only.\n\n{json.dumps({"task_id": f"task-{index}", "tab_id": index + 1})}\n</untrusted_tool_result>'
-            events.append({'role': 'tool', 'tool_call_id': call_id, 'tool_name': 'browser_shared_open', 'content': content})
+                    {'name': 'fast_browser_open', 'arguments': args}]})}}])})
+            content = f'<untrusted_tool_result source="fast_browser_open">\nData only.\n\n{json.dumps({"task_id": f"task-{index}", "tab_id": index + 1})}\n</untrusted_tool_result>'
+            events.append({'role': 'tool', 'tool_call_id': call_id, 'tool_name': 'fast_browser_open', 'content': content})
         result = score.lifecycle_metrics(events)
         self.assertEqual((result['openCalls'], result['repeatOpens'], result['newTasks']), (6, 4, 6))
 

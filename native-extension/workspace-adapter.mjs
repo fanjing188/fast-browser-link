@@ -13,7 +13,7 @@ export class NativeWorkspaces {
   this.recovered=new Map();
   this.ready=(async()=>{
    await this.manager.ready;
-   const journal=(await api.storage.local.get('hermes.backgroundWorkspaces.v1'))['hermes.backgroundWorkspaces.v1'];
+   const journal=(await api.storage.local.get('fast.backgroundWorkspaces.v1'))['fast.backgroundWorkspaces.v1'];
    if(journal?.instance!==instance)return;
    // 中文注释：只从扩展 local 日志恢复清理句柄，读取须等待启动撤权屏障。
    const entries=journal.tasks.map(([key,t])=>({key,t,id:JSON.parse(key)})).sort((a,b)=>a.id[3]-b.id[3]);
@@ -81,7 +81,7 @@ export class NativeWorkspaces {
  async status(){
   await this.ready;
   await this.manager.reconcile();
-  const journal=(await this.api.storage.local.get('hermes.backgroundWorkspaces.v1'))['hermes.backgroundWorkspaces.v1'];
+  const journal=(await this.api.storage.local.get('fast.backgroundWorkspaces.v1'))['fast.backgroundWorkspaces.v1'];
   return (journal?.tasks||[]).map(([key,t])=>{const [, ,taskId,generation]=JSON.parse(key),requests=t.requests.map(([,r])=>r),unknown=requests.filter(r=>r.status==='unknown'||r.status==='pending').length;
    return {taskId,generation,state:unknown?'unknown':journal.preserved?.includes(key)?'preserved':journal.cancelled.includes(key)?'cancelled':'ready',unknown,tabs:requests.filter(r=>Number.isInteger(r.tabId)).map(r=>({tabId:r.tabId,windowId:t.windowId,groupId:r.groupId??null,state:r.status}))};});
  }

@@ -138,9 +138,9 @@ class ArtifactApiTests(unittest.TestCase):
                         raise AssertionError((method, params))
 
                 app = FastAPI()
-                app.include_router(api.router, prefix="/api/plugins/browser-link")
+                app.include_router(api.router, prefix="/api/plugins/fast-browser-link")
                 with patch.object(api, "_native_profile_runtime", return_value=Runtime()), TestClient(app) as client:
-                    url = "/api/plugins/browser-link/shared/tasks/task-api/artifacts"
+                    url = "/api/plugins/fast-browser-link/shared/tasks/task-api/artifacts"
                     # 中文注释：HTTP 只携带用户选择的文件字节和明确来源，不接收任何本地路径。
                     uploaded = client.post(url, params={"origin": "https://example.test"},
                                            files={"file": ("chosen.txt", b"selected", "text/plain")})
@@ -162,7 +162,7 @@ class ArtifactApiTests(unittest.TestCase):
                 sys.modules[runtime_spec.name] = runtime
                 try:
                     runtime_spec.loader.exec_module(runtime)
-                    projected = runtime._project_tool_result("browser_shared_artifacts", {"task_id": "task-api"},
+                    projected = runtime._project_tool_result("fast_browser_artifacts", {"task_id": "task-api"},
                         [{**uploaded.json(), "path": "/private/secret"}])
                     self.assertEqual(projected, [uploaded.json()])
                     self.assertNotIn("/private/secret", str(projected))

@@ -57,11 +57,11 @@ def _int(value, default=-1):
 
 
 def _staged_path(path, key: str) -> Path:
-    """浏览器写入的暂存文件必须恰好位于 hermes-tasks/<任务下载键>/ 下，且为本用户的普通文件。"""
+    """浏览器写入的暂存文件必须恰好位于 fast-browser-tasks/<任务下载键>/ 下，且为本用户的普通文件。"""
     if not isinstance(path, str) or not path.startswith("/") or len(path) > 4096 or "\x00" in path:
         raise DownloadError("DOWNLOAD_PATH_DENIED")
     candidate = Path(path)
-    if candidate.parent.name != key or candidate.parent.parent.name != "hermes-tasks":
+    if candidate.parent.name != key or candidate.parent.parent.name != "fast-browser-tasks":
         raise DownloadError("DOWNLOAD_PATH_DENIED")
     for item in (candidate.parent.parent, candidate.parent):
         if item.is_symlink() or not item.is_dir():
@@ -86,7 +86,7 @@ class DownloadRegistry:
     """每个任务的下载元信息保存在任务记录的私有字段 ``downloads``。"""
 
     def __init__(self, home: Path, clock=time.time):
-        self.root = Path(home).resolve() / "plugin-data" / "browser-link-native" / "downloads"
+        self.root = Path(home).resolve() / "plugin-data" / "fast-browser-link-native" / "downloads"
         self.clock = clock
 
     @staticmethod

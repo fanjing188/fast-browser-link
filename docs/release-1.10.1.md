@@ -1,4 +1,4 @@
-# Hermes Browser Link 1.10.1
+# Fast-browser-link 1.10.1
 
 macOS 版本，适用于已登录的 Chrome / Edge。日期：2026-10-11。修复 1.10.0 的两个问题，建议 1.10.0 用户升级。
 
@@ -11,7 +11,7 @@ macOS 版本，适用于已登录的 Chrome / Edge。日期：2026-10-11。修�
 
 ## 安装
 
-下载本版本的 `hermes-browser-link-1.10.1.zip`，不要下载 GitHub 自动生成的 Source code ZIP。解压后运行 `./install.sh`；已有安装运行 `./install.sh --upgrade`。更新后重载 Chrome / Edge 扩展，并重启使用该插件的 Hermes 会话。
+下载本版本的 `fast-browser-link-1.10.1.zip`，不要下载 GitHub 自动生成的 Source code ZIP。解压后运行 `./install.sh`；已有安装运行 `./install.sh --upgrade`。更新后重载 Chrome / Edge 扩展，并重启使用该插件的 Hermes 会话。
 
 ## 验证范围
 

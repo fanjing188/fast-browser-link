@@ -123,7 +123,9 @@ class VaultAdapterTests(unittest.TestCase):
 
     def test_override_keeps_unbound_official_handler(self):
         # 中文注释：已绑定任务使用私有适配器；未绑定会话仍调用 Hermes 原 Vault 工具。
-        entries = {name: types.SimpleNamespace(is_async=False, handler=lambda args, **kwargs: "official")
+        entries = {name: types.SimpleNamespace(is_async=False, handler=lambda args, **kwargs: "official",
+                                             toolset="browser", schema={"name": name, "parameters": {"type": "object", "properties": {}}},
+                                             check_fn=lambda: False, requires_env=[], description="official", emoji="🔐")
                    for name in VAULT_TOOL_NAMES}
         registry = types.SimpleNamespace(get_entry=lambda name: entries[name])
         tools = types.ModuleType("tools")
@@ -153,7 +155,7 @@ class VaultAdapterTests(unittest.TestCase):
 
         context = Context()
         profile = types.SimpleNamespace(authority=Authority())
-        bindings = types.SimpleNamespace(claims=lambda session: session == "session", close=lambda: None)
+        bindings = types.SimpleNamespace(claims=lambda session: session == "session", close=lambda: None, has_bindings=lambda: False)
         adapted = types.SimpleNamespace(invoke=lambda name, args, **kwargs: "private")
         with patch.dict(sys.modules, {"tools": tools, "tools.registry": registry_module,
                                       "tools.browser_vault_tool": official_module}):
@@ -161,6 +163,12 @@ class VaultAdapterTests(unittest.TestCase):
                                              lease_arg="_lease", lease_error=ValueError)
         self.assertEqual(set(names), set(VAULT_TOOL_NAMES))
         self.assertTrue(profile.authority.passthrough)
+        for tool in context.tools.values():
+            self.assertEqual(tool['toolset'], 'browser')
+            self.assertEqual(tool['requires_env'], [])
+            self.assertFalse(tool['check_fn']())
+        bindings.has_bindings = lambda: True
+        self.assertTrue(context.tools['browser_vault_list']['check_fn']())
         handler = context.tools["browser_vault_fill"]["handler"]
         self.assertTrue(context.tools["browser_vault_fill"]["override"])
         self.assertEqual(handler({"handle": "login", "_lease": "token"}, session_id="session"), "private")

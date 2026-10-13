@@ -1,11 +1,11 @@
 <!doctype html>
 <html lang="zh-CN">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Hermes 浏览器连接</title><link rel="stylesheet" href="popup.css"></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Fast-browser-link 浏览器连接</title><link rel="stylesheet" href="popup.css"></head>
 <body>
 <main class="popup">
   <!-- 中文注释：版本从当前扩展 manifest 读取，右上角同时保留连接状态。 -->
-  <header class="header"><div class="brand">Hermes <span>浏览器</span></div><div class="header-meta"><span id="version-label" aria-label="扩展版本"></span><span id="connection-label" aria-label="连接状态" aria-live="polite">检查中</span></div></header>
-  <section class="connection-card" id="connection-card"><p id="connection-detail" class="detail"></p><button id="connect" type="button" aria-describedby="connection-detail" hidden>连接 Hermes</button></section>
+  <header class="header"><div class="brand">Fast-browser-link <span>浏览器</span></div><div class="header-meta"><span id="version-label" aria-label="扩展版本"></span><span id="connection-label" aria-label="连接状态" aria-live="polite">检查中</span></div></header>
+  <section class="connection-card" id="connection-card"><p id="connection-detail" class="detail"></p><button id="connect" type="button" aria-describedby="connection-detail" hidden>连接 Fast-browser-link</button></section>
   <!-- 中文注释：连接确认即授予任务页直接访问，不再提供独立权限开关。 -->
   <section class="access-row" aria-labelledby="access-label">
     <div><h2 id="access-label">任务页访问</h2><p id="access-detail" class="detail" aria-live="polite">连接状态待确认。</p><p class="detail">授权仅限任务页，无须逐站或逐项审批。保留接管、停止和任务隔离；密码输入值不回显。</p></div>

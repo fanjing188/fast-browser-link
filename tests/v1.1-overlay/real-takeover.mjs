@@ -12,7 +12,7 @@ try{
  const second=await session.rpc(a.owner,'run',{task_id:a.task.id,request_id:'second',action:'new_tab',url:origin+'/second'});
  const b=await openTask(session,{owner:'session-b',origins:[origin],url:origin+'/other',title:'任务乙'});
  await a.run('snapshot');await session.rpc(a.owner,'run',{task_id:a.task.id,request_id:'snapshot-second',action:'snapshot',tab_id:second.tabId});await b.run('snapshot');
- const pointers=tabId=>session.readPage(tabId,`document.querySelector('[data-hermes-automation-overlay]')?.style.pointerEvents`);
+ const pointers=tabId=>session.readPage(tabId,`document.querySelector('[data-fast-automation-overlay]')?.style.pointerEvents`);
  const taskState=()=>session.rpc(a.owner,'get',{task_id:a.task.id}).then(t=>t.state);
  // 中文注释：每个状态等待都记录具体等待点及最后读数，失败时可直接定位弹窗、任务或遮罩。
  const until=(label,read,ready=Boolean)=>waitFor(read,15000,{label,ready});

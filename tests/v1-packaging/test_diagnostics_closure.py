@@ -67,7 +67,7 @@ class DiagnosticsClosureTests(unittest.TestCase):
     def build(self):
         result = self.package()
         self.assertEqual(result.returncode, 0, result.stderr)
-        return self.output / 'browser-link/native_bridge'
+        return self.output / 'fast-browser-link/native_bridge'
 
     def probe(self, runtime, label):
         # 中文注释：只隔离 Hermes 数据，测试子进程保留用户 HOME。
@@ -106,11 +106,11 @@ class DiagnosticsClosureTests(unittest.TestCase):
             self.assertEqual(record['sha256'], digest)
             self.assertEqual(sums['native-extension/' + name], digest)
             self.assertEqual(hashlib.sha256((ROOT / record['source']).read_bytes()).hexdigest(), digest)
-            packaged_source = record['source'] if record['source'].startswith('native-extension/') else 'browser-link/' + record['source']
+            packaged_source = record['source'] if record['source'].startswith('native-extension/') else 'fast-browser-link/' + record['source']
             self.assertEqual(sums[packaged_source], digest)
         for name, digest in sums.items():
             self.assertEqual(hashlib.sha256((self.output / name).read_bytes()).hexdigest(), digest, name)
-        runtime = 'browser-link/native_bridge/browser_diagnostics/'
+        runtime = 'fast-browser-link/native_bridge/browser_diagnostics/'
         for name in FILES:
             self.assertEqual(sums[runtime + name], hashlib.sha256((ROOT / DIAG / name).read_bytes()).hexdigest())
 
@@ -145,9 +145,9 @@ class DiagnosticsClosureTests(unittest.TestCase):
         before = manifest_path.read_bytes()
         sums = json.loads(before)
         for name in private_names:
-            self.assertNotIn('browser-link/browser-interactions/' + name, sums)
-            self.assertNotIn('browser-link/native_bridge/browser_diagnostics/' + name, sums)
-        self.assertEqual({p.name for p in (self.output / 'browser-link/native_bridge/browser_diagnostics').iterdir()}, set(FILES))
+            self.assertNotIn('fast-browser-link/browser-interactions/' + name, sums)
+            self.assertNotIn('fast-browser-link/native_bridge/browser_diagnostics/' + name, sums)
+        self.assertEqual({p.name for p in (self.output / 'fast-browser-link/native_bridge/browser_diagnostics').iterdir()}, set(FILES))
         result = self.package(source)
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(manifest_path.read_bytes(), before)
@@ -179,7 +179,7 @@ class DiagnosticsClosureTests(unittest.TestCase):
         runtime = self.build()
         result = subprocess.run([sys.executable, '-I', '-B', str(runtime / 'install.py'),
                                  'stage', '--home', str(self.root / 'staged-home'),
-                                 '--extension-origin', 'chrome-extension://dhioigkigkkhceflkkkmoljhdaefjohb/'],
+                                 '--extension-origin', 'chrome-extension://hhnljehnkmhhgjjjmnlhilfpcjhobloc/'],
                                 cwd=self.root, capture_output=True, text=True, timeout=30)
         self.assertEqual(result.returncode, 0, result.stderr)
         host_bin = Path(json.loads(result.stdout)['host']).parent

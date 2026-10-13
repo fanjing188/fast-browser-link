@@ -28,7 +28,7 @@ from browser_diagnostics import JsonlDiagnosticSink  # noqa: E402
 from daemon import BridgeDaemon, ProtocolError  # noqa: E402
 
 API_PATH = PLUGIN_ROOT / "dashboard" / "plugin_api.py"
-PREFIX = "/api/plugins/browser-link/shared/tasks"
+PREFIX = "/api/plugins/fast-browser-link/shared/tasks"
 TASK_ID = "task-diagnostics-A"
 INSTANCE_ID = "instance-diagnostics-A"
 SECRET_URL = "https://private.invalid/path?token=diagnostics-secret"
@@ -124,7 +124,7 @@ class DiagnosticsDaemonIntegrationTests(unittest.TestCase):
         self.daemon._flush_tasks()
 
         app = FastAPI()
-        app.include_router(self.api.router, prefix="/api/plugins/browser-link")
+        app.include_router(self.api.router, prefix="/api/plugins/fast-browser-link")
         self.client = TestClient(app)
         setattr(self.api, "_native_profile_runtime", lambda: self.runtime)
 

@@ -14,7 +14,7 @@ import sys
 import tempfile
 import unicodedata
 
-HOST='com.hermes.browser_link'
+HOST='com.fast.browser_link'
 
 
 def reject_normalized_collisions(paths):
@@ -48,44 +48,44 @@ def verify_package_layout(package, files):
     if actual_directories!=directories:
         raise ValueError('安装包目录布局与文件清单不一致')
     roots={name.split('/')[0] for name in files}
-    expected_roots={'browser-link','native-extension','docs','LICENSE',
+    expected_roots={'fast-browser-link','native-extension','docs','LICENSE',
                     'README.md','INSTALL.txt','RELEASE-STATUS.txt','install-executor.py',
                     'SHA256SUMS.json','install-cli.py','install.sh'}
     if roots!=expected_roots:
         raise ValueError('安装包顶层布局无效')
     required={
-        'browser-link/plugin.yaml',
-        'browser-link/__init__.py',
-        'browser-link/runtime.py',
-        'browser-link/native_tools.py',
+        'fast-browser-link/plugin.yaml',
+        'fast-browser-link/__init__.py',
+        'fast-browser-link/runtime.py',
+        'fast-browser-link/native_tools.py',
         # 中文注释：维护入口及其当前安装器属于运行闭包，不能发布缺少校验器的自动更新组件。
-        'browser-link/maintenance/update.py',
-        'browser-link/maintenance/install-cli.py',
-        'browser-link/maintenance/install-executor.py',
-        'browser-link/open_tool.py',
-        'browser-link/skills/use-my-browser/SKILL.md',
-        'browser-link/script_lane/host_bridge.py',
-        'browser-link/script_lane/action_session.py',
-        'browser-link/script_lane/child.py',
-        'browser-link/script_lane/tool.py',
-        'browser-link/native_bridge/host.py',
-        'browser-link/native_bridge/client.py',
+        'fast-browser-link/maintenance/update.py',
+        'fast-browser-link/maintenance/install-cli.py',
+        'fast-browser-link/maintenance/install-executor.py',
+        'fast-browser-link/open_tool.py',
+        'fast-browser-link/skills/fast-browser-link/SKILL.md',
+        'fast-browser-link/script_lane/host_bridge.py',
+        'fast-browser-link/script_lane/action_session.py',
+        'fast-browser-link/script_lane/child.py',
+        'fast-browser-link/script_lane/tool.py',
+        'fast-browser-link/native_bridge/host.py',
+        'fast-browser-link/native_bridge/client.py',
         # 中文注释：宿主启动依赖独立 Cookie 内存通道。
-        'browser-link/native_bridge/cookie_mirror.py',
-        'browser-link/native_bridge/daemon.py',
-        'browser-link/native_bridge/api_client.py',
+        'fast-browser-link/native_bridge/cookie_mirror.py',
+        'fast-browser-link/native_bridge/daemon.py',
+        'fast-browser-link/native_bridge/api_client.py',
         # 中文注释：安装前核实私有凭据通道两个模块齐全。
-        'browser-link/native_bridge/vault_private.py',
-        'browser-link/native_bridge/vault_client.py',
+        'fast-browser-link/native_bridge/vault_private.py',
+        'fast-browser-link/native_bridge/vault_client.py',
         # 中文注释：官方 Vault 适配器四个模块必须与私有通道一起安装。
-        'browser-link/vault_adapter/__init__.py',
-        'browser-link/vault_adapter/adapter.py',
-        'browser-link/vault_adapter/integration.py',
-        'browser-link/vault_adapter/official_source.py',
-        'browser-link/native_bridge/browser_diagnostics/__init__.py',
-        'browser-link/native_bridge/browser_diagnostics/schema.py',
-        'browser-link/native_bridge/browser_diagnostics/runtime.py',
-        'browser-link/native_bridge/browser_diagnostics/sink.py',
+        'fast-browser-link/vault_adapter/__init__.py',
+        'fast-browser-link/vault_adapter/adapter.py',
+        'fast-browser-link/vault_adapter/integration.py',
+        'fast-browser-link/vault_adapter/official_source.py',
+        'fast-browser-link/native_bridge/browser_diagnostics/__init__.py',
+        'fast-browser-link/native_bridge/browser_diagnostics/schema.py',
+        'fast-browser-link/native_bridge/browser_diagnostics/runtime.py',
+        'fast-browser-link/native_bridge/browser_diagnostics/sink.py',
         'native-extension/manifest.json',
         'docs/python-scripting.md',
         'docs/CHANGELOG.md',
@@ -164,7 +164,7 @@ def verify_package(package):
 
 
 def verify_installed(target,manifest):
-    prefix='browser-link/'
+    prefix='fast-browser-link/'
     expected={name[len(prefix):]:digest for name,digest in manifest.items() if name.startswith(prefix)}
     actual=set()
     actual_dirs=set()
@@ -220,16 +220,16 @@ def install(package, user_home, hermes_home, origins, *, apply=False):
     hermes_home=Path(os.path.abspath(Path(hermes_home).expanduser()))
     reject_package_symlinks(package)
     # 安装前先确认候选包存在，避免复制阶段抛出缺少上下文的文件错误。
-    if not (package/'browser-link/plugin.yaml').is_file():
-        raise ValueError('安装包缺少 browser-link/plugin.yaml')
+    if not (package/'fast-browser-link/plugin.yaml').is_file():
+        raise ValueError('安装包缺少 fast-browser-link/plugin.yaml')
     origins=list(dict.fromkeys(origins))
     if not origins or any(not re.fullmatch(r'chrome-extension://[a-p]{32}/',o) for o in origins):
         raise ValueError('必须提供浏览器扩展实际的精确 origin，不允许通配符')
     # 中文注释：固定身份不允许通过安装参数放行其他扩展。
-    if origins != ['chrome-extension://dhioigkigkkhceflkkkmoljhdaefjohb/']:
+    if origins != ['chrome-extension://hhnljehnkmhhgjjjmnlhilfpcjhobloc/']:
         raise ValueError("扩展来源必须匹配 manifest key 固定 ID")
 
-    with tempfile.TemporaryDirectory(prefix='browser-link-stage-') as scratch:
+    with tempfile.TemporaryDirectory(prefix='fast-browser-link-stage-') as scratch:
         staged=Path(scratch)/'release'
         # Preserve symlinks so validation rejects them instead of following them.
         shutil.copytree(package,staged,symlinks=True)
@@ -238,7 +238,7 @@ def install(package, user_home, hermes_home, origins, *, apply=False):
 
 
 def _install_verified(package,user_home,hermes_home,origins,manifest,*,apply):
-    source=package/'browser-link'
+    source=package/'fast-browser-link'
     extension_manifest=package/'native-extension/manifest.json'
     if not extension_manifest.is_file(): raise ValueError('安装包缺少 native-extension/manifest.json')
     try:
@@ -250,8 +250,8 @@ def _install_verified(package,user_home,hermes_home,origins,manifest,*,apply):
             or any(part in ('','.','..') for part in worker.split('/'))
             or not (package/'native-extension'/worker).is_file()):
         raise ValueError('安装包缺少 native-extension 入口: '+str(worker))
-    target=hermes_home/'plugins/browser-link'
-    data=hermes_home/'plugin-data/browser-link-native'
+    target=hermes_home/'plugins/fast-browser-link'
+    data=hermes_home/'plugin-data/fast-browser-link-native'
     launcher=data/HOST
     manifests=[user_home/'Library/Application Support'/browser/'NativeMessagingHosts'/f'{HOST}.json' for browser in ['Google/Chrome','Microsoft Edge']]
     # 中文注释：新云端注册纳入同一安装事务，不覆盖原本地注册，也不重启原服务。
@@ -287,7 +287,7 @@ def _install_verified(package,user_home,hermes_home,origins,manifest,*,apply):
             f.write(text)
         os.chmod(launcher,0o700)
         config_value={'allowedOrigins':origins}
-        native_manifest={'name':HOST,'description':'Hermes Browser Link native bridge','path':str(launcher),'type':'stdio','allowed_origins':origins}
+        native_manifest={'name':HOST,'description':'Fast-browser-link native bridge','path':str(launcher),'type':'stdio','allowed_origins':origins}
         for p,value in [(config,config_value),*((p,native_manifest) for p in manifests)]:
             make_directories(p.parent,created_dirs)
             fd=os.open(p,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)

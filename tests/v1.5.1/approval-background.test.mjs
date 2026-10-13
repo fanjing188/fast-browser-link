@@ -57,19 +57,19 @@ test('Cookie 镜像和人工输入均保留后台面板；通知按类型提示�
 test('通知点击只聚焦当前绑定面板，不能批准或操作无关窗口',async()=>{
  const h=fixture();await h.notifier.sync([h.request]);const count=h.calls.length;
  await h.notifier.notificationClicked('foreign');assert.equal(h.calls.length,count);
- h.allowFocus();await h.notifier.notificationClicked('hermes-browser-approval');
+ h.allowFocus();await h.notifier.notificationClicked('fast-browser-approval');
  assert.equal(h.notifier.panel().focusConfirmed,true);
  assert.equal(h.calls.filter(c=>c[0]==='focus').at(-1)[1],20);
  assert.equal(h.notifier.pending().length,1);assert.equal(h.notifier.view().id,h.request.id);
  await h.notifier.sync([]);const after=h.calls.length;
- await h.notifier.notificationClicked('hermes-browser-approval');assert.equal(h.calls.length,after);
+ await h.notifier.notificationClicked('fast-browser-approval');assert.equal(h.calls.length,after);
 });
 
 test('过期通知点击无效，通知被系统禁用仍保留面板、角标和待确认状态',async()=>{
  const h=fixture({notificationFails:true});await h.notifier.sync([h.request]);
  assert.equal(h.notifier.status().panelOpen,true);assert.equal(h.notifier.status().pendingCount,1);
  assert.equal(h.calls.find(c=>c[0]==='badge')[1].text,'1');
- h.expire();const count=h.calls.length;await h.notifier.notificationClicked('hermes-browser-approval');
+ h.expire();const count=h.calls.length;await h.notifier.notificationClicked('fast-browser-approval');
  assert.equal(h.calls.length,count);await h.notifier.sync([]);assert.equal(h.notifier.panel(),null);
 });
 

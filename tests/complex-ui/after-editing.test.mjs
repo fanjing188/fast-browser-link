@@ -257,10 +257,10 @@ test('S4 非空目标只规范 CRLF，额外换行或空白仍不一致，清空
 
 test('S1 同版本旧语义实例缺少共用可见性函数时重新安装并撤销旧引用',()=>{
  const f=fixture();try{
-  const binding={taskId:'task',documentId:'doc',leaseId:'lease'},old=f.call('semantic_snapshot',{binding}),prior=f.w.__hermesNativeSemanticsV2.semantics;
+  const binding={taskId:'task',documentId:'doc',leaseId:'lease'},old=f.call('semantic_snapshot',{binding}),prior=f.w.__fastNativeSemanticsV2.semantics;
   prior.interactionVisibility=undefined;
   const next=f.call('semantic_snapshot',{binding});
   assert.notEqual(next.snapshotId,old.snapshotId);assert.equal(prior.stats().activeRefs,0);
-  assert.equal(typeof f.w.__hermesNativeSemanticsV2.semantics.interactionVisibility,'function');
+  assert.equal(typeof f.w.__fastNativeSemanticsV2.semantics.interactionVisibility,'function');
  }finally{f.close();}
 });

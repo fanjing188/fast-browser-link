@@ -75,7 +75,7 @@ def hold_daemon_lock(data):
 
 
 def acknowledge(home, task_id, reason, env, *, stop_daemon=False):
-    data = home / 'plugin-data/browser-link-native'
+    data = home / 'plugin-data/fast-browser-link-native'
     CLI.EXECUTOR.reject_target_symlinks([data])
     if not data.is_dir():
         raise InstallError('找不到桥接数据目录。', '核对 HERMES_HOME 后重试。')

@@ -24,12 +24,12 @@ import sys
 import tempfile
 import time
 
-HOST = 'com.hermes.browser_link'
-EXTENSION_ID = 'dhioigkigkkhceflkkkmoljhdaefjohb'
+HOST = 'com.fast.browser_link'
+EXTENSION_ID = 'hhnljehnkmhhgjjjmnlhilfpcjhobloc'
 ORIGIN = f'chrome-extension://{EXTENSION_ID}/'
 TESTED_HERMES = (0, 21, 4)
 MIN_NODE = (22, 12, 0)
-CLOUD_FENCE_HOST_SHA256 = '549d0d6a066220fb52420c8d500b13306dd9196a0280e832ef972cc3c8b526f3'
+CLOUD_FENCE_HOST_SHA256 = 'b4fdff88285d6a1fcb4e9b8d846cf294663fbeb369a3463ed52ad57dde37fcb5'
 ROOT = Path(__file__).resolve().parent
 if ROOT.name == 'scripts':
     ROOT = ROOT.parent
@@ -97,7 +97,7 @@ def idle_cloud(home):
 
 
 def inspect_cloud(home, descriptors):
-    base = home / 'plugin-data/browser-link-cloud'
+    base = home / 'plugin-data/fast-browser-link-cloud'
     EXECUTOR.reject_target_symlinks([base])
     if not os.path.lexists(base):
         return
@@ -134,8 +134,8 @@ def inspect_cloud(home, descriptors):
 
 
 def cloud_fence_metadata(home):
-    host = home / 'plugins/browser-link/cloud_link/native_host.py'
-    installer = home / 'plugins/browser-link/maintenance/install-cli.py'
+    host = home / 'plugins/fast-browser-link/cloud_link/native_host.py'
+    installer = home / 'plugins/fast-browser-link/maintenance/install-cli.py'
     if not host.is_file() or not installer.is_file():
         return None
     source, installer_source = host.read_bytes(), installer.read_bytes()
@@ -151,10 +151,10 @@ def cloud_fence_metadata(home):
 
 
 def assert_cloud_fenced(home):
-    state = home / 'plugin-data/browser-link-native/install-state.json'
+    state = home / 'plugin-data/fast-browser-link-native/install-state.json'
     try:
-        EXECUTOR.reject_target_symlinks([state, home / 'plugins/browser-link/cloud_link/native_host.py',
-                                        home / 'plugins/browser-link/maintenance/install-cli.py'])
+        EXECUTOR.reject_target_symlinks([state, home / 'plugins/fast-browser-link/cloud_link/native_host.py',
+                                        home / 'plugins/fast-browser-link/maintenance/install-cli.py'])
         info = state.lstat()
         if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) & 0o077:
             raise cloud_refusal()
@@ -184,7 +184,7 @@ def validated_cloud_launcher(home, user_home):
 
 
 def check_cloud_launcher(home, user_home):
-    launcher = home / 'plugin-data/browser-link-cloud' / (HOST + '.cloud')
+    launcher = home / 'plugin-data/fast-browser-link-cloud' / (HOST + '.cloud')
     manifests = registrations(user_home, HOST + '.cloud')
     EXECUTOR.reject_target_symlinks([launcher, *manifests])
     directory_info = launcher.parent.lstat()
@@ -199,7 +199,7 @@ def check_cloud_launcher(home, user_home):
     python = source.partition('\n')[0].removeprefix('#!')
     if not Path(python).is_absolute() or not os.access(python, os.X_OK):
         raise cloud_refusal()
-    root = home / 'plugins/browser-link/cloud_link'
+    root = home / 'plugins/fast-browser-link/cloud_link'
     expected = (f'#!{python}\n# 中文注释：独立云端 Native 入口，不启动本地 daemon。\n'
                 'import os,runpy,sys\n'
                 f"os.environ['HERMES_HOME']={str(home)!r}\n"
@@ -355,13 +355,13 @@ def installed_profiles(home):
     root = home / 'profiles'
     EXECUTOR.reject_target_symlinks([root])
     names = []
-    if (home / 'plugins/browser-link').exists():
+    if (home / 'plugins/fast-browser-link').exists():
         names.append('default')
     if root.is_dir():
         for profile in sorted(root.iterdir()):
             EXECUTOR.reject_target_symlinks([profile, profile / 'plugins'])
-            target = profile / 'plugins/browser-link'
-            desktop = profile / 'desktop-plugins/browser-link'
+            target = profile / 'plugins/fast-browser-link'
+            desktop = profile / 'desktop-plugins/fast-browser-link'
             if target.exists() or target.is_symlink() or desktop.exists() or desktop.is_symlink():
                 names.append(profile.name)
     return names
@@ -370,18 +370,18 @@ def installed_profiles(home):
 def check_program_path(path, home):
     EXECUTOR.reject_target_symlinks([path.parent])
     if path.is_symlink():
-        root = home / 'plugins/browser-link'
+        root = home / 'plugins/fast-browser-link'
         raw_destination = path.parent / os.readlink(path)
         EXECUTOR.reject_target_symlinks([raw_destination])
         destination = Path(os.path.abspath(raw_destination))
         if (path == root or destination != root or root.is_symlink() or not root.is_dir() or not path.is_dir()):
             raise InstallError('插件引用不是直接共享根链接 / Unsafe plugin reference.',
-                               '核对引用；只允许直接指向根 plugins/browser-link。')
+                               '核对引用；只允许直接指向根 plugins/fast-browser-link。')
         return
     EXECUTOR.reject_target_symlinks([path])
     assert_regular_tree(path)
     if path.exists():
-        if not path.is_dir() or not re.search(r'^name:\s*browser-link\s*$',
+        if not path.is_dir() or not re.search(r'^name:\s*fast-browser-link\s*$',
                                             (path / 'plugin.yaml').read_text(), re.M):
             raise InstallError('旧插件身份无效 / Invalid installed plugin.', '核对 plugin.yaml 后重试。')
         installed_version(path)
@@ -392,15 +392,15 @@ def probe_references(home, profiles):
     for name in profiles:
         if name == 'default':
             continue
-        target = profile_home(home, name) / 'plugins/browser-link'
+        target = profile_home(home, name) / 'plugins/fast-browser-link'
         parent = target.parent
         while not parent.exists():
             parent = parent.parent
         try:
-            with tempfile.TemporaryDirectory(prefix='.browser-link-probe-', dir=parent) as scratch:
+            with tempfile.TemporaryDirectory(prefix='.fast-browser-link-probe-', dir=parent) as scratch:
                 link = Path(scratch) / 'reference'
-                link.symlink_to(home / 'plugins/browser-link', target_is_directory=True)
-                if os.readlink(link) != str(home / 'plugins/browser-link'):
+                link.symlink_to(home / 'plugins/fast-browser-link', target_is_directory=True)
+                if os.readlink(link) != str(home / 'plugins/fast-browser-link'):
                     raise OSError('unexpected reference')
                 link.unlink()
         except OSError as error:
@@ -437,7 +437,7 @@ def verify_extension(path):
 
 def verify_extension_tree(path, manifest):
     # 中文注释：扩展与插件都核对完整文件集合和目录布局。
-    converted = {'browser-link/' + name.removeprefix('native-extension/'): digest
+    converted = {'fast-browser-link/' + name.removeprefix('native-extension/'): digest
                  for name, digest in manifest.items() if name.startswith('native-extension/')}
     EXECUTOR.verify_installed(path, converted)
     verify_extension(path)
@@ -449,31 +449,31 @@ def registrations(user_home, host=HOST):
 
 
 def managed_paths(home, user_home, profiles):
-    data = home / 'plugin-data/browser-link-native'
+    data = home / 'plugin-data/fast-browser-link-native'
     # 中文注释：原生宿主共用根目录；每个选中 profile 保留自己的插件启停配置。
-    programs = [home / 'plugins/browser-link', home / 'browser-link-releases/native-extension']
-    programs += [profile_home(home, name) / 'plugins/browser-link' for name in profiles if name != 'default']
+    programs = [home / 'plugins/fast-browser-link', home / 'fast-browser-link-releases/native-extension']
+    programs += [profile_home(home, name) / 'plugins/fast-browser-link' for name in profiles if name != 'default']
     for name in dict.fromkeys(['default', *profiles]):
-        desktop = profile_home(home, name) / 'desktop-plugins/browser-link'
+        desktop = profile_home(home, name) / 'desktop-plugins/fast-browser-link'
         if desktop.exists():
             marker = desktop / '.hermes-package.json'
-            if not marker.is_file() or json.loads(marker.read_text()).get('package') != 'browser-link':
+            if not marker.is_file() or json.loads(marker.read_text()).get('package') != 'fast-browser-link':
                 raise InstallError('桌面插件副本来源不明 / Unknown desktop plugin copy.',
                                    '核对 .hermes-package.json 后重试。')
         programs.append(desktop)
     files = [data / HOST, data / 'host-config.json', data / 'install-state.json', *registrations(user_home)]
     # 中文注释：云端程序注册随升级备份、回滚和卸载；配对与日志目录仍是本地私有数据。
-    files += [home / 'plugin-data/browser-link-cloud' / (HOST + '.cloud'), *registrations(user_home, HOST + '.cloud')]
+    files += [home / 'plugin-data/fast-browser-link-cloud' / (HOST + '.cloud'), *registrations(user_home, HOST + '.cloud')]
     return programs, files
 
 
 def activate(hermes, home, profiles, action, env):
     for name in profiles:
-        result = command([hermes, '--profile', name, 'plugins', action, 'browser-link'],
+        result = command([hermes, '--profile', name, 'plugins', action, 'fast-browser-link'],
                          {**env, 'HERMES_HOME': str(home)}, timeout=300)
         if result.returncode:
             raise InstallError(f'插件{action}失败 / Plugin {action} failed (profile: {name}).',
-                               f'运行 hermes --profile {name} plugins {action} browser-link 检查原因。')
+                               f'运行 hermes --profile {name} plugins {action} fast-browser-link 检查原因。')
 
 
 TERMINAL_TASK_STATES = {'closed', 'cancelled', 'failed'}
@@ -481,7 +481,7 @@ MAINTENANCE_MARKER = 'maintenance.json'
 
 
 def private_task_files(home):
-    data = home / 'plugin-data/browser-link-native'
+    data = home / 'plugin-data/fast-browser-link-native'
     tasks, journal = data / 'tasks.json', data / 'requests.jsonl'
     EXECUTOR.reject_target_symlinks([tasks, journal])
     for path in (tasks, journal):
@@ -541,7 +541,7 @@ def assert_daemon_stopped(home, env):
 
 def verified_daemon_pid(home, env):
     # 中文注释：只承认 PID 文件私有且命令行与本安装 daemon 完全一致的进程；未知进程一律拒绝。
-    data = home / 'plugin-data/browser-link-native'
+    data = home / 'plugin-data/fast-browser-link-native'
     pid_path = data / 'daemon.pid'
     EXECUTOR.reject_target_symlinks([pid_path, data / 'bridge.sock'])
     if not pid_path.exists():
@@ -562,7 +562,7 @@ def verified_daemon_pid(home, env):
                                '核对过期 PID 的桥接套接字后重试；不会停止未知进程。')
         # 中文注释：已退出进程的旧记录不发送信号，保留到下一次桥接启动处理。
         return None
-    candidates = [home / 'plugins/browser-link/native_bridge/daemon.py', data / 'host-bin/daemon.py']
+    candidates = [home / 'plugins/fast-browser-link/native_bridge/daemon.py', data / 'host-bin/daemon.py']
     if process.returncode or not any(process.stdout.strip().endswith(f' {path} --home {home}') for path in candidates):
         raise InstallError('无法确认桥接进程身份 / Cannot verify bridge process.',
                            '退出浏览器和 Hermes，手动核对桥接进程后重试；未发送信号。')
@@ -577,7 +577,7 @@ def check_daemon_stopped(home, env):
 
 
 def maintenance_marker(home):
-    data = home / 'plugin-data/browser-link-native'
+    data = home / 'plugin-data/fast-browser-link-native'
     EXECUTOR.reject_target_symlinks([data])
     info = data.lstat()
     if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) & 0o077:
@@ -680,7 +680,7 @@ def acquire_bridge_lock(descriptor):
 @contextmanager
 def idle_bridge(home, env, *, profiles=()):
     # 中文注释：复用 daemon 自身的启动锁，持锁期间不能新启动；活服务从不自动结束。
-    data = home / 'plugin-data/browser-link-native'
+    data = home / 'plugin-data/fast-browser-link-native'
     lock = data / 'daemon.lock'
     EXECUTOR.reject_target_symlinks([lock, data / 'daemon.pid', data / 'bridge.sock'])
     assert_daemon_stopped(home, env)
@@ -755,7 +755,7 @@ def rollback(saved):
 
 
 def wait_for_extension(home, user_home, seconds):
-    doctor = home / 'plugins/browser-link/native_bridge/doctor.py'
+    doctor = home / 'plugins/fast-browser-link/native_bridge/doctor.py'
     print(f'等待扩展连接 / Waiting for extension ({seconds}s; Ctrl+C 跳过 / skip)…', flush=True)
     deadline = time.monotonic() + seconds
     try:
@@ -780,7 +780,7 @@ def wait_for_extension(home, user_home, seconds):
 
 
 def next_steps(home, user_home, browsers, env, seconds, upgrade, verbose):
-    extension = home / 'browser-link-releases/native-extension'
+    extension = home / 'fast-browser-link-releases/native-extension'
     print('扩展目录 / Extension directory: ' + str(extension))
     # 中文注释：复制路径和打开应用只辅助加载，不能替用户操作浏览器安全界面。
     clipboard = shutil.which('pbcopy', path=env.get('PATH'))
@@ -799,7 +799,7 @@ def next_steps(home, user_home, browsers, env, seconds, upgrade, verbose):
     connected = wait_for_extension(home, user_home, seconds) if seconds else False
     if not connected:
         # 中文注释：检查必须使用实际共享根和用户目录，不能依赖当前 profile 的 HERMES_HOME。
-        check = shlex.join([sys.executable, str(home / 'plugins/browser-link/native_bridge/doctor.py'),
+        check = shlex.join([sys.executable, str(home / 'plugins/fast-browser-link/native_bridge/doctor.py'),
                             '--hermes-home', str(home), '--user-home', str(user_home)])
         print('浏览器连接尚未确认 / Browser connection not yet verified. 检查 / Check: ' + check)
     # 中文注释：安装完成不代表浏览器已授权；连接后普通任务直接执行，不再切换模式。
@@ -813,21 +813,21 @@ def install_references(home, profiles, retained):
     for name in profiles:
         if name == 'default':
             continue
-        target = profile_home(home, name) / 'plugins/browser-link'
+        target = profile_home(home, name) / 'plugins/fast-browser-link'
         if target in retained:
             continue
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.symlink_to(home / 'plugins/browser-link', target_is_directory=True)
+        target.symlink_to(home / 'plugins/fast-browser-link', target_is_directory=True)
 
 
 def verify_shared_install(home, profiles, manifest):
-    root = home / 'plugins/browser-link'
+    root = home / 'plugins/fast-browser-link'
     check_program_path(root, home)
     EXECUTOR.verify_installed(root, manifest)
     for name in profiles:
         if name == 'default':
             continue
-        target = profile_home(home, name) / 'plugins/browser-link'
+        target = profile_home(home, name) / 'plugins/fast-browser-link'
         if not target.is_symlink():
             raise InstallError('共享引用被替换 / Shared reference was replaced.',
                                '核对 Hermes 插件启用操作后重试。')
@@ -835,19 +835,19 @@ def verify_shared_install(home, profiles, manifest):
 
 
 def apply_package(package, home, user_home, profiles, enable_profiles, programs, files, manifest, env, hermes, upgrade, verbose, original_launcher=None):
-    data = home / 'plugin-data/browser-link-native'
-    extension = home / 'browser-link-releases/native-extension'
+    data = home / 'plugin-data/fast-browser-link-native'
+    extension = home / 'fast-browser-link-releases/native-extension'
     configs = [profile_home(home, name) / 'config.yaml' for name in profiles]
     EXECUTOR.reject_target_symlinks(configs)
     old_config = (data / 'host-config.json').read_bytes() if upgrade and (data / 'host-config.json').exists() else None
     # 中文注释：首次安装事务备份放临时目录；升级备份永久放 plugins 之外。
-    with tempfile.TemporaryDirectory(prefix='browser-link-transaction-') as scratch:
-        backup = (home / 'plugin-backups' / f'browser-link-{installed_version(home / "plugins/browser-link")}-{datetime.now():%Y%m%d-%H%M%S-%f}'
+    with tempfile.TemporaryDirectory(prefix='fast-browser-link-transaction-') as scratch:
+        backup = (home / 'plugin-backups' / f'fast-browser-link-{installed_version(home / "plugins/fast-browser-link")}-{datetime.now():%Y%m%d-%H%M%S-%f}'
                   if upgrade else Path(scratch).resolve() / 'backup')
         EXECUTOR.reject_target_symlinks([backup])
         saved = snapshot([*programs, *files, *configs], backup)
         if original_launcher is not None:
-            launcher = home / 'plugin-data/browser-link-cloud' / (HOST + '.cloud')
+            launcher = home / 'plugin-data/fast-browser-link-cloud' / (HOST + '.cloud')
             destination = next(dest for path, dest in saved if path == launcher)
             # 中文注释：长期备份/事务回滚必须是原入口，不能把暂停 stub 当作旧安装。
             shutil.copy2(original_launcher, destination)
@@ -865,7 +865,7 @@ def apply_package(package, home, user_home, profiles, enable_profiles, programs,
                 (data / 'host-config.json').write_bytes(old_config)
             install_references(home, profiles, retained)
             activate(hermes, home, enable_profiles, 'enable', env)
-            (data / 'install-state.json').write_text(json.dumps({'profiles': profiles, 'version': installed_version(home / 'plugins/browser-link'),
+            (data / 'install-state.json').write_text(json.dumps({'profiles': profiles, 'version': installed_version(home / 'plugins/fast-browser-link'),
                                                                'cloudFence': cloud_fence_metadata(home)}))
             (data / 'install-state.json').chmod(0o600)
             # 中文注释：CLI 激活也可能更新程序；校验节点类型，不能悄悄生成全副本。
@@ -885,7 +885,7 @@ def uninstall_package(home, user_home, profiles, deletions, hermes, env, install
         if installed:
             activate(hermes, home, profiles, 'disable', env)
         # 中文注释：停用失败不删除既有自动更新设置。
-        updater_path = home / 'plugins/browser-link/maintenance/update.py'
+        updater_path = home / 'plugins/fast-browser-link/maintenance/update.py'
         if updater_path.is_file():
             updater = load_module('browser_link_uninstall_updater', updater_path)
             updater.configure_schedule('off', home, user_home, argparse.Namespace(EXECUTOR=EXECUTOR))
@@ -898,8 +898,8 @@ def print_plan(home, profiles, upgrade, verbose):
     print('升级 / Upgrade' if upgrade else '安装 / Install')
     if verbose:
         print('Hermes: ' + str(home) + '; profiles: ' + ', '.join(profiles))
-        print('插件 / Plugin: ' + str(home / 'plugins/browser-link'))
-        print('扩展 / Extension: ' + str(home / 'browser-link-releases/native-extension'))
+        print('插件 / Plugin: ' + str(home / 'plugins/fast-browser-link'))
+        print('扩展 / Extension: ' + str(home / 'fast-browser-link-releases/native-extension'))
 
 
 def run(args):
@@ -914,7 +914,7 @@ def run(args):
     home = home.resolve()
     if home.parent.name == 'profiles':
         home = home.parent.parent
-    data = home / 'plugin-data/browser-link-native'
+    data = home / 'plugin-data/fast-browser-link-native'
     EXECUTOR.reject_target_symlinks([data])
     # 中文注释：root fence 持至检查、事务及回滚结束；云目录被 purge 也不会丢失锁锚。
     with root_fence(home):
@@ -940,7 +940,7 @@ def root_fence(home):
 @contextmanager
 def development_sync_guard(home, env):
     # 中文注释：开发同步复用正式升级的全部门禁，锁覆盖打包、首写、校验及回滚。
-    data = home / 'plugin-data/browser-link-native'
+    data = home / 'plugin-data/fast-browser-link-native'
     EXECUTOR.reject_target_symlinks([data])
     with root_fence(home) as root_lock, install_lock(data) as data_lock, \
             cloud_gate(home, installed=True, user_home=Path(env['HOME'])), idle_bridge(home, env) as bridge_lock:
@@ -978,7 +978,11 @@ def _run(args):
     browsers = browsers_at(user_home)
     if not args.uninstall and not browsers:
         raise InstallError('未找到 Chrome / Edge / Browser missing.', '安装 Google Chrome 或 Microsoft Edge 后重试。')
-    data = home / 'plugin-data/browser-link-native'
+    if not args.uninstall and any((root / 'plugins/browser-link').exists() for root in
+                                    (home, *[p for p in (home / 'profiles').glob('*') if p.is_dir()])):
+        raise InstallError('检测到旧 browser-link 插件，未修改原安装 / Legacy plugin detected.',
+                           '先使用独立 skills 安装；需要切换 Hermes 插件时先卸载旧插件，保留旧数据。')
+    data = home / 'plugin-data/fast-browser-link-native'
     EXECUTOR.reject_target_symlinks([data / 'install-state.json'])
     if args.upgrade:
         EXECUTOR.reject_target_symlinks([home / 'plugin-backups'])
@@ -994,20 +998,20 @@ def _run(args):
         if name != 'default' and not profile_home(home, name).is_dir():
             raise InstallError(f'profile 不存在 / Missing profile: {name}.', '先用 hermes profile create 创建该 profile。')
     EXECUTOR.reject_target_symlinks([profile_home(home, name) / relative for name in profiles
-                                    for relative in ('config.yaml', 'plugin-data/browser-link',
-                                                     'plugin-data/browser-link-native')])
+                                    for relative in ('config.yaml', 'plugin-data/fast-browser-link',
+                                                     'plugin-data/fast-browser-link-native')])
     programs, files = managed_paths(home, user_home, profiles)
-    references = {profile_home(home, name) / 'plugins/browser-link' for name in profiles if name != 'default'}
+    references = {profile_home(home, name) / 'plugins/fast-browser-link' for name in profiles if name != 'default'}
     EXECUTOR.reject_target_symlinks([*[path for path in programs if path not in references], *files, data])
     for path in programs:
-        if path in references or path == home / 'plugins/browser-link':
+        if path in references or path == home / 'plugins/fast-browser-link':
             check_program_path(path, home)
         else:
             assert_regular_tree(path)
     for path in files:
         if path.exists() and not path.is_file():
             raise InstallError('配置或注册不是普通文件 / Invalid configuration file.', '核对安装路径后重试。')
-    installed = (home / 'plugins/browser-link/plugin.yaml').is_file()
+    installed = (home / 'plugins/fast-browser-link/plugin.yaml').is_file()
     if args.upgrade and not installed:
         raise InstallError('尚未安装 / Not installed.', '首次安装运行 ./install.sh（不要加 --upgrade）。')
     if not args.upgrade and not args.uninstall and any(path.exists() for path in [*programs, *files]):
@@ -1015,7 +1019,7 @@ def _run(args):
     if args.uninstall:
         deletions = [*programs, *files]
         if args.purge:
-            deletions = [*programs, *registrations(user_home), *registrations(user_home,HOST+'.cloud'), data, home/'plugin-data/browser-link-cloud']
+            deletions = [*programs, *registrations(user_home), *registrations(user_home,HOST+'.cloud'), data, home/'plugin-data/fast-browser-link-cloud']
         print('将停用 / Disable profiles: ' + ', '.join(profiles))
         print('删除插件、扩展和浏览器连接程序 / Delete plugin, extension and browser connection programs.')
         if args.verbose:
@@ -1050,7 +1054,7 @@ def _run(args):
         print_plan(home, profiles, args.upgrade, args.verbose)
         print('预览完成；运行时去掉 --dry-run / Preview complete; remove --dry-run to install.')
         return
-    with tempfile.TemporaryDirectory(prefix='browser-link-package-') as scratch:
+    with tempfile.TemporaryDirectory(prefix='fast-browser-link-package-') as scratch:
         package = ROOT
         if is_source:
             package = Path(scratch).resolve() / 'release'
@@ -1063,7 +1067,7 @@ def _run(args):
         manifest = EXECUTOR.verify_package(staged)
         verify_extension(staged / 'native-extension')
         if args.upgrade:
-            existing_extension = home / 'browser-link-releases/native-extension'
+            existing_extension = home / 'fast-browser-link-releases/native-extension'
             if existing_extension.exists():
                 verify_extension(existing_extension)
             # 中文注释：既有白名单可以更严格；不允许借升级扩大或更换扩展来源。
@@ -1122,7 +1126,7 @@ def main():
         if args.dry_run or args.profile or args.purge or args.yes:
             parser.error('update actions do not accept --dry-run, --profile, --purge or --yes')
         updater_path = ROOT / ('executor-plugin/maintenance/update.py' if (ROOT / 'scripts').is_dir()
-                               else 'browser-link/maintenance/update.py')
+                               else 'fast-browser-link/maintenance/update.py')
         updater = load_module('browser_link_cli_updater', updater_path)
         return updater.main_with_args(args)
     if args.purge and not args.uninstall:

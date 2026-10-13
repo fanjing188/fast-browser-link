@@ -22,7 +22,7 @@ function retained(f,name){
  const call=f.w.eval(`(${semanticWorldDeclaration})`),scan=call('recovery_scan',{binding:f.binding});
  const chosen=rankTargets(scan,{role:item.role,name})[0];
  assert.ok(chosen,name);assert.equal(chosen.visible,true);assert.equal(chosen.inViewport,false);assert.equal(chosen.occluded,false);
- assert.equal(f.w.__hermesNativeSemanticsV2.semantics.resolve({...chosen.binding,snapshotId:chosen.snapshotId,ref:chosen.ref}),node);
+ assert.equal(f.w.__fastNativeSemanticsV2.semantics.resolve({...chosen.binding,snapshotId:chosen.snapshotId,ref:chosen.ref}),node);
  return item;
 }
 
@@ -178,7 +178,7 @@ test('S1 视口内中心允许祖先/后代命中，视口外不做 hit test',()
  }finally{f.close();}
 });
 for(const blocked of [true,false])test(`S1 插件浮层下${blocked?'网页遮挡仍标 blocked':'目标自身不标 blocked'}，恢复扫描一致`,()=>{
- const f=fixture('<div data-hermes-automation-overlay><span></span></div><aside id="banner">Cookie wall</aside><button>被挡按钮</button>');
+ const f=fixture('<div data-fast-automation-overlay><span></span></div><aside id="banner">Cookie wall</aside><button>被挡按钮</button>');
  try{
   const overlay=f.doc.querySelector('span'),node=f.doc.querySelector('button'),banner=f.doc.querySelector('#banner');
   f.doc.elementFromPoint=()=>overlay;
@@ -193,7 +193,7 @@ test('S1 ShadowRoot 只有 elementsFromPoint 时跳过浮层并复查网页遮�
  const f=fixture('<div id="host"></div>');
  try{
   const host=f.doc.querySelector('#host'),root=host.attachShadow({mode:'open'});
-  root.innerHTML='<div data-hermes-automation-overlay></div><aside></aside><button>Shadow 保存</button>';
+  root.innerHTML='<div data-fast-automation-overlay></div><aside></aside><button>Shadow 保存</button>';
   const node=root.querySelector('button'),overlay=root.querySelector('div'),banner=root.querySelector('aside');let blocked=true;
   root.elementsFromPoint=()=>[overlay,...(blocked?[banner]:[]),node];f.doc.elementsFromPoint=()=>[host,f.doc.body];
   assert.equal(f.semantics.snapshot({composed:true}).items[0].blocked,'occluded');

@@ -128,9 +128,9 @@ class ActionSession:
 
     def _wait_for_resume(self):
         # 中文注释：暂停仅轮询同一任务状态，不重放已派发动作；代次或终态变化立即退出。
-        timeout = int(os.environ.get('HERMES_BROWSER_PAUSE_TIMEOUT_S', '600'))
+        timeout = int(os.environ.get('FAST_BROWSER_PAUSE_TIMEOUT_S', '600'))
         if not 1 <= timeout <= 3600:
-            raise ValueError('HERMES_BROWSER_PAUSE_TIMEOUT_S must be 1..3600')
+            raise ValueError('FAST_BROWSER_PAUSE_TIMEOUT_S must be 1..3600')
         deadline = time.monotonic() + timeout
         while True:
             task = self._runtime.call('shared.get', {'owner': self._owner, 'taskId': self._task_id})

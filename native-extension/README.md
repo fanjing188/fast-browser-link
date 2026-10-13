@@ -42,4 +42,4 @@ Offline: `npm test` / `npm run verify`. Real-browser runners live in `tests/nati
 
 ## 独立云端连接
 
-`cloud-link.mjs` 连接 `com.hermes.browser_link.cloud`，原本地 host 继续使用既有端口。云端模式按任务绑定，已有个人标签页不授权；连接码、配对与站点配置见 [云端连接](../docs/cloud-connection.md)。
+`cloud-link.mjs` 连接 `com.fast.browser_link.cloud`，原本地 host 继续使用既有端口。云端模式按任务绑定，已有个人标签页不授权；连接码、配对与站点配置见 [云端连接](../docs/cloud-connection.md)。

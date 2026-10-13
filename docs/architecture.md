@@ -8,7 +8,7 @@ Terminal group removal uses the extension's private workspace request journal an
  Hermes Agent
    │  public plugin API (register_tool, pre_tool_call hook, skills)
    ▼
- executor-plugin/            Hermes plugin "browser-link"
+ executor-plugin/            Hermes plugin "fast-browser-link"
    │  JSONL over a Unix-domain socket (token-authenticated)
    ▼
  native-bridge/daemon.py     per-profile daemon: tasks, leases, request ledger
@@ -27,7 +27,7 @@ Terminal group removal uses the extension's private workspace request journal an
 
 | Directory | Role |
 |---|---|
-| `executor-plugin/` | Registers the `browser_shared_*` tools, `browser_shared_open`, `browser_shared_script`, the optional overrides of Hermes' official browser and Vault tools, the skills, the Desktop page and its HTTP API. Converts trusted Hermes session identity into one-use owner leases. |
+| `executor-plugin/` | Registers the `fast_browser_*` tools, `fast_browser_open`, `fast_browser_script`, the optional overrides of Hermes' official browser and Vault tools, the skills, the Desktop page and its HTTP API. Converts trusted Hermes session identity into one-use owner leases. |
 | `native-bridge/` | Python standard-library daemon and Native Messaging host. Owns task state, `(instanceId, tabId)` leases, request-ID deduplication, file staging for uploads and downloads, the CDP gateway for `browser_exec`, and the private Vault channel. |
 | `native-extension/` | The only place where authorization is granted and page actions run. Validates every action against task, generation, origin and lease; runs page code in isolated worlds; draws the overlay and highlights. |
 | `page-semantics/` | Bounded semantic snapshots, references, paging and deltas (runs inside the page). |
@@ -50,7 +50,7 @@ The shared JavaScript modules are imported directly in source tests. `native-ext
 
 ## Local service
 
-The daemon listens on `$HERMES_HOME/plugin-data/browser-link-native/bridge.sock` (mode `0600`, directory `0700`) and authenticates clients with a token file that is never written to Native Messaging manifests. It is started on demand by the plugin or the host and is a per-profile singleton. Task metadata is persisted; page contents, typed text and raw request IDs are not. Dispatch fingerprints are appended and fsynced before browser execution. Action snapshots are coalesced over 100ms and written outside the global state lock; task creation, revocation and cleanup flush before returning; recovery merges both files and never restores authorization.
+The daemon listens on `$HERMES_HOME/plugin-data/fast-browser-link-native/bridge.sock` (mode `0600`, directory `0700`) and authenticates clients with a token file that is never written to Native Messaging manifests. It is started on demand by the plugin or the host and is a per-profile singleton. Task metadata is persisted; page contents, typed text and raw request IDs are not. Dispatch fingerprints are appended and fsynced before browser execution. Action snapshots are coalesced over 100ms and written outside the global state lock; task creation, revocation and cleanup flush before returning; recovery merges both files and never restores authorization.
 
 ## Execution inside the page
 
@@ -95,7 +95,7 @@ Release fences execution before cleanup and remains bounded. If an in-flight tab
 
 `native-extension/cookie-mirror.mjs` 独立于页面注入与 CDP，以 `chrome.cookies` 查询和写入当前非隐身扩展的默认 store。新增 `cookies` 与全站点 host 权限用于 Cookie 清单与导入；manifest key 和 ID 保持不变。站点清单只暴露域分组与数量。
 
-弹窗和 `browser_shared_cookie_mirror` 共用 `native-bridge/cookie_mirror.py` 通路。源扩展固定内存快照，已有 `approval-notifier` / `approval-panel` 展示源/目标实例、站点、数量和选项；每次必须用户在源扩展亲自确认，全部访问模式也不放行。确认后源逐块取出，daemon 一次性内存块取走即删，目标重组后逐 Cookie 写入并回读身份集合。Native Messaging 每块完整序列化后不超过 256 KiB。
+弹窗和 `fast_browser_cookie_mirror` 共用 `native-bridge/cookie_mirror.py` 通路。源扩展固定内存快照，已有 `approval-notifier` / `approval-panel` 展示源/目标实例、站点、数量和选项；每次必须用户在源扩展亲自确认，全部访问模式也不放行。确认后源逐块取出，daemon 一次性内存块取走即删，目标重组后逐 Cookie 写入并回读身份集合。Native Messaging 每块完整序列化后不超过 256 KiB。
 
 60 秒 TTL 从发起请求开始计算，包含确认时间。失败、过期或任一端断连/被替换清空剩余载荷；正在派发的单次浏览器 API 无法撤回，可能已部分写入。Cookie 通路在 `Bridge` 的通用账本/指纹/重放缓存之前分流，daemon 不调用任务存储、任务日志、诊断或请求账本。Hermes、桌面面板和错误只得到站点、数量、状态和固定失败类别；值不落盘。操作状态仅内存保存至 TTL 到期。
 

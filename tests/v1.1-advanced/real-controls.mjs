@@ -14,7 +14,7 @@ const browsers={
 const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 
 async function run(name,binary){
- const profile=await mkdtemp(path.join(process.env.TMPDIR||'/tmp',`hermes-controls-${name}-`));
+ const profile=await mkdtemp(path.join(process.env.TMPDIR||'/tmp',`fast-controls-${name}-`));
  const child=spawn(binary,['--use-mock-keychain','--password-store=basic','--headless=new',
   '--no-first-run','--no-default-browser-check','--disable-background-networking','--no-proxy-server',
   '--remote-debugging-port=0',`--user-data-dir=${profile}`,'about:blank'],{detached:true,stdio:'ignore',env:{...process.env,HOME:process.env.HOME}});
@@ -63,7 +63,7 @@ async function run(name,binary){
      menu.querySelector('[role="option"]').onclick=event=>{event.currentTarget.setAttribute('aria-selected','true');control.dataset.selected='b';menu.hidden=true;};
     },100);
    };
-   globalThis.__hermesAutomationOverlay={highlight:{prepare:()=>({ok:true}),verify:()=>({ok:true})}};
+   globalThis.__fastAutomationOverlay={highlight:{prepare:()=>({ok:true}),verify:()=>({ok:true})}};
    return true;
   })()`);
   const snapshot=()=>call('semantic_snapshot',{binding,options:{mode:'interactive'}});

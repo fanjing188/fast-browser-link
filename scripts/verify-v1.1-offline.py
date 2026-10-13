@@ -24,7 +24,7 @@ import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
 # 中文注释：允许会话将验证暂存区放在独立临时目录，不写用户 Hermes 目录。
-SCRATCH = Path(os.environ.get('HERMES_BROWSER_VERIFY_SCRATCH', str(Path.home() / '.hermes/cache/scratch')))
+SCRATCH = Path(os.environ.get('FAST_BROWSER_VERIFY_SCRATCH', str(Path.home() / '.hermes/cache/scratch')))
 OUT = ROOT / 'tests/v1.1-verification'
 SKIP_DIR = {'.git', 'node_modules', 'evidence', 'artifacts',
             'isolated', 'native-app', '.tmp', 'tmp', '__pycache__', '.pytest_cache',
@@ -137,6 +137,7 @@ NODE_TESTS = (
     'tests/v1.4.4/round1f.test.mjs',
 )
 PYTHON_SUITES = (
+    'tests/agent-link',
     # 中文注释：云端调度、原生帧及收尾测试仅使用临时 HOME 和可控网络替身。
     'cloud-link/tests',
     # 中文注释：自动更新的网络与调度调用均由测试替换，不触碰真实安装。
@@ -154,6 +155,7 @@ PYTHON_SUITES = (
 )
 # Some directories contain explicitly unsafe runners: select files by fixed name.
 PYTHON_FILES = {
+    'tests/agent-link': ('test_agent_link.py',),
     'cloud-link/tests': ('test_cloud.py', 'test_native.py', 'test_scheduler.py', 'test_service.py'),
     'tests/auto-update': ('test_update.py',),
     # 中文注释：诊断用例只使用合成事件和临时日志目录，按名称限定运行范围。
@@ -224,6 +226,7 @@ REVIEWED_RUNNER_PATHS = (
     # 中文注释：版本更新与拒绝路径只在临时副本执行。
     'tests/v1.1-build-closure/version-set.test.mjs',
     'tests/v1.1-compatibility/test_inventory_official_browser.py',
+    'tests/v1.1-compatibility/test_hermes_registry.py',
     'tests/v1.1-concurrency/test_production_concurrency.py',
     'tests/v1.1-diagnostics/test_doctor_protocol.py',
     'tests/v1.1-diagnostics/test_task_diagnostics.py',
@@ -259,6 +262,7 @@ REVIEWED_RUNNER_PATHS = (
     'tests/v1.11.0/test_after_protocol.py',
 )
 REVIEWED_RUNNER_CLASSIFICATIONS = {
+    'tests/v1.1-compatibility/test_hermes_registry.py': 'scratch-only real Hermes loader and registry with synthetic builtin execution; no browser or network',
     'tests/v1.1-approval-notify/test_site_read.py': 'pure-offline; in-process daemon and synthetic extension site-read approvals',
     'tests/site-tools/test_sites.py': 'pure-offline; draft validation and trusted script execution',
     'tests/site-tools/test_reference_doctor.py': 'pure-offline; reference drift and read-only socket diagnosis',

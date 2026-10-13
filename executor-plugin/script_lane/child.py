@@ -1,6 +1,6 @@
-"""Entry point of one browser_shared_script run, executed in a fresh interpreter.
+"""Entry point of one fast_browser_script run, executed in a fresh interpreter.
 
-The host passes one inherited socket (HERMES_BROWSER_FD) and the script on
+The host passes one inherited socket (FAST_BROWSER_FD) and the script on
 stdin. The script sees only the helpers below; each helper is one JSON line to
 the trusted host, which applies task, origin and approval checks. Nothing here
 holds browser credentials or can pick another task or tab.
@@ -44,7 +44,7 @@ class BrowserError(RuntimeError):
         if self.code == 'redirected_out_of_scope' and self.final_origin:
             message += f' 请用 {self.final_origin} 新开任务。'
         if self.code in {'origin_denied', 'tab_out_of_scope'}:
-            message += f' 当前来源：{self.current_origin or "unavailable"}；同站用 goto_url，新站用 browser_shared_open。'
+            message += f' 当前来源：{self.current_origin or "unavailable"}；同站用 goto_url，新站用 fast_browser_open。'
         if self.reason_code:
             message += f' 原因：{self.reason_code}。'
         if self.recovery:
@@ -109,7 +109,7 @@ def _connect():
     global _channel
     with _connect_lock:
         if _channel is None:
-            fd = int(os.environ.pop('HERMES_BROWSER_FD'))
+            fd = int(os.environ.pop('FAST_BROWSER_FD'))
             sock = socket.socket(fileno=fd)
             _channel = sock.makefile('wb')
             reader = sock.makefile('rb')
@@ -789,7 +789,7 @@ def screenshot(path='shot.png', *, tab=None, name=None, selector=None):
         raise BrowserError('choose name or selector', code='invalid_params', outcome_unknown=False)
     target = (Path.cwd() / path).resolve()
     workspace = Path.cwd().resolve()
-    roots = [Path(value).expanduser().resolve() for value in os.environ.get('HERMES_BROWSER_EXPORT_ROOTS', '').split(':')
+    roots = [Path(value).expanduser().resolve() for value in os.environ.get('FAST_BROWSER_EXPORT_ROOTS', '').split(':')
              if value and Path(value).expanduser().is_absolute()]
     if target.suffix.lower() not in {'.png', '.jpg', '.jpeg'} or not any(
             target != root and root in target.parents for root in [workspace, *roots]):

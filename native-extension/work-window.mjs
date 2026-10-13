@@ -1,6 +1,6 @@
 // 中文注释：工作窗口仅由本扩展创建，以固定的扩展首页验证身份，避免重启后复用用户窗口编号。
 export const INPUT_ACTIONS=new Set(['click','fill','press','ref_click','ref_fill','ref_press','ref_set_checked','ref_select_option','interaction.click','interaction.drag_coordinates','interaction.drag_elements','scroll']);
-const KEY='hermes.workWindow.v1';
+const KEY='fast.workWindow.v1';
 export class WorkWindow {
  constructor(api){this.api=api;this.pending=null;this.windowId=null;this.tails=new Map();this.owners=new Map();this.lifecycle=Promise.resolve();}
  // 中文注释：窗口创建与空窗口回收共用队列，避免关闭检查和新任务创建交错。

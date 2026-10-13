@@ -101,7 +101,7 @@ class CloudExecutor:
                 self._check_authorized()
                 if observed.get('activeMode') != 'full':
                     raise CloudDenied('cloud_policy_not_confirmed')
-        tool_name = 'browser_shared_' + tool
+        tool_name = 'fast_browser_' + tool
         handler = native_tools.make_tool_handler(tool_name, self.runtime)
         def invoke():
             # 中文注释：每次读取原请求回执都使用新的一次性身份租约，浏览器 requestId 保持不变。

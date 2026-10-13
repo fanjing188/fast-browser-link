@@ -130,7 +130,7 @@ class ClickModeTests(unittest.TestCase):
             self.run_action('wrong-pointer-action', 'click', selector='#link', clickMode='pointer')
 
     def test_schema_exposes_two_explicit_modes_and_omission_is_default(self):
-        schema = self.tools.TOOL_SCHEMAS['browser_shared_run']['parameters']
+        schema = self.tools.TOOL_SCHEMAS['fast_browser_run']['parameters']
         self.assertEqual(schema['properties']['clickMode']['type'], 'string')
         self.assertEqual(schema['properties']['clickMode']['enum'], ['open_link_in_task_tab', 'pointer'])
         self.assertNotIn('clickMode', schema['required'])

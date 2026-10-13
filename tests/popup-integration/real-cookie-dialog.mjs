@@ -19,13 +19,13 @@ const built=await esbuild.build({stdin:{contents:bootstrap,resolveDir:root,sourc
 const html=`<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="/host.css"><style>:root{--ui-bg-elevated:#fff;--ui-bg-primary:rgba(37,99,235,.12);--ui-bg-input:#fff;--ui-text-primary:#171717;--ui-text-secondary:#666;--ui-stroke-secondary:#d4d4d4;--ui-accent:#1f754b;--shadow-md:0 12px 35px #0003}body{margin:0;font:14px system-ui;background:#f8fafc;color:var(--ui-text-primary)}.shell{display:grid;grid-template-columns:280px minmax(0,1fr);min-height:100vh}nav{padding:24px;background:#e2e8f0}#root{padding:40px}@media(max-width:600px){.shell{grid-template-columns:80px minmax(0,1fr)}nav{padding:12px}#root{padding:16px}}</style></head><body><div class="shell"><nav>HERMES<br><br>会话<br>设置<br>浏览器连接</nav><main id="root"></main></div><script type="module" src="/app.js"></script></body></html>`;
 const hostCss=await readFile(cssFile);const script=built.outputFiles[0].contents;
 const server=createServer((req,res)=>{if(req.url==='/favicon.ico'){res.writeHead(204);res.end();return;}const data=req.url==='/app.js'?script:req.url==='/host.css'?hostCss:html;res.setHeader('Content-Type',req.url==='/app.js'?'text/javascript':req.url==='/host.css'?'text/css':'text/html; charset=utf-8');res.end(data);});await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
-const profile=await mkdtemp('/tmp/hermes-cookie-dialog-');
+const profile=await mkdtemp('/tmp/fast-cookie-dialog-');
 const proc=spawn('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',['--headless=new','--use-mock-keychain','--password-store=basic','--disable-background-networking',`--user-data-dir=${profile}`,'--remote-debugging-port=0','--no-first-run','--no-default-browser-check','about:blank'],{stdio:'ignore'});
 let browser,page;const checks=[];
 try{
  const port=await waitFor(async()=>{try{return (await readFile(path.join(profile,'DevToolsActivePort'),'utf8')).split('\n')[0];}catch{return null;}},30000);
  const base=`http://127.0.0.1:${port}`;browser=new CdpClient((await fetchJson(`${base}/json/version`)).webSocketDebuggerUrl);await browser.connect();
- const {targetId}=await browser.call('Target.createTarget',{url:`http://127.0.0.1:${server.address().port}/#/browser-link`});
+ const {targetId}=await browser.call('Target.createTarget',{url:`http://127.0.0.1:${server.address().port}/#/fast-browser-link`});
  const target=await waitFor(async()=>(await fetchJson(`${base}/json/list`)).find(row=>row.id===targetId));page=new CdpClient(target.webSocketDebuggerUrl);await page.connect();await browser.call('Target.activateTarget',{targetId});
  await page.call('Runtime.enable');
  const clickText=async text=>page.evaluate(`(()=>{const b=[...document.querySelectorAll('button')].find(row=>row.textContent===${JSON.stringify(text)}&&!row.disabled);if(!b)throw Error('缺少按钮');b.click();})()`);

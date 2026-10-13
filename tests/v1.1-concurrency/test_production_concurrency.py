@@ -122,7 +122,7 @@ class ProductionConcurrencyTests(unittest.TestCase):
 
     def setUp(self):
         self.home = self.enterContext(temporary_bridge_home())
-        self.socket_path = self.home / "plugin-data" / "browser-link-native" / "bridge.sock"
+        self.socket_path = self.home / "plugin-data" / "fast-browser-link-native" / "bridge.sock"
         self.assertLess(len(os.fsencode(self.socket_path)), 104, "fixture AF_UNIX path exceeds macOS limit")
         self.peer = None
         self.reader_thread = None
@@ -135,7 +135,7 @@ class ProductionConcurrencyTests(unittest.TestCase):
         self.owner_prefix = f"c12-{uuid.uuid4().hex[:12]}"
 
         # 中文注释：只向临时 daemon 指定 current，不修改用户配置。
-        with patch.dict(os.environ, {'HERMES_BROWSER_WORK_WINDOW': 'current'}):
+        with patch.dict(os.environ, {'FAST_BROWSER_WORK_WINDOW': 'current'}):
             ensure_service(self.home)
         self.assertEqual(self.rpc("health", {}), {"ok": True, "protocolVersion": 1})
         self.peer = subprocess.Popen(
@@ -273,29 +273,29 @@ class ProductionConcurrencyTests(unittest.TestCase):
         tools = native_runtime.load_module(plugin / 'native_tools.py', 'audit_tools_')
         script_bridge = script.HostBridge(profile, plugin)
         bridge = integration.HostBindingCoordinator(script_bridge)
-        profile.authority.lease_tools(('browser_shared_open', 'browser_shared_use_tab'))
+        profile.authority.lease_tools(('fast_browser_open', 'fast_browser_use_tab'))
         open_handler = opener.make_handler(profile, bridge, lease_error=native_runtime.OwnerLeaseError)
         select_handler = opener.make_use_tab_handler(profile, bridge, lease_error=native_runtime.OwnerLeaseError)
         def invoke(name, args, session):
             hook = profile.authority.pre_tool_call(name, args, session_id=session, tool_call_id=uuid.uuid4().hex)
             self.assertEqual(hook['action'], 'modify')
-            handler = (open_handler if name == 'browser_shared_open' else select_handler if name == 'browser_shared_use_tab'
+            handler = (open_handler if name == 'fast_browser_open' else select_handler if name == 'fast_browser_use_tab'
                        else tools.make_tool_handler(name, profile, host_bridge=bridge))
             return json.loads(handler({**args, **hook['args']}, session_id=session))
         try:
             self.control('consent', instanceId=INSTANCE['chrome'])
-            parent = invoke('browser_shared_open', {'url': ORIGIN + '/parent'}, 'parent-session')
-            child = invoke('browser_shared_open', {'url': ORIGIN + '/child'}, 'subagent-session')
-            second = invoke('browser_shared_open', {'url': ORIGIN + '/second'}, 'parent-session')
+            parent = invoke('fast_browser_open', {'url': ORIGIN + '/parent'}, 'parent-session')
+            child = invoke('fast_browser_open', {'url': ORIGIN + '/child'}, 'subagent-session')
+            second = invoke('fast_browser_open', {'url': ORIGIN + '/second'}, 'parent-session')
             self.assertEqual(parent['task_id'], second['task_id'])
             self.assertNotEqual(parent['task_id'], child['task_id'])
             self.assertNotEqual(parent['tab_id'], child['tab_id'])
-            self.assertEqual(invoke('browser_shared_use_tab', {'tab_id': parent['tab_id']}, 'subagent-session')['code'], 'foreign_tab')
-            self.assertTrue(invoke('browser_shared_use_tab', {'tab_id': second['tab_id']}, 'parent-session')['success'])
-            denied = invoke('browser_shared_get', {'task_id': parent['task_id']}, 'subagent-session')
+            self.assertEqual(invoke('fast_browser_use_tab', {'tab_id': parent['tab_id']}, 'subagent-session')['code'], 'foreign_tab')
+            self.assertTrue(invoke('fast_browser_use_tab', {'tab_id': second['tab_id']}, 'parent-session')['success'])
+            denied = invoke('fast_browser_get', {'task_id': parent['task_id']}, 'subagent-session')
             self.assertEqual(denied['bridgeCode'], 'forbidden')
             for session, opened in [('parent-session', parent), ('subagent-session', child)]:
-                result = invoke('browser_shared_run', {'task_id': opened['task_id'], 'request_id': uuid.uuid4().hex,
+                result = invoke('fast_browser_run', {'task_id': opened['task_id'], 'request_id': uuid.uuid4().hex,
                     'action': 'navigate', 'tab_id': opened['tab_id'], 'url': ORIGIN + '/' + session}, session)
                 self.assertNotIn('error', result)
             observed = self.stats('chrome')['tabs']
@@ -304,7 +304,7 @@ class ProductionConcurrencyTests(unittest.TestCase):
             self.assertFalse(observed[str(parent['tab_id'])]['active'])
             self.assertEqual(observed[str(parent['tab_id'])]['groupId'], observed[str(second['tab_id'])]['groupId'])
             self.assertNotEqual(observed[str(parent['tab_id'])]['groupId'], observed[str(child['tab_id'])]['groupId'])
-            closed = invoke('browser_shared_close', {'task_id': parent['task_id']}, 'parent-session')
+            closed = invoke('fast_browser_close', {'task_id': parent['task_id']}, 'parent-session')
             self.assertEqual((closed['state'], closed['cleanupState']), ('closed', 'succeeded'))
             observed = self.stats('chrome')['tabs']
             self.assertNotIn(str(parent['tab_id']), observed)
@@ -322,12 +322,12 @@ class ProductionConcurrencyTests(unittest.TestCase):
             # 中文注释：1.4.3 起每轮结束与 /stop 也注册钩子；未发 completed 信号时 finalize 仍立即关闭。
             self.assertIn('on_session_end', hooks)
             self.assertIn('agent_loop_stopped', hooks)
-            final = invoke('browser_shared_open', {'url': ORIGIN + '/final'}, 'parent-session')
-            issued = profile.authority.pre_tool_call('browser_shared_get', {'task_id': final['task_id']},
+            final = invoke('fast_browser_open', {'url': ORIGIN + '/final'}, 'parent-session')
+            issued = profile.authority.pre_tool_call('fast_browser_get', {'task_id': final['task_id']},
                 session_id='parent-session', tool_call_id='unused-before-finalize')
             hooks['on_session_finalize'](session_id='parent-session')
             with self.assertRaises(native_runtime.OwnerLeaseError):
-                profile.authority.consume('browser_shared_get', {'task_id': final['task_id'], **issued['args']},
+                profile.authority.consume('fast_browser_get', {'task_id': final['task_id'], **issued['args']},
                     session_id='parent-session')
             observed = self.stats('chrome')['tabs']
             self.assertNotIn(str(final['tab_id']), observed)
@@ -526,9 +526,9 @@ class ProductionConcurrencyTests(unittest.TestCase):
         target_url = f"{ORIGIN}/after-lost-response"
         params = self.run_params(task, request_id, "navigate", url=target_url)
         proxy_home = self.enterContext(temporary_bridge_home())
-        proxy_data = proxy_home / "plugin-data" / "browser-link-native"
+        proxy_data = proxy_home / "plugin-data" / "fast-browser-link-native"
         proxy_data.mkdir(parents=True)
-        (proxy_data / "token").write_text((self.home / "plugin-data" / "browser-link-native" / "token").read_text().strip() + "\n")
+        (proxy_data / "token").write_text((self.home / "plugin-data" / "fast-browser-link-native" / "token").read_text().strip() + "\n")
         os.chmod(proxy_data / "token", 0o600)
         proxy_socket = proxy_data / "bridge.sock"
         self.assertLess(len(os.fsencode(proxy_socket)), 104, "proxy AF_UNIX path exceeds macOS limit")

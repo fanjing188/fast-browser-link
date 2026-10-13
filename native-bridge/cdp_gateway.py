@@ -88,7 +88,7 @@ class _Connection:
         self.sessions: Dict[str, dict] = {}
         self.targets: Dict[str, dict] = {}
         self.closed = threading.Event()
-        self.pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="hermes-cdp")
+        self.pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="fast-cdp")
 
     def send_json(self, value: dict) -> None:
         data = json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode()
@@ -196,7 +196,7 @@ class CdpGateway:
             server.bind(("127.0.0.1", 0))
             server.listen(16)
             self._server, self._port = server, server.getsockname()[1]
-            threading.Thread(target=self._accept_loop, name="hermes-cdp-gateway", daemon=True).start()
+            threading.Thread(target=self._accept_loop, name="fast-cdp-gateway", daemon=True).start()
             return self._port
 
     def open(self, *, owner: str, task_id: str, generation: int, mode_generation: int,
@@ -330,7 +330,7 @@ class CdpGateway:
     def _target_info(row: dict) -> dict:
         return {"targetId": row["targetId"], "type": row.get("type", "page"), "title": row.get("title", ""),
                 "url": row.get("url", ""), "attached": True, "canAccessOpener": False,
-                "browserContextId": "hermes-task"}
+                "browserContextId": "fast-browser-task"}
 
     def dispatch(self, connection: _Connection, request: dict) -> dict:
         method = request.get("method")
@@ -366,7 +366,7 @@ class CdpGateway:
         if method == "Target.getTargetInfo":
             target_id = params.get("targetId")
             if target_id is None:
-                return {"targetInfo": {"targetId": "hermes-browser", "type": "browser", "title": "",
+                return {"targetInfo": {"targetId": "fast-browser", "type": "browser", "title": "",
                                        "url": "", "attached": True, "canAccessOpener": False}}
             row = connection.targets.get(target_id)
             if row is None:

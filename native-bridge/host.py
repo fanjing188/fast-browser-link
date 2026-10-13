@@ -124,7 +124,7 @@ def main() -> int:
         return 2
     origin = sys.argv[1]
     home = Path(os.environ.get("HERMES_HOME", Path.home() / ".hermes")).expanduser()
-    data_dir = home / "plugin-data" / "browser-link-native"
+    data_dir = home / "plugin-data" / "fast-browser-link-native"
     if origin not in _load_allowed_origins(data_dir):
         return 3
     # 中文注释：开发同步维护中直接退出，不拉起 daemon；扩展按定时重连稍后再试。

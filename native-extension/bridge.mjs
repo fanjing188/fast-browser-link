@@ -1,3 +1,4 @@
+import {isTransientLoadError} from './core.mjs';
 import {RequestLedger} from './request-ledger.mjs';
 export const isUiSender=(sender,id)=>sender?.id===id&&sender?.url===`chrome-extension://${id}/popup.html`;
 const sameValues=(a,b)=>Array.isArray(a)&&Array.isArray(b)&&a.length===b.length&&JSON.stringify([...a].sort())===JSON.stringify([...b].sort());
@@ -99,12 +100,12 @@ function executionError(error,message){
  else if(['DOM_CHANGED','DOCUMENT_REPLACED','NODE_CHANGED','document changed'].includes(detail)){code='document_changed';text='Page content changed; obtain a new snapshot.';}
  else if(['STALE_REF','STALE_SNAPSHOT','BINDING_MISMATCH'].includes(detail)){code='stale_reference';text='The page reference is stale; obtain a new snapshot.';}
  else if(['FRAME_TOKEN_STALE','FRAME_DISCOVERY_UNAVAILABLE'].includes(reason)){code='stale_frame';text='The selected frame changed; discover frames again.';}
- else if(detail==='origin denied'&&typeof error?.currentOrigin==='string'){code='tab_out_of_scope';text='同站用 goto_url，新站用 browser_shared_open。';}
+ else if(detail==='origin denied'&&typeof error?.currentOrigin==='string'){code='tab_out_of_scope';text='同站用 goto_url，新站用 fast_browser_open。';}
  else if(['origin denied','origin scheme denied','origin authority mismatch','tab lease denied','confirmation required','stale generation'].includes(detail)){code='permission_denied';text='Task, tab, origin or approval authority is not valid.';}
  else if(['INVALID_ROOT','TARGET_NOT_ACTIONABLE','target not found'].includes(detail)){code='target_unavailable';text='The requested page target is not available.';}
  else if(['navigation timeout','NAVIGATION_TIMEOUT','PAGE_NOT_READY'].includes(detail)){code='page_not_ready';text='The page did not become ready within the deadline.';}
  // 中文注释：页面加载途中旧文档被替换时的 CDP 瞬时错误，归为“页面未就绪”，只读动作可重试，不再落入笼统的拒绝执行。
- else if(/^\{"code":-?\d+,"message":"(?:Cannot find context with specified id|Execution context was destroyed|Inspected target navigated or closed|Cannot find frame|Frame with the given id was not found|No frame for given id)/.test(detail)){code='page_not_ready';text='The page is still loading or was replaced; read it again after it loads.';}
+ else if(isTransientLoadError(error)){code='page_not_ready';text='The page is still loading or was replaced; read it again after it loads.';}
  // 中文注释：解析类读取中页面脚本抛出的 JS 异常只保留异常类型，归为解析出错，不回传网页异常正文。
  if(code==='execution_denied'&&message.method==='browser.execute'&&['semantic_snapshot','page.parse','page.observe','snapshot','frame_catalog'].includes(message.params?.action)
   &&/^(?:TypeError|RangeError|ReferenceError|SyntaxError|DOMException|InvalidStateError|NotSupportedError|SecurityError)\b/.test(detail)){code='page_script_error';text='The page parser failed on this page; nothing was returned.';}
@@ -129,7 +130,7 @@ function executionError(error,message){
  return {code,message:text,data:{outcomeUnknown:code!=='cdp_error'&&!readOnly&&!filePreDispatch&&!refusedBeforeDispatch&&error?.preDispatch!==true,retryable:readOnly&&['document_changed','stale_reference','stale_screenshot','screenshot_expired','page_not_ready','overlay_frame_changed','overlay_injection_failed'].includes(code),
   ...stage,...(error?.recovery?{recovery:error.recovery}:{}),
   ...(code==='click_no_effect'?{effect:'unobserved',suggestion:'输入已派发但未观察到效果；请读取目标页核对，检查按钮状态或改用页面支持的操作，不要反复重试。'}:{}),
-  ...(['origin_denied','tab_out_of_scope'].includes(code)&&currentOrigin?{currentOrigin,scopeHint:'同站用 goto_url，新站用 browser_shared_open。'}:{}),
+  ...(['origin_denied','tab_out_of_scope'].includes(code)&&currentOrigin?{currentOrigin,scopeHint:'同站用 goto_url，新站用 fast_browser_open。'}:{}),
   ...(candidates?{candidates}:{}),
   ...(obstruction?{obstruction}:{}),
   ...(code==='redirected_out_of_scope'&&typeof error?.finalOrigin==='string'?{finalOrigin:error.finalOrigin}:{})}};

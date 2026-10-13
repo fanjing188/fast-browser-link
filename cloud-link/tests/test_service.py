@@ -150,7 +150,7 @@ class ServiceTests(unittest.TestCase):
         for failure in (URLError('offline'), HTTPError('https://relay.test',503,'offline',{},None), None):
             with self.subTest(failure=type(failure).__name__), tempfile.TemporaryDirectory() as tmp, \
                     patch.object(CloudService,'_loop',lambda self:None), patch('runtime.service.Relay') as relay:
-                home=Path(tmp);base=home/'plugin-data/browser-link-cloud';private_directory(base)
+                home=Path(tmp);base=home/'plugin-data/fast-browser-link-cloud';private_directory(base)
                 config={'instance_id':'browser','device_id':'old-device','paired':True,'device_secret':'fixture-only'}
                 save_config(base/'pairing.json',config)
                 private_directory(base/'profile');(base/'profile/identity').write_bytes(b'original-owner')
@@ -179,7 +179,7 @@ class ServiceTests(unittest.TestCase):
 
     def test_disconnect_tombstone_survives_interrupted_pairing_deletion(self):
         with tempfile.TemporaryDirectory() as tmp,patch.object(CloudService,'_loop',lambda self:None):
-            home=Path(tmp);directory=home/'plugin-data/browser-link-cloud/instances/browser'
+            home=Path(tmp);directory=home/'plugin-data/fast-browser-link-cloud/instances/browser'
             private_directory(directory);save_config(directory/'pairing.json',{'paired':True,'device_id':'old-device'})
             service=CloudService(home,'browser','Chrome',lambda *args:None)
             with patch.object(Path,'unlink',side_effect=OSError('interrupted')):
@@ -312,7 +312,7 @@ class ServiceTests(unittest.TestCase):
             if method=='cloud.browser_status':return {'connected':True,'instanceId':instance}
             browser_calls.append((method,params));return {'verified':True}
         with tempfile.TemporaryDirectory() as tmp:
-            home=Path(tmp);directory=home/'plugin-data/browser-link-cloud/instances'/instance
+            home=Path(tmp);directory=home/'plugin-data/fast-browser-link-cloud/instances'/instance
             private_directory(directory)
             save_config(directory/'pairing.json',{'device_id':'old-device','paired':True,'full_access':True})
             with patch('runtime.service.Relay',Relay),patch('runtime.service.CloudExecutor',Executor):
@@ -343,7 +343,7 @@ class ServiceTests(unittest.TestCase):
             return {'verified':True}
         def executor(*args,**kwargs):return CloudExecutor(*args,**kwargs,client=bridge)
         with tempfile.TemporaryDirectory() as tmp:
-            home=Path(tmp);base=home/'plugin-data/browser-link-cloud';private_directory(base)
+            home=Path(tmp);base=home/'plugin-data/fast-browser-link-cloud';private_directory(base)
             save_config(base/'service.json',{'site':'https://relay.test','sites_access_token':'fixture-only'})
             with patch('runtime.service.Relay',Relay),patch('runtime.service.CloudExecutor',executor):
                 with patch.object(CloudService,'_loop',lambda self:None):
@@ -390,7 +390,7 @@ class ServiceTests(unittest.TestCase):
     def test_new_pairing_defaults_full_but_pending_connection_is_not_authorized(self):
         with tempfile.TemporaryDirectory() as tmp:
             home=Path(tmp);instance='11111111-1111-4111-8111-111111111111'
-            base=home/'plugin-data/browser-link-cloud';private_directory(base)
+            base=home/'plugin-data/fast-browser-link-cloud';private_directory(base)
             save_config(base/'service.json',{'site':'https://relay.test','sites_access_token':'private'})
             with patch.object(CloudService,'_loop',lambda self:None),patch('runtime.service.Relay') as relay:
                 relay.return_value.call.return_value={'device_id':'device','status':'pending_pairing'}
@@ -496,7 +496,7 @@ class ServiceTests(unittest.TestCase):
                     bridge.tasks[params['taskId']]['activeMode']='full';return {'verified':True}
                 def executor(*args,**kwargs):return CloudExecutor(*args,**kwargs,client=bridge)
                 valid={'device_id':'device','commands':[],'receipts':[],'closed_sessions':[]}
-                home=Path(tmp);directory=home/'plugin-data/browser-link-cloud/instances'/instance
+                home=Path(tmp);directory=home/'plugin-data/fast-browser-link-cloud/instances'/instance
                 private_directory(directory);save_config(directory/'pairing.json',{'paired':True,'device_id':'device'})
                 with patch.object(CloudService,'_loop',lambda self:None):
                     service=CloudService(home,instance,'Chrome',browser,notify=lambda view:published.set())
@@ -705,7 +705,7 @@ class ServiceTests(unittest.TestCase):
             for full_access in (False, None):
                 with self.subTest(legacy=legacy, full_access=full_access), tempfile.TemporaryDirectory() as tmp:
                     home=Path(tmp);instance='11111111-1111-4111-8111-111111111111'
-                    base=home/'plugin-data/browser-link-cloud'
+                    base=home/'plugin-data/fast-browser-link-cloud'
                     directory=base/'instances'/instance
                     source=base if legacy else directory;private_directory(source)
                     config={'paired':True,'instance_id':instance,'device_id':'device','device_secret':'private',
@@ -742,7 +742,7 @@ class ServiceTests(unittest.TestCase):
             if method=='cloud.browser_status':return {'connected':True,'instanceId':instance}
             binds.append((method,params));return {'verified':True}
         with tempfile.TemporaryDirectory() as tmp:
-            home=Path(tmp);directory=home/'plugin-data/browser-link-cloud/instances'/instance;private_directory(directory)
+            home=Path(tmp);directory=home/'plugin-data/fast-browser-link-cloud/instances'/instance;private_directory(directory)
             save_config(directory/'pairing.json',{'device_id':'device','site':'https://relay.test',
                         'device_secret':'private','sites_access_token':'private','full_access':False,'allowed_origins':[],
                         'connection_code':'234567-ABCDEFG','code_expires_at':time.time()+300})
@@ -779,7 +779,7 @@ class ServiceTests(unittest.TestCase):
         self_outer=self
         with tempfile.TemporaryDirectory() as tmp:
             instance='11111111-1111-4111-8111-111111111111';home=Path(tmp)
-            folder=home/'plugin-data/browser-link-cloud/instances'/instance;private_directory(folder)
+            folder=home/'plugin-data/fast-browser-link-cloud/instances'/instance;private_directory(folder)
             save_config(folder/'pairing.json',{'paired':True,'device_id':'device','site':'https://relay.test',
                         'device_secret':'private','sites_access_token':'private','allowed_origins':[],'full_access':False})
             with patch('runtime.service.CloudExecutor',Executor),patch('runtime.service.Relay',Relay):

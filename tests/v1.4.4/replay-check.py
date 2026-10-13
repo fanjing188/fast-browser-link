@@ -20,7 +20,7 @@ def run():
     tools = load('replay_tools', 'executor-plugin/native_tools.py')
     child = load('replay_child', 'executor-plugin/script_lane/child.py')
     runtime = types.SimpleNamespace(authority=types.SimpleNamespace(consume=lambda *a, **k: types.SimpleNamespace(owner='synthetic')))
-    result = json.loads(tools.make_tool_handler('browser_shared_run', runtime)({'task_id':'synthetic', 'action':'semantic_snapshot'}))
+    result = json.loads(tools.make_tool_handler('fast_browser_run', runtime)({'task_id':'synthetic', 'action':'semantic_snapshot'}))
     assert (result['code'], result['fields']) == ('missing_fields', ['tab_id'])
     rows = [{'action': 'semantic_snapshot', 'old_code':'invalid_arguments', 'new_return':result, 'validation':'executed_synthetic_contract'}]
     # 中文注释：仅使用合成的 61 秒参数核对上限，不使用真实任务参数。

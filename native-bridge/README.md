@@ -15,7 +15,7 @@ Python standard-library daemon and Chromium Native Messaging host. Wire contract
 | `vault_private.py`, `vault_client.py` | Private channel for the optional Vault fill integration |
 | `install.py` | Stages the host launcher and Chrome/Edge manifests into an **isolated** home for tests (refuses the active user's home) |
 
-Runtime data lives in `$HERMES_HOME/plugin-data/browser-link-native/` (mode `0700`); `bridge.sock`, `token`, `daemon.pid` and `tasks.json` are `0600`. The token never appears in a Native Messaging manifest.
+Runtime data lives in `$HERMES_HOME/plugin-data/fast-browser-link-native/` (mode `0700`); `bridge.sock`, `token`, `daemon.pid` and `tasks.json` are `0600`. The token never appears in a Native Messaging manifest.
 
 ## Behavior worth knowing
 

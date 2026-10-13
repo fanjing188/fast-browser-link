@@ -11,7 +11,7 @@ test('semantic CDP command and byte budget',async t=>{
   if(method==='Runtime.callFunctionOn'){
    // 中文注释：替换页面实现只为计数安装与调用协议，页面动作由语义测试覆盖。
    const installing=params.functionDeclaration.includes('const createPageSemantics=');if(installing)installs++;
-   const declaration=installing?'function(){globalThis.__hermesSemanticLibrary={version:1,call:()=>true};return true;}':params.functionDeclaration;
+   const declaration=installing?'function(){globalThis.__fastSemanticLibrary={version:1,call:()=>true};return true;}':params.functionDeclaration;
    return {result:{value:await vm.runInContext(`(${declaration})`,context)(...(params.arguments||[]).map(a=>a.value))}};
   }
   throw Error(method);
@@ -42,11 +42,11 @@ test('missing library reinstalls once, absent context recovers, unknown dispatch
   if(missingContext){missingContext=false;throw Error('{"code":-32000,"message":"Cannot find context with specified id"}');}
   const installing=params.functionDeclaration.includes('const createPageSemantics=');
   if(installing)installs++;else{invokes++;if(unknown)throw Error('Execution context was destroyed.');}
-  const declaration=installing?'function(){globalThis.__hermesSemanticLibrary={version:1,call:()=>true};return true;}':params.functionDeclaration;
+  const declaration=installing?'function(){globalThis.__fastSemanticLibrary={version:1,call:()=>true};return true;}':params.functionDeclaration;
   return {result:{value:await vm.runInContext(`(${declaration})`,context)(...(params.arguments||[]).map(a=>a.value))}};
  }}});
  const call=()=>executor.callSemanticWorld({tabId:7},'main','rect_ref',{},()=>{},17);
- await call();vm.runInContext('delete globalThis.__hermesSemanticLibrary',context);await call();
+ await call();vm.runInContext('delete globalThis.__fastSemanticLibrary',context);await call();
  assert.equal(installs,2);assert.equal(invokes,3);
  missingContext=true;await call();assert.equal(installs,3);
  unknown=true;const before=invokes;await assert.rejects(call(),/destroyed/);assert.equal(invokes,before+1);

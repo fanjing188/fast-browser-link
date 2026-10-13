@@ -168,7 +168,7 @@ def lifecycle_metrics(rows, task_snapshot=None):
         if row['role'] == 'assistant':
             for call_id, name, args in _calls(row):
                 pending[call_id] = (name, args)
-                if name == 'browser_shared_open':
+                if name == 'fast_browser_open':
                     metrics['openCalls'] += 1
                     origin = _origin(args.get('url'))
                     if origin and origin in prior:
@@ -176,11 +176,11 @@ def lifecycle_metrics(rows, task_snapshot=None):
                         old = prior[origin]
                         key = 'repeatAfterError' if old['error'] else ('repeatAfterClose' if old['task'] in closed else 'repeatWhileOpen')
                         metrics[key] += 1
-                if name == 'browser_shared_script':
+                if name == 'fast_browser_script':
                     code = args.get('code', '')
                     metrics['navigateExisting'] += code.count('goto_url(')
                     metrics['newTabs'] += code.count('new_tab(')
-                if name == 'browser_shared_run':
+                if name == 'fast_browser_run':
                     metrics['navigateExisting'] += args.get('action') == 'navigate'
                     metrics['newTabs'] += args.get('action') == 'new_tab'
                 if name == 'browser_navigate':
@@ -190,7 +190,7 @@ def lifecycle_metrics(rows, task_snapshot=None):
             continue
         name, args = pending.pop(row['tool_call_id'], (row['tool_name'], {}))
         body = _object(row['content'])
-        if name == 'browser_shared_open':
+        if name == 'fast_browser_open':
             origin = _origin(args.get('url'))
             task = body.get('task_id') or body.get('taskId')
             error = bool(body.get('error') or body.get('code') or body.get('success') is False)
@@ -206,15 +206,15 @@ def lifecycle_metrics(rows, task_snapshot=None):
                 if tab is not None:
                     live_tabs.add((task, tab))
                     max_tabs = max(max_tabs or 0, len(live_tabs))
-        elif name == 'browser_shared_close' and not (body.get('error') or body.get('code')):
+        elif name == 'fast_browser_close' and not (body.get('error') or body.get('code')):
             task = args.get('task_id') or args.get('taskId')
             if task:
                 closed.add(task)
                 live_tabs = {tab for tab in live_tabs if tab[0] != task}
-        elif name in ('browser_shared_get', 'browser_shared_run'):
+        elif name in ('fast_browser_get', 'fast_browser_run'):
             task = args.get('task_id') or args.get('taskId')
             tabs = body.get('tabs')
-            if name == 'browser_shared_run' and args.get('action') == 'new_tab' and task and body.get('tabId') is not None:
+            if name == 'fast_browser_run' and args.get('action') == 'new_tab' and task and body.get('tabId') is not None:
                 live_tabs.add((task, body['tabId']))
                 max_tabs = max(max_tabs or 0, len(live_tabs))
             if tabs is None and isinstance(body.get('workTabs'), list):
@@ -260,26 +260,26 @@ def session_metrics(connection: sqlite3.Connection, session_id: str | None, task
         calls = _calls(row)
         if row['role'] == 'assistant':
             model_calls += 1
-            browser_in_message = any(name.startswith('browser_') for _, name, _ in calls)
+            browser_in_message = any(name.startswith(('browser_', 'fast_browser_')) for _, name, _ in calls)
             if browser_in_message and last_browser_end is not None:
                 thinking += max(0, row['timestamp'] - last_browser_end)
                 last_browser_end = None
             for call_id, name, _ in calls:
                 if call_id:
                     tool_started[call_id] = (name, row['timestamp'])
-                if name.startswith('browser_'):
+                if name.startswith(('browser_', 'fast_browser_')):
                     browser_calls += 1
                     browser_names.add(call_id)
-                if name == 'browser_shared_script':
+                if name == 'fast_browser_script':
                     script_calls += 1
         elif row['role'] == 'tool':
             name = row['tool_name'] or tool_started.get(row['tool_call_id'], ('', 0))[0]
-            if name.startswith('browser_') and row['tool_call_id'] not in browser_names:
+            if name.startswith(('browser_', 'fast_browser_')) and row['tool_call_id'] not in browser_names:
                 browser_calls += 1
-                if name == 'browser_shared_script':
+                if name == 'fast_browser_script':
                     script_calls += 1
             begin = tool_started.get(row['tool_call_id'])
-            if name.startswith('browser_') and begin:
+            if name.startswith(('browser_', 'fast_browser_')) and begin:
                 browser_durations.append(max(0, row['timestamp'] - begin[1]))
                 last_browser_end = row['timestamp']
             body = _object(row['content'])

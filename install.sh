@@ -11,6 +11,12 @@ directory="${BASH_SOURCE[0]%/*}"
 root="$(cd -- "$directory" && pwd -P)"
 # 中文注释：禁止导入生成字节码，确保 dry-run 不写缓存。
 export PYTHONDONTWRITEBYTECODE=1
+# 中文注释：通用安装不依赖 Hermes；需要原生 Hermes 插件时显式选择适配器。
+if [[ "${1:-}" == --hermes-plugin ]]; then
+  shift
+elif [[ -f "$root/scripts/install-agent.py" ]]; then
+  exec python3 "$root/scripts/install-agent.py" "$@"
+fi
 if [[ -f "$root/install-cli.py" ]]; then
   exec python3 "$root/install-cli.py" "$@"
 fi

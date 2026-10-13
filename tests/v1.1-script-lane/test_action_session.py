@@ -66,7 +66,7 @@ class ActionSessionTest(unittest.TestCase):
                 raise type('Paused', (Exception,), {'code': 'task_paused', 'data': {'outcomeUnknown': False}})()
         session = adapter.ActionSession(PausedRuntime(), owner='trusted-owner', task_id='task-1')
         session.install_scope('instance-1', 2)
-        with patch.dict(os.environ, {'HERMES_BROWSER_PAUSE_TIMEOUT_S': '1'}):
+        with patch.dict(os.environ, {'FAST_BROWSER_PAUSE_TIMEOUT_S': '1'}):
             with self.assertRaises(adapter.ActionRejected) as caught:
                 session.new_tab('https://example.test/')
         self.assertEqual(caught.exception.code, 'task_paused')
@@ -414,8 +414,8 @@ class PopupDirectIntegrationTest(unittest.TestCase):
                 return [{'instanceId': 'instance', 'connected': True}]
             result = original(method, params)
             if method in ('shared.get', 'shared.run'):
-                result = projection._project_tool_result('browser_shared_get' if method == 'shared.get'
-                    else 'browser_shared_run', params, result)
+                result = projection._project_tool_result('fast_browser_get' if method == 'shared.get'
+                    else 'fast_browser_run', params, result)
             return result
         runtime = type('Runtime', (), {'call': staticmethod(call), 'authority': authority})()
         bridge = host.HostBridge(runtime, root / 'executor-plugin')

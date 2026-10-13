@@ -56,7 +56,7 @@ class DownloadDescriptorTests(unittest.TestCase):
         import downloads
         with tempfile.TemporaryDirectory(prefix="download-fd-", dir="/tmp") as work:
             root = Path(work).resolve()
-            source = root / "hermes-tasks" / "0123456789abcdef" / "sample.txt"
+            source = root / "fast-browser-tasks" / "0123456789abcdef" / "sample.txt"
             source.parent.mkdir(parents=True)
             source.write_bytes(b"sample")
             registry = downloads.DownloadRegistry(root / "home")
@@ -103,7 +103,7 @@ sys.path.insert(0, sys.argv[1])
 from artifacts import ArtifactStore, ArtifactError, _open_regular
 from downloads import DownloadRegistry, DownloadError
 root, operation = Path(sys.argv[2]), sys.argv[3]
-path = root / 'hermes-tasks' / '0123456789abcdef' / 'sample.txt'
+path = root / 'fast-browser-tasks' / '0123456789abcdef' / 'sample.txt'
 path.parent.mkdir(parents=True)
 os.mkfifo(path)
 task = {'id': 'task', 'generation': 1, 'state': 'ready'}

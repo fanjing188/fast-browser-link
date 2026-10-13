@@ -39,19 +39,19 @@ class DoctorTests(unittest.TestCase):
         with temporary_bridge_home() as home:
             self.assertEqual(home.parent, Path(tempfile.gettempdir()).resolve())
             self.assertEqual(home.stat().st_mode & 0o777, 0o700)
-            self.assertLessEqual(len(os.fsencode(home / 'plugin-data/browser-link-native/bridge.sock')), 103)
+            self.assertLessEqual(len(os.fsencode(home / 'plugin-data/fast-browser-link-native/bridge.sock')), 103)
         self.assertFalse(home.exists())
 
     def test_single_probe_timeout_is_unconfirmed_with_next_action(self):
         # 中文注释：守护进程可能忙于其他请求；一次连接超时不构成进程退出证据。
         with tempfile.TemporaryDirectory() as d:
-            data = Path(d) / 'plugin-data/browser-link-native'; data.mkdir(parents=True)
+            data = Path(d) / 'plugin-data/fast-browser-link-native'; data.mkdir(parents=True)
             (data / 'token').write_text('synthetic'); (data / 'token').chmod(0o600)
             with patch.object(doctor.socket, 'socket', side_effect=socket.timeout()):
                 self.assertEqual(doctor.probe(Path(d))['code'], 'host_unconfirmed')
             result = doctor.diagnose(Path(d), Path(d), lambda _: {'ok': False, 'code': 'host_unconfirmed'})
             self.assertEqual(next(row for row in result['checks'] if row['component'] == 'host')['code'], 'host_unconfirmed')
-            self.assertTrue(any('browser_shared_health' in line for line in result['advice']))
+            self.assertTrue(any('fast_browser_health' in line for line in result['advice']))
     def test_missing_install_does_not_create_or_start_anything(self):
         with tempfile.TemporaryDirectory() as d:
             result = doctor.diagnose(Path(d) / 'hermes', Path(d) / 'user')
@@ -60,7 +60,7 @@ class DoctorTests(unittest.TestCase):
     def test_manifest_checks_launcher_and_separates_access_from_connection(self):
         with tempfile.TemporaryDirectory() as d:
             home = Path(d) / 'h'; user = Path(d) / 'u'
-            plugin = home / 'plugins/browser-link/plugin.yaml'; plugin.parent.mkdir(parents=True); plugin.write_text('name: browser-link')
+            plugin = home / 'plugins/fast-browser-link/plugin.yaml'; plugin.parent.mkdir(parents=True); plugin.write_text('name: fast-browser-link')
             launcher = Path(d) / 'host'; launcher.write_text('# fixture'); launcher.chmod(0o700)
             manifest = user / 'Library/Application Support/Google/Chrome/NativeMessagingHosts' / (doctor.HOST + '.json')
             manifest.parent.mkdir(parents=True)
@@ -72,7 +72,7 @@ class DoctorTests(unittest.TestCase):
     def test_authenticated_probe_uses_existing_socket_only(self):
         # 中文注释：保留真实 HOME；测试数据和套接字全部位于短临时目录。
         with temporary_bridge_home() as d:
-            data = Path(d) / 'plugin-data/browser-link-native'; data.mkdir(parents=True)
+            data = Path(d) / 'plugin-data/fast-browser-link-native'; data.mkdir(parents=True)
             (data / 'token').write_text('synthetic'); (data / 'token').chmod(0o600)
             server = socket.socket(socket.AF_UNIX); server.bind(str(data / 'bridge.sock')); server.listen()
             seen = []

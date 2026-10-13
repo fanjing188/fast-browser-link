@@ -1,6 +1,6 @@
 # Usage
 
-This page describes what Hermes (and you) can do once the bridge is installed. Hermes discovers the same information through the plugin's skills (`browser-link:use-my-browser`, `browser-link:batch-scrape`, `browser-link:troubleshoot`).
+This page describes what Hermes (and you) can do once the bridge is installed. Hermes discovers the same information through the plugin's skills (`fast-browser-link:fast-browser-link`, `fast-browser-link:fast-browser-batch-scrape`, `fast-browser-link:fast-browser-troubleshoot`).
 
 ## Concepts
 
@@ -14,29 +14,29 @@ Task states: `pending_approval` → `authorizing` → `ready` / `running` → `c
 
 ## Automatic task cleanup (1.4.3)
 
-A completed turn closes its work tabs immediately by default. If a positive grace period is configured, any `browser_shared_*` call in the same Hermes session cancels it, including health, reference and script calls. CLI exit preserves a configured grace period. Failed or interrupted turns and `/stop` immediately end that session's tasks using handoff. An unmapped stop event logs a warning and closes no tasks.
+A completed turn closes its work tabs immediately by default. If a positive grace period is configured, any `fast_browser_*` call in the same Hermes session cancels it, including health, reference and script calls. CLI exit preserves a configured grace period. Failed or interrupted turns and `/stop` immediately end that session's tasks using handoff. An unmapped stop event logs a warning and closes no tasks.
 
 The daemon also closes ready tasks after 60 minutes without calls, scanning once at startup and then every 0.5 seconds. A task-specific call updates that task's activity; a session-level call updates its active tasks. Paused tasks and tasks waiting for manual input or approval are exempt. After a daemon restart, previously paused/manual tasks require explicit resume and retain this protection. Running operations are not closed by the idle scan.
 
-Set `HERMES_BROWSER_IDLE_CLOSE_SECONDS` (default `0`, positive values enable grace) and `HERMES_BROWSER_TASK_IDLE_TIMEOUT_SECONDS` (default `1200`) in the daemon's launch environment. Values must be finite non-negative seconds. Restart the daemon through your normal installation workflow to apply changes. This release does not change `.env` or the running installation automatically.
+Set `FAST_BROWSER_IDLE_CLOSE_SECONDS` (default `0`, positive values enable grace) and `FAST_BROWSER_TASK_IDLE_TIMEOUT_SECONDS` (default `1200`) in the daemon's launch environment. Values must be finite non-negative seconds. Restart the daemon through your normal installation workflow to apply changes. This release does not change `.env` or the running installation automatically.
 
-Use `browser_shared_close(task_id, keep_tabs=true)` for pages the user must finish. The task loses authority, its created tabs stay open, and its group is removed when the private creation journal proves ownership. Tabs moved to a user's group and tabs the user opened stay unchanged. Renaming a task group does not remove its identity; browser restart invalidates the old creation proof. Use `python3 scripts/sweep-stale-tasks.py --help` to inspect the one-time cleanup options.
+Use `fast_browser_close(task_id, keep_tabs=true)` for pages the user must finish. The task loses authority, its created tabs stay open, and its group is removed when the private creation journal proves ownership. Tabs moved to a user's group and tabs the user opened stay unchanged. Renaming a task group does not remove its identity; browser restart invalidates the old creation proof. Use `python3 scripts/sweep-stale-tasks.py --help` to inspect the one-time cleanup options.
 
 ## Tools
 
 | Tool | Purpose |
 |---|---|
-| `browser_shared_open(url)` | The usual entry point. Picks the connected browser, creates or reuses a task for the site, waits for authorization, binds the session and opens (or reuses) a work tab. |
-| `browser_shared_browsers`, `browser_shared_health` | List connected browsers; check the bridge service. |
-| `browser_shared_create`, `browser_shared_list`, `browser_shared_get` | Manage tasks explicitly. `get` on a ready task also binds the session to it. |
-| `browser_shared_run(task_id, action, ...)` | Run one page action (see below). |
-| `browser_shared_script(code)` | Run a short Python script with page helpers — see [Python scripting](python-scripting.md). |
-| `browser_shared_downloads(task_id, action)` | `list`, `claim` or `cancel` downloads started by the task's pages. |
-| `browser_shared_cookie_mirror(action, ...)` | List site counts, request a confirmed transfer or query status; never returns cookie values. |
-| `browser_shared_artifacts(task_id)` | List files registered to the task (metadata only). |
-| `browser_shared_cancel`, `browser_shared_resume`, `browser_shared_close` | Stop, resume (new generation) or close a task. `close` removes only the task's own work tabs. |
+| `fast_browser_open(url)` | The usual entry point. Picks the connected browser, creates or reuses a task for the site, waits for authorization, binds the session and opens (or reuses) a work tab. |
+| `fast_browser_browsers`, `fast_browser_health` | List connected browsers; check the bridge service. |
+| `fast_browser_create`, `fast_browser_list`, `fast_browser_get` | Manage tasks explicitly. `get` on a ready task also binds the session to it. |
+| `fast_browser_run(task_id, action, ...)` | Run one page action (see below). |
+| `fast_browser_script(code)` | Run a short Python script with page helpers — see [Python scripting](python-scripting.md). |
+| `fast_browser_downloads(task_id, action)` | `list`, `claim` or `cancel` downloads started by the task's pages. |
+| `fast_browser_cookie_mirror(action, ...)` | List site counts, request a confirmed transfer or query status; never returns cookie values. |
+| `fast_browser_artifacts(task_id)` | List files registered to the task (metadata only). |
+| `fast_browser_cancel`, `fast_browser_resume`, `fast_browser_close` | Stop, resume (new generation) or close a task. `close` removes only the task's own work tabs. |
 
-### Page actions (`browser_shared_run`)
+### Page actions (`fast_browser_run`)
 
 | Group | Actions |
 |---|---|
@@ -58,18 +58,18 @@ When the plugin has the `tools.override` capability and the session is bound to 
 
 ## A typical flow
 
-1. `browser_shared_open(url="https://example.com")` → returns `task_id` and `tab_id`.
+1. `fast_browser_open(url="https://example.com")` → returns `task_id` and `tab_id`.
 2. Read the page: `semantic_snapshot` (or `browser_snapshot`). References are valid only for that snapshot.
 3. Act with the references from the latest snapshot; after anything that changes the page, read again.
-4. For multi-page collection or long form workflows, switch to `browser_shared_script`.
-5. Moving to another site: call `browser_shared_open` with the new URL.
-6. Done: `browser_shared_close(task_id)`.
+4. For multi-page collection or long form workflows, switch to `fast_browser_script`.
+5. Moving to another site: call `fast_browser_open` with the new URL.
+6. Done: `fast_browser_close(task_id)`.
 
 ## Connection authorization, sensitive fields and take-over
 
 - **Browser connection authorization (full access only)**: confirm once in the extension. New tasks are prepared automatically; ordinary reads (including first site reads), navigation, writes, page requests, JavaScript, raw CDP, `browser_exec` and Python workflows run directly without per-action prompts. There is no smart-approval mode or mode switch. `tabs` lists only the task's leased tabs. Offline or unknown state is not proof of authorization.
 - **Special confirmations**: Cookie mirror still requires explicit confirmation. Wait for the user's decision; never auto-approve or replay an unknown result. Query Cookie mirror with `status` and the original `transfer_id`; sensitive-field manual input uses the same `request_id` and arguments according to the returned contract.
-- **Login continuity**: after `click`, `ref_click` or `interaction.click`, inspect `popupOpened:{candidateRef, origin, windowType, tabId}` and `popupNextStep`. In **smart/full mode**, a newly observed provider authorization page opened by the task's leased tab is adopted automatically, with a task timeline and approval-ledger record. Use `browser_shared_use_tab` with its `tabId` (scripts: `use_tab(tabId)`), then fresh `read_page` to select an account. Passwords, verification codes and 2FA remain `manual_input` for the user. On close, `popupClosed:{returnedTo: sourceTabId}` reports the return; the bound script/tools return to the leased source and read its latest document. Discard old page refs and screenshots after login. If the new page is still blank, `popupOpened.origin` may be null; a fresh source `popup_catalog` returns `adoptedPopupTabIds` and `adoptedPopups` (verified identity metadata) for delayed provider adoption, including navigation from `about:blank`. Select the known tab only after its adoption is verified. 所有网站的结构读取显示真实邮箱，便于寻找联系人和按邮箱选择账号；账号项可能是 ARIA link/button，应按快照的实际角色唯一定位。主文档目标不与不可读 iframe 重叠时可由执行器核验点击，部分覆盖仍须保留 skippedFrames。回源后核对页面已登录证据；卡号、密钥、Bearer 及密码保护保持生效。
+- **Login continuity**: after `click`, `ref_click` or `interaction.click`, inspect `popupOpened:{candidateRef, origin, windowType, tabId}` and `popupNextStep`. In **smart/full mode**, a newly observed provider authorization page opened by the task's leased tab is adopted automatically, with a task timeline and approval-ledger record. Use `fast_browser_use_tab` with its `tabId` (scripts: `use_tab(tabId)`), then fresh `read_page` to select an account. Passwords, verification codes and 2FA remain `manual_input` for the user. On close, `popupClosed:{returnedTo: sourceTabId}` reports the return; the bound script/tools return to the leased source and read its latest document. Discard old page refs and screenshots after login. If the new page is still blank, `popupOpened.origin` may be null; a fresh source `popup_catalog` returns `adoptedPopupTabIds` and `adoptedPopups` (verified identity metadata) for delayed provider adoption, including navigation from `about:blank`. Select the known tab only after its adoption is verified. 所有网站的结构读取显示真实邮箱，便于寻找联系人和按邮箱选择账号；账号项可能是 ARIA link/button，应按快照的实际角色唯一定位。主文档目标不与不可读 iframe 重叠时可由执行器核验点击，部分覆盖仍须保留 skippedFrames。回源后核对页面已登录证据；卡号、密钥、Bearer 及密码保护保持生效。
 - **Provider configuration**: `OAUTH_PROVIDERS` in `native-extension/oauth-popups.mjs` contains exact HTTPS origins: `accounts.google.com`, `appleid.apple.com`, `login.microsoftonline.com`, `login.live.com`, `github.com` (`/login/oauth/authorize`), `www.facebook.com` (`/dialog/oauth` or versioned `/vNN.N/dialog/oauth`), `x.com` (`/i/oauth2/authorize`, `/oauth/authorize`), and `api.twitter.com` (`/oauth/authorize`, `/oauth/authenticate`). Trusted extension setup can override the `Executor` option `oauthProviders` with `{origin, paths?}` entries; web pages and public tools cannot configure it. Observation lasts 120 seconds and candidates last 600 seconds. Same-window tabs and normal new windows qualify; pre-existing tabs, other tasks' leases and paused/revoked tasks do not. Missing Edge opener metadata is read back only for the new tab; if no opener can be verified, adoption is refused.
 - **Other popup adoption**: use `popup_catalog` on the source, retain the candidate, then call `popup_adopt` to adopt it directly without confirmation, including candidates outside the provider allowlist, and select the returned tab. The source and target must remain owned by the same task. For unknown results, inspect task state and the page before another action.
 - **Target recovery**: `recovery` reports up to three automatic rounds of waiting, rescanning and relocation. If it still fails, use a new description or skip the item and continue. Already-dispatched uncertain writes are read back and are not blindly repeated.
@@ -100,7 +100,7 @@ The extension popup no longer displays Cookie mirror controls. Site selection, o
 
 Keep both Desktop options off to preserve target cookies and source session lifetimes. Enable clearing only when you intend to remove existing target cookies for those sites; optional session persistence accepts 1–365 days. Read per-site `success`, `failed`, `matched`, `missing`, `cleared`, `clearFailed` and fixed failure categories on Desktop. Readback checks name/domain/path/partition identities. Verify login by opening the site's protected page in the target.
 
-Hermes can call `browser_shared_cookie_mirror` with `action="list_sites"` and `source`, then `action="request_mirror"` with `source`, `target`, `sites` and optional `options`. It must wait for your confirmation and query `action="status"` with the returned ID in `transfer_id`. Query the same transfer; do not reissue `request_mirror` after a timeout. Neither tool nor popup exposes values to the model, logs, diagnostics or task files.
+Hermes can call `fast_browser_cookie_mirror` with `action="list_sites"` and `source`, then `action="request_mirror"` with `source`, `target`, `sites` and optional `options`. It must wait for your confirmation and query `action="status"` with the returned ID in `transfer_id`. Query the same transfer; do not reissue `request_mirror` after a timeout. Neither tool nor popup exposes values to the model, logs, diagnostics or task files.
 
 Background focus failure no longer prevents creating the confirmation panel. If focus cannot be verified, the extension sends a generic system notification using the `notifications` permission. Clicking it only focuses the valid panel; approval still needs your real click inside it. Notifications contain no website, task or Cookie data. If system settings suppress notifications, bring the source browser and its existing confirmation window to the front. The badge keeps the pending count. Manual-input panels retain this behavior. Login-window adoption does not create a confirmation panel. Ordinary reads, writes and debugging no longer create per-action panels; connection authorization remains in the extension.
 
@@ -119,18 +119,18 @@ Look at `code` and `outcome_unknown` in the result. **If `outcome_unknown` is tr
 |---|---|---|
 | `no_browser`, `instance_unavailable`, `extension_disconnected` | The extension is not connected | Enable the extension and check the Browser work page shows *Connected* |
 | `browser_choice_required` | Several browsers are connected | Pick one with `instance_id` |
-| `awaiting_authorization`, `pending_approval`, `invalid_state` | Connection authorization or task preparation is not ready | Check connection authorization in the extension, then `browser_shared_get` until `ready`; do not create another task |
+| `awaiting_authorization`, `pending_approval`, `invalid_state` | Connection authorization or task preparation is not ready | Check connection authorization in the extension, then `fast_browser_get` until `ready`; do not create another task |
 | `approval_required` | An independent special confirmation is pending | Confirm, then repeat with the same `request_id` and arguments |
 | `user_input_required`, `sensitive_target` | Sensitive field | Fill it yourself in the browser |
 | `approval_denied`, `user_input_declined`, `approval_expired` | Not executed | Tell the user; only retry with a new `request_id` after they agree |
-| `origin_denied` | Site not in the task's scope | `browser_shared_open` the new site |
+| `origin_denied` | Site not in the task's scope | `fast_browser_open` the new site |
 | `foreign_tab`, `tab_required` | Wrong or missing tab | Use the task's `tab_id` or open a new work tab |
 | `stale_reference`, `document_changed` | The page changed | Take a new snapshot |
 | `page_not_ready` | The page is still loading | Wait a few seconds and read the **same** tab again; do not reopen the URL |
 | `task_paused` | The user took over the page | Wait for them to hand it back, then re-read the page |
 | `outcome_unknown`, `extension_timeout`, `request_outcome_unavailable` | The action may have happened | Read the page and decide; never replay |
-| `needs_sync` | Authority was dropped (disconnect, restart) | Verify the page, then `browser_shared_resume` |
-| `binding_missing`, `session_identity_required` | The session is not bound | `browser_shared_open` or `browser_shared_get` a ready task |
+| `needs_sync` | Authority was dropped (disconnect, restart) | Verify the page, then `fast_browser_resume` |
+| `binding_missing`, `session_identity_required` | The session is not bound | `fast_browser_open` or `fast_browser_get` a ready task |
 | `unsupported_operation` | Not available through the bridge | Use snapshots, screenshots or a script instead |
 
 结构读取遇到动态页面会最多自动重读两次；写操作不重放。`skippedFrames` 列出不可读框架的 origin 与尺寸，`coverage.complete=false` 仍表示部分覆盖。主文档扫描完整、邮箱/名称唯一时，`click_element` 可进入原生目标与框架不重叠检查；截断或歧义需缩小 root/query。任意 JS 和截图不因结构读取可用而放开。

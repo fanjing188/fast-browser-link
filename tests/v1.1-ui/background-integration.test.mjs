@@ -152,7 +152,7 @@ test('Cookie mirror requires trusted source panel even in full access',async()=>
 test('system notification event focuses the pending panel without dispatching approval',async()=>{
  const h=harness({focusFails:true});await h.tick();const before=h.nativeCalls.filter(m=>m.method==='extension.action_decision').length;
  h.chrome.windows.update=async(id)=>{h.focusCalls.push([id,{focused:true}]);return {id,focused:true};};
- h.notification('hermes-browser-approval');await h.tick();
+ h.notification('fast-browser-approval');await h.tick();
  assert.equal(h.focusCalls.at(-1)[0],h.sender().tab.windowId);
  assert.equal(h.nativeCalls.filter(m=>m.method==='extension.action_decision').length,before);
  assert.ok((await h.message({type:'approval_panel_view'})).result);

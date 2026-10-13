@@ -25,7 +25,7 @@ _STDERR_CAP_CHARS = 4000
 _TASK_SAFE = re.compile(r"[^A-Za-z0-9._-]+")
 _SESSION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 _REQUEST_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
-_NOTE = ("\n\n当前会话已绑定 Hermes 浏览器插件的共享任务时，代码驱动的是该任务的工作页："
+_NOTE = ("\n\n当前会话已绑定 Fast-browser-link 浏览器插件的共享任务时，代码驱动的是该任务的工作页："
          "连接授权后直接执行，不逐项批准；再次独立执行同一脚本需新 request_id，结果未知不得重放。"
          "凭据填写过的页面不能执行脚本；upload_file 可使用用户指定的本地文件。")
 
@@ -158,7 +158,7 @@ class BrowserExecAdapter:
                if key not in {"PYTHONPATH", "PYTHONHOME", "BU_CDP_URL", "BU_CDP_WS", "BU_BROWSER_ID", "BU_AUTOSPAWN"}}
         # 中文注释：每个任务代次一个独立 harness 守护进程名，避免复用连到其他浏览器的旧守护进程。
         digest = hashlib.sha256(f"{native_task}:{url}".encode()).hexdigest()[:12]
-        harness = f"hermes-{session or 'task'}-{digest}"[:64]
+        harness = f"fast-browser-{(session or 'task')[:38]}-{digest}"
         env.update(BU_CDP_WS=url, BU_NAME=harness, BH_AGENT_WORKSPACE=str(workspace),
                    ANONYMIZED_TELEMETRY="false", BH_TELEMETRY="0")
         timeout = _clamp(args.get("timeout_s", _DEFAULT_TIMEOUT_S))
@@ -179,7 +179,7 @@ class BrowserExecAdapter:
                 pass
         result = {"success": proc.returncode == 0, "exit_code": proc.returncode,
                   "output": _redact(proc.stdout), "workspace": str(workspace),
-                  "backend": "hermes-native-task", "harness": harness, "elapsed_s": round(time.time() - started, 2)}
+                  "backend": "fast-native-task", "harness": harness, "elapsed_s": round(time.time() - started, 2)}
         if session:
             result["session"] = session
         stderr = _redact((proc.stderr or "").strip())

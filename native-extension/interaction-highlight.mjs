@@ -85,8 +85,8 @@ export function createInteractionHighlight({
 
   function hasOverlayConflict() {
     if (sharedSurface) return false;
-    if (doc.querySelector('[data-hermes-automation-overlay]:not([data-hermes-interaction-highlight])')) return true;
-    return [...doc.querySelectorAll('[data-hermes-interaction-highlight]')].some(candidate => candidate !== host);
+    if (doc.querySelector('[data-fast-automation-overlay]:not([data-fast-interaction-highlight])')) return true;
+    return [...doc.querySelectorAll('[data-fast-interaction-highlight]')].some(candidate => candidate !== host);
   }
 
   function makeHost() {
@@ -99,8 +99,8 @@ export function createInteractionHighlight({
     if (host?.isConnected) return true;
 
     host = doc.createElement('div');
-    host.setAttribute('data-hermes-automation-overlay', '');
-    host.setAttribute('data-hermes-interaction-highlight', '');
+    host.setAttribute('data-fast-automation-overlay', '');
+    host.setAttribute('data-fast-interaction-highlight', '');
     host.setAttribute('aria-hidden', 'true');
     Object.assign(host.style, {
       position: 'fixed', inset: '0px', zIndex: '2147483647',
@@ -136,7 +136,7 @@ export function createInteractionHighlight({
 
   function belongsToOverlay(target) {
     for (let node = target; node; node = node.parentNode || node.host) {
-      if (node.nodeType === 1 && node.hasAttribute?.('data-hermes-automation-overlay')) return true;
+      if (node.nodeType === 1 && node.hasAttribute?.('data-fast-automation-overlay')) return true;
     }
     return false;
   }

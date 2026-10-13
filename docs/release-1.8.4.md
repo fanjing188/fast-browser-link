@@ -1,4 +1,4 @@
-# Hermes Browser Link 1.8.4
+# Fast-browser-link 1.8.4
 
 1.8.4 为 macOS 正式稳定版，修复本地桥接退出崩溃、历史清理响应超限导致的重连循环，以及悬停按钮造成的会话引用失效。
 
@@ -17,7 +17,7 @@
 
 ## 安装
 
-下载 `hermes-browser-link-1.8.4.zip`，解压后运行 `./install.sh`；已有安装运行 `./install.sh --upgrade`。更新后重载 Chrome/Edge 扩展并重新加载或重启 Hermes 插件运行时。安装包无需 Node.js。
+下载 `fast-browser-link-1.8.4.zip`，解压后运行 `./install.sh`；已有安装运行 `./install.sh --upgrade`。更新后重载 Chrome/Edge 扩展并重新加载或重启 Hermes 插件运行时。安装包无需 Node.js。
 
 更新个人环境前等待正在执行的浏览器任务结束。断连或重启后需要重新确认的任务不会自动重放。云端站点源码元数据版本同步为 1.8.4；GitHub Release 不替代云端站点所有者的托管发布。
 

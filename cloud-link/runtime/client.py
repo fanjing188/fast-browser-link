@@ -211,7 +211,7 @@ def main():
         finally:
             local.close()
         return
-    directory = args.data_dir or args.home / 'plugin-data/browser-link-cloud'
+    directory = args.data_dir or args.home / 'plugin-data/fast-browser-link-cloud'
     private_directory(directory)
     config_path = directory / 'pairing.json'
     if args.command == 'configure':

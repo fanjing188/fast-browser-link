@@ -7,7 +7,7 @@ import path from 'node:path';
 const args = process.argv.slice(2);
 function option(name, fallback) { const i=args.indexOf(name); return i<0?fallback:args[i+1]; }
 const source=path.resolve(option('--source',path.join(import.meta.dirname,'..')));
-const output=path.resolve(option('--output',path.join(source,'artifacts','browser-link-release')));
+const output=path.resolve(option('--output',path.join(source,'artifacts','fast-browser-link-release')));
 // 中文注释：默认产出开发候选；只有显式 --release 版本号、且源码工作区干净时才写正式发布状态并记录提交。
 const releaseVersion=option('--release',null);
 if(releaseVersion!==null&&!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(releaseVersion))throw new Error('--release expects a stable version such as 1.3.0');
@@ -165,12 +165,12 @@ async function verifyLayout(root) {
   const emptyOrExtra=[...actualDirs].filter(name=>!expectedDirs.has(name)).sort();
   const missing=[...expectedDirs].filter(name=>!actualDirs.has(name)).sort();
   if (emptyOrExtra.length||missing.length) throw new Error(`Incomplete package directory layout: extra=${JSON.stringify(emptyOrExtra)} missing=${JSON.stringify(missing)}`);
-  for (const required of ['browser-link/plugin.yaml','browser-link/script_lane/host_bridge.py',
+  for (const required of ['fast-browser-link/plugin.yaml','fast-browser-link/script_lane/host_bridge.py',
     // 中文注释：自动更新必须携带完整维护入口与事务安装器。
-    'browser-link/maintenance/update.py','browser-link/maintenance/install-cli.py','browser-link/maintenance/install-executor.py',
-    'browser-link/script_lane/action_session.py','browser-link/script_lane/child.py',
-    'browser-link/script_lane/tool.py','browser-link/open_tool.py',
-    'browser-link/skills/use-my-browser/SKILL.md','native-extension/manifest.json',
+    'fast-browser-link/maintenance/update.py','fast-browser-link/maintenance/install-cli.py','fast-browser-link/maintenance/install-executor.py',
+    'fast-browser-link/script_lane/action_session.py','fast-browser-link/script_lane/child.py',
+    'fast-browser-link/script_lane/tool.py','fast-browser-link/open_tool.py',
+    'fast-browser-link/skills/fast-browser-link/SKILL.md','native-extension/manifest.json',
     // 中文注释：四尺寸扩展图标是发布必需文件，构建与包清单同时验收。
     'native-extension/icon-16.png','native-extension/icon-32.png','native-extension/icon-48.png','native-extension/icon-128.png',
     'docs/python-scripting.md','docs/CHANGELOG.md',
@@ -179,7 +179,7 @@ async function verifyLayout(root) {
     if (!actualFiles.has(required)) throw new Error(`Incomplete package layout: missing ${required}`);
   }
   const roots=new Set([...actualFiles].map(name=>name.split('/')[0]));
-  const expectedRoots=new Set(['browser-link','native-extension','docs','LICENSE','README.md','INSTALL.txt','RELEASE-STATUS.txt','install-executor.py','install-cli.py','install.sh']);
+  const expectedRoots=new Set(['fast-browser-link','native-extension','docs','LICENSE','README.md','INSTALL.txt','RELEASE-STATUS.txt','install-executor.py','install-cli.py','install.sh']);
   if (roots.has('SHA256SUMS.json')) expectedRoots.add('SHA256SUMS.json');
   if (roots.size!==expectedRoots.size||[...roots].some(name=>!expectedRoots.has(name))) throw new Error(`Unexpected package root layout: ${JSON.stringify([...roots].sort())}`);
   return actualFiles;
@@ -221,28 +221,28 @@ try {
   await mkdir(path.dirname(output),{recursive:true});
   await mkdir(output); // existing target is always refused
   outputCreated = true;
-  await copyTree(path.join(source,'executor-plugin'),path.join(output,'browser-link'));
+  await copyTree(path.join(source,'executor-plugin'),path.join(output,'fast-browser-link'));
   // 中文注释：Executor 自带语义模块也保留 Hermes 归属；许可同时纳入候选来源快照。
-  await mkdir(path.join(output,'browser-link/third-party/licenses'),{recursive:true});
+  await mkdir(path.join(output,'fast-browser-link/third-party/licenses'),{recursive:true});
   for(const file of ['THIRD_PARTY_NOTICES.md','third-party/licenses/hermes-agent-MIT.txt'])
-    await copyFile(path.join(source,file),path.join(output,'browser-link',file));
+    await copyFile(path.join(source,file),path.join(output,'fast-browser-link',file));
   // 中文注释：自动更新组件携带相同安装器，下载新包后仍用当前可信代码校验及事务升级。
   for (const name of ['install-cli.py','install-executor.py']) {
-    await copyFile(path.join(source,'scripts',name),path.join(output,'browser-link/maintenance',name));
+    await copyFile(path.join(source,'scripts',name),path.join(output,'fast-browser-link/maintenance',name));
   }
-  for (const module of modules) await copyTree(path.join(source,module),path.join(output,'browser-link',module));
+  for (const module of modules) await copyTree(path.join(source,module),path.join(output,'fast-browser-link',module));
   // Only the native runtime JS entries, not module tests, scripts or evidence.
   for (const relative of nativeModules) {
-    const destination = path.join(output, 'browser-link', relative);
+    const destination = path.join(output, 'fast-browser-link', relative);
     await mkdir(path.dirname(destination), {recursive:true});
     await copyFile(path.join(source, relative), destination);
   }
   // 中文注释：独立 ESM 边界避免依赖仓库根目录的 package.json。
-  await writeFile(path.join(output,'browser-link/package.json'), JSON.stringify({private:true,type:'module'})+'\n');
-  await copyTree(path.join(source,'native-bridge'),path.join(output,'browser-link','native_bridge'));
+  await writeFile(path.join(output,'fast-browser-link/package.json'), JSON.stringify({private:true,type:'module'})+'\n');
+  await copyTree(path.join(source,'native-bridge'),path.join(output,'fast-browser-link','native_bridge'));
   // 中文注释：云端只打包本机运行时，网页源码、执行证据和服务器配置不进入扩展安装包。
-  await copyTree(path.join(source,'cloud-link'),path.join(output,'browser-link','cloud_link'),new Set(['site','evidence','tests']));
-  const diagnosticsOutput = path.join(output, 'browser-link/native_bridge/browser_diagnostics');
+  await copyTree(path.join(source,'cloud-link'),path.join(output,'fast-browser-link','cloud_link'),new Set(['site','evidence','tests']));
+  const diagnosticsOutput = path.join(output, 'fast-browser-link/native_bridge/browser_diagnostics');
   await mkdir(diagnosticsOutput, {recursive:true});
   for (const name of diagnosticsFiles) await copyFile(path.join(source, diagnosticsPackage, name), path.join(diagnosticsOutput, name));
   // 中文注释：只在独立输出目录构建，不修改工作区的 dist-native。
@@ -268,7 +268,7 @@ try {
   await writeFile(path.join(output,'INSTALL.txt'),`Browser Link ${releaseVersion || declaredVersion}
 Run ./install.sh. Python 3.11+ and Hermes are needed; source installation also needs Node.js 22.12+.
 Currently supported: macOS + Chrome/Edge. Tested with Hermes 0.21.4.
-One shared program at <shared-root>/plugins/browser-link; named profiles use direct links, while profile settings and private data remain separate.
+One shared program at <shared-root>/plugins/fast-browser-link; named profiles use direct links, while profile settings and private data remain separate.
 Upgrade migrates existing program copies without enabling disabled profiles; backups and the Hermes Desktop UI cache are retained separately.
 Load the printed extension directory, confirm connection authorization in the extension and restart Hermes Desktop; ordinary task-page actions run directly.
 Takeover, stop and credential protection remain available. Cookie mirroring and adopting an existing OAuth login window require separate confirmation.
@@ -279,7 +279,7 @@ Uninstall: ./install.sh --uninstall (keeps task data); add --purge to delete it.
 Preview: ./install.sh --dry-run. Directory details: ./install.sh --verbose.
 Read README.md for profiles, the connection check command and troubleshooting.
 `);
-  await verifyRuntimeClosure(path.join(output,'browser-link'));
+  await verifyRuntimeClosure(path.join(output,'fast-browser-link'));
   await verifyRuntimeClosure(path.join(output,'native-extension'));
   await verifyLayout(output);
   if (before !== await sourceSnapshot()) throw new Error('Source changed during packaging; discard this incomplete output and retry after writers finish');

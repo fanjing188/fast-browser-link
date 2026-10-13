@@ -31,7 +31,7 @@ def register(ctx, bridge, runtime, home, *, lease_error, bridge_denied):
     spec = importlib.util.spec_from_file_location('browser_site_script', root.parent / 'script_lane/tool.py')
     script = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(script)
-    store = store_module.Store(Path(home) / 'plugin-data/browser-link-native/site-tools')
+    store = store_module.Store(Path(home) / 'plugin-data/fast-browser-link-native/site-tools')
     runtime.authority.lease_tools(tuple(SCHEMAS))
 
     def make_handler(name):
@@ -107,4 +107,4 @@ def register(ctx, bridge, runtime, home, *, lease_error, bridge_denied):
         return handler
 
     for name, schema in SCHEMAS.items():
-        ctx.register_tool(name=name, toolset='browser-link', schema=schema, handler=make_handler(name), description=schema['description'], emoji='🌐')
+        ctx.register_tool(name=name, toolset='fast-browser-link', schema=schema, handler=make_handler(name), description=schema['description'], emoji='🌐')

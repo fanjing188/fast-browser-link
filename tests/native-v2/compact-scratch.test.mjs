@@ -38,7 +38,7 @@ test('compactScratch stages isolated source and package homes with a bindable so
         assert.ok(filename.startsWith(`${work}/`) || filename.startsWith(`${compactHome}/`), filename);
         await access(filename);
       }
-      const socketPath = path.join(compactHome, 'plugin-data/browser-link-native/bridge.sock');
+      const socketPath = path.join(compactHome, 'plugin-data/fast-browser-link-native/bridge.sock');
       assert.ok(Buffer.byteLength(socketPath) <= 103, socketPath);
       console.log(`compact socket: ${socketPath} (${Buffer.byteLength(socketPath)} bytes)`);
       await exec(python, ['-c', 'import socket,sys; s=socket.socket(socket.AF_UNIX); s.bind(sys.argv[1]); s.close()', socketPath]);
@@ -81,7 +81,7 @@ test('compactScratch refuses missing or overlong TMPDIR without leaking work', a
   // 中文注释：即使 CI 的临时根目录很短，负例也必须确定超过 socket 字节上限。
   const longScratch = await mkdtemp(path.join(await realpath(original), `compact-too-long-${'x'.repeat(103)}-`));
   try {
-    assert.ok(Buffer.byteLength(path.join(longScratch, '0000/plugin-data/browser-link-native/bridge.sock')) > 103);
+    assert.ok(Buffer.byteLength(path.join(longScratch, '0000/plugin-data/fast-browser-link-native/bridge.sock')) > 103);
     await assert.rejects(runner.stageRealSession({browser: 'chrome', compactScratch: true, label: 'missing/compact-escape'}), /label/u);
     delete process.env.TMPDIR;
     await assert.rejects(runner.stageRealSession({browser: 'chrome', compactScratch: true}), /explicit TMPDIR/u);
@@ -94,10 +94,10 @@ test('compactScratch refuses missing or overlong TMPDIR without leaking work', a
 test('helper staging without compact home preserves the legacy isolated layout', async () => {
   const work = await mkdtemp(path.join(await realpath(process.env.TMPDIR), 'compact-legacy-'));
   try {
-    const staged = await runner.helperCall('stage', work, JSON.stringify(['chrome-extension://dhioigkigkkhceflkkkmoljhdaefjohb/']));
+    const staged = await runner.helperCall('stage', work, JSON.stringify(['chrome-extension://hhnljehnkmhhgjjjmnlhilfpcjhobloc/']));
     assert.equal(staged.home, path.join(work, 'h'));
     assert.equal(staged.hermesHome, path.join(work, 'h/.hermes'));
-    assert.equal(staged.plugin, path.join(work, 'plugin/browser-link'));
+    assert.equal(staged.plugin, path.join(work, 'plugin/fast-browser-link'));
     assert.ok((await readFile(staged.host, 'utf8')).includes(staged.hermesHome));
   } finally { await rm(work, {recursive: true, force: true}); }
 });

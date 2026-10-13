@@ -1,20 +1,20 @@
 # executor-plugin
 
-The Hermes plugin `browser-link`. It is installed as `$HERMES_HOME/plugins/browser-link/` and uses only Hermes' public plugin API.
+The Hermes plugin `fast-browser-link`. It is installed as `$HERMES_HOME/plugins/fast-browser-link/` and uses only Hermes' public plugin API.
 
 ## Contents
 
 | Path | Role |
 |---|---|
 | `__init__.py` | Registration: tools, owner-lease hook, skills, system-prompt pointer, optional overrides |
-| `native_tools.py`, `native_runtime.py`, `runtime.py` | `browser_shared_*` tools, schemas, trusted session → one-use owner lease, result projection |
-| `open_tool.py` | `browser_shared_open`: choose browser, create or reuse task, wait for authorization, bind session, open work tab |
-| `script_lane/` | `browser_shared_script`: script host, action session and the child-process helpers |
+| `native_tools.py`, `native_runtime.py`, `runtime.py` | `fast_browser_*` tools, schemas, trusted session → one-use owner lease, result projection |
+| `open_tool.py` | `fast_browser_open`: choose browser, create or reuse task, wait for authorization, bind session, open work tab |
+| `script_lane/` | `fast_browser_script`: script host, action session and the child-process helpers |
 | `single_tool_adapter/` | Routes Hermes' official `browser_*` tools and `browser_exec` to the bound task |
 | `vault_adapter/` | Optional routing of Hermes' Vault tools through the private fill channel |
-| `dashboard/` | HTTP API mounted at `/api/plugins/browser-link` |
+| `dashboard/` | HTTP API mounted at `/api/plugins/fast-browser-link` |
 | `desktop/` | The Hermes Desktop "Browser work" page |
-| `skills/` | Skills the model reads: `use-my-browser`, `batch-scrape`, `troubleshoot` |
+| `skills/` | Skills the model reads: `fast-browser-link`, `fast-browser-batch-scrape`, `fast-browser-troubleshoot` |
 | `task_diagnostics.py` | Task log and diagnostics projection |
 
 ## Official tool overrides

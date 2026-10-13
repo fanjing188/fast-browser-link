@@ -82,14 +82,14 @@ class InteractionWireTests(unittest.TestCase):
 
     def run_action(self, action, request_id, **extra):
         args={'task_id':'task-v2','tab_id':7,'action':action,'request_id':request_id,**extra}
-        decision=self.runtime.authority.pre_tool_call('browser_shared_run',args,
+        decision=self.runtime.authority.pre_tool_call('fast_browser_run',args,
                            session_id='native-v2-session',tool_call_id='lease-'+str(self.seq))
         self.assertEqual(decision['action'],'modify')
         args.update(decision['args'])
-        return json.loads(self.tools.make_tool_handler('browser_shared_run',self.runtime)(args,session_id='native-v2-session'))
+        return json.loads(self.tools.make_tool_handler('fast_browser_run',self.runtime)(args,session_id='native-v2-session'))
 
     def test_capture_bounds_click_traverse_public_hook_daemon_and_real_executor(self):
-        actions=set(self.tools.TOOL_SCHEMAS['browser_shared_run']['parameters']['properties']['action']['enum'])
+        actions=set(self.tools.TOOL_SCHEMAS['fast_browser_run']['parameters']['properties']['action']['enum'])
         self.assertTrue({'interaction.capture','interaction.bounds','interaction.click'} <= actions)
         shot=self.run_action('interaction.capture','capture')
         self.assertEqual(shot['image']['mimeType'],'image/png')

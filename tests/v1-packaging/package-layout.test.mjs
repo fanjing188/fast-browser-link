@@ -16,7 +16,7 @@ function packageCandidate(output) {
 
 test('桥接候选包包含完整清单且不包含旧独立引擎', t => {
   // 临时输出只用于验证候选包，不触碰用户的 Hermes 安装。
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'browser-link-layout-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'fast-browser-link-layout-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const output = path.join(root, 'candidate');
   const result = packageCandidate(output);
@@ -24,14 +24,14 @@ test('桥接候选包包含完整清单且不包含旧独立引擎', t => {
 
   const manifest = JSON.parse(fs.readFileSync(path.join(output, 'SHA256SUMS.json'), 'utf8'));
   const expected = [
-    'browser-link/open_tool.py',
-    'browser-link/skills/use-my-browser/SKILL.md',
-    'browser-link/native_bridge/daemon.py',
+    'fast-browser-link/open_tool.py',
+    'fast-browser-link/skills/fast-browser-link/SKILL.md',
+    'fast-browser-link/native_bridge/daemon.py',
     'native-extension/manifest.json',
     'install-executor.py',
   ];
   for (const name of expected) assert.ok(manifest[name], `missing ${name}`);
-  assert.ok(Object.keys(manifest).every(name => !name.startsWith('browser-link/engine/')));
+  assert.ok(Object.keys(manifest).every(name => !name.startsWith('fast-browser-link/engine/')));
   assert.ok(!Object.hasOwn(manifest, 'docs/EXECUTOR-ACCEPTANCE.md'));
   for (const [name, expectedHash] of Object.entries(manifest)) {
     const actualHash = createHash('sha256').update(fs.readFileSync(path.join(output, name))).digest('hex');

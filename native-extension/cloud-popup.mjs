@@ -27,5 +27,5 @@ cloudElement('cloud-regenerate').addEventListener('click',event=>{if(event.isTru
 cloudElement('cloud-disconnect').addEventListener('click',event=>{if(event.isTrusted)void cloudAct({type:'cloud_disconnect'});});
 
 // 中文注释：只订阅现有弹窗快照；云端界面不另发本地状态请求。
-window.addEventListener('browser-link-status',event=>{if(cloudBusy)return;cloudState=event.detail||{state:'unavailable',online:false,paired:false};cloudRender();});
+window.addEventListener('fast-browser-link-status',event=>{if(cloudBusy)return;cloudState=event.detail||{state:'unavailable',online:false,paired:false};cloudRender();});
 cloudRender();setInterval(cloudRender,1000);

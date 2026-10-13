@@ -16,7 +16,7 @@ MAX_FRAME = 384 * 1024
 def call(home: Path, operation: str, params: dict) -> dict:
     if operation not in {"inspect", "fill", "revoke"} or not isinstance(params, dict):
         raise RuntimeError("Vault operation unavailable")
-    data_dir = Path(home).expanduser().resolve() / "plugin-data" / "browser-link-native"
+    data_dir = Path(home).expanduser().resolve() / "plugin-data" / "fast-browser-link-native"
     token_path = data_dir / "vault.token"
     try:
         fd = os.open(token_path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))

@@ -39,28 +39,28 @@ class AfterProtocolTests(unittest.TestCase):
     def test_public_tool_and_daemon_accept_only_bounded_after(self):
         after = {'root': '#result', 'mode': 'interactive', 'budget': 1800}
         public = {'task_id': 'task', 'tab_id': 7, 'action': 'click', 'selector': '#button', 'after': after}
-        tools._validate('browser_shared_run', public)
+        tools._validate('fast_browser_run', public)
         native = {'owner': 'owner', 'taskId': 'task', 'requestId': 'request', 'tabId': 7, 'selector': '#button', 'after': after}
         daemon.BridgeDaemon._validate_run_params('click', native)
         for invalid in (True, [], {'budget': 511}, {'budget': 6001}, {'mode': {}}, {'root': ''}, {'baselineId': 'old'}):
             with self.assertRaises(tools.ArgumentFieldsError):
-                tools._validate('browser_shared_run', {**public, 'after': invalid})
+                tools._validate('fast_browser_run', {**public, 'after': invalid})
             with self.assertRaises(daemon.ProtocolError):
                 daemon.BridgeDaemon._validate_run_params('click', {**native, 'after': invalid})
         with self.assertRaises(tools.ArgumentFieldsError):
-            tools._validate('browser_shared_run', {'task_id': 'task', 'tab_id': 7, 'action': 'snapshot', 'after': {}})
+            tools._validate('fast_browser_run', {'task_id': 'task', 'tab_id': 7, 'action': 'snapshot', 'after': {}})
 
     def test_projection_preserves_observation_blocked_and_unknown_without_values(self):
         observation = {'kind': 'full', 'binding': {'taskId': 'task'}, 'snapshotId': 'fresh',
                        'items': [{'ref': 'ref', 'name': '保存', 'blocked': 'occluded', 'actionable': False, 'value': 'PRIVATE_VALUE'}]}
-        projected = runtime._project_tool_result('browser_shared_run', {'action': 'ref_fill'},
+        projected = runtime._project_tool_result('fast_browser_run', {'action': 'ref_fill'},
                                                 {'filled': False, 'verified': False, 'delivery': 'unconfirmed', 'outcomeUnknown': True, 'observation': observation})
         self.assertEqual(projected['delivery'], 'unconfirmed')
         self.assertTrue(projected['outcomeUnknown'])
         self.assertEqual(projected['observation']['items'][0]['blocked'], 'occluded')
         self.assertFalse(projected['observation']['items'][0]['actionable'])
         self.assertNotIn('value', projected['observation']['items'][0])
-        failed = runtime._project_tool_result('browser_shared_run', {'action': 'ref_click'},
+        failed = runtime._project_tool_result('fast_browser_run', {'action': 'ref_click'},
                                              {'delivery': 'confirmed', 'effect': 'unverified', 'observation': {'error': 'INVALID_ROOT'}})
         self.assertEqual(set(failed['observation']), {'error'})
         self.assertIsInstance(failed['observation']['error'], str)

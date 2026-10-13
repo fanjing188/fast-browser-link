@@ -13,7 +13,7 @@ const results=[];
 // 中文注释：闭合影子树只通过浏览器 DOM 域观察；页面脚本无法读取浮层私有状态。
 async function inspect(client){
  const {root}=await client.call('DOM.getDocument',{depth:-1,pierce:true});const texts=[],buttons={};let hosts=0;
- function visit(node){const a=node.attributes||[];if(a.includes('data-hermes-automation-overlay'))hosts++;if(node.nodeType===3)texts.push(node.nodeValue);const i=a.indexOf('data-action');if(i>=0)buttons[a[i+1]]=node.nodeId;for(const child of [...node.children||[],...node.shadowRoots||[]])visit(child);}
+ function visit(node){const a=node.attributes||[];if(a.includes('data-fast-automation-overlay'))hosts++;if(node.nodeType===3)texts.push(node.nodeValue);const i=a.indexOf('data-action');if(i>=0)buttons[a[i+1]]=node.nodeId;for(const child of [...node.children||[],...node.shadowRoots||[]])visit(child);}
  visit(root);return {hosts,text:texts.join(' '),buttons};
 }
 async function click(client,action){
@@ -59,7 +59,7 @@ try{
  await waitFor(async()=>{const t=await session.rpc(f.task.owner,'get',{task_id:f.task.task.id});return t.state==='needs_sync';},35000,{label:'临时 daemon 重启后 needs_sync'});
  await observed('needs_sync',f.task,f.client);
  f=await prepare('long-action');const running=f.task.run('js.evaluate',{expression:'new Promise(r=>setTimeout(()=>r(42),11000))',timeout_ms:15000});
- // 中文注释：浮层运行中显示"Hermes 正在工作"；等长动作已派发（守护进程报告 running）再点接管。
+ // 中文注释：浮层运行中显示"Fast-browser-link 正在工作"；等长动作已派发（守护进程报告 running）再点接管。
  await waitFor(async()=>(await session.rpc(f.task.owner,'get',{task_id:f.task.task.id})).state==='running',5000,{label:'长动作已开始'});await click(f.client,'takeover');
  const progress=await waitFor(()=>inspect(f.client),3000,{label:'长动作接管反馈',ready:s=>baseline||s.text.includes('等待当前步骤结束')});results.push({name:'长动作接管',text:progress.text});
  if(!baseline){

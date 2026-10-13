@@ -1,4 +1,4 @@
-# Hermes Browser Link 1.8.3
+# Fast-browser-link 1.8.3
 
 1.8.3 为 macOS 正式稳定版，统一页面元素解析与操作能力描述，并修复动态框架造成的只读快照中断。
 
@@ -19,7 +19,7 @@
 
 ## 安装
 
-下载 `hermes-browser-link-1.8.3.zip`，解压后运行 `./install.sh`；已有安装运行 `./install.sh --upgrade`。更新后重载 Chrome/Edge 扩展并重新加载或重启 Hermes 插件运行时。安装包无需 Node.js。
+下载 `fast-browser-link-1.8.3.zip`，解压后运行 `./install.sh`；已有安装运行 `./install.sh --upgrade`。更新后重载 Chrome/Edge 扩展并重新加载或重启 Hermes 插件运行时。安装包无需 Node.js。
 
 个人环境更新需等待活动浏览器任务结束，不能用关闭其他任务的方式绕过更新保护。云端站点源码版本同步为 1.8.3；本机升级与 GitHub Release 不替代站点所有者的托管发布。
 

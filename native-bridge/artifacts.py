@@ -99,7 +99,7 @@ def _read_manifest(path: Path) -> dict:
 
 class ArtifactStore:
     def __init__(self, home: Path):
-        self.root = Path(home).resolve() / "plugin-data" / "browser-link-native" / "artifacts"
+        self.root = Path(home).resolve() / "plugin-data" / "fast-browser-link-native" / "artifacts"
 
     def _directory(self, task_id: str, generation: int) -> Path:
         return self.root / task_id / str(generation)

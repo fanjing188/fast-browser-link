@@ -1,4 +1,4 @@
-"""Trusted identity and result projection for the browser-link plugin.
+"""Trusted identity and result projection for the fast-browser-link plugin.
 
 OwnerAuthority derives an opaque per-profile owner from Hermes' trusted
 session identity and issues one-shot leases in the pre_tool_call hook; tool
@@ -26,7 +26,7 @@ try:
 except ImportError:  # Windows keeps the in-process lock and unique temp files.
     _fcntl = None
 
-PLUGIN_ID = "browser-link"
+PLUGIN_ID = "fast-browser-link"
 OWNER_LEASE_ARG = "__browser_link_owner_lease"
 _LEASE_TTL_SECONDS = 120.0
 _MAX_LEASES = 2048
@@ -237,7 +237,7 @@ class contextlib_suppress_oserror:
         return bool(exc_type and issubclass(exc_type, OSError))
 
 
-log = logging.getLogger("browser-link")
+log = logging.getLogger("fast-browser-link")
 
 
 def _private_result_key(key: str) -> bool:
@@ -453,7 +453,7 @@ def _project_tool_result(tool_name, args, value):
                 error['code'] = code if isinstance(code, str) and code.upper() in _PUBLIC_ERROR_CODES else 'ACTION_FAILED'
                 error['error'] = '本项未完成；查看 recovery，换描述或跳过后继续。'
         return error
-    if tool_name == 'browser_shared_cookie_mirror':
+    if tool_name == 'fast_browser_cookie_mirror':
         # 中文注释：采用闭合类型白名单；不允许不明字符串塞入计数或原因字段泄露值。
         import re
         if not isinstance(value, dict):
@@ -488,7 +488,7 @@ def _project_tool_result(tool_name, args, value):
         result['sites'] = rows
         return _strip_owner(result)
     suffix = tool_name.rsplit('_', 1)[-1]
-    shared = tool_name.startswith('browser_shared_')
+    shared = tool_name.startswith('fast_browser_')
     if suffix == 'health':
         schema = _scalar_fields('ok protocolVersion')
     elif suffix == 'browsers':

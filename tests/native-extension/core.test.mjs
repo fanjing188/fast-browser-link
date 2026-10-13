@@ -37,6 +37,18 @@ function highlightReadyFixture(api,{hideConfirmed=true}={}){
 // Test-only trusted extension UI confirmation of this exact request; not task-wide authority.
 function executeUserApproved(executor, command) {return executor.execute(command);}
 
+test('文档扫描在取得句柄后撤销时仍释放句柄，不再读取 DOM',async()=>{
+ const {Executor}=await load();const calls=[];let cancelled=false;
+ const e=new Executor({debugger:{sendCommand:async(_target,method,params)=>{
+  calls.push({method,params});
+  if(method==='Runtime.evaluate'){cancelled=true;return {result:{objectId:'fixture-document'}};}
+  return {};
+ }}});
+ await assert.rejects(e.exposeClosedShadowRoots({tabId:1},'frame',()=>{if(cancelled)throw Error('cancelled');},7),/cancelled/);
+ assert.deepEqual(calls.map(row=>row.method),['Runtime.evaluate','Runtime.releaseObject']);
+ assert.equal(calls[1].params.objectId,'fixture-document');
+});
+
 test('任务动作默认允许，仍拒绝未知动作和缺失标签身份',async()=>{
  const {Executor}=await load();const e=new Executor({tabs:{get:async id=>({id,url:'https://example.com/'})}});
  await e.approve(task());const t=e.tasks.get('a');

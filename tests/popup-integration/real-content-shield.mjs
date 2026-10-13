@@ -18,7 +18,7 @@ const choices={chrome:'/Applications/Google Chrome.app/Contents/MacOS/Google Chr
 const results=[];
 try{
  for(const [name,binary] of Object.entries(choices)){
-  const profile=await mkdtemp('/tmp/hermes-shield-browser-');
+  const profile=await mkdtemp('/tmp/fast-shield-browser-');
   const proc=spawn(binary,['--headless=new','--use-mock-keychain','--password-store=basic','--disable-background-networking','--no-proxy-server',`--user-data-dir=${profile}`,'--remote-debugging-port=0','--enable-unsafe-extension-debugging','--no-first-run','--no-default-browser-check','about:blank'],{stdio:['ignore','ignore','pipe']});
   let browser,ui,page;
   try{
@@ -70,8 +70,8 @@ try{
    const cursorNode=findCursor(cursorTree.root);assert.ok(cursorNode,'任务期间应有真实可视鼠标');
    const cursorCss=async()=>Object.fromEntries((await page.call('CSS.getComputedStyleForNode',{nodeId:cursorNode.nodeId})).computedStyle.map(row=>[row.name,row.value]));
    const cursorX=css=>{const matrix=/^matrix\(([^)]+)\)$/u.exec(css.transform);assert.ok(matrix,css.transform);return Number(matrix[1].split(',')[4]);};
-   const showTarget=async(token,x,y)=>ui.evaluate(`(async()=>{const entry=testExecutor.tasks.get('pixel-test').overlays.get(${tab});return (await testExecutor.api.debugger.sendCommand({tabId:${tab}},'Runtime.callFunctionOn',{executionContextId:entry.contextId,functionDeclaration:'function(){const s=globalThis.__hermesAutomationOverlay;return s.overlay.interactionSurface.update({taskId:s.taskId,generation:s.generation,documentId:s.documentId,operationToken:${JSON.stringify(token)},kind:"input",point:{x:${x},y:${y}},rects:[{left:${x-10},top:${y-10},width:20,height:20}]});}',returnByValue:true})).result.value;})()`);
-   const cursorState=async(state,token)=>ui.evaluate(`(async()=>{const entry=testExecutor.tasks.get('pixel-test').overlays.get(${tab});return (await testExecutor.api.debugger.sendCommand({tabId:${tab}},'Runtime.callFunctionOn',{executionContextId:entry.contextId,functionDeclaration:'function(){const s=globalThis.__hermesAutomationOverlay;${token?`s.overlay.interactionSurface.clear({taskId:s.taskId,generation:s.generation,documentId:s.documentId,operationToken:${JSON.stringify(token)}});`:''}s.overlay.update({state:${JSON.stringify(state)}});return true;}',returnByValue:true})).result.value;})()`);
+   const showTarget=async(token,x,y)=>ui.evaluate(`(async()=>{const entry=testExecutor.tasks.get('pixel-test').overlays.get(${tab});return (await testExecutor.api.debugger.sendCommand({tabId:${tab}},'Runtime.callFunctionOn',{executionContextId:entry.contextId,functionDeclaration:'function(){const s=globalThis.__fastAutomationOverlay;return s.overlay.interactionSurface.update({taskId:s.taskId,generation:s.generation,documentId:s.documentId,operationToken:${JSON.stringify(token)},kind:"input",point:{x:${x},y:${y}},rects:[{left:${x-10},top:${y-10},width:20,height:20}]});}',returnByValue:true})).result.value;})()`);
+   const cursorState=async(state,token)=>ui.evaluate(`(async()=>{const entry=testExecutor.tasks.get('pixel-test').overlays.get(${tab});return (await testExecutor.api.debugger.sendCommand({tabId:${tab}},'Runtime.callFunctionOn',{executionContextId:entry.contextId,functionDeclaration:'function(){const s=globalThis.__fastAutomationOverlay;${token?`s.overlay.interactionSurface.clear({taskId:s.taskId,generation:s.generation,documentId:s.documentId,operationToken:${JSON.stringify(token)}});`:''}s.overlay.update({state:${JSON.stringify(state)}});return true;}',returnByValue:true})).result.value;})()`);
    assert.equal((await cursorCss()).display,'block');
    await showTarget('cursor-first',140,70);await waitFor(async()=>Math.abs(cursorX(await cursorCss())-140)<1);
    await cursorState('waiting','cursor-first');assert.equal((await cursorCss()).display,'block');
@@ -193,7 +193,7 @@ try{
    }
    await page.evaluate('clearInterval(window.r10Timer)');
    // 中文注释：只在临时夹具的保护隔离世界制造异常，验证真实 CDP 类型/堆栈投影，不读取个人页面。
-   await ui.evaluate(`(async()=>{const target={tabId:${tab}};const tree=await testExecutor.api.debugger.sendCommand(target,'Page.getFrameTree');const world=await testExecutor.api.debugger.sendCommand(target,'Page.createIsolatedWorld',{frameId:tree.frameTree.frame.id,worldName:'hermes-content-shield'});window.inventoryWorld=world.executionContextId;await testExecutor.api.debugger.sendCommand(target,'Runtime.evaluate',{contextId:inventoryWorld,expression:'globalThis.savedComputedStyle=getComputedStyle;globalThis.getComputedStyle=()=>{throw new TypeError("PRIVATE_INVENTORY_CANARY")};'});})()`);
+   await ui.evaluate(`(async()=>{const target={tabId:${tab}};const tree=await testExecutor.api.debugger.sendCommand(target,'Page.getFrameTree');const world=await testExecutor.api.debugger.sendCommand(target,'Page.createIsolatedWorld',{frameId:tree.frameTree.frame.id,worldName:'fast-content-shield'});window.inventoryWorld=world.executionContextId;await testExecutor.api.debugger.sendCommand(target,'Runtime.evaluate',{contextId:inventoryWorld,expression:'globalThis.savedComputedStyle=getComputedStyle;globalThis.getComputedStyle=()=>{throw new TypeError("PRIVATE_INVENTORY_CANARY")};'});})()`);
    let diagnostic;
    try{
     diagnostic=await ui.evaluate(`readProtected('page.parse',{options:{sections:['blocks','forms','collections'],maxScan:12000}})`);

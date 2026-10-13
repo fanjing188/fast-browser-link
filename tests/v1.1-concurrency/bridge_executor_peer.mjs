@@ -91,8 +91,8 @@ async function runOAuthFixture() {
 
 const home = process.argv[2];
 if (!home) throw new Error('expected isolated daemon HOME');
-const socketPath = `${home}/plugin-data/browser-link-native/bridge.sock`;
-const tokenPath = `${home}/plugin-data/browser-link-native/token`;
+const socketPath = `${home}/plugin-data/fast-browser-link-native/bridge.sock`;
+const tokenPath = `${home}/plugin-data/fast-browser-link-native/token`;
 const token = (await import('node:fs/promises')).readFile(tokenPath, 'utf8').then(value => value.trim());
 const authToken = await token;
 const instances = [

@@ -1,4 +1,4 @@
-"""browser_shared_open: one-call start, with a synthetic daemon; no browser."""
+"""fast_browser_open: one-call start, with a synthetic daemon; no browser."""
 from __future__ import annotations
 
 import json
@@ -92,11 +92,11 @@ CHROME = {'instanceId': 'chrome-1', 'browser': 'chrome', 'connected': True, 'con
 class OpenToolTests(unittest.TestCase):
     def test_primary_browser_precedes_environment_default(self):
         self.make([{**EDGE, 'primary': True}, CHROME])
-        with patch.dict(os.environ, {'HERMES_BROWSER_DEFAULT': 'chrome'}):
+        with patch.dict(os.environ, {'FAST_BROWSER_DEFAULT': 'chrome'}):
             selected = self.open({'url': 'https://shop.example/list'})
         self.assertEqual(selected['instance_id'], 'edge-1')
         self.make([{**EDGE, 'primary': True, 'consentStatus': 'disabled'}, CHROME])
-        with patch.dict(os.environ, {'HERMES_BROWSER_DEFAULT': 'chrome'}):
+        with patch.dict(os.environ, {'FAST_BROWSER_DEFAULT': 'chrome'}):
             smart = self.open({'url': 'https://shop.example/list'})
         self.assertEqual(smart['instance_id'], 'edge-1')
         self.assertNotIn('primaryUnavailable', smart)
@@ -106,7 +106,7 @@ class OpenToolTests(unittest.TestCase):
         for index in range(7):
             result = self.open({'url': f'https://site-{index}.example/'}, call=f'open-{index}')
         self.assertEqual(result['open_tabs'], 7)
-        self.assertEqual(result['tab_hint'], '不再用的网站先 browser_shared_close')
+        self.assertEqual(result['tab_hint'], '不再用的网站先 fast_browser_close')
 
     def test_explicit_instance_overrides_primary_and_offline_primary_falls_back(self):
         self.make([{**EDGE, 'primary': True}, CHROME])
@@ -118,14 +118,14 @@ class OpenToolTests(unittest.TestCase):
         self.assertTrue(fallback['primaryUnavailable'])
         self.make([{**EDGE, 'connected': False, 'primary': True}, CHROME,
                    {'instanceId': 'chrome-2', 'browser': 'chrome', 'connected': True, 'consentStatus': 'enabled'}])
-        with patch.dict(os.environ, {'HERMES_BROWSER_DEFAULT': 'chrome-2'}):
+        with patch.dict(os.environ, {'FAST_BROWSER_DEFAULT': 'chrome-2'}):
             selected = self.open({'url': 'https://shop.example/list'})
         self.assertEqual(selected['instance_id'], 'chrome-2')
         self.assertTrue(selected['primaryUnavailable'])
 
     def setUp(self):
         # 中文注释：每个夹具只清空默认浏览器；保留 HOME/TMPDIR，显式配置测试可局部覆盖。
-        default_browser = patch.dict(os.environ, {'HERMES_BROWSER_DEFAULT': ''})
+        default_browser = patch.dict(os.environ, {'FAST_BROWSER_DEFAULT': ''})
         default_browser.start()
         self.addCleanup(default_browser.stop)
         self.temp = tempfile.TemporaryDirectory()
@@ -277,7 +277,7 @@ class OpenToolTests(unittest.TestCase):
     def test_default_browser_selects_only_unique_enabled_match(self):
         # 中文注释：显式实例优先；未配置或默认值匹配多台时仍要求选择。
         self.make([EDGE, CHROME])
-        with patch.dict(os.environ, {'HERMES_BROWSER_DEFAULT': 'edge'}):
+        with patch.dict(os.environ, {'FAST_BROWSER_DEFAULT': 'edge'}):
             self.assertEqual(self.open({'url': 'https://shop.example/'})['instance_id'], 'edge-1')
             self.assertEqual(self.open({'url': 'https://shop.example/', 'instance_id': 'chrome-1'},
                                        call='call-2')['instance_id'], 'chrome-1')
@@ -288,12 +288,12 @@ class OpenToolTests(unittest.TestCase):
         # 中文注释：模拟 sample-profile 配置目录，进程变量仍高于共享 .env。
         root = Path(self.temp.name) / 'hermes'
         (root / 'profiles' / 'sample-profile').mkdir(parents=True)
-        (root / '.env').write_text('HERMES_BROWSER_DEFAULT=edge\n')
+        (root / '.env').write_text('FAST_BROWSER_DEFAULT=edge\n')
         self.make([EDGE, CHROME])
         self.runtime.bridge_home = root
-        with patch.dict(os.environ, {'HERMES_BROWSER_DEFAULT': ''}):
+        with patch.dict(os.environ, {'FAST_BROWSER_DEFAULT': ''}):
             self.assertEqual(self.open({'url': 'https://shop.example/'})['instance_id'], 'edge-1')
-        with patch.dict(os.environ, {'HERMES_BROWSER_DEFAULT': 'chrome'}):
+        with patch.dict(os.environ, {'FAST_BROWSER_DEFAULT': 'chrome'}):
             self.assertEqual(self.open({'url': 'https://shop.example/', 'instance_id': 'edge-1'},
                                        call='call-2')['instance_id'], 'edge-1')
 
@@ -376,9 +376,9 @@ class OpenToolEnvironmentTests(unittest.TestCase):
             with self.subTest(default=default):
                 env = dict(os.environ)
                 if default is None:
-                    env.pop('HERMES_BROWSER_DEFAULT', None)
+                    env.pop('FAST_BROWSER_DEFAULT', None)
                 else:
-                    env['HERMES_BROWSER_DEFAULT'] = default
+                    env['FAST_BROWSER_DEFAULT'] = default
                 child = subprocess.run(argv, cwd=Path(__file__).resolve().parent,
                                        env=env, capture_output=True, text=True, timeout=30)
                 output = child.stdout + child.stderr

@@ -7,7 +7,7 @@ import {CdpClient,waitFor,fetchJson} from '../native-v2/cdp-client.mjs';
 import {browserPaths,root} from '../native-v2/real-session.mjs';
 
 export async function openExecutorSession({browser}){
- const work=await mkdtemp('/tmp/hermes-page-c-'),extension=path.join(work,'extension'),profile=path.join(work,'profile'),temp=path.join(work,'tmp');
+ const work=await mkdtemp('/tmp/fast-page-c-'),extension=path.join(work,'extension'),profile=path.join(work,'profile'),temp=path.join(work,'tmp');
  await mkdir(temp);await mkdir(path.join(work,'hermes'));
  const built=spawnSync(process.execPath,[path.join(root,'native-extension/build.mjs'),extension],{encoding:'utf8'});assert.equal(built.status,0,built.stderr);
  await writeFile(path.join(extension,'manifest.json'),JSON.stringify({manifest_version:3,name:'Page chain isolated fixture',version:'1.0',permissions:['debugger','tabs','tabGroups','storage','scripting','downloads'],host_permissions:['http://127.0.0.1/*','http://localhost/*']}));

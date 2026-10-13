@@ -17,28 +17,28 @@ def write_installer_package(root: Path, *, include_api_client: bool = True) -> P
     """Create the installer's real required layout and exact SHA256SUMS."""
     # 使用当前桥接候选包布局构造离线安装夹具。
     files: dict[str, bytes] = {
-        "browser-link/plugin.yaml": b"name: browser-link\nversion: 1.3.0\n",
-        "browser-link/__init__.py": b"\"\"\"Fixture plugin.\"\"\"\n",
-        "browser-link/runtime.py": b"# runtime fixture\n",
-        "browser-link/native_tools.py": b"# tools fixture\n",
+        "fast-browser-link/plugin.yaml": b"name: fast-browser-link\nversion: 1.3.0\n",
+        "fast-browser-link/__init__.py": b"\"\"\"Fixture plugin.\"\"\"\n",
+        "fast-browser-link/runtime.py": b"# runtime fixture\n",
+        "fast-browser-link/native_tools.py": b"# tools fixture\n",
         # 中文注释：合成包必须包含自动更新的维护闭包。
-        "browser-link/maintenance/update.py": b"# updater fixture\n",
-        "browser-link/maintenance/install-cli.py": b"# install fixture\n",
-        "browser-link/maintenance/install-executor.py": b"# verifier fixture\n",
-        "browser-link/open_tool.py": b"# open tool fixture\n",
-        "browser-link/skills/use-my-browser/SKILL.md": b"# browser skill fixture\n",
-        "browser-link/task_diagnostics.py": b"# diagnostics projection fixture\n",
-        "browser-link/script_lane/host_bridge.py": b"# host bridge fixture\n",
-        "browser-link/script_lane/action_session.py": b"# action session fixture\n",
-        "browser-link/script_lane/child.py": b"# script child fixture\n",
-        "browser-link/script_lane/tool.py": b"# script tool fixture\n",
-        "browser-link/native_bridge/host.py": b"# host fixture\n",
-        "browser-link/native_bridge/client.py": b"# client fixture\n",
-        "browser-link/native_bridge/daemon.py": b"# daemon fixture\n",
-        "browser-link/native_bridge/browser_diagnostics/__init__.py": b"# diagnostics fixture\n",
-        "browser-link/native_bridge/browser_diagnostics/schema.py": b"# schema fixture\n",
-        "browser-link/native_bridge/browser_diagnostics/runtime.py": b"# runtime fixture\n",
-        "browser-link/native_bridge/browser_diagnostics/sink.py": b"# sink fixture\n",
+        "fast-browser-link/maintenance/update.py": b"# updater fixture\n",
+        "fast-browser-link/maintenance/install-cli.py": b"# install fixture\n",
+        "fast-browser-link/maintenance/install-executor.py": b"# verifier fixture\n",
+        "fast-browser-link/open_tool.py": b"# open tool fixture\n",
+        "fast-browser-link/skills/fast-browser-link/SKILL.md": b"# browser skill fixture\n",
+        "fast-browser-link/task_diagnostics.py": b"# diagnostics projection fixture\n",
+        "fast-browser-link/script_lane/host_bridge.py": b"# host bridge fixture\n",
+        "fast-browser-link/script_lane/action_session.py": b"# action session fixture\n",
+        "fast-browser-link/script_lane/child.py": b"# script child fixture\n",
+        "fast-browser-link/script_lane/tool.py": b"# script tool fixture\n",
+        "fast-browser-link/native_bridge/host.py": b"# host fixture\n",
+        "fast-browser-link/native_bridge/client.py": b"# client fixture\n",
+        "fast-browser-link/native_bridge/daemon.py": b"# daemon fixture\n",
+        "fast-browser-link/native_bridge/browser_diagnostics/__init__.py": b"# diagnostics fixture\n",
+        "fast-browser-link/native_bridge/browser_diagnostics/schema.py": b"# schema fixture\n",
+        "fast-browser-link/native_bridge/browser_diagnostics/runtime.py": b"# runtime fixture\n",
+        "fast-browser-link/native_bridge/browser_diagnostics/sink.py": b"# sink fixture\n",
         "native-extension/manifest.json": json.dumps({
             "manifest_version": 3,
             "background": {"service_worker": "background.mjs"},
@@ -55,7 +55,7 @@ def write_installer_package(root: Path, *, include_api_client: bool = True) -> P
         "install.sh": b"#!/bin/bash\n",
     }
     if include_api_client:
-        files["browser-link/native_bridge/api_client.py"] = b"# api client fixture\n"
+        files["fast-browser-link/native_bridge/api_client.py"] = b"# api client fixture\n"
     _write_tree(root, files)
     manifest = {
         name: hashlib.sha256(data).hexdigest()
@@ -83,10 +83,10 @@ def write_packager_source(root: Path, *, include_api_client: bool = False) -> Pa
         "native-extension/manifest.json": b'{"manifest_version":3,"version":"1.3.0"}\n',
         "native-extension/build.mjs": b"// build entry fixture\n",
         "native-extension/background.mjs": b"// 中文注释：版本握手夹具。\nconst hello={version:chrome.runtime.getManifest().version};const popup={version:chrome.runtime.getManifest().version};\n",
-        "executor-plugin/plugin.yaml": b"name: browser-link\nversion: 1.3.0\n",
+        "executor-plugin/plugin.yaml": b"name: fast-browser-link\nversion: 1.3.0\n",
         "executor-plugin/__init__.py": b"\"\"\"Plugin fixture.\"\"\"\n",
         "executor-plugin/open_tool.py": b"# open tool\n",
-        "executor-plugin/skills/use-my-browser/SKILL.md": b"# browser skill\n",
+        "executor-plugin/skills/fast-browser-link/SKILL.md": b"# browser skill\n",
         "executor-plugin/script_lane/host_bridge.py": b"# host bridge\n",
         "executor-plugin/script_lane/action_session.py": b"# action session\n",
         "executor-plugin/script_lane/child.py": b"# script child\n",

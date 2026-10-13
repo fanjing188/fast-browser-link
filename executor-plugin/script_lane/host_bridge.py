@@ -1,4 +1,4 @@
-"""Trusted host side of the plugin's Python script lane (browser_shared_script).
+"""Trusted host side of the plugin's Python script lane (fast_browser_script).
 
 The plugin host binds a ready native task to a trusted Hermes session, then
 hands each script run one socket endpoint. The script can only ask for the

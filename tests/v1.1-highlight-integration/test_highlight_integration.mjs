@@ -48,9 +48,9 @@ function createFixture({pauseHighlight=false,captureError=false,overlayEvents=tr
  document.elementsFromPoint=(x,y)=>{const hit=hitTest(x,y);return hit?[hit]:[];};
  // 中文注释：夹具按钮显示点击状态；键盘 mock 模拟 Tab 的浏览器默认焦点转移。
  document.querySelector('#save').onclick=e=>e.currentTarget.setAttribute('aria-pressed',String(Date.now()));
- const interactionHost=()=>document.querySelector('[data-hermes-interaction-highlight]');
+ const interactionHost=()=>document.querySelector('[data-fast-interaction-highlight]');
  const targetBox=()=>interactionHost()?.shadowRoot?.querySelector('[data-role="target"]');
- const automationTargetBox=()=>document.querySelector('[data-hermes-automation-overlay]:not([data-hermes-interaction-highlight])')?.shadowRoot?.querySelector('[data-role="target"]');
+ const automationTargetBox=()=>document.querySelector('[data-fast-automation-overlay]:not([data-fast-interaction-highlight])')?.shadowRoot?.querySelector('[data-role="target"]');
  const targetRects=()=>{
   const host=interactionHost();if(!host||host.style.display==='none')return [];
   return [...(host.shadowRoot?.querySelectorAll('[data-role="target"],[data-role="drag-start"],[data-role="drag-end"]')||[])]
@@ -92,7 +92,7 @@ function createFixture({pauseHighlight=false,captureError=false,overlayEvents=tr
     if(method==='DOM.getDocument')return {root:{nodeName:'HTML',children:[]}};
     if(['DOM.enable','Network.enable','Target.setAutoAttach'].includes(method))return {};
     if(method==='Page.createIsolatedWorld')return {executionContextId:17};
-    if(method==='Runtime.addBinding'){window.hermesOverlayCommand=()=>{};return {};}
+    if(method==='Runtime.addBinding'){window.fastOverlayCommand=()=>{};return {};}
     if(method==='Runtime.callFunctionOn'){
      let value;
      if(params.objectId){
@@ -117,7 +117,7 @@ function createFixture({pauseHighlight=false,captureError=false,overlayEvents=tr
     if(method==='DOM.resolveNode')return {object:{objectId:remote(backendNodes.get(params.backendNodeId))}};
     if(method==='Runtime.releaseObject'){objects.delete(params.objectId);return {};}
     if(method==='Page.captureScreenshot'){
-     const hosts=[...document.querySelectorAll('[data-hermes-automation-overlay]')];
+     const hosts=[...document.querySelectorAll('[data-fast-automation-overlay]')];
      // Screenshots make the overlay transparent (still blocking input); record that as hidden.
      const overlayDisplays=hosts.map(host=>host.style.opacity==='0'&&host.style.display!=='none'?'none':'visible');
      events.push({type:'capture',overlayDisplays});
@@ -153,7 +153,7 @@ test('隔离世界注入复用中文映射，相同步骤和状态回执不产�
  const f=createFixture();await authorizeFull(f.executor);
  try{
   await snapshotFor(f.executor);
-  const injected=f.window.__hermesAutomationOverlay.overlay;
+  const injected=f.window.__fastAutomationOverlay.overlay;
   const bar=injected.host.shadowRoot.querySelector('[data-role="status"]'),list=bar.querySelector('ol'),detail=bar.children[2];
   const entry=f.executor.tasks.get(task.id).overlays.get(7);
   const steps=[{action:'page.parse',result:'succeeded'},{action:'official.ready_state',result:'pending'},{action:'vault.fill',target:'敏感字段',result:'succeeded'}];
@@ -183,13 +183,13 @@ test('目标级保护贯穿引用、输入和结果回放，伪造范围不能�
   assert.equal(JSON.stringify(first).includes('backendNodeId'),false);
   await assert.rejects(f.executor.execute({...params,binding:{...params.binding,leaseId:'forged'},writeTarget:{backendNodeId:1}}),error=>error.message==='BINDING_MISMATCH'&&error.preDispatch===true);
   assert.equal(f.events.filter(e=>e.type==='side-effect'&&e.name==='fill').length,1);
- }finally{f.document.querySelector('[data-hermes-automation-overlay]')?.dispatchEvent(new f.window.Event('hermes-overlay-release'));f.dom.window.close();}
+ }finally{f.document.querySelector('[data-fast-automation-overlay]')?.dispatchEvent(new f.window.Event('fast-overlay-release'));f.dom.window.close();}
 });
 // 中文注释：从执行器真实语义回执绘制边框，验证效果不混入返回值、截图或下一次输入。
 test('语义解析回执显示真实元素边框，截图隐藏装饰，新动作清除解析反馈',async()=>{
  const f=createFixture();await authorizeFull(f.executor);
  try{
-  const result=await snapshotFor(f.executor),host=f.document.querySelector('[data-hermes-automation-overlay]');
+  const result=await snapshotFor(f.executor),host=f.document.querySelector('[data-fast-automation-overlay]');
   const frames=host.shadowRoot.querySelector('[data-role="parsing-elements"]');
   assert.ok(frames.children.length>0);assert.equal(frames.style.display,'block');
   const save=[...frames.children].find(node=>node.style.left==='10px'&&node.style.top==='10px');
@@ -202,7 +202,7 @@ test('语义解析回执显示真实元素边框，截图隐藏装饰，新动�
   assert.ok(parsedCall);assert.equal(typeof parsedCall.params.arguments[1].value.expectedActionToken,'string');
   const entry=f.executor.tasks.get(task.id).overlays.get(7);
   assert.equal(await f.executor.overlayCall(7,entry,'parsed',{expectedActionToken:'old-step',rects:[{x:1,y:2,width:30,height:40}]}),false);
- }finally{f.document.querySelector('[data-hermes-automation-overlay]')?.dispatchEvent(new f.window.Event('hermes-overlay-release'));f.dom.window.close();}
+ }finally{f.document.querySelector('[data-fast-automation-overlay]')?.dispatchEvent(new f.window.Event('fast-overlay-release'));f.dom.window.close();}
 });
 function assertTargetShownBeforeEffect(fixture,effectName,expectedRects=[]){
  const effects=fixture.events.filter(event=>event.type==='side-effect'&&event.name===effectName);
@@ -314,7 +314,7 @@ test('fill paints only target geometry before input and never forwards the input
   const highlights=assertTargetShownBeforeEffect(f,'fill',[rects['#query']]);
   assert.equal(f.document.querySelector('#query').value,secret,'the synthetic page should receive the test value');
   assert.equal(JSON.stringify(highlights).includes(secret),false,'highlight payloads must not contain typed input');
-  assert.equal(f.window.__hermesAutomationOverlay.overlay?._label?.textContent?.includes(secret)||false,false);
+  assert.equal(f.window.__fastAutomationOverlay.overlay?._label?.textContent?.includes(secret)||false,false);
  }finally{f.dom.window.close();}
 });
 
@@ -376,7 +376,7 @@ test('permission-generation revocation makes a live highlight stale and removes 
   assert.deepEqual(highlighter.prepare({...binding,kind:'click',target:f.document.querySelector('#save')}),{ok:true});
   f.executor.revokeMode(task.id);
   assert.deepEqual(highlighter.clear(binding),{ok:false,code:'STALE_DOCUMENT'});
-  assert.equal(f.document.querySelector('[data-hermes-interaction-highlight]'),null,'revoked permission must remove the live target visual');
+  assert.equal(f.document.querySelector('[data-fast-interaction-highlight]'),null,'revoked permission must remove the live target visual');
  }finally{f.dom.window.close();}
 });
 
@@ -390,7 +390,7 @@ test('input highlight never includes typed data and semantic snapshot omits its 
   const binding={taskId:t.id,generation:t.generation,documentId:'fixture-document',operationToken:'input-safe-text'};
   const input=f.document.querySelector('#query');input.value=secret;
   assert.deepEqual(highlighter.prepare({...binding,kind:'input',target:input}),{ok:true});
-  const host=f.document.querySelector('[data-hermes-interaction-highlight]');
+  const host=f.document.querySelector('[data-fast-interaction-highlight]');
   assert.equal(host.shadowRoot.querySelector('[data-role="status"]').textContent,'正在输入');
   assert.equal(host.shadowRoot.textContent.includes(secret),false,'the highlight UI must not receive or render the input value');
   const snapshot=await f.executor.execute(request('semantic_snapshot'));
@@ -423,14 +423,14 @@ test('screenshots suppress the overlay and restore it in finally on success and 
   const f=createFixture({captureError:fail});await f.executor.approve(task);
   try{
    await f.executor.execute(readRequest('snapshot'));
-   const overlay=f.window.__hermesAutomationOverlay;
+   const overlay=f.window.__fastAutomationOverlay;
    overlay.overlay.update({state:'running',targetRect:rects['#save']});
    assert.equal(f.automationTargetBox().style.display,'block');
    if(fail)await assert.rejects(f.executor.execute(readRequest('screenshot')),/synthetic capture failure/);
    else await f.executor.execute(readRequest('screenshot'));
    const capture=f.events.find(event=>event.type==='capture');
    assert.ok(capture.overlayDisplays.length>0&&capture.overlayDisplays.every(display=>display==='none'),'the legacy automation overlay must not appear in screenshot pixels');
-   assert.notEqual(f.document.querySelector('[data-hermes-automation-overlay]:not([data-hermes-interaction-highlight])').style.opacity,'0','legacy overlay must be restored after screenshot');
+   assert.notEqual(f.document.querySelector('[data-fast-automation-overlay]:not([data-fast-interaction-highlight])').style.opacity,'0','legacy overlay must be restored after screenshot');
   }finally{f.dom.window.close();}
  }
 });
@@ -449,7 +449,7 @@ test('Executor screenshot hides the active target highlight and restores it in f
    assert.deepEqual(highlighter.prepare({...binding,kind:'click',target:f.document.querySelector('#save')}),{ok:true});
    let error=null;try{await f.executor.execute(request('screenshot'));}catch(cause){error=cause;}
    const capture=f.events.find(event=>event.type==='capture');
-   const host=f.document.querySelector('[data-hermes-interaction-highlight]');
+   const host=f.document.querySelector('[data-fast-interaction-highlight]');
    outcomes.push({fail,error:error?.message||null,overlayDisplays:capture?.overlayDisplays||[],restored:host?.style.display!=='none'&&host?.style.opacity!=='0'});
    highlighter.clear(binding);
   }finally{f.dom.window.close();}

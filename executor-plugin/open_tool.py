@@ -1,10 +1,10 @@
-"""browser_shared_open: start browser work in one call.
+"""fast_browser_open: start browser work in one call.
 
 Picks the connected browser (or the one the model names), reuses the session's
 ready task when it already covers the site, otherwise creates a task for that
 site, waits briefly for the extension to authorize it, binds the session and
 opens a work tab. It adds no authority of its own: every step goes through the
-same daemon calls and approval rules as the individual browser_shared_* tools.
+same daemon calls and approval rules as the individual fast_browser_* tools.
 """
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 from urllib.parse import urlsplit
 
-TOOL_NAME = 'browser_shared_open'
+TOOL_NAME = 'fast_browser_open'
 READY_WAIT_S = 15.0
 POLL_S = 0.5
 
@@ -22,8 +22,8 @@ SCHEMA = {
     'description': (
         '一步开始浏览器工作：按显式 instance_id、主要链接、环境默认值或唯一实例选择浏览器，为该网址的网站建立或复用本会话任务，'
         '等待授权、绑定会话并打开工作标签页。同源默认复用当前工作页；new_task=true 才新建任务。'
-        '回执默认含可直接用于 ref 动作的摘要，read_intent=content 读正文，interactive 读控件；loading 时 summary_missing.reason=page_loading，按 read_hint 在原页有界等待后读取。多步页面操作用一次 browser_shared_script，'
-        '单步用 browser_shared_run；同一页不要混用 browser_exec。'),
+        '回执默认含可直接用于 ref 动作的摘要，read_intent=content 读正文，interactive 读控件；loading 时 summary_missing.reason=page_loading，按 read_hint 在原页有界等待后读取。多步页面操作用一次 fast_browser_script，'
+        '单步用 fast_browser_run；同一页不要混用 browser_exec。'),
     'parameters': {
         'type': 'object',
         'properties': {
@@ -89,7 +89,7 @@ def _summary(runtime, owner, task_id, tab_id, request_id, url, *, read_intent='i
 
 def _default_browser(runtime):
     # 中文注释：非默认 profile 沿用运行时已解析的共享 daemon 根目录；只读取指定键。
-    explicit = os.environ.get('HERMES_BROWSER_DEFAULT', '').strip()
+    explicit = os.environ.get('FAST_BROWSER_DEFAULT', '').strip()
     if explicit:
         return explicit
     home = getattr(runtime, 'bridge_home', None)
@@ -98,7 +98,7 @@ def _default_browser(runtime):
     try:
         for line in (Path(home) / '.env').read_text(encoding='utf-8').splitlines():
             key, separator, value = line.strip().partition('=')
-            if separator and key.strip() == 'HERMES_BROWSER_DEFAULT':
+            if separator and key.strip() == 'FAST_BROWSER_DEFAULT':
                 return value.strip().strip('"\'') or None
     except (OSError, UnicodeError):
         return None
@@ -211,7 +211,7 @@ def make_handler(runtime, host_bridge, *, lease_error, clock=time.monotonic, sle
             if task.get('state') in {'pending_approval', 'authorizing'}:
                 return _json({'status': 'awaiting_authorization', 'task_id': task['id'], 'state': task.get('state'),
                               'message': '已为该网站建立任务，正在等待用户在浏览器扩展中批准；'
-                                         '批准后调用 browser_shared_get 确认就绪，再调用本工具打开页面。', **primary_note})
+                                         '批准后调用 fast_browser_get 确认就绪，再调用本工具打开页面。', **primary_note})
             # 中文注释：只把仍待批准的任务报告为等待；终态或断线必须让 agent 重新核实。
             if task.get('state') != 'ready':
                 return _error('任务已停止、被拒绝或失去连接；请核实浏览器访问状态后创建新任务。',
@@ -263,10 +263,10 @@ def make_handler(runtime, host_bridge, *, lease_error, clock=time.monotonic, sle
                           outcome_unknown=unknown if type(unknown) is bool else code not in {'origin_denied', 'invalid_url', 'forbidden', 'invalid_state', 'task_paused'})
         if isinstance(opened, dict) and opened.get('status') == 'approval_required':
             return _json({'status': 'approval_required', 'task_id': task['id'], 'request_id': lease.tool_call_id,
-                          'message': '打开页面需要用户在浏览器中确认。确认后用 browser_shared_run 查询：'
+                          'message': '打开页面需要用户在浏览器中确认。确认后用 fast_browser_run 查询：'
                                      'action=new_tab、相同 url 与 request_id；不会重复打开。'})
         if not isinstance(opened, dict) or type(opened.get('tabId')) is not int:
-            return _error('打开结果无法确认；请用 browser_shared_get 检查，不要重复打开。', 'outcome_unknown',
+            return _error('打开结果无法确认；请用 fast_browser_get 检查，不要重复打开。', 'outcome_unknown',
                           outcome_unknown=True)
         try:
             host_bridge.bind(session_id, owner=owner, task_id=task['id'], tab_id=opened['tabId'])
@@ -280,7 +280,7 @@ def make_handler(runtime, host_bridge, *, lease_error, clock=time.monotonic, sle
         # 中文注释：会话拥有的任务工作页一起计数；复用既有页面不会增加计数。
         result['open_tabs'] = opened.get('open_tabs', task.get('open_tabs', 0))
         if result['open_tabs'] > 6:
-            result['tab_hint'] = '不再用的网站先 browser_shared_close'
+            result['tab_hint'] = '不再用的网站先 fast_browser_close'
         result.update(primary_note)
         if args.get('summary') is not False:
             reason = None
@@ -305,11 +305,11 @@ def make_handler(runtime, host_bridge, *, lease_error, clock=time.monotonic, sle
 
 
 def register(ctx, runtime, host_bridge, *, lease_error):
-    runtime.authority.lease_tools((TOOL_NAME, 'browser_shared_use_tab'))
-    ctx.register_tool(name='browser_shared_use_tab', toolset='browser-link', schema=USE_TAB_SCHEMA,
+    runtime.authority.lease_tools((TOOL_NAME, 'fast_browser_use_tab'))
+    ctx.register_tool(name='fast_browser_use_tab', toolset='fast-browser-link', schema=USE_TAB_SCHEMA,
                       handler=make_use_tab_handler(runtime, host_bridge, lease_error=lease_error),
                       description=USE_TAB_SCHEMA['description'], emoji='🌐')
-    ctx.register_tool(name=TOOL_NAME, toolset='browser-link', schema=SCHEMA,
+    ctx.register_tool(name=TOOL_NAME, toolset='fast-browser-link', schema=SCHEMA,
                       handler=make_handler(runtime, host_bridge, lease_error=lease_error),
                       description=SCHEMA['description'], emoji='🌐')
 
@@ -323,7 +323,7 @@ USE_TAB_SCHEMA = {'description': '将本会话官方 browser_* 工具的当前�
 def make_use_tab_handler(runtime, host_bridge, *, lease_error):
     def handler(args, *, session_id=None, **_):
         try:
-            lease = runtime.authority.consume('browser_shared_use_tab', args, session_id=session_id)
+            lease = runtime.authority.consume('fast_browser_use_tab', args, session_id=session_id)
         except lease_error:
             return _error('缺少可信会话身份。', 'session_identity_required')
         tab_id = args.get('tab_id')

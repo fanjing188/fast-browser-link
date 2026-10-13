@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.0.0 — 2026-10-13
+
+- 项目更名为 Fast-browser-link，新增独立 skills、JSON CLI 和 MCP stdio 接入，默认无需 Hermes。
+- 新扩展使用独立 ID，与旧 Hermes 扩展并存；现有插件、配置、Native host 和数据保留。
+- 提供独立安装包与可选 Hermes 适配器包，分别校验；Hermes 适配器检测旧插件并拒绝冲突启用。
+- 修复 CDP 错误分类、Vault 注册元数据、长会话执行通道身份截断和新工具调用计数。
+- 核心与完整集成门禁、Chrome/Edge 打包实测、真实 MCP SDK 及本机独立安装验证已执行，详见发布说明。
+
 ## 1.11.2 — 2026-10-12
 
 详见 `docs/release-1.11.2.md`。
@@ -32,7 +40,7 @@
 ## 1.10.3 — 2026-10-11
 
 - 修复 Google 等账号选择页的 ARIA link/button 被局部内容保护误拒绝：使用真实语义引用核验目标，保留框架重叠、文档与引用检查。
-- 同步 use-my-browser、batch-scrape、troubleshoot 技能：按实际角色选择账号、保留部分覆盖、回源核实登录，以及区分任务关闭与清理成功。
+- 同步 fast-browser-link、fast-browser-batch-scrape、troubleshoot 技能：按实际角色选择账号、保留部分覆盖、回源核实登录，以及区分任务关闭与清理成功。
 - 登录回归扩展至 Chrome/Edge 各 29 项，新增 smart/full 下 ARIA 链接和按钮账号选择场景；重叠或包含不可读框架继续拒绝。
 
 ## 1.10.2 — 2026-10-11
@@ -169,7 +177,7 @@
 ## 1.6.0
 
 - 修复后台标签页里点不动的问题：后台也优先使用真实浏览器输入，并核实事件送达。
-- 工作页默认改到单独窗口；并发输入按窗口串行，切标签不抢用户焦点。可通过 `HERMES_BROWSER_WORK_WINDOW=current` 保持原窗口方式。
+- 工作页默认改到单独窗口；并发输入按窗口串行，切标签不抢用户焦点。可通过 `FAST_BROWSER_WORK_WINDOW=current` 保持原窗口方式。
 - 点击无效果时会如实报错 `click_no_effect`；观察到效果后返回 `effect: observed`，工具和 Python 脚本均保留该信息。
 - 任务空闲回收默认改为 20 分钟，定期清理超过 24 小时且无工作页的 `needs_sync` 记录；打开页面时显示会话工作页数量，超过六页提示关闭不用的网站。
 
@@ -207,7 +215,7 @@
 ## 1.5.0 — 2026-10-02（开发预览）
 
 - 扩展弹窗新增 Cookie 镜像：按站点选择并复制到已连接的浏览器 profile；可选清除目标旧 Cookie、将会话 Cookie 保存 1–365 天，默认均关闭。
-- 新工具 `browser_shared_cookie_mirror` 可列站点计数、发起复制和查询状态。每次必须用户在源扩展确认，全部访问也不免确认；模型看不到 Cookie 值。
+- 新工具 `fast_browser_cookie_mirror` 可列站点计数、发起复制和查询状态。每次必须用户在源扩展确认，全部访问也不免确认；模型看不到 Cookie 值。
 - Cookie 仅在本机内存中一次性中转，60 秒到期；逐条导入并汇总失败类别，回读报告匹配与缺失数量。中断可能部分导入，设备绑定或服务端检查仍可能要求重新登录。
 - 新增 `cookies` 与全站点权限，保留扩展固定 ID；仅支持默认非隐身 store。
 
@@ -226,7 +234,7 @@
 
 ## 1.4.3 — 2026-10-02（开发预览）
 
-- 每轮完成由常驻 daemon 宽限 10 分钟后按 handoff 结束任务；同会话再次调用任意 `browser_shared_*` 取消计时，CLI 完成后退出仍保留宽限。
+- 每轮完成由常驻 daemon 宽限 10 分钟后按 handoff 结束任务；同会话再次调用任意 `fast_browser_*` 取消计时，CLI 完成后退出仍保留宽限。
 - 失败、中断与 `/stop` 立即结束该会话全部任务。
 - ready 任务默认 60 分钟无调用自动结束，启动扫描保留旧活动时刻；用户暂停和等待人工处理的任务免于扫描。
 - 收组使用扩展私有创建日志、组 ID 与窗口；改标题不阻止清理，用户移走的页、用户原有页和浏览器重启后无法验证的旧 ID 保留。`keep_tabs=true` 保留移交页并收组。
@@ -235,13 +243,13 @@
 ## 1.4.2 — 2026-09-30（开发预览）
 
 - 截图跳过不可见的敏感输入；可见敏感字段及无法检查的框架在截图字节上遮罩，失败返回具体错误码。
-- `screenshot` 可保存到 `HERMES_BROWSER_EXPORT_ROOTS` 允许的绝对目录，拒绝越界和覆盖；可按名称或选择器先滚动到目标。
+- `screenshot` 可保存到 `FAST_BROWSER_EXPORT_ROOTS` 允许的绝对目录，拒绝越界和覆盖；可按名称或选择器先滚动到目标。
 - 名称匹配识别可选、必填、首尾星号和冒号；按钮型 input 使用 HTML 可访问名称，首屏外目标可定位。
 - 同名填写目标优先可编辑项；透明单选与复选框可通过关联 label 可信点击，仍核对实际状态。
 
 ## 1.4.1 — 2026-09-30（开发预览）
 
-- 接管先放行页面输入，再等待在途步骤收尾；脚本可等待同一任务恢复，`browser_shared_get` 支持 `until=resumed`，恢复后返回结构性变化摘要。接管快捷键为 `Ctrl+Alt+Shift+F12`。
+- 接管先放行页面输入，再等待在途步骤收尾；脚本可等待同一任务恢复，`fast_browser_get` 支持 `until=resumed`，恢复后返回结构性变化摘要。接管快捷键为 `Ctrl+Alt+Shift+F12`。
 - 步骤日志按任务保存为 JSONL，并在浮层显示最近五步；诊断保留受限的具体错误码与动作类型。
 - 高亮跟随目标几何变化，显示动作与控件名称；增加默认开启、可在扩展弹窗关闭的模拟鼠标。
 - 扩展和桌面插件可设主要链接；守护进程跨 profile 保存，打开任务按显式实例、主要链接、环境默认值和唯一实例的顺序选择。
@@ -249,7 +257,7 @@
 
 ## 1.4.0 — 2026-09-30
 
-- 改名为 hermes-browser-link；扩展显示为 Hermes Browser Link，插件 ID 为 `browser-link`，宿主为 `com.hermes.browser_link`。
+- 改名为 fast-browser-link；扩展显示为 Fast-browser-link，插件 ID 为 `fast-browser-link`，宿主为 `com.fast.browser_link`。
 - 扩展使用 manifest 公钥固定 ID；宿主仅允许对应的一个来源。
 - 提供默认 dry-run 的迁移脚本：备份目录及配置、停止旧守护进程、保留数据权限、更新安装与启用项，验证后归档旧目录；失败回滚。
 - 迁移步骤和回滚方法见 [迁移说明](docs/migration-1.4.0.md)。工具名及权限模型不变。
@@ -296,7 +304,7 @@ All notable changes to this project are documented here. The format follows [Kee
 - 普通租约工作页可以查询 `official.ready_state`；`wait_for_load()` 对加载中的临时目标不可用持续轮询。
 - 同协议 apex/www 跳转加入当前任务来源；其他跳转在网址提交后返回 `redirected_out_of_scope` 和最终来源。
 - 新页及导航在 DOM 可交互时返回，最多等待八秒，并报告 `ready` 状态；关闭中的代理页保留租约到清理完成。
-- 多台已启用浏览器可通过 `HERMES_BROWSER_DEFAULT` 选择默认浏览器。
+- 多台已启用浏览器可通过 `FAST_BROWSER_DEFAULT` 选择默认浏览器。
 
 ## 1.3.2 — 2026-09-28 (developer preview)
 
@@ -371,14 +379,14 @@ First release of the bridge to existing Chrome and Edge browsers.
 
 ### Added
 
-- Hermes plugin `browser-executor` with `browser_shared_*` tools, `browser_shared_open` and `browser_shared_script`; local daemon and Native Messaging host; MV3 extension with approvals, overlay and target highlighting.
+- Hermes plugin `browser-executor` with `fast_browser_*` tools, `fast_browser_open` and `fast_browser_script`; local daemon and Native Messaging host; MV3 extension with approvals, overlay and target highlighting.
 - Semantic snapshots with references, paging and deltas; composed targets across open Shadow DOM, main-document closed Shadow DOM, same-origin and approved cross-origin frames.
 - Semantic actions for click (DOM or trusted pointer), fill, key press, checkbox/radio/switch and select; screenshot-bound coordinate click and drag.
 - Browser-level full access: no per-action approvals, and advanced mode (page JavaScript, raw CDP, `browser_exec` gateway) turns on automatically on first use. Advanced mode and credential fill are mutually exclusive on a page.
 - Uploads from local paths named in conversation (up to 10 files, 100 MiB each); download attribution, cancel and claim.
 - Optional routing of Hermes' official browser tools (18 tools, 28 `browser_exec` helpers) and Vault tools for sessions bound to a task.
 - Script-lane request ledger, reconnect verification and explicit checkpoints for cooperative resumption.
-- `browser_shared_open` reuses an existing work tab with the same URL when resuming a task.
+- `fast_browser_open` reuses an existing work tab with the same URL when resuming a task.
 
 ### Known limits
 

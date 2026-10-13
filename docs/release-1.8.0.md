@@ -1,4 +1,4 @@
-# Hermes Browser Link 1.8.0
+# Fast-browser-link 1.8.0
 
 1.8.0 为 macOS 正式稳定版，支持已安装扩展的 Chrome/Edge。安装包不需要 Node.js；源码和站点维护仍使用锁定开发依赖。
 
@@ -19,7 +19,7 @@
 
 ## 安装与更新
 
-从本 Release 下载 `hermes-browser-link-1.8.0.zip`，解压后运行 `./install.sh`；已有安装运行 `./install.sh --upgrade`，重载浏览器扩展并重启 Hermes。
+从本 Release 下载 `fast-browser-link-1.8.0.zip`，解压后运行 `./install.sh`；已有安装运行 `./install.sh --upgrade`，重载浏览器扩展并重启 Hermes。
 
 旧安装先手动升级一次，安装当前公开仓库的自动更新源。1.8.0 属于正式更新通道，后续稳定版仍经 SHA256、ZIP 路径、完整包清单和扩展身份校验，并在浏览器与 Hermes 退出后安装。
 

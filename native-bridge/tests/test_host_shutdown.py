@@ -26,7 +26,7 @@ class NativeHostFixture(unittest.TestCase):
 
     def setUp(self):
         home = self.enterContext(temporary_bridge_home())
-        data = home / "plugin-data" / "browser-link-native"
+        data = home / "plugin-data" / "fast-browser-link-native"
         self.fixture_data = data
         data.mkdir(parents=True)
         (data / "token").write_text("fixture-token", encoding="ascii")
@@ -86,8 +86,15 @@ class NativeHostFixture(unittest.TestCase):
             # 中文注释：只向本次夹具发诊断信号，短暂收集现场后仍立即终止并失败。
             self.process.send_signal(signal.SIGUSR1)
             captured = b""
-            if select.select([error_stream], [], [], 0.05)[0]:
-                captured = os.read(error_stream.fileno(), 64 * 1024)
+            # 中文注释：faulthandler 会分多段写入，沿用 50ms 上限收齐片段，再终止超时夹具。
+            deadline = time.monotonic() + 0.05
+            while time.monotonic() < deadline:
+                if not select.select([error_stream], [], [], max(0, deadline - time.monotonic()))[0]:
+                    break
+                chunk = os.read(error_stream.fileno(), 64 * 1024)
+                if not chunk:
+                    break
+                captured += chunk
             self.process.kill()
             self.process.wait(timeout=2)
             stderr = captured + error_stream.read()
@@ -199,7 +206,7 @@ threading.Thread.start = tracked_start
 original_write = host._write_json_line
 def tracked_write(sock, value, lock):
     if value.get('role') == 'extension':
-        data = Path(os.environ['HERMES_HOME']) / 'plugin-data/browser-link-native'
+        data = Path(os.environ['HERMES_HOME']) / 'plugin-data/fast-browser-link-native'
         (data / 'startup-state.json').write_text(json.dumps({'startedThreads': len(started_threads)}))
         if started_threads:
             assert early_frame_writing.wait(1), 'early native frame did not reach the writer'
@@ -234,7 +241,7 @@ class NativeHostHistoryIntegrationTests(unittest.TestCase):
         sys.path.insert(0, str(BRIDGE_DIR))
         from client import ensure_service
         home = self.enterContext(temporary_bridge_home())
-        data = home / "plugin-data" / "browser-link-native"
+        data = home / "plugin-data" / "fast-browser-link-native"
         data.mkdir(parents=True, mode=0o700)
         operation = {"action": "snapshot", "state": "succeeded", "startedAt": 1, "completedAt": 2, "durationMs": 1000}
         tasks = [{"id": f"history-{index}", "owner": "fixture-owner", "instanceId": "fixture-browser",

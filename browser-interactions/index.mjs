@@ -5,11 +5,11 @@ export class InteractionError extends Error {
 const fail=code=>{throw new InteractionError(code);};
 const copy=value=>structuredClone(value);
 function pageOperation(op,arg={}) {
-  const isOverlay=node=>{for(let n=node;n;n=n.parentNode||n.host)if(n.nodeType===1&&n.hasAttribute?.('data-hermes-automation-overlay'))return true;return false;};
+  const isOverlay=node=>{for(let n=node;n;n=n.parentNode||n.host)if(n.nodeType===1&&n.hasAttribute?.('data-fast-automation-overlay'))return true;return false;};
   const realMutation=r=>r.type==='childList' ? !isOverlay(r.target)&&([...(r.addedNodes||[]),...(r.removedNodes||[])].some(n=>!isOverlay(n))) : !isOverlay(r.target);
-  let s=globalThis.__hermesInteractions;
+  let s=globalThis.__fastInteractions;
   if(!s || s.document!==document) {
-    s=globalThis.__hermesInteractions={document,token:crypto.getRandomValues(new Uint32Array(4)).join('-'),revision:0,nodes:new Map()};
+    s=globalThis.__fastInteractions={document,token:crypto.getRandomValues(new Uint32Array(4)).join('-'),revision:0,nodes:new Map()};
     s.observer=new MutationObserver(records=>{if(records.some(realMutation))s.revision++;});
     s.observer.observe(document,{subtree:true,childList:true,attributes:true,characterData:true});
   }
@@ -92,7 +92,7 @@ function pageOperation(op,arg={}) {
 }
 export function createCDPAdapter(send) {
   let isolatedContext;
-  const world='hermes-interactions-'+crypto.getRandomValues(new Uint32Array(4)).join('-');
+  const world='fast-interactions-'+crypto.getRandomValues(new Uint32Array(4)).join('-');
   return {
     send,
     async evaluate(op,arg) {
@@ -111,7 +111,7 @@ export function createCDPAdapter(send) {
       const {object}=await send('DOM.resolveNode',{backendNodeId:hit.backendNodeId,executionContextId:isolatedContext});
       try {
         // 中文注释：CDP 命中 CSS 生成内容时返回 CSSPseudoElement；检查其真实宿主，不能把伪元素当 DOM Element。
-        const r=await send('Runtime.callFunctionOn',{objectId:object.objectId,functionDeclaration:'function(allowOpenShadow,allowClosedShadow,isPseudo){const element=isPseudo?this.element:this;if(!element||typeof element.getRootNode!=="function")throw Error("HIT_RECHECK_FAILED");const root=element.getRootNode();return !!element.closest?.("[data-hermes-automation-overlay]") || !!root.host?.hasAttribute("data-hermes-automation-overlay") || (root instanceof ShadowRoot && !(root.mode==="open"?allowOpenShadow:allowClosedShadow));}',arguments:[{value:allowOpenShadow},{value:allowClosedShadow},{value:object.className==='CSSPseudoElement'}],returnByValue:true});
+        const r=await send('Runtime.callFunctionOn',{objectId:object.objectId,functionDeclaration:'function(allowOpenShadow,allowClosedShadow,isPseudo){const element=isPseudo?this.element:this;if(!element||typeof element.getRootNode!=="function")throw Error("HIT_RECHECK_FAILED");const root=element.getRootNode();return !!element.closest?.("[data-fast-automation-overlay]") || !!root.host?.hasAttribute("data-fast-automation-overlay") || (root instanceof ShadowRoot && !(root.mode==="open"?allowOpenShadow:allowClosedShadow));}',arguments:[{value:allowOpenShadow},{value:allowClosedShadow},{value:object.className==='CSSPseudoElement'}],returnByValue:true});
         if(r.exceptionDetails) fail('HIT_RECHECK_FAILED');
         if(r.result.value) fail('UNSUPPORTED_SHADOW_DOM');
       } finally {await send('Runtime.releaseObject',{objectId:object.objectId});}

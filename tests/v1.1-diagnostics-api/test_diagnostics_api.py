@@ -21,7 +21,7 @@ if str(DIAGNOSTICS_PYTHON) not in sys.path:
 from browser_diagnostics import JsonlDiagnosticSink
 from browser_diagnostics.schema import make_event
 
-PREFIX = "/api/plugins/browser-link/shared/tasks"
+PREFIX = "/api/plugins/fast-browser-link/shared/tasks"
 REQUEST_HASH = "a" * 64
 
 
@@ -88,7 +88,7 @@ class DiagnosticsApiTests(unittest.TestCase):
             Path(self.tmp.name) / "hermes-home", PLUGIN_ROOT, bridge_client=self.bridge
         )
         self.runtime.authority.pre_tool_call(
-            "browser_shared_list", {}, session_id="trusted-diagnostics-session", tool_call_id="call-1"
+            "fast_browser_list", {}, session_id="trusted-diagnostics-session", tool_call_id="call-1"
         )
         self.owner = self.runtime.authority.owner_for_session("trusted-diagnostics-session")
         self.task_id = "task-diagnostics"
@@ -103,7 +103,7 @@ class DiagnosticsApiTests(unittest.TestCase):
         setattr(self.api, "_native_profile_runtime", lambda: self.runtime)
 
         app = FastAPI()
-        app.include_router(self.api.router, prefix="/api/plugins/browser-link")
+        app.include_router(self.api.router, prefix="/api/plugins/fast-browser-link")
         self.client = TestClient(app)
 
     def _write_event(self, status, *, task_id=None, request_id=REQUEST_HASH):
@@ -259,7 +259,7 @@ class DiagnosticsApiTests(unittest.TestCase):
 
     def test_ambiguous_task_id_across_registered_owners_fails_closed(self):
         self.runtime.authority.pre_tool_call(
-            "browser_shared_list", {}, session_id="another-trusted-session", tool_call_id="call-2"
+            "fast_browser_list", {}, session_id="another-trusted-session", tool_call_id="call-2"
         )
         other_owner = self.runtime.authority.owner_for_session("another-trusted-session")
         self.bridge.tasks["duplicate-task"] = {

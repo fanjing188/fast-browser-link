@@ -34,7 +34,7 @@ test('放开只移除本地浮层和捕获监听器，不再调用任务控制�
  let calls=0,reply;const f=fixture(()=>{calls++;return new Promise(resolve=>{reply=resolve;});});try{
   await f.click('takeover');assert.equal(f.key(),true);f.click('release');await tick();
   assert.equal(f.overlay.host.isConnected,false);assert.equal(f.windowHandlers.size,0);assert.equal(f.key(),false);assert.equal(calls,1);
-  reply({state:'paused'});await tick();assert.equal(f.doc.querySelector('[data-hermes-automation-overlay]'),null);assert.equal(calls,1);
+  reply({state:'paused'});await tick();assert.equal(f.doc.querySelector('[data-fast-automation-overlay]'),null);assert.equal(calls,1);
  }finally{f.close();}
 });
 test('重试允许恢复连接，旧请求迟到不能覆盖新回执，超时清理信号已取消',async()=>{
@@ -65,7 +65,7 @@ test('明确断开和异常均可恢复；未知结果不伪造暂停或停止',
 });
 test('本地清理事件只能卸载输入，不会调用暂停、停止或继续回调',()=>{
  let calls=0;const f=fixture(()=>{calls++;return {state:'paused'};});try{
-  f.overlay.host.dispatchEvent(new f.dom.window.Event('hermes-overlay-release'));assert.equal(f.windowHandlers.size,0);assert.equal(calls,0);assert.equal(f.overlay.host.isConnected,false);
+  f.overlay.host.dispatchEvent(new f.dom.window.Event('fast-overlay-release'));assert.equal(f.windowHandlers.size,0);assert.equal(calls,0);assert.equal(f.overlay.host.isConnected,false);
  }finally{f.close();}
 });
 
@@ -82,12 +82,12 @@ test('长动作暂停等待显示进度，屏障收尾前不伪造已暂停',asy
 });
 
 function cleanupFixture({legacy=false,occupied=false}={}){
- const f=fixture();if(legacy){f.overlay.host.removeAttribute('data-hermes-overlay-task');f.overlay.host.removeAttribute('data-hermes-overlay-generation');}
- const calls=[],context={__hermesAutomationOverlay:{overlay:f.overlay,taskId:'task',generation:2,pending:new Map(),active:true}},executor=new Executor({
+ const f=fixture();if(legacy){f.overlay.host.removeAttribute('data-fast-overlay-task');f.overlay.host.removeAttribute('data-fast-overlay-generation');}
+ const calls=[],context={__fastAutomationOverlay:{overlay:f.overlay,taskId:'task',generation:2,pending:new Map(),active:true}},executor=new Executor({
   tabs:{get:async()=>({url:scope.origin})},
   scripting:{executeScript:async p=>{calls.push('scripting');vm.runInNewContext(`(${p.func.toString()})(scope)`,{document:f.doc,Event:f.dom.window.Event,scope:p.args[0]});}},
   debugger:{getTargets:async()=>occupied?[{tabId:7,attached:true}]:[],attach:async()=>{calls.push('attach');},detach:async()=>{calls.push('detach');},sendCommand:async(_target,method,p)=>{
-   calls.push(method);if(method==='Page.getFrameTree')return {frameTree:{frame:{id:'frame'}}};if(method==='Page.createIsolatedWorld')return {executionContextId:p.worldName==='hermes-automation-overlay'?1:2};
+   calls.push(method);if(method==='Page.getFrameTree')return {frameTree:{frame:{id:'frame'}}};if(method==='Page.createIsolatedWorld')return {executionContextId:p.worldName==='fast-automation-overlay'?1:2};
    if(method==='Runtime.callFunctionOn'){const value=vm.runInNewContext(`(${p.functionDeclaration})(scope)`,{...context,scope:p.arguments?.[0]?.value});return {result:{value}};}return {};
   }},
  });
@@ -112,8 +112,8 @@ test('新的任务租约或较新浮层代次不能被旧清理请求移除',asy
 });
 test('预遮罩也响应本地卸载事件，DOM 变化后不重挂或继续拦截',async()=>{
  const dom=new JSDOM('<button>页面</button>',{url:scope.origin,runScripts:'outside-only'});try{
-  vm.runInContext(preveilSource([scope.origin],scope),dom.getInternalVMContext());const host=dom.window.document.querySelector('[data-hermes-preveil]');assert.equal(host.dataset.hermesOverlayTask,'task');
-  host.dispatchEvent(new dom.window.Event('hermes-overlay-release'));dom.window.document.body.append(dom.window.document.createElement('div'));await tick();
-  assert.equal(dom.window.document.querySelector('[data-hermes-preveil]'),null);
+  vm.runInContext(preveilSource([scope.origin],scope),dom.getInternalVMContext());const host=dom.window.document.querySelector('[data-fast-preveil]');assert.equal(host.dataset.fastOverlayTask,'task');
+  host.dispatchEvent(new dom.window.Event('fast-overlay-release'));dom.window.document.body.append(dom.window.document.createElement('div'));await tick();
+  assert.equal(dom.window.document.querySelector('[data-fast-preveil]'),null);
  }finally{dom.window.close();}
 });

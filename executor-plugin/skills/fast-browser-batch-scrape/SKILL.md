@@ -1,11 +1,11 @@
 ---
-name: batch-scrape
-description: Use browser_shared_script to read, locate elements by meaning and act in bulk in the user's authorized browser with Python — paging, extraction, de-duplication, saving, multi-step forms. Fewer model round trips.
+name: fast-browser-batch-scrape
+description: Use fast_browser_script to read, locate elements by meaning and act in bulk in the user's authorized browser with Python — paging, extraction, de-duplication, saving, multi-step forms. Fewer model round trips.
 ---
 
 # Batch page work with Python
 
-First bind this session to a ready task with `browser_shared_open`; use its summary before another snapshot. Then run bounded steps with `browser_shared_script(code=..., timeout_s=...)`. Each call is a new Python process; the working directory is kept between calls. Do not carry element refs or approvals across calls. Use this tool set for the whole page workflow; do not mix in `browser_exec`.
+First bind this session to a ready task with `fast_browser_open`; use its summary before another snapshot. Then run bounded steps with `fast_browser_script(code=..., timeout_s=...)`. Each call is a new Python process; the working directory is kept between calls. Do not carry element refs or approvals across calls. Use this tool set for the whole page workflow; do not mix in `browser_exec`.
 
 ## Helpers
 
@@ -76,7 +76,7 @@ print({'text': text, 'count': count})
 
 ## 填表与人工交接
 
-同一页有两步以上（填表、翻页、采集、点击后读取结果）时，用一次 `browser_shared_script`。对同一页面状态选择一种读取方式，不连续调用 `semantic_snapshot`、`page.parse`、`js.evaluate`。表单字段名先从真实页面读取：
+同一页有两步以上（填表、翻页、采集、点击后读取结果）时，用一次 `fast_browser_script`。对同一页面状态选择一种读取方式，不连续调用 `semantic_snapshot`、`page.parse`、`js.evaluate`。表单字段名先从真实页面读取：
 
 ```python
 # 中文注释：审批或人工输入只等待原请求；不重新派发可能已执行的动作。
@@ -102,7 +102,7 @@ print({'filled': [item.get('verified') for item in filled],
 # 中文注释：核对页面反馈后停在提交前，不点击最终提交按钮。
 ```
 
-需要用户处理人机验证、敏感字段或付费时，结果列出工作标签页 ID。会话结束后待人工处理的工作页及标签组会保留，任务权限和遮罩会撤销。验证码、Turnstile、最终提交这类执行器看不到的人工步骤，用 `browser_shared_close(task_id, keep_tabs=true)` 把工作页明确交给用户；不要对已交给用户的页调用普通关闭。后续要自动操作必须重新调用 `browser_shared_open`。
+需要用户处理人机验证、敏感字段或付费时，结果列出工作标签页 ID。会话结束后待人工处理的工作页及标签组会保留，任务权限和遮罩会撤销。验证码、Turnstile、最终提交这类执行器看不到的人工步骤，用 `fast_browser_close(task_id, keep_tabs=true)` 把工作页明确交给用户；不要对已交给用户的页调用普通关闭。后续要自动操作必须重新调用 `fast_browser_open`。
 
 ## Reuse verified workflows
 
@@ -110,15 +110,15 @@ Use only data and destinations supplied or approved for the current task. Local 
 
 Search `browser_site_search` before repeating a known site workflow. `browser_site_manage` defines a `def run(args)` draft with argument/result schemas, runs a real trial with result assertions, and activates a passing unchanged draft. Writes during a trial have real effects. Use `browser_site_run` only within the bound authorized task. A read/write label never grants authority.
 
-For network inspection, use `network_start`, `network_list(capture_id)`, `network_detail(capture_id, seq)` and `network_stop`; summaries and detail reads do not drain CDP events. `page_request(url, fields=[...])` performs a bounded same-origin GET/HEAD through the existing evaluation permission. It rejects redirects and returns failures explicitly. Treat credential-key filtering as a limited heuristic. Use `browser_shared_reference(instance_id=...)` for exact currently supported helper signatures.
+For network inspection, use `network_start`, `network_list(capture_id)`, `network_detail(capture_id, seq)` and `network_stop`; summaries and detail reads do not drain CDP events. `page_request(url, fields=[...])` performs a bounded same-origin GET/HEAD through the existing evaluation permission. It rejects redirects and returns failures explicitly. Treat credential-key filtering as a limited heuristic. Use `fast_browser_reference(instance_id=...)` for exact currently supported helper signatures.
 
 ## 显式选择工作页
 
-`new_tab(url)` 返回 tab id，并将它设为当前页。使用 `current_tab()` 查看、`use_tab(tab_id)` 切换；页面 helper 支持关键字 `tab=`，只作用于指定页，不改变当前页。多页脚本推荐始终传 `tab=`。官方工具使用 `browser_shared_use_tab(tab_id)` 选择当前页；`browser_shared_open` 成功后自动选择刚打开或复用的页。不同网站的任务同时保留，撤销一个任务不撤销其他任务。
+`new_tab(url)` 返回 tab id，并将它设为当前页。使用 `current_tab()` 查看、`use_tab(tab_id)` 切换；页面 helper 支持关键字 `tab=`，只作用于指定页，不改变当前页。多页脚本推荐始终传 `tab=`。官方工具使用 `fast_browser_use_tab(tab_id)` 选择当前页；`fast_browser_open` 成功后自动选择刚打开或复用的页。不同网站的任务同时保留，撤销一个任务不撤销其他任务。
 
 读动作只等待 DOM 的 `interactive`/`complete`，上限 1.5 秒。导航和新建页最多等待 8 秒；正文已解析且稳定可返回 `partial`。`goto_url()` 回执默认附摘要，可用 `summary=False` 关闭。等具体元素用 `wait_for(selector, ...)`；已有可读回执时不要再叠加 `wait_for_load()`。
 
-同一工作页可以跨站导航，继续使用当前任务和标签页。多台已启用浏览器可在 Hermes 进程环境中设置 `HERMES_BROWSER_DEFAULT=edge`、`chrome` 或具体 instance ID；显式 `instance_id` 优先。
+同一工作页可以跨站导航，继续使用当前任务和标签页。多台已启用浏览器可在 Hermes 进程环境中设置 `FAST_BROWSER_DEFAULT=edge`、`chrome` 或具体 instance ID；显式 `instance_id` 优先。
 
 `parallel(fn, tabs)` 对每个页执行 `fn(tab)`，结果按输入顺序返回。同站顺序读多页时复用同一标签；需要同时等待至少三张慢页时才并行建页，模型标签最多四张。任一分支失败后汇总 `BrowserError.errors` 与已成功的 `BrowserError.results`，定位仍失败的条目换描述或跳过；用显式 `tab=` 核实未知写入结果。同一页的动作仍串行，同一会话仍只能运行一个脚本进程。
 
@@ -126,5 +126,5 @@ For network inspection, use `network_start`, `network_list(capture_id)`, `networ
 |---|---|
 | 同站顺序读多页 | `goto_url(url)` 复用当前标签。 |
 | 同站至少三张慢页需同时读取 | 在同任务打开最多四张模型标签；`parallel(lambda tab: read_page(tab=tab), tabs)` 并行读取。 |
-| 换站且以后还要返回 | `browser_shared_open` 建新任务并保留旧任务。 |
+| 换站且以后还要返回 | `fast_browser_open` 建新任务并保留旧任务。 |
 | 会话结束或人工接手 | 关闭自动化任务；人工接手页用 `keep_tabs=true` 保留。 |

@@ -33,7 +33,7 @@ class PathsAndNames(unittest.TestCase):
             try:
                 os.chdir(workspace)
                 png = base64.b64encode(b'PNG fixture').decode()
-                with patch.dict(os.environ, {'HERMES_BROWSER_EXPORT_ROOTS': str(exports)}), \
+                with patch.dict(os.environ, {'FAST_BROWSER_EXPORT_ROOTS': str(exports)}), \
                         patch.object(child, '_call', return_value={'data': png}) as call:
                     saved = child.screenshot(str(exports / 'proof.png'))
                     self.assertEqual(saved, str(exports / 'proof.png'))
@@ -44,7 +44,7 @@ class PathsAndNames(unittest.TestCase):
                         with self.assertRaises(child.BrowserError) as caught:
                             child.screenshot(str(denied))
                         self.assertEqual(caught.exception.code, 'invalid_params')
-                with patch.dict(os.environ, {'HERMES_BROWSER_EXPORT_ROOTS': ''}):
+                with patch.dict(os.environ, {'FAST_BROWSER_EXPORT_ROOTS': ''}):
                     with self.assertRaises(child.BrowserError) as caught:
                         child.screenshot(str(exports / 'unconfigured.png'))
                     self.assertIn(str(workspace), str(caught.exception))
@@ -58,7 +58,7 @@ class PathsAndNames(unittest.TestCase):
             try:
                 os.chdir(temp)
                 found = {'snapshot': {'binding': {'taskId': 't'}, 'snapshotId': 's'}, 'ref': 'r'}
-                with patch.dict(os.environ, {'HERMES_BROWSER_EXPORT_ROOTS': ''}), \
+                with patch.dict(os.environ, {'FAST_BROWSER_EXPORT_ROOTS': ''}), \
                         patch.object(child, 'wait_for_element', return_value=found), \
                         patch.object(child, '_call', return_value={'data': base64.b64encode(b'png').decode()}) as call:
                     self.assertEqual(child.screenshot('named.png', name='Submit'), str(Path(temp).resolve() / 'named.png'))
@@ -101,7 +101,7 @@ class PathsAndNames(unittest.TestCase):
     def test_shared_home_env_for_other_profile(self):
         with tempfile.TemporaryDirectory() as temp:
             home = Path(temp)
-            (home / '.env').write_text('HERMES_BROWSER_EXPORT_ROOTS=/tmp/export-a:/tmp/export-b\n')
+            (home / '.env').write_text('FAST_BROWSER_EXPORT_ROOTS=/tmp/export-a:/tmp/export-b\n')
             with patch.dict(os.environ, {}, clear=True):
                 self.assertEqual(script._export_roots(home), '/tmp/export-a:/tmp/export-b')
 

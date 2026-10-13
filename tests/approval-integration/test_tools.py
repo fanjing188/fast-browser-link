@@ -11,14 +11,14 @@ class CompatibilityTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as home:
             runtime=tools._runtime.NativeProfileRuntime(Path(home),ROOT/'executor-plugin',bridge_client=Client())
             args={'task_id':'a','action':'click','tab_id':1,'selector':'#send'}
-            modified=runtime.authority.pre_tool_call('browser_shared_run',args,session_id='s',tool_call_id='c')
+            modified=runtime.authority.pre_tool_call('fast_browser_run',args,session_id='s',tool_call_id='c')
             args.update(modified['args'])
-            result=json.loads(tools.make_tool_handler('browser_shared_run',runtime)(args,session_id='s'))
+            result=json.loads(tools.make_tool_handler('fast_browser_run',runtime)(args,session_id='s'))
             self.assertEqual(result['code'],'bridge_error')
             self.assertEqual(result.get('bridgeCode'),'approval_denied')
             self.assertNotIn('private input',result['error'])
     def test_model_cannot_supply_approval_mode_nonce_or_owner(self):
         for key in ['activeMode','approval','nonce','owner','modeGeneration','capabilities']:
             with self.assertRaises(ValueError):
-                tools._validate('browser_shared_run',{'task_id':'a','action':'click','tab_id':1,'selector':'#x',key:'full'})
+                tools._validate('fast_browser_run',{'task_id':'a','action':'click','tab_id':1,'selector':'#x',key:'full'})
 if __name__=='__main__': unittest.main()

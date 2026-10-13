@@ -10,7 +10,7 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRATCH = Path.home() / '.hermes/cache/scratch'
-ORIGIN = 'chrome-extension://dhioigkigkkhceflkkkmoljhdaefjohb/'
+ORIGIN = 'chrome-extension://hhnljehnkmhhgjjjmnlhilfpcjhobloc/'
 
 spec = importlib.util.spec_from_file_location('release_installer_prerequisites', ROOT / 'scripts/install-executor.py')
 assert spec is not None and spec.loader is not None
@@ -33,38 +33,38 @@ class InstallPrerequisitesTests(unittest.TestCase):
         self.hermes = self.root / 'hermes'
         files = {
             # 当前桥接插件的必需文件由安装器逐一验证。
-            'browser-link/plugin.yaml': 'name: browser-link\n',
-            'browser-link/__init__.py': '# 插件入口\n',
-            'browser-link/runtime.py': '# 租约与结果投影\n',
-            'browser-link/native_tools.py': '# 原生工具\n',
+            'fast-browser-link/plugin.yaml': 'name: fast-browser-link\n',
+            'fast-browser-link/__init__.py': '# 插件入口\n',
+            'fast-browser-link/runtime.py': '# 租约与结果投影\n',
+            'fast-browser-link/native_tools.py': '# 原生工具\n',
             # 中文注释：安装事务执行真实注册描述；它只依赖 pathlib，不启动云端服务。
-            'browser-link/cloud_link/registration.py': (ROOT / 'cloud-link/registration.py').read_text(encoding='utf8'),
+            'fast-browser-link/cloud_link/registration.py': (ROOT / 'cloud-link/registration.py').read_text(encoding='utf8'),
             # 中文注释：夹具保留新增维护组件的完整运行闭包。
-            'browser-link/maintenance/update.py': '# 更新入口\n',
-            'browser-link/maintenance/install-cli.py': '# 安装入口\n',
-            'browser-link/maintenance/install-executor.py': '# 安装校验器\n',
-            'browser-link/open_tool.py': '# 打开工具\n',
-            'browser-link/skills/use-my-browser/SKILL.md': '# Browser\n',
-            'browser-link/script_lane/host_bridge.py': '# 桥接\n',
-            'browser-link/script_lane/action_session.py': '# 会话\n',
-            'browser-link/script_lane/child.py': '# 子进程\n',
-            'browser-link/script_lane/tool.py': '# 工具\n',
-            'browser-link/native_bridge/host.py': '# host\n',
-            'browser-link/native_bridge/client.py': '# client\n',
+            'fast-browser-link/maintenance/update.py': '# 更新入口\n',
+            'fast-browser-link/maintenance/install-cli.py': '# 安装入口\n',
+            'fast-browser-link/maintenance/install-executor.py': '# 安装校验器\n',
+            'fast-browser-link/open_tool.py': '# 打开工具\n',
+            'fast-browser-link/skills/fast-browser-link/SKILL.md': '# Browser\n',
+            'fast-browser-link/script_lane/host_bridge.py': '# 桥接\n',
+            'fast-browser-link/script_lane/action_session.py': '# 会话\n',
+            'fast-browser-link/script_lane/child.py': '# 子进程\n',
+            'fast-browser-link/script_lane/tool.py': '# 工具\n',
+            'fast-browser-link/native_bridge/host.py': '# host\n',
+            'fast-browser-link/native_bridge/client.py': '# client\n',
             # 中文注释：当前包必须携带独立 Cookie 内存通道，夹具不省略运行模块。
-            'browser-link/native_bridge/cookie_mirror.py': '# cookie channel\n',
-            'browser-link/native_bridge/daemon.py': '# daemon\n',
-            'browser-link/native_bridge/api_client.py': '# api\n',
-            'browser-link/native_bridge/vault_client.py': '# vault client\n',
-            'browser-link/native_bridge/vault_private.py': '# vault private\n',
-            'browser-link/vault_adapter/__init__.py': '# vault\n',
-            'browser-link/vault_adapter/adapter.py': '# vault adapter\n',
-            'browser-link/vault_adapter/integration.py': '# vault integration\n',
-            'browser-link/vault_adapter/official_source.py': '# vault source\n',
-            'browser-link/native_bridge/browser_diagnostics/__init__.py': '# init\n',
-            'browser-link/native_bridge/browser_diagnostics/schema.py': '# schema\n',
-            'browser-link/native_bridge/browser_diagnostics/runtime.py': '# runtime\n',
-            'browser-link/native_bridge/browser_diagnostics/sink.py': '# sink\n',
+            'fast-browser-link/native_bridge/cookie_mirror.py': '# cookie channel\n',
+            'fast-browser-link/native_bridge/daemon.py': '# daemon\n',
+            'fast-browser-link/native_bridge/api_client.py': '# api\n',
+            'fast-browser-link/native_bridge/vault_client.py': '# vault client\n',
+            'fast-browser-link/native_bridge/vault_private.py': '# vault private\n',
+            'fast-browser-link/vault_adapter/__init__.py': '# vault\n',
+            'fast-browser-link/vault_adapter/adapter.py': '# vault adapter\n',
+            'fast-browser-link/vault_adapter/integration.py': '# vault integration\n',
+            'fast-browser-link/vault_adapter/official_source.py': '# vault source\n',
+            'fast-browser-link/native_bridge/browser_diagnostics/__init__.py': '# init\n',
+            'fast-browser-link/native_bridge/browser_diagnostics/schema.py': '# schema\n',
+            'fast-browser-link/native_bridge/browser_diagnostics/runtime.py': '# runtime\n',
+            'fast-browser-link/native_bridge/browser_diagnostics/sink.py': '# sink\n',
             'native-extension/manifest.json': json.dumps({'manifest_version': 3, 'background': {'service_worker': 'background.mjs'}}),
             'native-extension/background.mjs': '// background\n',
             'docs/python-scripting.md': '# Python scripting\n',
@@ -99,7 +99,7 @@ class InstallPrerequisitesTests(unittest.TestCase):
         self.assertFalse(self.hermes.exists(), 'installer wrote to Hermes home before preflight')
 
     def test_corrupt_payload_rejected_before_writes(self):
-        (self.package / 'browser-link/native_bridge/host.py').write_text('# corrupted after hashing\n')
+        (self.package / 'fast-browser-link/native_bridge/host.py').write_text('# corrupted after hashing\n')
         self.assert_rejected_without_target_writes('哈希不匹配.*host.py')
 
     def test_manifest_missing_listed_file_rejected_before_writes(self):
@@ -117,7 +117,7 @@ class InstallPrerequisitesTests(unittest.TestCase):
         self.assert_rejected_without_target_writes('SHA256SUMS.json')
 
     def test_package_symlink_rejected_before_writes(self):
-        (self.package / 'browser-link/other.py').symlink_to('runtime.py')
+        (self.package / 'fast-browser-link/other.py').symlink_to('runtime.py')
         self.rehash()
         self.assert_rejected_without_target_writes('符号链接')
 
@@ -132,9 +132,9 @@ class InstallPrerequisitesTests(unittest.TestCase):
         self.assertFalse(self.hermes.exists())
         result = self.install(apply=True)
         self.assertEqual(result['status'], 'installed_disabled')
-        installed = self.hermes / 'plugins/browser-link'
+        installed = self.hermes / 'plugins/fast-browser-link'
         self.assertEqual((installed / 'native_bridge/browser_diagnostics/sink.py').read_bytes(),
-                         (self.package / 'browser-link/native_bridge/browser_diagnostics/sink.py').read_bytes())
+                         (self.package / 'fast-browser-link/native_bridge/browser_diagnostics/sink.py').read_bytes())
         self.assertIn(str(installed / 'native_bridge/host.py'), Path(result['host']).read_text())
         for path in result['manifests']:
             self.assertEqual(json.loads(Path(path).read_text())['allowed_origins'], [ORIGIN])
@@ -171,7 +171,7 @@ class InstallPrerequisitesTests(unittest.TestCase):
         self.assertFalse(self.home.exists())
 
     def test_existing_data_directory_mode_survives_late_failure(self):
-        data = self.hermes / 'plugin-data/browser-link-native'
+        data = self.hermes / 'plugin-data/fast-browser-link-native'
         data.mkdir(parents=True)
         data.chmod(0o755)
         self.addCleanup(data.chmod, 0o700)
@@ -187,11 +187,11 @@ class InstallPrerequisitesTests(unittest.TestCase):
                 self.install()
         self.assertEqual(stat.S_IMODE(data.stat().st_mode), 0o755)
         self.assertEqual(list(data.iterdir()), [])
-        self.assertFalse((self.hermes / 'plugins/browser-link').exists())
+        self.assertFalse((self.hermes / 'plugins/fast-browser-link').exists())
         self.assertFalse(self.home.exists())
 
     def test_source_change_after_verification_does_not_change_installed_bytes(self):
-        host = self.package / 'browser-link/native_bridge/host.py'
+        host = self.package / 'fast-browser-link/native_bridge/host.py'
         expected = host.read_bytes()
         original_verify = installer.verify_package
 
@@ -202,12 +202,12 @@ class InstallPrerequisitesTests(unittest.TestCase):
 
         with mock.patch.object(installer, 'verify_package', side_effect=mutate_after_verify):
             self.install()
-        installed = self.hermes / 'plugins/browser-link/native_bridge/host.py'
+        installed = self.hermes / 'plugins/fast-browser-link/native_bridge/host.py'
         self.assertEqual(installed.read_bytes(), expected)
         self.assertNotEqual(host.read_bytes(), expected)
 
     def test_partial_install_copy_failure_removes_target(self):
-        target = self.hermes / 'plugins/browser-link'
+        target = self.hermes / 'plugins/fast-browser-link'
         real_copytree = installer.shutil.copytree
 
         def fail_after_partial_copy(src, dst, *args, **kwargs):
@@ -226,7 +226,7 @@ class InstallPrerequisitesTests(unittest.TestCase):
         self.assertFalse(self.home.exists())
 
     def test_corrupt_target_after_copy_is_detected_and_removed(self):
-        target = self.hermes / 'plugins/browser-link'
+        target = self.hermes / 'plugins/fast-browser-link'
         real_copytree = installer.shutil.copytree
 
         def corrupt_target(src, dst, *args, **kwargs):
@@ -254,38 +254,38 @@ class InstallPrerequisitesTests(unittest.TestCase):
         with mock.patch.object(installer.json, 'dump', side_effect=fail_config_write):
             with self.assertRaisesRegex(OSError, 'injected config failure'):
                 self.install()
-        self.assertFalse((self.hermes / 'plugins/browser-link').exists())
-        self.assertFalse((self.hermes / 'plugin-data/browser-link-native/host-config.json').exists())
-        self.assertFalse((self.hermes / 'plugin-data/browser-link-native' / installer.HOST).exists())
+        self.assertFalse((self.hermes / 'plugins/fast-browser-link').exists())
+        self.assertFalse((self.hermes / 'plugin-data/fast-browser-link-native/host-config.json').exists())
+        self.assertFalse((self.hermes / 'plugin-data/fast-browser-link-native' / installer.HOST).exists())
         self.assertFalse(self.home.exists())
 
     def test_casefold_colliding_manifest_names_rejected_before_writes(self):
         manifest_path = self.package / 'SHA256SUMS.json'
         manifest = json.loads(manifest_path.read_text())
-        manifest['browser-link/PLUGIN.yaml'] = manifest['browser-link/plugin.yaml']
+        manifest['fast-browser-link/PLUGIN.yaml'] = manifest['fast-browser-link/plugin.yaml']
         manifest_path.write_text(json.dumps(manifest))
         self.assert_rejected_without_target_writes('归一化冲突')
 
     def test_unicode_colliding_manifest_names_rejected_before_writes(self):
-        payload = self.package / 'browser-link/café.py'
+        payload = self.package / 'fast-browser-link/café.py'
         payload.write_text('# unicode\n')
         self.rehash()
         manifest_path = self.package / 'SHA256SUMS.json'
         manifest = json.loads(manifest_path.read_text())
-        manifest['browser-link/cafe\u0301.py'] = manifest['browser-link/café.py']
+        manifest['fast-browser-link/cafe\u0301.py'] = manifest['fast-browser-link/café.py']
         manifest_path.write_text(json.dumps(manifest, ensure_ascii=False))
         self.assert_rejected_without_target_writes('归一化冲突')
 
     def test_duplicate_manifest_keys_rejected_before_writes(self):
         manifest = json.loads((self.package / 'SHA256SUMS.json').read_text())
-        name = 'browser-link/plugin.yaml'
+        name = 'fast-browser-link/plugin.yaml'
         (self.package / 'SHA256SUMS.json').write_text(
             '{' + json.dumps(name) + ':' + json.dumps(manifest[name]) + ','
             + json.dumps(manifest)[1:])
         self.assert_rejected_without_target_writes('SHA256SUMS.json')
 
     def test_unlisted_payload_rejected_before_writes(self):
-        (self.package / 'browser-link/extra.py').write_text('# unlisted\n')
+        (self.package / 'fast-browser-link/extra.py').write_text('# unlisted\n')
         self.assert_rejected_without_target_writes('SHA256SUMS.json')
 
     def test_native_extension_manifest_missing_rejected_before_writes(self):
@@ -309,7 +309,7 @@ class InstallPrerequisitesTests(unittest.TestCase):
         self.assert_rejected_without_target_writes('SHA256SUMS.json')
 
     def test_missing_diagnostics_dependency_rejected_before_writes(self):
-        (self.package / 'browser-link/native_bridge/browser_diagnostics/sink.py').unlink()
+        (self.package / 'fast-browser-link/native_bridge/browser_diagnostics/sink.py').unlink()
         self.rehash()
         self.assert_rejected_without_target_writes('sink.py')
 

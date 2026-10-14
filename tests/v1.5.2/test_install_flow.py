@@ -1339,5 +1339,39 @@ mock.patch.object(socket.socket, 'connect_ex', side_effect=AssertionError('must 
         self.assertIn('--purge requires --uninstall', result.stderr)
 
 
+class DaemonIdentityRaceTests(unittest.TestCase):
+    def test_exit_during_process_lookup_requires_both_runtime_files_removed(self):
+        spec = importlib.util.spec_from_file_location('race_install_cli', ROOT / 'scripts/install-cli.py')
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        executor_spec = importlib.util.spec_from_file_location('race_executor', ROOT / 'scripts/install-executor.py')
+        module.EXECUTOR = importlib.util.module_from_spec(executor_spec)
+        executor_spec.loader.exec_module(module.EXECUTOR)
+        for remaining in (None, 'daemon.pid', 'bridge.sock'):
+            with self.subTest(remaining=remaining), tempfile.TemporaryDirectory() as directory:
+                home = Path(directory).resolve()
+                data = home / 'plugin-data/fast-browser-link-native'
+                data.mkdir(parents=True, mode=0o700)
+                pid = data / 'daemon.pid'
+                sock = data / 'bridge.sock'
+                pid.write_text('12345')
+                pid.chmod(0o600)
+                sock.touch()
+
+                def lookup(*_):
+                    # 中文注释：读取 PID 后 daemon 完成清理；阻塞中的父进程尚未回收，ps 仍返回僵尸进程。
+                    for file in (sock, pid):
+                        if file.name != remaining:
+                            file.unlink()
+                    return subprocess.CompletedProcess([], 0, '<defunct>\n', '')
+
+                with mock.patch.object(module, 'command', side_effect=lookup):
+                    if remaining is None:
+                        self.assertIsNone(module.verified_daemon_pid(home, {}))
+                    else:
+                        with self.assertRaisesRegex(module.InstallError, 'Cannot verify'):
+                            module.verified_daemon_pid(home, {})
+
+
 if __name__ == '__main__':
     unittest.main()

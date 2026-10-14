@@ -9,6 +9,8 @@
 - 独立 CLI/MCP 新增 `downloads`、`download_claim`、`download_cancel`。`close` 的 `keepTabs: true` 与 `handoffReason` 复用已有任务移交通道。
 - 更新独立技能、Hermes 技能、双语 README、无痕验收矩阵和安装说明，避免把普通 Cookie 镜像或可选 Hermes 能力当作无痕通用能力。
 
+- 修复 macOS 维护更新中守护进程已清理运行记录、但尚未被父进程回收时的退出检查竞态，继续拒绝未知进程和残留套接字。
+
 ## 验证
 
 - 打包后的 Chrome、Edge 临时 profile 分别通过 17 组能力检查：页面读取、表单与控件、上传收件、下载归属/领取/哈希/取消、同源与跨源 iframe、截图/坐标点击/拖拽/滚动、JS/CDP、Python 与网络捕获、对话框、接管恢复、多标签导航、敏感字段转人工、清理撤权及独立 CLI 下载/页面移交。

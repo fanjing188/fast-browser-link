@@ -556,6 +556,9 @@ def verified_daemon_pid(home, env):
     if not re.fullmatch(r'[1-9]\d*', raw):
         raise InstallError('桥接 PID 无效 / Invalid bridge PID.', '退出浏览器和 Hermes，核对后重试。')
     process = command(['ps', '-p', raw, '-o', 'command='], env)
+    # 中文注释：ps 查询期间 daemon 可能已完成清理但尚未被父进程回收；两项运行记录均消失才视为退出。
+    if not os.path.lexists(pid_path) and not os.path.lexists(data / 'bridge.sock'):
+        return None
     if process.returncode == 1 and not process.stdout.strip():
         if (data / 'bridge.sock').exists():
             raise InstallError('无法确认桥接进程身份 / Cannot verify bridge process.',

@@ -18,7 +18,9 @@ VERSION = json.loads(next(path for path in (ROOT / 'native-extension/manifest.js
 HOME = Path(os.environ.get('FAST_BROWSER_LINK_HOME', Path.home() / '.fast-browser-link'))
 METHODS = {'health': 'health', 'browsers': 'browser.list', 'create': 'shared.create',
            'get': 'shared.get', 'list': 'shared.list', 'run': 'shared.run',
-           'close': 'shared.close', 'cancel': 'shared.cancel', 'resume': 'shared.resume'}
+           'close': 'shared.close', 'cancel': 'shared.cancel', 'resume': 'shared.resume',
+           'downloads': 'shared.downloads', 'download_claim': 'shared.download_claim',
+           'download_cancel': 'shared.download_cancel'}
 
 
 class Browser:
@@ -38,14 +40,15 @@ class Browser:
         if operation == 'run':
             args.setdefault('requestId', uuid.uuid4().hex)
         self.used = True
-        return self.client.call(METHODS[operation], args)
+        method = 'shared.handoff' if operation == 'close' and args.get('keepTabs') is True else METHODS[operation]
+        return self.client.call(method, args)
 
 
 def tool_schema():
     return {'name': 'fast_browser_link', 'description': '控制已连接的 Chrome/Edge。先 browsers，再 create、get、run，完成后 close。结果未知时先读取，禁止重放写入。',
             'inputSchema': {'type': 'object', 'properties': {
                 'operation': {'type': 'string', 'enum': list(METHODS)},
-                'params': {'type': 'object', 'description': 'Native 参数，例如 taskId、tabId、action、url；禁止指定 owner。'}},
+                'params': {'type': 'object', 'description': 'Native 参数，例如 taskId、tabId、action、url；create 可用 incognito=true 开无痕任务，需扩展无痕权限；禁止指定 owner。'}},
                 'required': ['operation'], 'additionalProperties': False}}
 
 

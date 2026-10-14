@@ -1,7 +1,8 @@
 {
   "manifest_version": 3,
+  "incognito": "spanning",
   "name": "Fast-browser-link",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "permissions": [
     "nativeMessaging",
     "debugger",
@@ -42,5 +43,5 @@
     "48": "icon-48.png",
     "128": "icon-128.png"
   },
-  "description": "连接 Fast-browser-link 与已登录的 Chrome/Edge，连接授权后直接执行任务页操作，保留接管、停止、凭据保护、自动文本与截图屏蔽及 Cookie 镜像。"
+  "description": "连接本机 AI Agent 与 Chrome/Edge，连接授权后直接执行普通及无痕任务，支持连续登录日志、表单、上传下载、用户接管和敏感字段保护。"
 }

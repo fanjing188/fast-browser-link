@@ -134,3 +134,10 @@ Look at `code` and `outcome_unknown` in the result. **If `outcome_unknown` is tr
 | `unsupported_operation` | Not available through the bridge | Use snapshots, screenshots or a script instead |
 
 结构读取遇到动态页面会最多自动重读两次；写操作不重放。`skippedFrames` 列出不可读框架的 origin 与尺寸，`coverage.complete=false` 仍表示部分覆盖。主文档扫描完整、邮箱/名称唯一时，`click_element` 可进入原生目标与框架不重叠检查；截断或歧义需缩小 root/query。任意 JS 和截图不因结构读取可用而放开。
+
+
+## Incognito and independent CLI
+
+The optional Hermes adapter accepts `incognito=true` on `fast_browser_open` / `fast_browser_create`. Independent skills and MCP use `create` with the Native parameter `incognito: true`; their operation names and camelCase examples are in [agent integration](agent-integration.md). Enable browser extension Incognito/InPrivate access first. Do not fall back to a regular task when permission is missing.
+
+The independent entry also supports `downloads`, `download_claim` and `download_cancel`. `close` with `keepTabs: true` and `handoffReason: "user_requested"` hands a page back without deleting it. See the [incognito matrix](incognito.md) for the exact tested capabilities and remaining browser/user confirmation boundaries.

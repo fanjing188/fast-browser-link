@@ -1,6 +1,6 @@
 # Fast-browser-link
 
-**2.0.0 — macOS 发布版。** 通过 skills、JSON CLI 或 MCP stdio，让本机 agent 操作你已登录的 Chrome / Edge。
+**2.1.0 — macOS 发布版。** 通过 skills、JSON CLI 或 MCP stdio，让本机 agent 操作 Chrome / Edge，支持普通登录态、无痕任务及跨登录跳转的连续任务日志。
 
 [English](README.md)
 
@@ -9,9 +9,9 @@
 下载 Release 安装包，不要使用 GitHub 自动生成的 Source code ZIP。需要 Python 3.11+；安装包已包含构建后的扩展，不需要 Node.js 或 Hermes。
 
 ```sh
-curl -fL https://github.com/fanjing188/fast-browser-link/releases/download/v2.0.0/fast-browser-link-2.0.0.zip -o fast-browser-link-2.0.0.zip
-unzip fast-browser-link-2.0.0.zip
-cd fast-browser-link-2.0.0
+curl -fL https://github.com/fanjing188/fast-browser-link/releases/download/v2.1.0/fast-browser-link-2.1.0.zip -o fast-browser-link-2.1.0.zip
+unzip fast-browser-link-2.1.0.zip
+cd fast-browser-link-2.1.0
 bash install.sh --dry-run
 bash install.sh
 ```
@@ -26,6 +26,14 @@ bash install.sh
 
 agent 必须能读取本机文件并执行 Python。独立 skills 模式无需 MCP 配置；纯云端 agent 仍需单独配对。详见[通用接入](docs/agent-integration.md)和[完整安装提示词](docs/agent-install-prompt.md)。
 
+## 普通与无痕任务
+
+独立 CLI/MCP 的 `create` 使用 `"incognito": true`；可选 Hermes 适配器使用 `fast_browser_open(incognito=true)`。先在扩展详情开启“允许在无痕模式 / InPrivate 中使用”；缺少权限返回 `incognito_access_required`，不会悄悄切回普通窗口。
+
+两种模式沿用同一任务执行器，支持页面读取、表单、截图、iframe、导航、JavaScript 与文件操作。独立 CLI 下载使用 `downloads`、`download_claim`、`download_cancel`；Hermes 适配器还支持 Python 工作流。登录刷新和接管后的弹窗保留同一 taskId 与最近日志。
+
+无痕不继承普通 Cookie，但同一浏览器的多个无痕任务共享无痕会话；插件日志、任务元数据和下载文件仍可持久化。敏感字段仍由用户或已授权的私有 Vault 处理，Cookie 镜像只支持普通会话。详见[验收矩阵与边界](docs/incognito.md)。
+
 ## 兼容性与任务隔离
 
 - 新扩展 ID 为 `hhnljehnkmhhgjjjmnlhilfpcjhobloc`，与旧 Hermes 扩展身份不同，可同时保留。
@@ -35,11 +43,11 @@ agent 必须能读取本机文件并执行 Python。独立 skills 模式无需 M
 
 ## 可选 Hermes 适配器
 
-默认 ZIP 安装独立 skills。需要 Hermes 原生工具和 Desktop 集成时，下载单独的 `fast-browser-link-hermes-2.0.0.zip`，或在源码目录执行 `bash install.sh --hermes-plugin`。旧 `browser-link` 插件存在时，安装器拒绝冲突启用。
+默认 ZIP 安装独立 skills。需要 Hermes 原生工具和 Desktop 集成时，下载单独的 `fast-browser-link-hermes-2.1.0.zip`，或在源码目录执行 `bash install.sh --hermes-plugin`。旧 `browser-link` 插件存在时，安装器拒绝冲突启用。
 
 `browser_exec` 等官方 `browser_*` 工具属于 Hermes。适配器仅在获得 `tools.override` 授权后，通过公开接口路由已绑定任务；未绑定会话保持原处理器，卸载恢复原注册。不会修改 Hermes 源码。Vault 覆盖另需显式开启。
 
-详见 [Hermes 安装与维护](docs/installation.md)、[使用说明](docs/usage.md)、[安全说明](SECURITY.md)和[发布说明](docs/release-2.0.0.md)。
+详见 [Hermes 安装与维护](docs/installation.md)、[使用说明](docs/usage.md)、[安全说明](SECURITY.md)和[发布说明](docs/release-2.1.0.md)。
 
 ## 开发与验证
 

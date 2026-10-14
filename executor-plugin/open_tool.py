@@ -30,6 +30,7 @@ SCHEMA = {
             'url': {'type': 'string', 'minLength': 1, 'maxLength': 4096},
             'title': {'type': 'string', 'minLength': 1, 'maxLength': 256},
             'instance_id': {'type': 'string', 'minLength': 1, 'maxLength': 256},
+            'incognito': {'type': 'boolean', 'description': '在无痕窗口执行，不复用普通窗口登录态；须先在浏览器扩展设置允许无痕访问。'},
             'new_task': {'type': 'boolean', 'description': '明确要求为同网站新建任务。'},
             'summary': {'type': 'boolean', 'description': '默认附带精简摘要；已有读取计划时 false 可关闭。'},
             'read_intent': {'type': 'string', 'enum': ['content', 'interactive'], 'description': '正文阅读用 content，操作控件用 interactive（默认）；单次采集，保留 binding/coverage。'},
@@ -183,6 +184,7 @@ def make_handler(runtime, host_bridge, *, lease_error, clock=time.monotonic, sle
             if bound and bound[0] == owner and args.get('new_task') is not True:
                 current = runtime.call('shared.get', {'owner': owner, 'taskId': bound[1]})
                 if (isinstance(current, dict) and current.get('state') in {'ready', 'paused'}
+                        and current.get('incognito', False) == args.get('incognito', False)
                         and current.get('instanceId') == instance_id and origin in (current.get('allowedOrigins') or [])):
                     task = current
             if task is None and args.get('new_task') is not True:
@@ -191,13 +193,14 @@ def make_handler(runtime, host_bridge, *, lease_error, clock=time.monotonic, sle
                 matches = [row for row in existing if isinstance(row, dict)
                            and row.get('state') in {'ready', 'paused', 'pending_approval', 'authorizing'}
                            and row.get('instanceId') == instance_id
+                           and row.get('incognito', False) == args.get('incognito', False)
                            and origin in (row.get('allowedOrigins') or [])]
                 if matches:
                     task = max(matches, key=lambda row: (row['state'] == 'ready', row.get('createdAt', 0)))
             if task is None:
                 created = runtime.call('shared.create', {
                     'owner': owner, 'title': args.get('title') or f'浏览 {origin}',
-                    'instanceId': instance_id, 'allowedOrigins': [origin]})
+                    'instanceId': instance_id, 'allowedOrigins': [origin], 'incognito': args.get('incognito', False)})
                 task = created
                 created_task = True
             deadline = clock() + READY_WAIT_S
@@ -255,6 +258,8 @@ def make_handler(runtime, host_bridge, *, lease_error, clock=time.monotonic, sle
             code = str(getattr(exc, 'code', '') or 'bridge_error')
             data = getattr(exc, 'data', {})
             unknown = data.get('outcomeUnknown') if isinstance(data, dict) else None
+            if code == 'incognito_access_required':
+                return _error('请在 Chrome/Edge 扩展详情中开启允许无痕/InPrivate 访问，然后重试。', code)
             if code == 'redirected_out_of_scope':
                 return _error('页面跳转到任务范围外；请用返回的来源新开任务。', code,
                               final_origin=data.get('finalOrigin') if isinstance(data, dict) else None)
@@ -276,7 +281,7 @@ def make_handler(runtime, host_bridge, *, lease_error, clock=time.monotonic, sle
         result = {'current_tab': opened['tabId'], 'task_id': task['id'], 'tab_id': opened['tabId'],
                   'url': opened.get('url', url), 'origin': origin, 'reused': reused,
                   'ready': opened.get('ready'), 'browser': browser.get('browser'),
-                  'instance_id': instance_id, 'sessionBinding': 'ready'}
+                  'instance_id': instance_id, 'incognito': task.get('incognito', False), 'sessionBinding': 'ready'}
         # 中文注释：会话拥有的任务工作页一起计数；复用既有页面不会增加计数。
         result['open_tabs'] = opened.get('open_tabs', task.get('open_tabs', 0))
         if result['open_tabs'] > 6:

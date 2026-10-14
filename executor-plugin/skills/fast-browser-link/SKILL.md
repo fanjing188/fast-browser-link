@@ -5,7 +5,7 @@ description: Standard workflow and safety rules for working in the user's own lo
 
 # Working in the user's browser
 
-This plugin shares the user's browser logins. Confirm full connection access once; ordinary reads, navigation, writes and JS/CDP/Python then run directly. Task/session ownership, leases, takeover and stop still apply. Offline/unknown is not authorization.
+Regular mode shares browser logins. Connection authorization permits reads, navigation, writes and JS/CDP/Python. Ownership, leases, takeover and stop still apply; offline/unknown grants nothing.
 
 ## Page output and recovery
 
@@ -15,7 +15,7 @@ Location recovery rescans frame/Shadow DOM up to three rounds; `recovery` report
 
 A task tab may navigate across sites. Keep task/session tab ownership intact.
 
-The always-on task cursor is visual feedback; takeover pauses the task. Cookie mirror controls are on Hermes Desktop, and every transfer needs source-extension confirmation. Automatic updates accept stable releases, not previews.
+Takeover pauses the task. Cookie mirror on Hermes Desktop needs source-extension confirmation. Auto-updates accept stable releases only.
 
 ## Standard flow
 
@@ -32,7 +32,7 @@ The always-on task cursor is visual feedback; takeover pauses the task. Cookie m
 4. **Another site**: call `fast_browser_open(url=<new site>)`; it retains the previous task, creates or reuses the new site task, and explicitly selects the returned work tab.
 5. **Finish**: `fast_browser_close(task_id)` closes the task/work tabs. Success closes immediately by default; with configured grace, same-session `fast_browser_*` cancels it. Failed/interrupted/stopped turns immediately hand off. Paused or approval/manual-input-waiting tasks keep tabs; verified private creation records govern group cleanup, and overlays/authority are removed. List kept tab IDs. `keep_tabs=true` requires explicitly asking the user to act on that page now, or their request to keep it; pass `handoff_reason` (`captcha`, `login`, `verification`, `final_submit`, `user_requested`). Authority is revoked (`cleanupReason: handed_to_user`). 遇阻、结果未知、读不到或遮挡不是交接：记录 URL/停点后普通关闭，不把失败一律交给用户。
 
-For one site, use `fast_browser_open` plus `fast_browser_script` for multi-step work or `fast_browser_run` for one step. Do not mix `browser_exec` into the same page workflow. For two or more decided steps on one page, use one script: locate → act → check the target region. Stop at unplanned branches; do not automatically include a final submit. See the short fast-browser-batch-scrape template.
+For multi-step work, use one `fast_browser_script`: locate → act → check in the same script. Use `fast_browser_run` for one step; do not mix `browser_exec` into that page. Stop at unplanned branches or final submissions.
 
 同站再次 `fast_browser_open` 默认复用 ready 任务和当前工作页，明确需要独立任务时传 `new_task=true`。
 
@@ -68,11 +68,11 @@ For one site, use `fast_browser_open` plus `fast_browser_script` for multi-step 
 
 ## Page scripts and CDP
 
-Browser connection authorization permits page JavaScript, raw CDP, CDP event reads and `browser_exec` directly; no per-action approval is needed. Use `fast_browser_run` actions `js.evaluate`, `cdp.send`, `cdp.events` (or `browser_console`, `browser_cdp`, `browser_exec`). A page where a credential was filled cannot run arbitrary scripts/CDP. Raw CDP events include other frame origins; credential headers and Bearer values are removed. Avoid echoing sensitive page data back unnecessarily.
+Browser connection authorization permits page JavaScript, raw CDP, CDP event reads and `browser_exec` directly; no per-action approval is needed. Use `fast_browser_run` actions `js.evaluate`, `cdp.send`, `cdp.events` (or `browser_console`, `browser_cdp`, `browser_exec`). A page where a credential was filled cannot run arbitrary scripts/CDP. Raw CDP events include other frame origins; credential headers and Bearer values are removed.
 
-Use a new `request_id` for a later independent run of the same script or Vault operation; never replay an unknown result. Vault still requires its optional capability, manager unlock, official masked prompts, exact origin checks and private credential channel. Connection authorization does not grant access to secrets or let scripts replace manual entry.
+Use a new `request_id` for independent scripts/Vault operations; never replay unknown results. Vault still requires its optional capability, manager unlock, official masked prompts, exact origin checks and private credential channel. Connection authorization does not grant access to secrets or let scripts replace manual entry.
 
-For error codes, see `fast-browser-link:fast-browser-troubleshoot`.
+Errors: `fast-browser-link:fast-browser-troubleshoot`.
 
 ## 显式选择工作页
 
@@ -92,3 +92,10 @@ For error codes, see `fast-browser-link:fast-browser-troubleshoot`.
 ## 动作后有界回读
 
 动作 helper 可传 `after={"root":"#result","mode":"interactive","budget":3000}`；省略时行为不变。root 默认 body；mode 为 interactive/content/table；budget 为 512–6000，默认 3000；5 秒截止。observation 是新语义快照，导航/文档替换重新生成 binding；frame 引用失效只报错。observation.error 与 delivery/effect 分开，回读失败不重发。富文本经受控 CDP 编辑并核对目标文本；outcomeUnknown 不重写，DOM 匹配不代表模型保存或提交成功。
+
+
+## 无痕任务
+
+用户要求无痕时，在 `fast_browser_open` 或 `fast_browser_create` 增加 `incognito=true`。先确认扩展允许无痕/InPrivate 访问；`incognito_access_required` 时不得降级为普通窗口。普通与无痕任务不会互相复用，同浏览器的无痕任务仍共享无痕 Cookie。无痕不隐藏插件任务日志，也不阻止下载文件落盘。
+
+表单、截图、iframe、JS/CDP、Python 工作流和上传下载沿用既有任务接口。登录弹窗和下载优先用 `ref_click` 提供可信手势；刷新后继续原 taskId。原任务的最近日志在新页面恢复，超出面板五步的历史用 `fast_browser_get(include_log=true)` 查看。普通 Cookie 镜像保持原规则，不支持无痕会话镜像。密码、验证码与支付字段仍必须交给用户或已经授权的私有 Vault。

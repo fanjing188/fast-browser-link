@@ -17,7 +17,7 @@ function fixture(){
    remove:async id=>{calls.push(['tabs.remove',id]);const tab=tabs.get(id);tabs.delete(id);if(![...tabs.values()].some(t=>t.windowId===tab.windowId))windows.delete(tab.windowId)},
    update:async(id,p)=>{calls.push(['tabs.update',id,p]);for(const t of tabs.values())if(t.windowId===tabs.get(id).windowId)t.active=t.id===id;return tabs.get(id)}},
   tabGroups:{get:async id=>({...groups.get(id)}),update:async(id,p)=>groups.set(id,{...groups.get(id),...p})},
-  windows:{get:async id=>{if(!windows.has(id))throw Error('No window');return windows.get(id)},create:async p=>{calls.push(['windows.create',p]);const id=next++,tab={id:next++,windowId:id,url:p.url,groupId:-1,active:true};tabs.set(tab.id,tab);const win={id,type:'normal',tabs:[tab]};windows.set(id,win);return win}}};
+  windows:{get:async id=>{if(!windows.has(id))throw Error('No window');return windows.get(id)},create:async p=>{calls.push(['windows.create',p]);const id=next++,tab={id:next++,windowId:id,url:p.url,groupId:-1,active:true};tabs.set(tab.id,tab);const win={id,type:'normal',incognito:p.incognito===true,tabs:[tab]};windows.set(id,win);return win}}};
  return {api,tabs,windows,calls};
 }
 test('并发任务只创建一个独立窗口，不聚焦、不最小化，关闭后重建',async()=>{
@@ -163,4 +163,24 @@ test('合成点击无效果按成功返回 effect=unobserved 并附提示，装�
   assert.equal(r.clicked,true);assert.equal(r.effect,'unobserved');assert.equal(r.suggestion,NO_EFFECT_HINT);
   assert.equal(f.listeners.size,0);
  }finally{f.dom.window.close()}
+});
+
+
+test('无痕权限不足时不创建窗口；授权后普通与无痕窗口分别复用',async()=>{
+ const f=fixture(),normal=new WorkWindow(f.api),privateWindow=new WorkWindow(f.api,{incognito:true});
+ await assert.rejects(privateWindow.ensure('private'),error=>error.code==='incognito_access_required');
+ assert.equal(f.calls.length,0);assert.equal(privateWindow.owners.size,0);
+ f.api.extension={isAllowedIncognitoAccess:async()=>true};
+ const regularId=await normal.ensure('regular'),privateId=await privateWindow.ensure('private');
+ assert.notEqual(regularId,privateId);assert.equal(f.windows.get(privateId).incognito,true);
+ assert.equal(await new WorkWindow(f.api,{incognito:true}).ensure(),privateId);
+ assert.equal(await new WorkWindow(f.api).ensure(),regularId);
+ await privateWindow.closeIdle('private',privateId);assert.equal(f.windows.has(privateId),false);assert.equal(f.windows.has(regularId),true);
+});
+test('无痕任务覆盖 current 配置，恢复清理只回收无痕首页',async()=>{
+ const f=fixture();f.api.extension={isAllowedIncognitoAccess:async()=>true};
+ const native=new NativeWorkspaces(f.api,'instance');
+ const cap=await native.install({instanceId:'instance',approvalScope:'owner',id:'private',generation:1,incognito:true,workWindowMode:'current'},[]);
+ const id=native.authority.resolve(cap).windowId;assert.equal(f.windows.get(id).incognito,true);
+ await new NativeWorkspaces(f.api,'instance').cleanupRecovered('private',1,{closeTabs:true});assert.equal(f.windows.has(id),false);
 });

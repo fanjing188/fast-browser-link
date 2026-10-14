@@ -200,3 +200,10 @@ To keep gate scratch files outside the user's Hermes directory, set `FAST_BROWSE
 实际 Chrome 验收覆盖多个独立云端会话、一个任务的两个页面及另一任务的一个页面并发、审批等待时其他任务继续运行、取消后显式恢复、空任务关闭，以及关闭一个会话不影响另一个会话。最终本机未交付回执与未关闭路由均为零。Edge 在线状态已确认；此轮多页面并发的实际操作在 Chrome 完成。闲置一小时回收通过可控时间测试，不代表已等待一小时墙钟时间。
 
 每次正式发布仍需重新执行本文件规定的固定 Hermes 门禁与变更后的安装包检查，历史浏览器记录不能覆盖未经验证的新行为。
+
+
+## 2.1.0 无痕能力验收
+
+`tests/native-v2/real-incognito-matrix.mjs --package --headed` 使用打包代码和临时 profile，覆盖 17 组操作；Edge 加 `--edge`。Chrome 可能出现系统保存框，需在测试任务建议的临时目录确认保存；不能用 DevTools 自动保存代替扩展下载归属验收。`--core-only` 用于单独检查非下载能力，报告明确标为 `core-without-downloads`，不能作为下载通过证据。输出位于忽略的 `tests/native-v2/evidence/`。
+
+`real-login-continuity.mjs` 单独覆盖普通/无痕 Cookie 隔离及 A→B→C 同任务日志；完整边界见 [无痕矩阵](incognito.md)。

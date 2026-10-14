@@ -662,3 +662,56 @@ for(const scenario of ['old candidate','pre-existing tab','foreign opener','fore
  assert.equal(unobserved.effect,'unobserved');
  assert.equal(dispatches,1);assert.equal(f.executor.leases.get(2),scenario==='foreign target lease'?'peer':undefined);
 });
+
+
+test('登录点击后 A 导航至 B 再弹出 C，沿用任务和日志且不延长观察期',async()=>{
+ const audits=[],f=await fixture({onPopupAdopt:async p=>audits.push(p)}),t=f.executor.tasks.get('a');
+ t.recentSteps=[{action:'click',state:'completed',tabId:1}];
+ await f.executor.withSpawnScope(t,1,async()=>{});
+ const expiresAt=f.executor.popups.observations.get(1).expiresAt;
+ f.tabs.get(1).url='https://example.com/login';
+ await f.executor.tabEvent(1,'navigated',f.tabs.get(1).url,{status:'loading'});
+ await f.executor.tabEvent(1,'navigated',f.tabs.get(1).url,{status:'complete',urlChanged:false});
+ assert.equal(f.executor.popups.observations.get(1).expiresAt,expiresAt);
+ await f.create(2,{url:'https://accounts.google.com/login'});
+ const row=[...f.executor.popups.candidates.values()][0];await row.autoWork;
+ assert.equal(f.executor.leases.get(2),'a');assert.equal(audits.length,1);
+ const logs=f.debugCalls.filter(([method,,params])=>method==='Runtime.callFunctionOn'&&params.arguments?.[0]?.value==='log');
+ assert.ok(logs.some(([,id,params])=>id===2&&JSON.stringify(params.arguments[1].value.steps)===JSON.stringify(t.recentSteps)));
+});
+test('导航不会复活过期的登录观察期',async()=>{
+ const f=await fixture(),t=f.executor.tasks.get('a');await f.executor.withSpawnScope(t,1,async()=>{});
+ f.executor.popups.observations.get(1).expiresAt=0;
+ await f.executor.tabEvent(1,'navigated','https://example.com/login');await f.create(2,{url:'https://accounts.google.com/login'});
+ assert.equal(f.executor.popups.candidates.size,0);assert.equal(f.executor.leases.has(2),false);
+});
+
+test('B 页加载完成不会撤销已创建 C 页的候选',async()=>{
+ const f=await fixture(),t=f.executor.tasks.get('a');f.executor.schedulePopupAdoption=()=>{};
+ await f.executor.withSpawnScope(t,1,async()=>{});
+ f.tabs.get(1).url='https://example.com/login';await f.executor.tabEvent(1,'navigated',f.tabs.get(1).url,{status:'loading'});
+ await f.executor.restoreOverlay(t,1);await f.create();
+ const row=[...f.executor.popups.candidates.values()][0];
+ await f.executor.tabEvent(1,'navigated',f.tabs.get(1).url,{status:'complete',urlChanged:false});
+ const inspected=await f.executor.popups.inspect(t,1,row.candidateRef,()=>{});
+ assert.equal(inspected.candidate.tabId,2);
+});
+test('登录弹窗不得跨普通与无痕会话接管',async()=>{
+ const f=await fixture(),t=f.executor.tasks.get('a');f.executor.schedulePopupAdoption=()=>{};
+ await f.executor.withSpawnScope(t,1,async()=>{});await f.create(2,{incognito:true});
+ const row=[...f.executor.popups.candidates.values()][0];
+ await assert.rejects(f.executor.popups.inspect(t,1,row.candidateRef,()=>{}),/POPUP_STALE/);
+ assert.equal(f.executor.leases.has(2),false);
+});
+
+test('无痕状态只读查询使用浏览器授权，异常和缺失能力都拒绝',async()=>{
+ const {Bridge}=await import('../../native-extension/bridge.mjs');
+ for(const state of [true,false,'missing','error']){
+  const sent=[],executor={api:state==='missing'?{}:{extension:{isAllowedIncognitoAccess:async()=>{if(state==='error')throw Error('unavailable');return state;}}}};
+  const bridge=new Bridge({postMessage:message=>sent.push(message),onMessage:{addListener(){}}},executor);
+  bridge.receive({id:'access',method:'extension.incognito_status',params:{}});
+  await new Promise(resolve=>setTimeout(resolve,0));assert.deepEqual(sent[0].result,{allowed:state===true});
+  bridge.receive({id:'invalid',method:'extension.incognito_status',params:{allowed:true}});
+  assert.equal(sent.at(-1).error.code,'invalid_params');bridge.close();
+ }
+});

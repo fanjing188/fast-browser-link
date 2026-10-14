@@ -417,7 +417,7 @@ Wait for the same approval/manual-input request (max 300 s), without creating a 
 
 ```json
 {
-  "description": "在指定浏览器实例中为给定网站建任务（共享该浏览器的登录状态）。通常直接用 fast_browser_open；就绪后用 new_tab 打开工作页。详见技能 fast-browser-link:fast-browser-link。",
+  "description": "在指定浏览器实例中为给定网站建任务（默认共享普通登录状态，incognito=true 使用无痕会话）。通常直接用 fast_browser_open；就绪后用 new_tab 打开工作页。详见技能 fast-browser-link:fast-browser-link。",
   "parameters": {
     "type": "object",
     "properties": {
@@ -430,6 +430,9 @@ Wait for the same approval/manual-input request (max 300 s), without creating a 
         "type": "string",
         "minLength": 1,
         "maxLength": 256
+      },
+      "incognito": {
+        "type": "boolean"
       },
       "allowed_origins": {
         "type": "array",
@@ -1328,6 +1331,10 @@ Wait for the same approval/manual-input request (max 300 s), without creating a 
         "type": "string",
         "minLength": 1,
         "maxLength": 256
+      },
+      "incognito": {
+        "type": "boolean",
+        "description": "在无痕窗口执行，不复用普通窗口登录态；须先在浏览器扩展设置允许无痕访问。"
       },
       "new_task": {
         "type": "boolean",

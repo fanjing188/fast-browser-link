@@ -215,6 +215,11 @@ export class Bridge {
    } else p.resolve(m.result);
    return;
   }
+  if(m.method==='extension.incognito_status'){
+   if(!m.id||!m.params||Object.keys(m.params).length){if(m.id)this.send({id:m.id,error:{code:'invalid_params',message:'invalid incognito status request'}});return;}
+   Promise.resolve().then(()=>this.executor.api.extension?.isAllowedIncognitoAccess()).then(allowed=>this.send({id:m.id,result:{allowed:allowed===true}}),()=>this.send({id:m.id,result:{allowed:false}}));
+   return;
+  }
   if(m.method==='extension.consent_status'){
    if(!m.id||!m.params||Object.keys(m.params).length){if(m.id)this.send({id:m.id,error:{code:'invalid_params',message:'invalid consent status request'}});return;}
    Promise.resolve().then(()=>this.onConsentStatus()).then(value=>{

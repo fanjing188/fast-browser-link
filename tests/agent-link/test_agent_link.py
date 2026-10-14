@@ -27,6 +27,28 @@ class AgentTests(unittest.TestCase):
         client.call.assert_called_once_with('shared.get', {'taskId': 't', 'owner': first.owner})
         with self.assertRaises(ValueError): first.call('get', {'owner': 'other'})
 
+    def test_incognito_create_is_forwarded_with_trusted_owner(self):
+        client = Mock()
+        browser = agent.Browser(client=client)
+        params = {'title': 'private', 'instanceId': 'edge', 'allowedOrigins': ['https://example.com'], 'incognito': True}
+        browser.call('create', params)
+        client.call.assert_called_once_with('shared.create', {**params, 'owner': browser.owner})
+        self.assertNotIn('owner', params)
+
+    def test_download_operations_keep_task_identity(self):
+        client = Mock(); browser = agent.Browser(client=client)
+        for operation in ('downloads', 'download_claim', 'download_cancel'):
+            args = {'taskId': 'task'}
+            if operation != 'downloads': args['downloadId'] = 'download'
+            browser.call(operation, args)
+            client.call.assert_called_with('shared.' + operation, {**args, 'owner': browser.owner})
+
+    def test_close_with_keep_tabs_uses_existing_handoff_contract(self):
+        client = Mock(); browser = agent.Browser(client=client)
+        args = {'taskId': 'task', 'keepTabs': True, 'handoffReason': 'user_requested'}
+        browser.call('close', args)
+        client.call.assert_called_once_with('shared.handoff', {**args, 'owner': browser.owner})
+
     def test_write_is_never_retried_after_lost_response(self):
         client = Mock(); client.call.side_effect = agent.bridge.BridgeError('outcome_unknown', 'lost')
         with self.assertRaises(agent.bridge.BridgeError):

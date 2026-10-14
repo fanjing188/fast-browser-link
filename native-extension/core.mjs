@@ -841,8 +841,8 @@ const SITE_READ_ACTIONS=new Set(['snapshot','screenshot','page.observe','page.pa
 function assertV1Action(action) { if(!V1_ACTIONS.includes(action))throw Error('V1 unsupported action'); }
 
 export class Executor {
- constructor(api,onEvent=()=>{},{beforeLeaseRelease=async()=>{},onOverlayCommand=null,releaseDeadlineMs=RELEASE_DEADLINE_MS,onDownloadEvent=null,onCdpEvents=null,onSignInRedirect=null,onPopupAdopt=async()=>{},oauthProviders=OAUTH_PROVIDERS}={}) {
-  this.onPopupAdopt=onPopupAdopt;this.oauthProviders=oauthProviders;this.onSignInRedirect=onSignInRedirect;
+ constructor(api,onEvent=()=>{},{beforeLeaseRelease=async()=>{},onOverlayCommand=null,releaseDeadlineMs=RELEASE_DEADLINE_MS,onDownloadEvent=null,onCdpEvents=null,onSignInRedirect=null,onPopupAdopt=async()=>{},onOverlayReady=null,oauthProviders=OAUTH_PROVIDERS}={}) {
+  this.onOverlayReady=onOverlayReady;this.onPopupAdopt=onPopupAdopt;this.oauthProviders=oauthProviders;this.onSignInRedirect=onSignInRedirect;
   this.beforeLeaseRelease=beforeLeaseRelease;
   this.releaseDeadlineMs=Number.isFinite(releaseDeadlineMs)&&releaseDeadlineMs>0?Math.min(releaseDeadlineMs,RELEASE_DEADLINE_MS):RELEASE_DEADLINE_MS;
   // Only trusted extension background code may supply this callback. It must
@@ -932,7 +932,7 @@ export class Executor {
    for(const id of ids)if(this.leases.has(id)&&this.leases.get(id)!==task.id)throw Error('tab claimed');
    const tabs=await Promise.all(ids.map(id=>this.api.tabs.get(id)));
    if(!stillValid())throw Error('approval disconnected');
-   for(const tab of tabs)this.allowed(task,tab.url);
+   for(const tab of tabs){if(!!tab.incognito!==!!task.incognito)throw Error('browser context mismatch');this.allowed(task,tab.url);}
    const current=this.tasks.get(task.id);
    if(current&&current!==existing&&(!current.revoked||current.releasing))throw Error('task already active or releasing');
    for(const id of ids)if(this.leases.has(id)&&this.leases.get(id)!==task.id)throw Error('tab claimed');
@@ -1409,7 +1409,7 @@ export class Executor {
  async disconnect() {await Promise.all([...this.tasks.values()].map(t=>this.release({taskId:t.id,generation:t.generation,closeAgentTabs:false})));}
  async tabEvent(tabId,event,url,{status=null,urlChanged=true}={}) {
   // 中文注释：导航/关闭先同步撤销候选，异步资源清理期间旧审批也不能继续授予租约。
-  this.popups.invalidate(tabId,event);
+  if(event!=='navigated'||urlChanged||!['complete','dom_ready'].includes(status))this.popups.invalidate(tabId,event);
   if(event==='navigated')this.schedulePopupAdoption(tabId);
   const t=this.tasks.get(this.leases.get(tabId));if(!t)return;
   // 中文注释：浏览器事件会跨异步清理，旧任务回调不得修改新任务的标签租约。
@@ -2268,6 +2268,9 @@ export class Executor {
    // 中文注释：保留原拒绝码与重试行为，仅增加固定阶段原因，不回传异常原文。
    guard();if(result.exceptionDetails||result.result?.value!==true)throw Object.assign(Error('overlay injection failed'),{stage:'overlay',reasonCode:result.exceptionDetails?'initialization_exception':'return_type_invalid'});
    if(!t.overlays)t.overlays=new Map();t.overlays.set(tabId,entry);
+   // 中文注释：历史属于任务而非文档；刷新和新登录窗口立即恢复最近步骤。
+   if(t.recentSteps)await this.overlayCall(tabId,entry,'log',{steps:t.recentSteps});
+   if(this.onOverlayReady)void Promise.resolve(this.onOverlayReady(t)).catch(()=>{});
    return entry;
   }catch(error){this.api.debugger.onEvent.removeListener(entry.listener);await this.overlayCall(tabId,entry,'remove').catch(()=>{});throw error;}
  }

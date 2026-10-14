@@ -1,8 +1,8 @@
 {
   "name": "fast-browser-link",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "private": true,
-  "description": "Fast-browser-link：通过 skills、JSON CLI 和 MCP 连接任意本机 agent 与已登录的 Chrome/Edge。",
+  "description": "通过 Skills、JSON CLI 和 MCP 操作本机 Chrome/Edge，支持普通及无痕任务、连续登录日志、表单与文件工作流，并提供可选 Hermes 适配器。",
   "type": "module",
   "author": "FanJean",
   "repository": {

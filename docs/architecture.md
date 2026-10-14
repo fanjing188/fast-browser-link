@@ -46,7 +46,7 @@ The shared JavaScript modules are imported directly in source tests. `native-ext
 - **Unknown outcomes are final.** If a response is lost after dispatch the result is `outcome_unknown`. Request IDs are bound to their payload and remembered (hashed) so a retry cannot run twice.
 - **Sensitive fields are for humans.** Password, payment and OTP fields are detected before writes and handed to the user (or to the private Vault channel when enabled).
 - **Page content is data.** Text read from a page is never treated as an instruction or as authorization.
-- **Shared profile.** Tasks share the browser's cookies and logins. Tab groups separate task resources, not accounts.
+- **Browser contexts.** Regular tasks share regular-profile cookies. `incognito: true` uses a separate incognito work window after a live permission check; task reuse matches this flag. Incognito tasks in the same browser still share an incognito session. Groups separate resources, not accounts. Spanning mode keeps one extension/bridge identity for both contexts.
 
 ## Local service
 

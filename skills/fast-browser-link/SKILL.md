@@ -1,6 +1,6 @@
 ---
 name: fast-browser-link
-description: 使用用户已登录的 Chrome 或 Edge 读取网页、填写表单、点击和下载。通过本技能的 Python 脚本调用本机 Fast-browser-link，无需 agent 专属工具或 MCP 配置。
+description: 使用用户已登录的 Chrome 或 Edge 执行普通或无痕网页任务、填写表单、处理登录弹窗和上传下载。通过本技能的 Python 脚本调用本机 Fast-browser-link，无需 agent 专属工具或 MCP 配置。
 ---
 
 # Fast-browser-link
@@ -10,6 +10,7 @@ description: 使用用户已登录的 Chrome 或 Edge 读取网页、填写表�
 1. `python3 <技能目录>/scripts/browser.py browsers` 返回浏览器实例。多个实例时使用用户指定的浏览器；无实例时请用户打开扩展并启用连接。
 2. 为本次任务选择唯一会话文件，如 `/tmp/fast-browser-<随机任务编号>.session`。后续每次调用都带 `--session <同一文件>`，不要跨 agent 或任务共享文件。
 3. `python3 <技能目录>/scripts/browser.py --session <文件> create '{"title":"任务说明","instanceId":"上一步实例","allowedOrigins":["https://example.com"]}'`。
+   如需无痕任务，在 create 参数中增加 `"incognito": true`；须先在扩展详情允许无痕/InPrivate 访问。普通与无痕任务分开复用窗口；同一浏览器的多个无痕任务共享无痕会话。
 4. 保存返回的 `id`。用 `get '{"taskId":"id"}'` 确认 `state=ready`。未就绪时保留原任务，不重复创建。
 5. `run '{"taskId":"id","action":"new_tab","url":"https://example.com"}'` 创建工作页；保存返回的标签 ID。
 6. `run '{"taskId":"id","tabId":123,"action":"semantic_snapshot"}'` 读取。使用新快照的 `binding`、`snapshotId`、`ref` 执行 `ref_click` / `ref_fill`。复杂参数通过 stdin 传入，将最后一个参数设为 `-`，避免 shell 插值。
@@ -23,4 +24,17 @@ description: 使用用户已登录的 Chrome 或 Edge 读取网页、填写表�
 - 导航后重读，不复用旧引用；跨站创建对应来源的新任务。
 - 保留结果中的 coverage，部分读取不能宣称整页完整。
 
-支持 `health`、`browsers`、`create`、`get`、`list`、`run`、`close`、`cancel`、`resume`。支持 MCP 的框架也可启动 `python3 <安装目录>/runtime/agent-link/fast_browser_link.py --mcp`，每个进程自动隔离身份。
+支持 `health`、`browsers`、`create`、`get`、`list`、`run`、`close`、`cancel`、`resume`、`downloads`、`download_claim`、`download_cancel`。支持 MCP 的框架也可启动 `python3 <安装目录>/runtime/agent-link/fast_browser_link.py --mcp`，每个进程自动隔离身份。
+
+
+## 登录、文件及交接
+
+- 普通模式默认继承浏览器登录态；只有用户要求无痕、独立于普通登录态测试时才设置 `incognito: true`。同一浏览器的无痕窗口彼此共享会话，并不是每任务独立账号；任务日志和下载文件仍可能落盘。无痕权限不足时提示开启扩展的无痕/InPrivate 权限，不降级成普通任务。
+- 导航后重新读取同一任务页，复用 taskId。登录弹窗优先使用动作回执的 `popupOpened.tabId`；没有自动接管时，通过 `popup_catalog` 的 `candidateRef` 调用 `popup_adopt`。不要另外打开登录网址替代原窗口。源页刷新保留原操作剩余两分钟观察期；弹窗关闭后按 `popupClosed.returnedTo` 回源页并重新读取。
+- 需要可信用户手势的登录弹窗、下载、选择器操作使用快照引用的 `ref_click`，不要用网页 `element.click()` 代替。关闭页面后若回执为结果未知，先核对任务标签清单，不重复点击。
+- 上传只使用用户提供的路径：`run` 传 `action="files.upload"`、`tabId`、唯一可见文件输入框的 `selector`、`paths` 数组（绝对路径，最多 10 个、每个 100 MiB）。`selectedCount` 只表示文件已选择，还要读取页面确认上传结果。
+- 下载后调用 `downloads {"taskId":"..."}`；只有归属本任务且完成的条目，才能用 `download_claim {"taskId":"...","downloadId":"..."}` 领取并检查 `localPath` / `sha256`。取消使用 `download_cancel`。看不到归属或未完成，不猜测文件路径。
+- 默认 `close` 清理本次工作页。确实要交还页面给用户时，使用 `close {"taskId":"...","keepTabs":true,"handoffReason":"user_requested"}`，并核对 `cleanupState`。不要因遇阻就保留任务或重复创建。
+- 排查日志用 `get {"taskId":"...","includeLog":true,"logLimit":20}`。`recentLog` 按任务连续记录，页面面板只展示最近五步；日志不是完整网页正文。
+
+无痕 Cookie 镜像不在支持范围内；普通窗口镜像仍须单独确认。Python 工作流与私有 Vault 属于可选 Hermes 适配器，不把它们当作独立 CLI 命令。

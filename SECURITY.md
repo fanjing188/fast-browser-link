@@ -60,3 +60,8 @@ The extension ID is `hhnljehnkmhhgjjjmnlhilfpcjhobloc`. The manifest `key` is a 
 ### Email visibility
 
 Structured page reads and legacy snapshots preserve email addresses on all sites for contact discovery and account selection. Card numbers, labeled credentials, Bearer credentials and password-field protections remain in place. Emails inside an ambiguous credential value or an explicitly shielded region remain protected by that region/value boundary. Uninspectable frames are identified only by origin and geometry; structural reads do not expose their content.
+
+
+## Incognito task boundaries
+
+Incognito is a browser cookie/session boundary, not a no-record guarantee. Fast-browser-link task metadata, bounded operation logs and downloads retain their existing storage policy. Regular and incognito tasks do not share task reuse or work windows; incognito tasks within one browser may share cookies. The extension's fixed identity, task ownership, generation, tab lease and sensitive-field checks apply in both modes. Cookie mirror continues to use the regular store only. Browser save dialogs, CAPTCHA, payment confirmations and private password-manager prompts are not bypassed by selecting incognito.

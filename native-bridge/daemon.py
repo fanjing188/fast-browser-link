@@ -1322,6 +1322,17 @@ class BridgeDaemon:
         title = self._required_string(params, "title")
         instance_id = self._required_string(params, "instanceId")
         origins = self._validate_origins(params.get("allowedOrigins"))
+        incognito = params.get("incognito", False)
+        if type(incognito) is not bool:
+            raise ProtocolError("invalid_params", "incognito must be a boolean")
+        if incognito:
+            with self.state_lock:
+                checked_extension = self.extensions.get(instance_id)
+            if checked_extension is None:
+                raise ProtocolError('instance_unavailable', 'browser instance is not connected')
+            access = self._extension_call(checked_extension, 'extension.incognito_status', {}, timeout=5.0)
+            if not isinstance(access, dict) or access.get('allowed') is not True:
+                raise ProtocolError('incognito_access_required', '请在浏览器扩展设置中开启允许无痕模式访问', {'outcomeUnknown': False})
         # 中文注释：页面请求只受任务来源与浏览器模式控制，不预登记单独的 URL 清单。
         if 'apiUrls' in params:
             raise ProtocolError('invalid_params', 'separate API URL scope is not supported')
@@ -1329,6 +1340,8 @@ class BridgeDaemon:
             extension = self.extensions.get(instance_id)
             if extension is None:
                 raise ProtocolError("instance_unavailable", "browser instance is not connected")
+            if incognito and extension is not checked_extension:
+                raise ProtocolError('instance_unavailable', 'browser connection changed')
             now = time.time()
             task_id = secrets.token_urlsafe(18)
             task = {
@@ -1353,7 +1366,8 @@ class BridgeDaemon:
                 "downloadKey": new_download_key(),
                 "createdAt": now,
                 "updatedAt": now,
-                "isolation": "shared-profile",
+                "incognito": incognito,
+                "isolation": "incognito-profile" if incognito else "shared-profile",
             }
             self.tasks[task_id] = task
             self.task_locks[task_id] = threading.RLock()

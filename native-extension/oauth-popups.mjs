@@ -13,7 +13,10 @@ export function isOAuthProvider(url,providers=OAUTH_PROVIDERS){
 export class OAuthPopups{
  constructor(executor){this.executor=executor;this.observations=new Map();this.candidates=new Map();}
  invalidate(tabId,event){
-  this.observations.delete(tabId);
+  const observation=this.observations.get(tabId);
+  // 中文注释：导航撤销旧候选，但保留原操作的剩余观察期；替换对象使迟到的旧建页回读失效。
+  if(event==='navigated'&&observation)this.observations.set(tabId,{...observation});
+  else this.observations.delete(tabId);
   for(const [ref,row] of this.candidates)if(row.source.tabId===tabId||event==='closed'&&row.tabId===tabId)this.candidates.delete(ref);
  }
  current(source,candidateRef){
@@ -47,10 +50,11 @@ export class OAuthPopups{
  async inspect(task,tabId,candidateRef,guard){
   this.prune();const row=this.candidates.get(candidateRef);
   if(!row||row.task!==task||row.generation!==task.generation||row.modeGeneration!==task.policy.modeGeneration||row.source.tabId!==tabId||this.executor.leases.has(row.tabId))throw denied();
-  const source=await this.source(task,tabId,guard);if(!same(source,row.source))throw denied();
+  const source=await this.source(task,tabId,guard);if(row.candidate&&!same(source,row.source))throw denied();
+  row.source=source;
   const tab=await this.executor.api.tabs.get(row.tabId).catch(()=>{throw denied();});guard();
   const window=await this.executor.api.windows.get(tab.windowId).catch(()=>{throw denied();});guard();
-  if(!['popup','normal'].includes(window.type)||tab.windowId!==row.windowId||tab.openerTabId!==tabId||this.executor.leases.has(tab.id)||tab.pendingUrl&&site(tab.pendingUrl)!==site(tab.url))throw denied();
+  if(!!tab.incognito!==!!task.incognito||!['popup','normal'].includes(window.type)||tab.windowId!==row.windowId||tab.openerTabId!==tabId||this.executor.leases.has(tab.id)||tab.pendingUrl&&site(tab.pendingUrl)!==site(tab.url))throw denied();
   row.windowType=window.type;
   const candidate={candidateRef,tabId:tab.id,windowId:tab.windowId,openerTabId:tab.openerTabId,origin:site(tab.url),windowType:window.type};
   // 中文注释：查询窗口期间源页或 popup 可能已导航/移动；发布身份前再读回两端。

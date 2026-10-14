@@ -108,8 +108,8 @@ TOOL_SCHEMAS = {
     'fast_browser_health': {'description': '检查共享浏览器桥接服务；不启动或选择浏览器。', 'parameters': _object({})},
     'fast_browser_browsers': {'description': '仅在多实例歧义或诊断时调用；通常直接 fast_browser_open。只读列出 Chrome/Edge 实例和主要链接标记；多台可用时 fast_browser_open 优先使用已启用的主要链接。', 'parameters': _object({})},
     'fast_browser_create': {
-        'description': '在指定浏览器实例中为给定网站建任务（共享该浏览器的登录状态）。通常直接用 fast_browser_open；就绪后用 new_tab 打开工作页。详见技能 fast-browser-link:fast-browser-link。',
-        'parameters': _object({'title': _text(200), 'instance_id': _text(),
+        'description': '在指定浏览器实例中为给定网站建任务（默认共享普通登录状态，incognito=true 使用无痕会话）。通常直接用 fast_browser_open；就绪后用 new_tab 打开工作页。详见技能 fast-browser-link:fast-browser-link。',
+        'parameters': _object({'title': _text(200), 'instance_id': _text(), 'incognito': {'type': 'boolean'},
                                'allowed_origins': {'type': 'array', 'minItems': 1, 'maxItems': 64, 'items': _text(2048)}},
                               ('title', 'instance_id', 'allowed_origins'))},
     'fast_browser_list': {'description': '仅列出当前可信会话的共享浏览器任务。', 'parameters': _object({})},
@@ -491,7 +491,7 @@ def make_tool_handler(tool_name, profile_runtime, *, host_bridge=None, backend_c
             if tool_name == 'fast_browser_get' and args.get('include_log') is True:
                 params['includeLog'] = True
                 params['logLimit'] = args.get('log_limit', 20)
-            mapping = {'title': 'title', 'instance_id': 'instanceId', 'allowed_origins': 'allowedOrigins',
+            mapping = {'incognito': 'incognito', 'title': 'title', 'instance_id': 'instanceId', 'allowed_origins': 'allowedOrigins',
                        'task_id': 'taskId', 'action': 'action', 'tab_id': 'tabId', 'url': 'url',
                        'selector': 'selector', 'text': 'text', 'key': 'key',
                        'clickMode': 'clickMode', 'after': 'after',
@@ -599,6 +599,7 @@ def make_tool_handler(tool_name, profile_runtime, *, host_bridge=None, backend_c
                     'error': 'Cookie 镜像请求不可用或已过期，请在扩展核实；不要重复执行。',
                     'retryable': False, 'outcome_unknown': args.get('action') != 'list_sites'}, ensure_ascii=False)
             messages = {
+                'incognito_access_required': '请在 Chrome/Edge 扩展详情中开启允许无痕/InPrivate 访问，然后重试；未创建任务或窗口。',
                 'cookie_mirror_denied': 'Cookie 镜像请求不可用或已过期，请在扩展核实；不要重复执行。',
                 'popup_stale': '登录弹窗身份已变化或失效，未接管；请重新核对候选，不要重放确认。',
                 'approval_denied': '用户拒绝了这次操作，未执行。',
@@ -715,7 +716,7 @@ def make_tool_handler(tool_name, profile_runtime, *, host_bridge=None, backend_c
             safe_before_dispatch = data.get('outcomeUnknown') is False and code in {
                 'popup_stale', 'stale_reference', 'stale_frame', 'target_unavailable', 'invalid_select_option',
                 'invalid_target_state', 'document_changed', 'site_changed', 'cdp_method_denied', 'invalid_params',
-                'invalid_semantic_options', 'task_busy', 'target_not_owned', 'permission_denied', 'no_dialog', 'dialog_open', 'invalid_state', 'task_closed', 'instance_unavailable', 'task_preparing', 'browser_access_revoked',
+                'invalid_semantic_options', 'task_busy', 'target_not_owned', 'permission_denied', 'no_dialog', 'dialog_open', 'invalid_state', 'task_closed', 'instance_unavailable', 'incognito_access_required', 'task_preparing', 'browser_access_revoked',
                 'target_occluded', 'target_hit_unverified', 'target_unstable', 'unsupported_frame_transform', 'background_pointer_unavailable', 'radio_cannot_uncheck',
                 'target_disabled', 'target_hidden', 'target_zero_size', 'target_out_of_viewport',
                 'reference_target_missing', 'reference_target_ambiguous', 'closed_shadow_unavailable', 'cross_origin_frame_unavailable',

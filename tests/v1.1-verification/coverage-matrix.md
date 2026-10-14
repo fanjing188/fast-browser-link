@@ -226,3 +226,11 @@
 - `tests/agent-link/test_agent_link.py`：独立安装、旧 Native host 与配置字节/mtime 保持、扩展身份隔离、MCP 与未知写入不重放。
 - `tests/v1.1-compatibility/test_hermes_registry.py`：真实 Hermes 注册表无授权/有授权/Vault/旧插件四种模式，非浏览器工具不变、未绑定回退和卸载恢复。
 - `tests/agent-link/real-agent.mjs`：非离线，临时 Chrome/Edge profile 的 CLI 读写回读与任务隔离。
+
+
+### 2.1.0 无痕任务与调用入口
+
+- 既有 `tests/native-extension/oauth-popup.test.mjs`、`tests/v1.6.0/work-window.test.mjs`、`native-bridge/tests/test_browser_consent.py`、`executor-plugin/tests/test_open_tool.py` 覆盖窗口隔离、权限检查、登录导航及同一任务日志恢复。
+- `tests/agent-link/test_agent_link.py` 覆盖独立入口的无痕参数、下载方法身份注入及 `close keepTabs` 到既有 handoff 通道的映射。
+- `tests/native-v2/real-login-continuity.mjs`：non-offline，临时 Chrome/Edge profile 验证普通/无痕 Cookie 隔离及 A→B→C 同任务日志。
+- `tests/native-v2/real-incognito-matrix.mjs --package --headed`：non-offline，17 组打包后的无痕能力验收，包括真实保存确认后的下载归属、领取/哈希和取消。`--core-only` 明确排除下载，不构成下载通过证据。

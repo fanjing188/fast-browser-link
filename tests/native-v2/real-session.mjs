@@ -86,7 +86,7 @@ export async function stageRealSession({browser, packageMode = false, label = 'm
 }
 
 // 中文注释：启动临时 profile；compactScratch=true 可把所有 fixture 产物限制在指定 TMPDIR 内。
-export async function openRealSession({browser, packageMode = false, hostRules = '', label = 'm', headed = false, workWindowMode, idleCloseSeconds, taskIdleTimeoutSeconds, sharedWith = null, compactScratch = false, oauthProviders = null}) {
+export async function openRealSession({browser, packageMode = false, hostRules = '', label = 'm', headed = false, workWindowMode, idleCloseSeconds, taskIdleTimeoutSeconds, allowPopups = false, sharedWith = null, compactScratch = false, oauthProviders = null}) {
   const fixture = await stageRealSession({browser, packageMode, label, sharedWith, compactScratch, oauthProviders});
   const {work, profile, downloadsDir, temp, compactHome, staged, extensionRoot, expectedExtensionId} = fixture;
   // 中文注释：浏览器必须继承真实 HOME（见 tests/v1-launch-safety），只把 HERMES_HOME/TMPDIR 指到临时目录。
@@ -113,7 +113,7 @@ export async function openRealSession({browser, packageMode = false, hostRules =
   async function launch() {
     proc = spawn(browserPaths[browser], [
       // 中文注释：有界面验收显式跳过 headless，仍使用本次临时 profile 和随机调试端口。
-      ...(headed ? [] : ['--headless=new']), '--use-mock-keychain', '--password-store=basic', '--disable-background-networking', '--disable-sync', '--no-proxy-server',
+      ...(headed ? [] : ['--headless=new']), ...(allowPopups ? ['--disable-popup-blocking'] : []), '--use-mock-keychain', '--password-store=basic', '--disable-background-networking', '--disable-sync', '--no-proxy-server',
       '--site-per-process', ...(hostRules ? [`--host-resolver-rules=${hostRules}`] : []),
       `--user-data-dir=${profile}`, '--remote-debugging-address=127.0.0.1', '--remote-debugging-port=0',
       '--enable-unsafe-extension-debugging', '--no-first-run', '--no-default-browser-check', 'about:blank',
@@ -220,6 +220,17 @@ export async function openRealSession({browser, packageMode = false, hostRules =
     ui = new CdpClient(popupTarget.webSocketDebuggerUrl); await ui.connect(); session.ui = ui;
     await waitFor(() => ui.evaluate(`document.querySelector('#connection-label')?.textContent==='已连接'`), 35000);
   };
+  session.enableIncognito = async () => {
+    const {targetId}=await cdp.call('Target.createTarget',{url:'chrome://extensions/'});
+    const target=await waitFor(async()=>(await fetchJson(`${base}/json/list`)).find(row=>row.id===targetId));
+    const manager=new CdpClient(target.webSocketDebuggerUrl);await manager.connect();
+    try{
+      await waitFor(()=>manager.evaluate('typeof chrome.developerPrivate?.updateExtensionConfiguration === "function"'));
+      await manager.evaluate(`new Promise((resolve,reject)=>chrome.developerPrivate.updateExtensionConfiguration({extensionId:${JSON.stringify(expectedExtensionId)},incognitoAccess:true},()=>chrome.runtime.lastError?reject(Error(chrome.runtime.lastError.message)):resolve(true)))`);
+    }finally{manager.close();await cdp.call('Target.closeTarget',{targetId}).catch(()=>{});}
+    await session.reloadExtension();await session.enableFullAccess();
+    assert.equal(await session.ui.evaluate('chrome.extension.isAllowedIncognitoAccess()'),true);
+  };
   session.restartBrowser = async () => { await stopBrowser(); await launch(); };
   session.killBrowser = stopBrowser;
   session.launch = launch;
@@ -241,9 +252,9 @@ function requireBridgeResult(value){
   return value;
 }
 
-export async function openTask(session, {owner = 'session-a', origins, url, title = 'matrix'}) {
+export async function openTask(session, {owner = 'session-a', origins, url, title = 'matrix', incognito = false}) {
   const instance = await session.instance();
-  const task = requireBridgeResult(await session.rpc(owner, 'create', {title, instance_id: instance.instanceId, allowed_origins: origins}));
+  const task = requireBridgeResult(await session.rpc(owner, 'create', {title, instance_id: instance.instanceId, allowed_origins: origins, incognito}));
   await waitFor(async () => { const current = await session.rpc(owner, 'get', {task_id: task.id}); return current.state === 'ready' && current.activeMode === 'full'; }, 30000);
   const opened = await session.rpc(owner, 'run', {task_id: task.id, request_id: `open-${task.id}`, action: 'new_tab', url});
   // 中文注释：基准准备失败也保留桥接码和诊断码，避免被断言异常覆盖。

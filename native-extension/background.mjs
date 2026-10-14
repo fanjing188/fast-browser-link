@@ -146,7 +146,7 @@ const executor=new Executor(chrome,p=>bridge?.request('extension.tab_event',p).c
    const t=executor.tasks.get(p.taskId);if(t?.generation===p.generation){t.revoked=true;void executor.release({taskId:p.taskId,generation:p.generation,closeAgentTabs:false}).catch(()=>{});}
    void current.request('extension.stop',{taskId:p.taskId,generation:p.generation}).catch(()=>{});throw error;
   }
- },onOverlayCommand:overlayCommand,onDownloadEvent:reportDownload,onCdpEvents:pushCdpEvents,
+ },onOverlayReady:task=>bridge&&refreshOverlaySteps(bridge,task),onOverlayCommand:overlayCommand,onDownloadEvent:reportDownload,onCdpEvents:pushCdpEvents,
  // 中文注释：系统通知只说明需要登录，不携带网站、任务或账号信息。
  onSignInRedirect:()=>void showPanelNotification(chrome,'fast-browser-sign-in','任务页面跳到了第三方登录页。请在该标签页亲自选择账号并完成登录，完成后任务会自动继续。')});
 // 中文注释：镜像状态变化只刷新源扩展确认面板，弹窗不保留复制结果。
@@ -279,13 +279,14 @@ async function dispatchAction(r,decision){
   if(after.some(x=>x.taskId===r.taskId&&x.nonce===r.nonce))throw Error('确认结果待核查');
  }catch(e){executor.actionGrants.delete(r.nonce);throw e;}
 }
-async function refreshOverlaySteps(current){
+async function refreshOverlaySteps(current,selectedTask=null){
  // 中文注释：仅把守护进程脱敏后的最近五步送进任务遮罩，不读取网页或输入内容。
- for(const task of executor.tasks.values()){
+ for(const task of selectedTask?[selectedTask]:executor.tasks.values()){
   if(task.revoked||!task.overlays?.size)continue;
   try{
    const steps=await current.request('extension.task_log',{taskId:task.id,generation:task.generation,limit:5});
-   if(current!==bridge||task.revoked)continue;
+   if(current!==bridge||task.revoked||executor.tasks.get(task.id)!==task)continue;
+   task.recentSteps=steps;
    for(const [tabId,entry] of task.overlays)void executor.overlayCall(tabId,entry,'log',{steps}).catch(()=>{});
   }catch{}
  }

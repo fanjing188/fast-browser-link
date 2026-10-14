@@ -49,7 +49,7 @@ class FakeRuntime:
                     if task.get('owner', params['owner']) == params['owner']]
         if method == 'shared.create':
             task = {'id': f'task-{len(self.tasks) + 1}', 'state': 'pending_approval', 'instanceId': params['instanceId'],
-                    'allowedOrigins': params['allowedOrigins'], 'owner': params['owner'], 'polls': 0}
+                    'allowedOrigins': params['allowedOrigins'], 'incognito': params.get('incognito', False), 'owner': params['owner'], 'polls': 0}
             self.tasks[task['id']] = task
             return dict(task)
         if method == 'shared.get':
@@ -146,6 +146,17 @@ class OpenToolTests(unittest.TestCase):
 
     def methods(self):
         return [method for method, _ in self.runtime.calls]
+
+    def test_incognito_does_not_reuse_normal_task_and_reuses_private_task(self):
+        self.make([EDGE])
+        normal = self.open({'url': 'https://shop.example/a'})
+        private = self.open({'url': 'https://shop.example/a', 'incognito': True}, call='private')
+        self.assertNotEqual(normal['task_id'], private['task_id'])
+        self.assertTrue(private['incognito'])
+        again = self.open({'url': 'https://shop.example/b', 'incognito': True}, call='private-2')
+        self.assertEqual(private['task_id'], again['task_id'])
+        regular = self.open({'url': 'https://shop.example/b'}, call='normal-2')
+        self.assertEqual(normal['task_id'], regular['task_id'])
 
     def test_single_authorized_browser_creates_binds_and_opens(self):
         self.make([EDGE], ready_after=1)
@@ -383,7 +394,7 @@ class OpenToolEnvironmentTests(unittest.TestCase):
                                        env=env, capture_output=True, text=True, timeout=30)
                 output = child.stdout + child.stderr
                 self.assertEqual(child.returncode, 0, output)
-                self.assertIn('Ran 23 tests', output)
+                self.assertIn(f'Ran {unittest.defaultTestLoader.loadTestsFromTestCase(OpenToolTests).countTestCases()} tests', output)
                 self.assertNotIn('skipped=', output)
                 self.assertIn('test_default_browser_selects_only_unique_enabled_match', output)
 

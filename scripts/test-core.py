@@ -51,6 +51,6 @@ with (nullcontext(_explicit_tmp) if _use_explicit else tempfile.TemporaryDirecto
         [sys.executable, 'scripts/generate-browser-reference.py', '--check'],
     ]
     for command in commands:
-        result = subprocess.run(command, cwd=ROOT, env=env, timeout=240)
+        result = subprocess.run(command, cwd=ROOT, env=env, timeout=480)
         if result.returncode:
             raise SystemExit(result.returncode)

@@ -1,3 +1,4 @@
+import {CopilotBackground} from '../../native-extension/copilot-background.mjs';
 import {CloudLink} from '../support/cloud-link-stub.mjs';
 // Synthetic native port + production background/Bridge/notifier. No browser launch.
 import {test} from 'node:test';
@@ -16,7 +17,7 @@ function harness({focusFails=false,browserFullConsent=false,decideFails=false,co
  let approvals=[{taskId:'task-A',nonce:'nonce-1',digest:'digest-1',generation:2,modeGeneration:1,expiresAt:now/1000+60,request:{action:'click',tabId:7,selector:'#save'}}];
  let tab={id:7,windowId:12,url:'https://example.test/work'},panelTab=null,created=0,executor;
  const port={onDisconnect:{addListener:f=>disconnect=f},onMessage:{addListener:f=>receiver=f},postMessage:m=>{nativeCalls.push(clone(m));if(!m.method)return;queueMicrotask(()=>{let result;
-  switch(m.method){case 'extension.cookie_mirror.status':result={status:'approval_required'};break;case 'extension.cookie_mirror.decide':result={status:m.params.approve?'executing':'denied'};break;case 'extension.hello':result={};break;case 'extension.tasks':result=[clone(task)];break;case 'extension.approvals':result=clone(approvals);break;
+  switch(m.method){case 'extension.cookie_mirror.status':result={status:'approval_required'};break;case 'extension.cookie_mirror.decide':result={status:m.params.approve?'executing':'denied'};break;case 'extension.copilot.state':result={enabled:false,show_ball:true,suggestions:[]};break;case 'extension.hello':result={};break;case 'extension.tasks':result=[clone(task)];break;case 'extension.approvals':result=clone(approvals);break;
    case 'extension.decide':if(decideFails){receiver({id:m.id,error:{message:'native response unavailable'}});return;}approvals=[];result={status:m.params.approve?'approved':'denied'};break;
    case 'extension.stop':task.state='cancelled';result=clone(task);break;
    default:throw Error('unexpected native '+m.method);
@@ -37,7 +38,7 @@ function harness({focusFails=false,browserFullConsent=false,decideFails=false,co
   tabs:{get:async id=>id===7?clone(tab):id===panelTab?.id?clone(panelTab):null,query:async()=>[clone(tab)],onCreated:{addListener(){}},onRemoved:{addListener(){}},onUpdated:{addListener(){}}},
   windows:{getLastFocused:async()=>({id:12}),onRemoved:{addListener:f=>windowRemoved=f},get:async id=>({id,left:100,top:40,width:1000,height:800,type:'normal'}),update:async(id,p)=>{focusCalls.push([id,p]);if(focusFails)throw Error('focus failed');return {id,focused:true};},create:async p=>{windowCalls.push(p);panelTab={id:400+(++created),windowId:90+created,url:p.url};return {id:panelTab.windowId,tabs:[panelTab],focused:true};},remove:async()=>{}},
   action:{setBadgeText:async p=>badge.push(p.text),setTitle:async()=>{}},debugger:{onDetach:{addListener(){}}}};
- vm.runInNewContext(background.replace(/^import .*;\n/gm,''),{CloudLink,reloadForInstalledBuild:async()=>false,BUILD_ID:'',registerWorkspaceStartup:()=>{},NativeWorkspaces:WorkspaceFake,Executor:ExecutorFake,CookieMirror,Bridge,BrowserConsent,isUiSender,createApprovalNotifier,origin:u=>new URL(u).origin,chrome,crypto:globalThis.crypto,navigator:{userAgent:'Node'},console,setTimeout,clearTimeout});
+ vm.runInNewContext(background.replace(/^import .*;\n/gm,''),{CopilotBackground,CloudLink,reloadForInstalledBuild:async()=>false,BUILD_ID:'',registerWorkspaceStartup:()=>{},NativeWorkspaces:WorkspaceFake,Executor:ExecutorFake,CookieMirror,Bridge,BrowserConsent,isUiSender,createApprovalNotifier,origin:u=>new URL(u).origin,chrome,crypto:globalThis.crypto,navigator:{userAgent:'Node'},console,setTimeout,clearTimeout});
  const sender=()=>({id:'ext-123',url:'chrome-extension://ext-123/approval-panel.html',tab:{id:panelTab?.id,windowId:panelTab?.windowId}});
  const message=(m,s=sender())=>new Promise(resolve=>{const yes=listeners.message(m,s,resolve);if(!yes)resolve({ignored:true});});
  return {sendNative:m=>receiver(m),tick,message,sender,nativeCalls,focusCalls,windowCalls,badge,notification:id=>listeners.notification(id),disconnect:()=>disconnect?.(),windowRemoved:()=>windowRemoved?.(panelTab?.windowId),setApprovals:x=>approvals=x,setTask:x=>task={...task,...x},setTab:x=>tab={...tab,...x},executor:()=>executor,changed:()=>receiver({method:'tasks.changed'}),chrome};

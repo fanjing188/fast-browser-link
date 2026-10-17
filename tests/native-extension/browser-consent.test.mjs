@@ -1,3 +1,4 @@
+import {CopilotBackground} from '../../native-extension/copilot-background.mjs';
 import {CloudLink} from '../support/cloud-link-stub.mjs';
 // 中文注释：VM 夹具显式注入独立 Cookie 模块，保持生产后台模块依赖一致。
 import {CookieMirror} from '../../native-extension/cookie-mirror.mjs';
@@ -85,7 +86,7 @@ test('trusted popup rejects removed mode controls without changing tasks',async(
    alarms:{create(){},onAlarm:{addListener(){}}},debugger:{onDetach:{addListener(){}}}};
   let source=await readFile(new URL('../../native-extension/background.mjs',import.meta.url),'utf8');
   source=source.replace(/^import .*;\n/gm,'').replace(/connect\(\);\s*$/,'bridge=injectedBridge;connected=true;');
-  vm.runInNewContext(source,{CloudLink,CookieMirror,chrome,Executor,BrowserConsent:module.BrowserConsent,isUiSender:module.isUiSender,
+  vm.runInNewContext(source,{CopilotBackground,CloudLink,CookieMirror,chrome,Executor,BrowserConsent:module.BrowserConsent,isUiSender:module.isUiSender,
    reloadForInstalledBuild:async()=>false,BUILD_ID:'',registerWorkspaceStartup:()=>{},injectedBridge:{closed:false,request:async method=>{calls.push(method);return method==='extension.tasks'?[]:{revoked:true};}}});
   for(const message of [{type:'browser_consent',enabled:false},{type:'mode',taskId:'task',mode:'smart'}]){
    const result=await new Promise(resolve=>listener(message,{id:'extension',url:'chrome-extension://extension/popup.html'},resolve));

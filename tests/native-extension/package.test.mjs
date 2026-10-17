@@ -6,7 +6,8 @@ const exec=promisify(execFile);const root=new URL('../../native-extension/',impo
 test('independent MV3 has no content script and popup preserves task protections without smart consent controls',async()=>{
  const m=JSON.parse(await readFile(new URL('manifest.json',root)));
  assert.equal(m.background.type,'module');
- assert.deepEqual(m.permissions.sort(),['notifications','cookies','alarms','debugger','downloads','nativeMessaging','scripting','storage','tabGroups','tabs'].sort());
+ assert.deepEqual(m.permissions.sort(),['sidePanel','notifications','cookies','alarms','debugger','downloads','nativeMessaging','scripting','storage','tabGroups','tabs'].sort());
+ assert.equal(m.side_panel.default_path,'copilot-panel.html');
  assert.deepEqual(m.host_permissions,['<all_urls>']);assert.equal(m.content_scripts,undefined);assert.equal(m.externally_connectable,undefined);
  assert.doesNotMatch(m.description,/智能审批|smart[- ]approval/i);assert.match(m.description,/连接授权后直接执行/);
  const ui=await readFile(new URL('popup.html',root),'utf8');

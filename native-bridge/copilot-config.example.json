@@ -1,0 +1,19 @@
+{
+  "$comment": "先运行 scripts/setup-copilot-profile.sh 初始化 copilot profile；已有可用 profile 无需重复初始化。",
+  "inference_profile": "copilot",
+  "exec_profile": "gefei",
+  "report_dir": "reports",
+  "pool_command": [],
+  "max_parallel": 3,
+  "enabled": false,
+  "inference_model": "",
+  "context_limit": 8000,
+  "min_interval": 5,
+  "idle_pause_seconds": 180,
+  "idle_close_seconds": 1800,
+  "daily_token_budget": 100000,
+  "max_turns": 30,
+  "exec_model": "",
+  "timeout_seconds": 180,
+  "show_ball": true
+}

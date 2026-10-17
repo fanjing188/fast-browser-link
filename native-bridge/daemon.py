@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from copilot import Copilot
+
 import argparse
 import base64
 import copy
@@ -235,6 +237,7 @@ class BridgeDaemon:
         self.page_results = OrderedDict()
         self.request_history_limit = request_history_limit
         # 中文注释：Cookie 镜像不使用任务账本、日志或持久化结果缓存。
+        self.copilot = None
         self.cookie_mirror = CookieMirrorService(self)
         self.api_client = ApiClient()
         self.api_credentials = {}
@@ -840,6 +843,8 @@ class BridgeDaemon:
         remove_stale_socket(self.socket_path, "refusing to replace an existing bridge socket")
 
     def stop(self, *_args) -> None:
+        if self.copilot is not None:
+            self.copilot.close()
         self.cdp_gateway.close()
         self.stop_event.set()
 
@@ -2940,6 +2945,20 @@ class BridgeDaemon:
     def _dispatch_connected_extension(self, extension, method, params):
         instance_id = extension['instanceId']
         # 中文注释：连接核对与状态修改必须原子完成；暂停先取任务锁，保持任务锁→状态锁的既有顺序。
+        if isinstance(method, str) and method.startswith('extension.copilot.'):
+            try:
+                with self.state_lock:
+                    if self.extensions.get(instance_id) is not extension:
+                        raise ProtocolError('connection_replaced', 'browser connection was replaced')
+                    if self.copilot is None:
+                        def notify(target, payload):
+                            current = self.extensions.get(target)
+                            if current:
+                                self._send_extension(current, {'method': 'copilot.changed', 'params': payload})
+                        self.copilot = Copilot(self.data_dir / 'copilot', notify)
+                return self.copilot.request(instance_id, method.removeprefix('extension.copilot.'), params)
+            except (ValueError, OSError, KeyError, TypeError):
+                raise ProtocolError('copilot_denied', 'Copilot request failed; check local configuration') from None
         if isinstance(method, str) and method.startswith('extension.cookie_mirror.'):
             # 中文注释：私有通路自行校验连接，不能持有状态锁等待浏览器回复。
             with self.state_lock:
@@ -3666,6 +3685,8 @@ class BridgeDaemon:
                     current = self.extensions.get(instance_id)
                     if current is not None and current.get("socket") is conn:
                         del self.extensions[instance_id]
+                        if self.copilot is not None:
+                            self.copilot.request(instance_id, 'settings', {'enabled': False})
                         self.cookie_mirror.disconnected(instance_id)
                         self._diagnostic("connection_state", "disconnected", error_code="DISCONNECTED")
                         for task in self.tasks.values():

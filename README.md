@@ -1,17 +1,19 @@
 # Fast-browser-link
 
-**2.1.0 — macOS release.** Connect local agents to Chrome or Edge through skills, a JSON CLI or MCP stdio. Use regular signed-in sessions or opt-in incognito tasks, with continuous task logs across login redirects and popups.
+**2.2.0 — local macOS candidate.** Connect local agents to Chrome or Edge through skills, a JSON CLI or MCP stdio. Use regular signed-in sessions or opt-in incognito tasks, with continuous task logs across login redirects and popups.
 
 [简体中文](README.zh-CN.md)
+
+This candidate is not published. [Copilot mode](docs/copilot.md) has local lean-profile measurements and pending real-browser acceptance; the download commands below describe the eventual Release installation workflow.
 
 ## Install independent skills
 
 Download the Release installation ZIP, not GitHub's source archive. Python 3.11+ is required; the ZIP includes the built extension and needs neither Node.js nor Hermes.
 
 ```sh
-curl -fL https://github.com/fanjing188/fast-browser-link/releases/download/v2.1.0/fast-browser-link-2.1.0.zip -o fast-browser-link-2.1.0.zip
-unzip fast-browser-link-2.1.0.zip
-cd fast-browser-link-2.1.0
+curl -fL https://github.com/fanjing188/fast-browser-link/releases/download/v2.2.0/fast-browser-link-2.2.0.zip -o fast-browser-link-2.2.0.zip
+unzip fast-browser-link-2.2.0.zip
+cd fast-browser-link-2.2.0
 bash install.sh --dry-run
 bash install.sh
 ```
@@ -43,11 +45,11 @@ Incognito tasks do not inherit regular cookies. Multiple incognito tasks in one 
 
 ## Optional Hermes adapter
 
-The default ZIP above installs independent skills. For Hermes-native tools and Desktop integration, use the separate `fast-browser-link-hermes-2.1.0.zip` Release asset, or run `bash install.sh --hermes-plugin` from source. Do not install this adapter alongside the legacy `browser-link` plugin: the installer refuses that conflict.
+The default ZIP above installs independent skills. For Hermes-native tools and Desktop integration, use the separate `fast-browser-link-hermes-2.2.0.zip` Release asset, or run `bash install.sh --hermes-plugin` from source. Do not install this adapter alongside the legacy `browser-link` plugin: the installer refuses that conflict.
 
 `browser_exec` and other official `browser_*` tools belong to Hermes. The adapter only registers a route through Hermes' public `tools.override` API after explicit authorization. Unbound sessions keep their original handlers; unloading restores them. Hermes source is never patched. Vault overrides require a separate opt-in.
 
-See [Hermes installation and maintenance](docs/installation.md), [usage](docs/usage.md), [security](SECURITY.md) and [release notes](docs/release-2.1.0.md).
+See [Hermes installation and maintenance](docs/installation.md), [usage](docs/usage.md), [security](SECURITY.md) and [release notes](docs/release-2.2.0.md).
 
 ## Development
 

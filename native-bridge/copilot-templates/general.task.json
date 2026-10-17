@@ -1,0 +1,87 @@
+{
+  "id": "general.task",
+  "name": "通用任务",
+  "prompt": "优先使用 API 或批量脚本，必要时才浏览器读页。完成参数中的用户任务。保留来源和未验证事项。",
+  "params_schema": {
+    "type": "object",
+    "properties": {
+      "task": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2000
+      }
+    },
+    "required": [
+      "task"
+    ],
+    "additionalProperties": false
+  },
+  "result_schema": {
+    "type": "object",
+    "properties": {
+      "summary": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2000
+      },
+      "keywords": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "keyword": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2000
+            },
+            "market": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2000
+            },
+            "lang": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2000
+            },
+            "vol": {
+              "type": "number"
+            },
+            "kd": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "keyword"
+          ],
+          "additionalProperties": false
+        },
+        "maxItems": 100
+      },
+      "details": {
+        "type": "string",
+        "maxLength": 12000
+      },
+      "usage_tokens": {
+        "type": "integer"
+      }
+    },
+    "required": [
+      "summary"
+    ],
+    "additionalProperties": false
+  },
+  "display_fields": [
+    "summary",
+    "keywords",
+    "details"
+  ],
+  "toolsets": [
+    "fast-browser-link",
+    "web",
+    "terminal",
+    "file"
+  ],
+  "cacheable": false,
+  "max_turns": 30
+}

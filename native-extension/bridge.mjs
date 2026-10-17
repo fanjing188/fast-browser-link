@@ -175,7 +175,7 @@ export class Bridge {
   // 中文注释：配置由可信弹窗保存；发送前读取，缓存重放也使用当前开关。
   this.onAccessRequest=typeof handlers.onAccessRequest==='function'?handlers.onAccessRequest:async()=>{throw Error('unsupported');};
   // 中文注释：Cookie 请求在账本前分流，禁止缓存 Cookie 载荷、指纹或结果。
-  this.onCookieMirror=handlers.onCookieMirror;this.onCookieDisconnect=handlers.onCookieDisconnect;
+  this.onCopilot=handlers.onCopilot;this.onCookieMirror=handlers.onCookieMirror;this.onCookieDisconnect=handlers.onCookieDisconnect;
   this.accessRequests=new Map();
   port.onMessage.addListener(m=>this.receive(m));
  }
@@ -204,6 +204,7 @@ export class Bridge {
   if(!result||result.id!==request.taskId||(request.generation!==undefined&&result.generation!==request.generation)||!Number.isInteger(result.generation)||!sameValues(result.tabIds,request.tabIds)||!sameValues(result.allowedOrigins,request.allowedOrigins))throw Error('approval response mismatch');
  }
  receive(m) {
+  if(m.method==='copilot.changed'){this.onCopilot?.(m.params);return;}
   if(this.closed||!m||typeof m!=='object')return;
   if(!m.method){
    const p=this.pending.get(m.id);if(!p)return;this.pending.delete(m.id);clearTimeout(p.timer);

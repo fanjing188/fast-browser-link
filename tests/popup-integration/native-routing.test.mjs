@@ -1,3 +1,4 @@
+import {CopilotBackground} from '../../native-extension/copilot-background.mjs';
 import {CloudLink} from '../support/cloud-link-stub.mjs';
 // 中文注释：VM 夹具显式注入独立 Cookie 模块，保持生产后台模块依赖一致。
 import {CookieMirror} from '../../native-extension/cookie-mirror.mjs';
@@ -20,7 +21,7 @@ async function harness(initialStorage={},manifestVersion=packageVersion){
  const port={onDisconnect:{addListener(){}},onMessage:{addListener:f=>receive=f},postMessage:m=>{
   nativeCalls.push(clone(m));queueMicrotask(()=>{let result;
    switch(m.method){
-    case 'extension.hello':result={};break;
+    case 'extension.copilot.state':result={enabled:false,show_ball:true,suggestions:[]};break;case 'extension.hello':result={};break;
     // 中文注释：弹窗状态复用在线实例清单，夹具只返回脱敏元信息。
     case 'extension.browser_list':result=[];break;
     case 'extension.cdp_events':result={};break;
@@ -56,7 +57,7 @@ async function harness(initialStorage={},manifestVersion=packageVersion){
   alarms:{create(){},onAlarm:event},tabs:{onCreated:event,onRemoved:event,onUpdated:event,query:async()=>[{id:7,url:'https://example.test/work',title:'工作页'}],get:async()=>({id:7,url:'https://example.test/work'})},debugger:{onDetach:event}
  };
  // Only ES module linking is replaced. The background handler body is unchanged.
- vm.runInNewContext(background.replace(/^import .*;\n/gm,''),{CloudLink,CookieMirror,Executor:TestExecutor,NativeWorkspaces:TestWorkspaces,Bridge,BrowserConsent,isUiSender,reloadForInstalledBuild:async()=>false,BUILD_ID:'',registerWorkspaceStartup:()=>{},origin:u=>new URL(u).origin,chrome:api,navigator:{userAgent:'Node DOM harness'},crypto:globalThis.crypto,console});
+ vm.runInNewContext(background.replace(/^import .*;\n/gm,''),{CopilotBackground,CloudLink,CookieMirror,Executor:TestExecutor,NativeWorkspaces:TestWorkspaces,Bridge,BrowserConsent,isUiSender,reloadForInstalledBuild:async()=>false,BUILD_ID:'',registerWorkspaceStartup:()=>{},origin:u=>new URL(u).origin,chrome:api,navigator:{userAgent:'Node DOM harness'},crypto:globalThis.crypto,console});
  const flush=async()=>{for(let i=0;i<6;i++)await new Promise(r=>setImmediate(r));};await flush();
  const sender={id:'test',url:'chrome-extension://test/popup.html'};
  const send=m=>new Promise(resolve=>{popupCalls.push(clone(m));assert.equal(dispatch(m,sender,resolve),true);});

@@ -1,0 +1,93 @@
+{
+  "id": "seo.keyword_check",
+  "name": "关键词检查",
+  "prompt": "优先使用 API 或批量脚本，必要时才浏览器读页。查目标关键词当前 SERP 前十、页面类型、小站数、DR、搜索量、KD、CPC 和意图，给出档位及证据。不能编造数据。keywords 返回此词及查实的 vol/kd，详细数字和来源写 details。",
+  "params_schema": {
+    "type": "object",
+    "properties": {
+      "keyword": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2000
+      },
+      "market": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2000
+      }
+    },
+    "required": [
+      "keyword"
+    ],
+    "additionalProperties": false
+  },
+  "result_schema": {
+    "type": "object",
+    "properties": {
+      "summary": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2000
+      },
+      "keywords": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "keyword": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2000
+            },
+            "market": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2000
+            },
+            "lang": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2000
+            },
+            "vol": {
+              "type": "number"
+            },
+            "kd": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "keyword"
+          ],
+          "additionalProperties": false
+        },
+        "maxItems": 100
+      },
+      "details": {
+        "type": "string",
+        "maxLength": 12000
+      },
+      "usage_tokens": {
+        "type": "integer"
+      }
+    },
+    "required": [
+      "summary",
+      "keywords"
+    ],
+    "additionalProperties": false
+  },
+  "display_fields": [
+    "summary",
+    "keywords",
+    "details"
+  ],
+  "toolsets": [
+    "fast-browser-link",
+    "web",
+    "terminal",
+    "file"
+  ],
+  "cacheable": true,
+  "max_turns": 30
+}

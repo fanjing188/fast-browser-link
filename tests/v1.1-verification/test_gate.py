@@ -506,7 +506,7 @@ class GateNegativeControls(unittest.TestCase):
         # 中文注释：诊断三个固定 Python runner 各新增一步，原有四十步全部保留。
         # 中文注释：自动更新增加一个固定离线 runner，不改变补充或真实浏览器门禁。
         # 中文注释：OAuth popup 两个固定 Python 文件增加两步，Node 合并步骤不变。
-        self.assertEqual(len(gate.matrix(Path('/scratch/source'), '/scratch/python')), 52)
+        self.assertEqual(len(gate.matrix(Path('/scratch/source'), '/scratch/python')), 53)
         self.assertEqual(len(gate.supplemental_matrix(Path('/scratch/source'), '/scratch/python')), 2)
 
     def test_browser_use_cli_source_is_discovered_from_cli_without_executing_it(self):

@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "incognito": "spanning",
   "name": "Fast-browser-link",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "permissions": [
     "nativeMessaging",
     "debugger",
@@ -13,7 +13,8 @@
     "storage",
     "alarms",
     "cookies",
-    "notifications"
+    "notifications",
+    "sidePanel"
   ],
   "background": {
     "service_worker": "background.mjs",
@@ -43,5 +44,22 @@
     "48": "icon-48.png",
     "128": "icon-128.png"
   },
-  "description": "连接本机 AI Agent 与 Chrome/Edge，连接授权后直接执行普通及无痕任务，支持连续登录日志、表单、上传下载、用户接管和敏感字段保护。"
+  "description": "连接本机 AI Agent 与 Chrome/Edge，连接授权后直接执行普通及无痕任务，支持连续登录日志、表单、上传下载、用户接管和敏感字段保护。",
+  "side_panel": {
+    "default_path": "copilot-panel.html"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "copilot-collector.mjs",
+        "copilot-observation.mjs",
+        "vendor/page-semantics.mjs",
+        "vendor/redact.mjs"
+      ],
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ]
+    }
+  ]
 }

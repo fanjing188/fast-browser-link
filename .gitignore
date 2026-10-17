@@ -62,3 +62,6 @@ tests/v1.4.4/replay-results.json
 
 # Local full-gate reports
 tests/v1.1-verification/fast-browser-full-*.json
+
+# Local collaboration settings (never packaged).
+.copilot-config.local.json

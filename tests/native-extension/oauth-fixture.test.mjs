@@ -52,7 +52,7 @@ test('temporary OAuth setup keeps the production background and sender guard, ch
   assert.ok(body.indexOf("if(!isUiSender(sender,chrome.runtime.id))return false;")<body.indexOf("if(m.type==='oauth_fixture_mode')"));
   assert.ok(body.indexOf("if(!isUiSender(sender,chrome.runtime.id))return false;")<body.indexOf("if(m.type==='oauth_fixture_diagnostics')"));
   assert.ok(body.includes("await current.request('extension.popup_adopted',p).then(result=>"));
-  assert.ok(body.includes('chrome.tabs.onCreated.addListener(tab=>executor.tabCreated(tab)'));
+  assert.match(body,/chrome\.tabs\.onCreated\.addListener\(tab=>\{copilot\.tabEvent\(tab\.id,'打开标签页',tab\);return executor\.tabCreated\(tab\)/);
   assert.ok(body.includes('onOverlayCommand:overlayCommand'));
   assert.ok(body.includes('chrome.runtime.connectNative'));
   assert.equal(await readFile('native-extension/background.mjs','utf8'),before);

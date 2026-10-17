@@ -1,3 +1,4 @@
+import {CopilotBackground} from '../../native-extension/copilot-background.mjs';
 import {CloudLink} from '../support/cloud-link-stub.mjs';
 // 中文注释：VM 夹具显式注入独立 Cookie 模块，保持生产后台模块依赖一致。
 import {CookieMirror} from '../../native-extension/cookie-mirror.mjs';
@@ -28,7 +29,8 @@ function harness({hostState='cancelled',stopFails=false,resumeState='ready',resu
    if(message.method==='extension.pause')host={...host,state:'paused'};
    if(message.method==='extension.unpause'){host={...host,state:resumeState};if(resumeResponseLost){receiver({id:message.id,error:{message:'lost response'}});return;}};
    let result;
-   if(message.method==='extension.hello')result={};
+   if(message.method==='extension.copilot.state')result={enabled:false,show_ball:true,suggestions:[]};
+   else if(message.method==='extension.hello')result={};
    else if(message.method==='extension.tasks')result=[{...host}];
    else if(message.method==='extension.approvals')result=[];
    else if(['extension.stop','extension.pause','extension.unpause'].includes(message.method))result={...host};
@@ -53,7 +55,7 @@ function harness({hostState='cancelled',stopFails=false,resumeState='ready',resu
  class FakeWorkspace{constructor(){this.manager={reconcile:async()=>{}};}async status(){return [];}}
  // 中文注释：合成后台提供通知事件 API，不访问系统通知中心。
  const chrome={notifications:{onClicked:{addListener(){}},clear:async()=>true},runtime:{getManifest:()=>({version:packageVersion}),id:'extension',getURL:p=>`chrome-extension://extension/${p}`,connectNative:()=>port,onMessage:{addListener:f=>listeners.message=f},sendMessage:async()=>{}},storage:{local:{get:async()=>({browserInstanceId:instance}),set:async()=>{}},session:{get:async()=>({instanceId:instance}),set:async()=>{}}},alarms:{create(){},onAlarm:{addListener(){}}},tabs:{get:async()=>({...tab}),query:async()=>[],onCreated:{addListener(){}},onRemoved:{addListener(){}},onUpdated:{addListener(){}}},debugger:{onDetach:{addListener(){}}}};
- vm.runInNewContext(background.replace(/^import .*;\n/gm,''),{CloudLink,CookieMirror,reloadForInstalledBuild:async()=>false,BUILD_ID:'',registerWorkspaceStartup:()=>{},NativeWorkspaces:FakeWorkspace,Executor:FakeExecutor,Bridge,BrowserConsent,isUiSender,createApprovalNotifier:()=>null,origin:u=>new URL(u).origin,chrome,crypto:globalThis.crypto,navigator:{userAgent:'Node'},console,setTimeout,clearTimeout});
+ vm.runInNewContext(background.replace(/^import .*;\n/gm,''),{CopilotBackground,CloudLink,CookieMirror,reloadForInstalledBuild:async()=>false,BUILD_ID:'',registerWorkspaceStartup:()=>{},NativeWorkspaces:FakeWorkspace,Executor:FakeExecutor,Bridge,BrowserConsent,isUiSender,createApprovalNotifier:()=>null,origin:u=>new URL(u).origin,chrome,crypto:globalThis.crypto,navigator:{userAgent:'Node'},console,setTimeout,clearTimeout});
  return {calls,tick,command:p=>executor.onOverlayCommand(p),local:()=>executor.tasks.get('task-1'),lease:owner=>executor.leases.set(7,owner),host:x=>host={...host,...x},tab:x=>tab={...tab,...x},disconnect:()=>disconnect?.()};
 }
 const scope={taskId:'task-1',generation:3,tabId:7,origin:'https://example.test',kind:'stop'};

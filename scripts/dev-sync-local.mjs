@@ -1,6 +1,6 @@
 // 中文注释：同步已安装程序和界面；身份、任务与全部目标预检必须先于写入。
 import {swapInstalledDirectory,rollbackDirectorySwaps,installedPluginTargets,installationHome,rejectPathLinks} from './directory-swap.mjs';
-import {runDevelopmentGuard,assertDevelopmentIdle,runMaintenanceStep,waitForTasks,hermesControl} from './dev-sync-daemon.mjs';
+import {runDevelopmentGuard,assertDevelopmentIdle,runMaintenanceStep,waitForTasks,hermesControl,initializeCopilot} from './dev-sync-daemon.mjs';
 import {spawnSync} from 'node:child_process';
 import {createHash,randomUUID} from 'node:crypto';
 import {cp, lstat, mkdir, mkdtemp, readFile, realpath, rename, rm, stat, writeFile} from 'node:fs/promises';
@@ -139,6 +139,7 @@ try{
  swaps.push(await swapInstalledDirectory(extensionTarget,path.join(output,'native-extension'),path.join(backup,'swaps')));
  for(const target of pluginTargets)await verifyTree(target,packageHashes,'fast-browser-link/');
  await verifyTree(extensionTarget,packageHashes,'native-extension/');
+ initializeCopilot(home,pluginTarget);
  // 中文注释：Hermes 桌面只监视 materialized 副本，更新入口文件会触发热重载。
  const desktopSource=path.join(pluginTarget,'desktop','plugin.js');
  const entry=desktopEntry;

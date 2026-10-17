@@ -39,6 +39,7 @@ SKIP_FILES = {'CODEX-AUDIT-REPORT.md', 'CODEX-STREAM-REPORT.md', '.DS_Store', 'b
 NODE_BOUNDARIES = ('.', 'cloud-link/site')
 # Explicit runner inventory: no glob expands into browser, install, or evidence suites.
 NODE_TESTS = (
+    'tests/copilot/copilot.test.mjs',
     'tests/v1.11.0/recovery.test.mjs',
     # 中文注释：云端授权与 SQLite/MCP 测试使用合成配对和设备，不连接个人浏览器。
     'tests/native-extension/cloud-link.test.mjs',
@@ -137,6 +138,7 @@ NODE_TESTS = (
     'tests/v1.4.4/round1f.test.mjs',
 )
 PYTHON_SUITES = (
+    'tests/copilot',
     'tests/agent-link',
     # 中文注释：云端调度、原生帧及收尾测试仅使用临时 HOME 和可控网络替身。
     'cloud-link/tests',
@@ -155,6 +157,7 @@ PYTHON_SUITES = (
 )
 # Some directories contain explicitly unsafe runners: select files by fixed name.
 PYTHON_FILES = {
+    'tests/copilot': ('test_copilot.py',),
     'tests/agent-link': ('test_agent_link.py',),
     'cloud-link/tests': ('test_cloud.py', 'test_native.py', 'test_scheduler.py', 'test_service.py'),
     'tests/auto-update': ('test_update.py',),

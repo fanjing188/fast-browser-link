@@ -1,0 +1,117 @@
+{
+  "id": "seo.save_pool",
+  "name": "保存词池",
+  "prompt": "优先使用 API 或批量脚本，必要时才浏览器读页。把参数中的词整理为 keywords，保留已知指标。不要执行写入命令，宿主负责写入。",
+  "params_schema": {
+    "type": "object",
+    "properties": {
+      "keywords": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "keyword": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2000
+            },
+            "market": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2000
+            },
+            "lang": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2000
+            },
+            "vol": {
+              "type": "number"
+            },
+            "kd": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "keyword"
+          ],
+          "additionalProperties": false
+        },
+        "maxItems": 100
+      }
+    },
+    "required": [
+      "keywords"
+    ],
+    "additionalProperties": false
+  },
+  "result_schema": {
+    "type": "object",
+    "properties": {
+      "summary": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2000
+      },
+      "keywords": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "keyword": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2000
+            },
+            "market": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2000
+            },
+            "lang": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2000
+            },
+            "vol": {
+              "type": "number"
+            },
+            "kd": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "keyword"
+          ],
+          "additionalProperties": false
+        },
+        "maxItems": 100
+      },
+      "details": {
+        "type": "string",
+        "maxLength": 12000
+      },
+      "usage_tokens": {
+        "type": "integer"
+      }
+    },
+    "required": [
+      "summary",
+      "keywords"
+    ],
+    "additionalProperties": false
+  },
+  "display_fields": [
+    "summary",
+    "keywords",
+    "details"
+  ],
+  "toolsets": [
+    "fast-browser-link",
+    "web",
+    "terminal",
+    "file"
+  ],
+  "cacheable": false,
+  "max_turns": 30
+}

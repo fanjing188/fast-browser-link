@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import {spawn,spawnSync} from 'node:child_process';
 import {randomUUID,createHash} from 'node:crypto';
 import {once} from 'node:events';
-import {cp,lstat,mkdtemp,mkdir,readFile,readdir,rm,stat,writeFile} from 'node:fs/promises';
+import {cp,lstat,mkdtemp,mkdir,readFile,readdir,realpath,rm,stat,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
-import {assertDevelopmentIdle,runDevelopmentGuard} from '../../scripts/dev-sync-daemon.mjs';
+import {assertDevelopmentIdle,runDevelopmentGuard,initializeCopilot} from '../../scripts/dev-sync-daemon.mjs';
 
 // 中文注释：保留指定 TMPDIR 的隔离范围；短目录名让 profile scratch 下的 macOS 套接字仍不超限。
 async function daemonHome(){
@@ -206,12 +206,17 @@ async function startInstalledDaemon(t,home){
 async function fakePackager(f){
  const cloudHost=await readFile(path.join(f.home,'plugins/fast-browser-link/cloud_link/native_host.py'),'utf8');
  const cli=await readFile(path.join(f.home,'plugins/fast-browser-link/maintenance/install-cli.py'),'utf8');
+ const copilotFiles={'fast-browser-link/native_bridge/copilot-templates/general.task.json':await readFile(path.join(REPO,'native-bridge/copilot-templates/general.task.json'),'utf8')};
+ for(const name of ['copilot_setup.py','copilot.py','copilot_acp.py','copilot_execution.py'])
+  copilotFiles[`fast-browser-link/native_bridge/${name}`]=await readFile(path.join(REPO,'native-bridge',name),'utf8');
+ for(const name of (await readdir(path.join(REPO,'native-bridge/copilot-templates/seo'))).filter(name=>name.endsWith('.json')))
+  copilotFiles[`fast-browser-link/native_bridge/copilot-templates/seo/${name}`]=await readFile(path.join(REPO,'native-bridge/copilot-templates/seo',name),'utf8');
  await writeFile(path.join(f.repo,'scripts/package-executor.mjs'),`
  import {mkdir,writeFile} from 'node:fs/promises';
  import {createHash} from 'node:crypto';
  import path from 'node:path';
  const output=process.argv[process.argv.indexOf('--output')+1];
- const files=${JSON.stringify({'fast-browser-link/desktop/plugin.js':'new-desktop','fast-browser-link/cloud_link/native_host.py':cloudHost,
+ const files=${JSON.stringify({...copilotFiles,'fast-browser-link/desktop/plugin.js':'new-desktop','fast-browser-link/cloud_link/native_host.py':cloudHost,
   'fast-browser-link/maintenance/install-cli.py':cli,'native-extension/manifest.json':JSON.stringify({name:'Test extension',version:'1.0.0'})})};
  const hashes={};
  for(const [name,content] of Object.entries(files)){
@@ -232,6 +237,9 @@ test('dev-sync 一条命令：暂停 Hermes、写维护标记、停止已核实 
  assert.equal(result.status,0,result.stderr);
  const output=JSON.parse(result.stdout);
  assert.equal(output.status,'synced');
+ const copilot=JSON.parse(await readFile(path.join(f.data,'copilot/config.json'),'utf8'));
+ assert.equal(copilot.context_limit,8000);
+ assert.equal((await readdir(path.join(f.data,'copilot/templates'))).length,5);
  assert.equal(output.daemonStopped,true);
  assert.equal(output.hermesPausedBefore,false);
  // 中文注释：daemon 收到 SIGTERM 后自行收尾，退出码为 0 而不是被强杀。
@@ -380,4 +388,24 @@ test('tasks:ack 拒绝未关闭、不存在、带授权、未合并日志和 dae
   assert.equal((await f.backups()).length,1);
   assert.equal(await exists(path.join(f.data,'maintenance.json')),false);
  });
+});
+
+
+test('copilot 初始化使用真实暂存运行时并保留既有配置；失败包含 Python stderr',async t=>{
+ const base=await mkdtemp(path.join(tmpdir(),'copilot-sync-'));
+ t.after(()=>rm(base,{recursive:true,force:true}));
+ const home=await realpath(base),plugin=path.join(home,'plugin');
+ const runtime=path.join(plugin,'native_bridge');
+ assert.throws(()=>initializeCopilot(home,plugin),/协作配置初始化失败[\s\S]*copilot_setup\.py/);
+ await cp(path.resolve(import.meta.dirname,'../../native-bridge'),runtime,{recursive:true});
+ initializeCopilot(home,plugin);
+ const config=path.join(home,'plugin-data/fast-browser-link-native/copilot/config.json');
+ const parsed=JSON.parse(await readFile(config,'utf8'));
+ assert.equal(parsed.context_limit,8000);assert.equal(parsed.inference_profile,'copilot');assert.equal(parsed.exec_profile,'gefei');
+ await writeFile(config,'user-owned-config');
+ initializeCopilot(home,plugin);
+ assert.equal(await readFile(config,'utf8'),'user-owned-config');
+ await writeFile(path.join(runtime,'copilot_setup.py'),"import sys; print('COPILOT_SETUP_SENTINEL',file=sys.stderr);raise SystemExit(7)\n");
+ assert.throws(()=>initializeCopilot(home,plugin),/协作配置初始化失败[\s\S]*COPILOT_SETUP_SENTINEL/);
+ assert.equal(await readFile(config,'utf8'),'user-owned-config');
 });

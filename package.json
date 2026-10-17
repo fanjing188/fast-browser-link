@@ -1,6 +1,6 @@
 {
   "name": "fast-browser-link",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "private": true,
   "description": "通过 Skills、JSON CLI 和 MCP 操作本机 Chrome/Edge，支持普通及无痕任务、连续登录日志、表单与文件工作流，并提供可选 Hermes 适配器。",
   "type": "module",

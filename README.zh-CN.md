@@ -1,17 +1,19 @@
 # Fast-browser-link
 
-**2.1.0 — macOS 发布版。** 通过 skills、JSON CLI 或 MCP stdio，让本机 agent 操作 Chrome / Edge，支持普通登录态、无痕任务及跨登录跳转的连续任务日志。
+**2.2.0 — macOS 本地候选。** 通过 skills、JSON CLI 或 MCP stdio，让本机 agent 操作 Chrome / Edge，支持普通登录态、无痕任务及跨登录跳转的连续任务日志。
 
 [English](README.md)
+
+本候选尚未发布。[协作模式](docs/copilot.zh-CN.md)已有精简 profile 本机测量，真实浏览器验收仍待完成；下方下载命令为正式 Release 的安装流程。
 
 ## 安装独立 skills 模式
 
 下载 Release 安装包，不要使用 GitHub 自动生成的 Source code ZIP。需要 Python 3.11+；安装包已包含构建后的扩展，不需要 Node.js 或 Hermes。
 
 ```sh
-curl -fL https://github.com/fanjing188/fast-browser-link/releases/download/v2.1.0/fast-browser-link-2.1.0.zip -o fast-browser-link-2.1.0.zip
-unzip fast-browser-link-2.1.0.zip
-cd fast-browser-link-2.1.0
+curl -fL https://github.com/fanjing188/fast-browser-link/releases/download/v2.2.0/fast-browser-link-2.2.0.zip -o fast-browser-link-2.2.0.zip
+unzip fast-browser-link-2.2.0.zip
+cd fast-browser-link-2.2.0
 bash install.sh --dry-run
 bash install.sh
 ```
@@ -43,11 +45,11 @@ agent 必须能读取本机文件并执行 Python。独立 skills 模式无需 M
 
 ## 可选 Hermes 适配器
 
-默认 ZIP 安装独立 skills。需要 Hermes 原生工具和 Desktop 集成时，下载单独的 `fast-browser-link-hermes-2.1.0.zip`，或在源码目录执行 `bash install.sh --hermes-plugin`。旧 `browser-link` 插件存在时，安装器拒绝冲突启用。
+默认 ZIP 安装独立 skills。需要 Hermes 原生工具和 Desktop 集成时，下载单独的 `fast-browser-link-hermes-2.2.0.zip`，或在源码目录执行 `bash install.sh --hermes-plugin`。旧 `browser-link` 插件存在时，安装器拒绝冲突启用。
 
 `browser_exec` 等官方 `browser_*` 工具属于 Hermes。适配器仅在获得 `tools.override` 授权后，通过公开接口路由已绑定任务；未绑定会话保持原处理器，卸载恢复原注册。不会修改 Hermes 源码。Vault 覆盖另需显式开启。
 
-详见 [Hermes 安装与维护](docs/installation.md)、[使用说明](docs/usage.md)、[安全说明](SECURITY.md)和[发布说明](docs/release-2.1.0.md)。
+详见 [Hermes 安装与维护](docs/installation.md)、[使用说明](docs/usage.md)、[安全说明](SECURITY.md)和[发布说明](docs/release-2.2.0.md)。
 
 ## 开发与验证
 

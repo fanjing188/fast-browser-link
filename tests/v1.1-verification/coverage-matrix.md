@@ -4,6 +4,9 @@
 
 ## 核心 Node
 
+- `tests/copilot/copilot.test.mjs`：有界语义采集、输入值排除、特殊页跳过、有序轨迹、动态注册和看板消息身份。
+- `tests/copilot/test_copilot.py`：假 ACP 与独立 Hermes 子进程端到端、参数/流解析、单飞节流、稳定建议、profile 初始化幂等、进程树停止及报告/词池落盘。
+
 - `browser-diagnostics/tests/diagnostics.test.mjs`：发布 JSON Schema 关键字、JS 与真实 Python 源码错误码契约对照，类型及末尾换行拒绝
 
 - `bench/site/server.test.mjs`：本地站重定向、目录懒加载、第二主机查询、分页、multipart 提交与日志重置；不绑定 TCP 端口

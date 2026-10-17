@@ -57,7 +57,7 @@ def stage(home: Path, extension_origins: Iterable[str], *, runtime_home: Path | 
     if not diagnostics_source.is_dir():
         diagnostics_source = source_dir.parent / "browser-diagnostics" / "python" / "browser_diagnostics"
     # 中文注释：同一清单用于预检及复制，避免安装文件与防链接检查范围不一致。
-    native_files = ("cookie_mirror.py", "host.py", "client.py", "daemon.py", "api_client.py", "artifacts.py", "downloads.py", "cdp_gateway.py", "vault_private.py", "vault_client.py")
+    native_files = ("copilot.py", "copilot_acp.py", "copilot_execution.py", "copilot_setup.py", "cookie_mirror.py", "host.py", "client.py", "daemon.py", "api_client.py", "artifacts.py", "downloads.py", "cdp_gateway.py", "vault_private.py", "vault_client.py")
     diagnostic_files = ("__init__.py", "schema.py", "runtime.py", "sink.py")
     required = [source_dir / name for name in native_files]
     required += [diagnostics_source / name for name in diagnostic_files]
@@ -86,6 +86,26 @@ def stage(home: Path, extension_origins: Iterable[str], *, runtime_home: Path | 
         destination = host_bin / filename
         shutil.copyfile(source_dir / filename, destination)
         os.chmod(destination, 0o600)
+
+    # 中文注释：随 Native 运行时复制通用模板；仅在目标不存在时初始化用户模板和配置。
+    templates_source = source_dir / 'copilot-templates'
+    templates_target = host_bin / 'copilot-templates'
+    for origin in templates_source.rglob('*.json'):
+        target = templates_target / origin.relative_to(templates_source)
+        if any(part.is_symlink() for part in (target, *target.parents)):
+            raise ValueError('copilot template target contains symlink')
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(origin, target)
+    import importlib.util
+    import sys
+    sys.path.insert(0, str(source_dir))
+    try:
+        spec = importlib.util.spec_from_file_location('fast_copilot_setup', source_dir / 'copilot_setup.py')
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        module.setup(data_dir / 'copilot', templates_source)
+    finally:
+        sys.path.pop(0)
 
     # Packaged runtime uses an adjacent package; checkout staging uses canonical source
     # (resolved in the preflight above).

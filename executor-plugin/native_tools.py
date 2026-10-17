@@ -164,6 +164,7 @@ TOOL_SCHEMAS = {
             'method': _text(128), 'cdp_params': {'type': 'object', 'description': '原始 CDP 参数对象。'},
             'target_id': _text(128),
             'max': {'type': 'integer', 'minimum': 1, 'maximum': 500},
+            'cursor': {'type': 'integer', 'minimum': 0, 'maximum': 9007199254740991},
             'clear': {'type': 'boolean'}, 'accept': {'type': 'boolean'}, 'prompt_text': {'type': 'string', 'maxLength': 10000}},
             ('task_id', 'action'))},
 }
@@ -440,7 +441,7 @@ def _validate(tool_name, args):
             'interaction.drag_coordinates': {'mode', 'steps'},
             'interaction.drag_elements': {'mode', 'steps'},
             'js.evaluate': {'world', 'await_promise', 'timeout_ms', 'frame_token', 'arguments'},
-            'cdp.send': {'cdp_params', 'frame_token', 'target_id', 'timeout_ms'}, 'cdp.events': {'max'},
+            'cdp.send': {'cdp_params', 'frame_token', 'target_id', 'timeout_ms'}, 'cdp.events': {'max', 'cursor'},
             'console': {'clear'}, 'dialog': {'prompt_text'},
         }
         if action in {'click', 'fill', 'press', 'ref_click', 'ref_fill', 'ref_press', 'ref_set_checked', 'ref_select_option'}:
@@ -506,7 +507,7 @@ def make_tool_handler(tool_name, profile_runtime, *, host_bridge=None, backend_c
                        'source': 'source', 'target': 'target', 'mode': 'mode', 'steps': 'steps',
                        'direction': 'direction',
                        'arguments': 'arguments', 'expression': 'expression', 'world': 'world', 'await_promise': 'awaitPromise',
-                       'timeout_ms': 'timeoutMs', 'method': 'method', 'cdp_params': 'params', 'max': 'max',
+                       'timeout_ms': 'timeoutMs', 'method': 'method', 'cdp_params': 'params', 'max': 'max', 'cursor': 'cursor',
                        'sites': 'sites', 'transfer_id': 'transferId',
                        'clear': 'clear', 'accept': 'accept', 'prompt_text': 'promptText'}
             for key, wire in mapping.items():

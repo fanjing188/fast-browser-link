@@ -51,7 +51,16 @@ def render():
              '## Python helpers', '']
     for helper in helper_catalog():
         lines += ['### `' + helper['signature'] + '`', '', helper['description'].replace('\n', ' '), '', '扩展能力：`' + helper['requires'] + '`。', '']
-    lines += ['## Tool schemas', '']
+    lines += ['## CDP event pagination', '',
+              '先用 `cdp("Network.enable")` 订阅，再从 `cursor=0` 开始读取；每次保存返回 cursor，hasMore=true 时继续。空批次不代表页面已停止产生事件。', '',
+              '```python', 'cursor = 0', 'while True:', '    batch = cdp_events(max=500, cursor=cursor)',
+              '    if batch["dropped"]:', '        raise RuntimeError("event gap: " + str(batch["lostRanges"]))',
+              '    events = batch["events"]', '    cursor = batch["cursor"]', '    if not batch["hasMore"]:', '        break', '```', '',
+              '游标日志按任务/标签页独立，序号单调递增，重复游标可重读保留区间；它与旧消费队列及网关推送互不消费。单页最多 500 条/256 KiB UTF-8，日志最多 10000 条/8 MiB，撤权或任务释放即清空，不落盘。过旧游标或单事件超过页字节限制时，dropped 为本次跨过的缺失事件数，lostRanges 的 from/to 是闭区间；不能宣称完整。requestState={state:"unknown",throughSequence:N,reason:"event_gap"} 将 N 之前开始且未实际收到终结的请求明确标为未知，不伪造 loadingFinished/loadingFailed。收到后续真实终结可以更新状态。', '',
+              '省略 cursor 保持旧的 500 条消费队列：取走事件，溢出计数在读取后清零，新增 lostRanges 和未知状态标记。多次读取使用新 request_id；同一 RPC request_id 仍受既有去重账本约束。缓存读取在任务读屏障内独立于同页长命令锁，身份、租约、代次、来源、凭据页排斥及密码值过滤继续生效。凭据请求/响应头、Cookie 附带元数据和 Bearer 值在入队前剥离。', '',
+              '## Diagnostic runtime', '',
+              'health/browsers 使用运行时已解析的 bridge_home；doctor/reference 跟随同一个根，不重新选择安装。解析优先 FAST_BROWSER_BRIDGE_HOME，其次命名 profile 的共享根，最后当前运行时根。doctor/reference 的 runtime 显示 profileHome、bridgeHome、socket、tokenFile、pidFile（仅路径，不读出令牌内容）；doctor 的浏览器检查另列 manifestFile 和 launcher。命令行 doctor 不加载 Hermes .env，需继承相同环境；不猜测或切换另一套在线安装。插件安装检查仍针对 profile，连接检查针对 bridgeHome，不能把 plugin_missing 解释为扩展断连。', '',
+              '## Tool schemas', '']
     # 中文注释：保留完整 JSON schema，避免手工参数表与注册接口漂移。
     for name, schema in tools.items():
         lines += ['### `' + name + '`', '', '```json', json.dumps(schema, ensure_ascii=False, indent=2), '```', '']
@@ -80,7 +89,7 @@ def register(ctx, runtime, home, *, lease_error):
                 path = ROOT / 'native_bridge/doctor.py'
                 if not path.is_file():
                     path = ROOT.parent / 'native-bridge/doctor.py'
-                return json.dumps(load(path).diagnose(home), ensure_ascii=False)
+                return json.dumps(load(path).diagnose(home, bridge_home=runtime.bridge_home), ensure_ascii=False)
             try:
                 query = args.get('query', '')
                 if not isinstance(query, str) or len(query) > 500:
@@ -89,8 +98,12 @@ def register(ctx, runtime, home, *, lease_error):
                 path = ROOT / 'native_bridge/doctor.py'
                 if not path.is_file():
                     path = ROOT.parent / 'native-bridge/doctor.py'
-                live = load(path).probe(home)
-                return json.dumps(project(live.get('browsers', []), args.get('instance_id'), query), ensure_ascii=False)
+                doctor = load(path)
+                live = doctor.probe(runtime.bridge_home)
+                result = project(live.get('browsers', []), args.get('instance_id'), query)
+                result['runtime'] = {'profileHome': str(Path(home).resolve()), **doctor.runtime_paths(runtime.bridge_home)}
+                result['probe'] = {'ok': live.get('ok') is True, 'code': live.get('code', 'connected' if live.get('ok') else 'host_unconfirmed')}
+                return json.dumps(result, ensure_ascii=False)
             except (OSError, ValueError):
                 return json.dumps({'ok': False, 'code': 'reference_unavailable'})
         return handler

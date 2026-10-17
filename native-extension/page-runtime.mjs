@@ -8,6 +8,10 @@ import {debuggerTargetId} from './official-actions.mjs';
 export const MAX_JS_RESULT_CHARS=256*1024;
 export const MAX_EXPRESSION_CHARS=100000;
 export const EVENT_BUFFER_LIMIT=500;
+export const EVENT_JOURNAL_LIMIT=10000;
+const EVENT_JOURNAL_BYTES=8*1024*1024,EVENT_PAGE_BYTES=256*1024;
+const eventBytes=value=>new TextEncoder().encode(JSON.stringify(value)).length;
+const eventBuffer=()=>({events:[],legacyBytes:0,dropped:0,lostFrom:null,lostTo:null,journal:[],bytes:0,sequence:0});
 export const CHUNK_CHARS=512*1024;
 const MAX_CHUNKS=64;
 const JS_DEFAULT_TIMEOUT_MS=10000,JS_MAX_TIMEOUT_MS=60000;
@@ -272,9 +276,15 @@ export class PageRuntime{
   const sub=resources.subscriptions.get(`${tabId}|${source.sessionId||''}`);if(!sub)return;
   const scrubbed=scrubCdpEvent(method,params);if(scrubbed===null)return;
   if(sub.buffer){
-   const buffer=resources.buffers.get(tabId)||{events:[],dropped:0};resources.buffers.set(tabId,buffer);
-   if(buffer.events.length>=EVENT_BUFFER_LIMIT)buffer.dropped++;
-   else buffer.events.push({method,params:scrubbed,...(source.sessionId?{childSession:true}:{})});
+   const buffer=resources.buffers.get(tabId)||eventBuffer();resources.buffers.set(tabId,buffer);
+   const event={method,params:scrubbed,...(source.sessionId?{childSession:true}:{})};
+   const row={...event,sequence:++buffer.sequence},bytes=eventBytes(row);
+   // 中文注释：超大事件只保留缺口；有界日志淘汰最早事件，游标读者会得到精确丢失区间。
+   if(bytes<=EVENT_PAGE_BYTES){buffer.journal.push({event:row,bytes});buffer.bytes+=bytes;}
+   while(buffer.journal.length>EVENT_JOURNAL_LIMIT||buffer.bytes>EVENT_JOURNAL_BYTES)buffer.bytes-=buffer.journal.shift().bytes;
+   if(buffer.events.length>=EVENT_BUFFER_LIMIT||buffer.legacyBytes+bytes>EVENT_JOURNAL_BYTES||bytes>EVENT_PAGE_BYTES){
+    buffer.dropped++;buffer.lostFrom??=row.sequence;buffer.lostTo=row.sequence;
+   }else {buffer.events.push({event,sequence:row.sequence,bytes});buffer.legacyBytes+=bytes;}
   }
   if(!sub.push)return;
   if(this.pending.length>=EVENT_BUFFER_LIMIT*4){this.dropped=(this.dropped||0)+1;return;}
@@ -301,10 +311,35 @@ export class PageRuntime{
  }
  drain(t,p,max=200){
   this.assert(t,p);
-  const buffer=t.execution.buffers.get(p.tabId)||{events:[],dropped:0};
-  const events=buffer.events.splice(0,Math.min(Math.max(1,max),EVENT_BUFFER_LIMIT));
-  const dropped=buffer.dropped;buffer.dropped=0;
-  return {events,dropped,remaining:buffer.events.length};
+  const resources=t.execution;
+  const buffer=resources.buffers.get(p.tabId)||eventBuffer();resources.buffers.set(p.tabId,buffer);
+  if(!Number.isInteger(max)||max<1||max>EVENT_BUFFER_LIMIT)throw fail('INVALID_EVENT_COUNT');
+  const gaps=[];
+  const gap=(from,to)=>{if(from<=to)gaps.push({from,to});};
+  let events=[],cursor,remaining,dropped=0,bytes=0;
+  if(p.cursor!==undefined){
+   if(!Number.isSafeInteger(p.cursor)||p.cursor<0||p.cursor>buffer.sequence)throw fail('INVALID_EVENT_CURSOR');
+   cursor=p.cursor;
+   for(const row of buffer.journal){
+    if(row.event.sequence<=cursor)continue;
+    if(events.length>=max||bytes+row.bytes>EVENT_PAGE_BYTES)break;
+    gap(cursor+1,row.event.sequence-1);cursor=row.event.sequence;
+    events.push(row.event);bytes+=row.bytes;
+   }
+   remaining=buffer.journal.filter(row=>row.event.sequence>cursor).length;
+   if(!remaining){gap(cursor+1,buffer.sequence);cursor=buffer.sequence;}
+   dropped=gaps.reduce((sum,row)=>sum+row.to-row.from+1,0);
+  }else{
+   while(buffer.events.length&&events.length<max&&bytes+buffer.events[0].bytes<=EVENT_PAGE_BYTES){
+    const row=buffer.events.shift();buffer.legacyBytes-=row.bytes;events.push(row.event);bytes+=row.bytes;
+   }
+   dropped=buffer.dropped;gap(buffer.lostFrom??1,buffer.lostTo??0);
+   buffer.dropped=0;buffer.lostFrom=null;buffer.lostTo=null;
+   remaining=buffer.events.length;
+  }
+  // 中文注释：缺口可能包含终结事件，明确把此前所有未见终结的请求标记未知，不能推断成功或仍在加载。
+  return {events,dropped,remaining,hasMore:remaining>0,...(cursor!==undefined?{cursor}:{}),
+   lostRanges:gaps,...(dropped?{requestState:{state:'unknown',throughSequence:gaps.at(-1).to,reason:'event_gap'}}:{})};
  }
  // 中文注释：网关列出的目标只含本任务租约内、来源已授权的页面与已发现的子 frame 会话。
  async targets(t,p,guard){

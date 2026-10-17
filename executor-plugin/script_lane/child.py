@@ -776,9 +776,12 @@ def cdp(method, frame_token=None, tab=None, **params):
 
 
 @_tab_scoped
-def cdp_events(max=200, *, tab=None):
-    """取出本任务页已订阅的 CDP 事件（有上限，dropped 表示溢出丢弃数）。"""
-    return _call('run', ['cdp.events', {'max': int(max)}])
+def cdp_events(max=200, *, cursor=None, tab=None):
+    """读取本任务页已订阅的 CDP 事件。cursor=0 开始分页，随后传回执 cursor，循环到 hasMore=false；每页最多 500 条且 256 KiB。游标日志最多 10000 条/8 MiB，仅内存保存；超限或单事件过大时 dropped/lostRanges 明示缺口，requestState.state=unknown 表示缺口之前开始且尚未见终结的请求状态未知。省略 cursor 保持旧的 500 条消费队列及 dropped 语义，互不消费游标日志。"""
+    payload = {'max': max}
+    if cursor is not None:
+        payload['cursor'] = cursor
+    return _call('run', ['cdp.events', payload])
 
 
 @_tab_scoped

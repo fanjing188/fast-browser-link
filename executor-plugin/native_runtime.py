@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import hashlib
 import importlib.util
-import os
 import secrets
 import json
 import sqlite3
@@ -101,18 +100,14 @@ class NativeProfileRuntime:
         self.hermes_home = Path(hermes_home).expanduser().resolve()
         self.plugin_root = Path(plugin_root).expanduser().resolve()
         self.authority = NativeOwnerAuthority(self.hermes_home / 'plugin-data' / 'fast-browser-link-native' / 'authority')
-        # 中文注释：扩展只连默认 HERMES_HOME 的守护进程；其他 profile 设 FAST_BROWSER_BRIDGE_HOME 共用它。
-        # 任务仍按本 profile 的 owner 身份隔离，凭据库（vault）不共用。
-        bridge_home = os.environ.get('FAST_BROWSER_BRIDGE_HOME', '').strip()
-        if bridge_home:
-            self.bridge_home = Path(bridge_home).expanduser().resolve()
-        elif self.hermes_home.parent.name == 'profiles':
-            # 中文注释：网关多 profile 模式下 .env 不进 os.environ，按目录结构回退到 ~/.hermes。
-            self.bridge_home = self.hermes_home.parent.parent
-        else:
-            self.bridge_home = self.hermes_home
+        candidates = (self.plugin_root / 'native_bridge/client.py', self.plugin_root.parent / 'native-bridge/client.py')
+        entry = next((path for path in candidates if path.is_file()), None)
+        if entry is None:
+            raise RuntimeError('尚未安装共享浏览器桥接服务')
+        client_module = load_module(entry, 'hermes_browser_native_client_')
+        self.bridge_home = client_module.resolve_bridge_home(self.hermes_home)
         self._client = bridge_client
-        self._client_module = None
+        self._client_module = client_module
         self._lock = threading.RLock()
         self._closed = False
         self._thread_clients = {}
@@ -145,13 +140,6 @@ class NativeProfileRuntime:
         with self._lock:
             if self._closed:
                 raise RuntimeError('共享浏览器工具已卸载')
-            if self._client is None and self._client_module is None:
-                candidates = (self.plugin_root / 'native_bridge' / 'client.py',
-                              self.plugin_root.parent / 'native-bridge' / 'client.py')
-                entry = next((path for path in candidates if path.is_file()), None)
-                if entry is None:
-                    raise RuntimeError('尚未安装共享浏览器桥接服务')
-                self._client_module = load_module(entry, 'hermes_browser_native_client_')
             if self._client is not None:
                 client = self._client
             else:

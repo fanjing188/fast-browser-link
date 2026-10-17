@@ -276,9 +276,9 @@ Wait until document.readyState reaches ``until``; returns the final state.  The 
 
 扩展能力：`browser_core_v1`。
 
-### `cdp_events(max=200, *, tab=None)`
+### `cdp_events(max=200, *, cursor=None, tab=None)`
 
-取出本任务页已订阅的 CDP 事件（有上限，dropped 表示溢出丢弃数）。
+读取本任务页已订阅的 CDP 事件。cursor=0 开始分页，随后传回执 cursor，循环到 hasMore=false；每页最多 500 条且 256 KiB。游标日志最多 10000 条/8 MiB，仅内存保存；超限或单事件过大时 dropped/lostRanges 明示缺口，requestState.state=unknown 表示缺口之前开始且尚未见终结的请求状态未知。省略 cursor 保持旧的 500 条消费队列及 dropped 语义，互不消费游标日志。
 
 扩展能力：`browser_core_v1`。
 
@@ -317,6 +317,30 @@ After BrowserError.outcome_unknown: read the page to check what happened, then c
 Wait for the same approval/manual-input request (max 300 s), without creating a new action. Sensitive-field manual input returns the original receipt. Login-window adoption runs directly without confirmation and does not need this helper. Unknown outcomes are never replayed.
 
 扩展能力：`browser_core_v1`。
+
+## CDP event pagination
+
+先用 `cdp("Network.enable")` 订阅，再从 `cursor=0` 开始读取；每次保存返回 cursor，hasMore=true 时继续。空批次不代表页面已停止产生事件。
+
+```python
+cursor = 0
+while True:
+    batch = cdp_events(max=500, cursor=cursor)
+    if batch["dropped"]:
+        raise RuntimeError("event gap: " + str(batch["lostRanges"]))
+    events = batch["events"]
+    cursor = batch["cursor"]
+    if not batch["hasMore"]:
+        break
+```
+
+游标日志按任务/标签页独立，序号单调递增，重复游标可重读保留区间；它与旧消费队列及网关推送互不消费。单页最多 500 条/256 KiB UTF-8，日志最多 10000 条/8 MiB，撤权或任务释放即清空，不落盘。过旧游标或单事件超过页字节限制时，dropped 为本次跨过的缺失事件数，lostRanges 的 from/to 是闭区间；不能宣称完整。requestState={state:"unknown",throughSequence:N,reason:"event_gap"} 将 N 之前开始且未实际收到终结的请求明确标为未知，不伪造 loadingFinished/loadingFailed。收到后续真实终结可以更新状态。
+
+省略 cursor 保持旧的 500 条消费队列：取走事件，溢出计数在读取后清零，新增 lostRanges 和未知状态标记。多次读取使用新 request_id；同一 RPC request_id 仍受既有去重账本约束。缓存读取在任务读屏障内独立于同页长命令锁，身份、租约、代次、来源、凭据页排斥及密码值过滤继续生效。凭据请求/响应头、Cookie 附带元数据和 Bearer 值在入队前剥离。
+
+## Diagnostic runtime
+
+health/browsers 使用运行时已解析的 bridge_home；doctor/reference 跟随同一个根，不重新选择安装。解析优先 FAST_BROWSER_BRIDGE_HOME，其次命名 profile 的共享根，最后当前运行时根。doctor/reference 的 runtime 显示 profileHome、bridgeHome、socket、tokenFile、pidFile（仅路径，不读出令牌内容）；doctor 的浏览器检查另列 manifestFile 和 launcher。命令行 doctor 不加载 Hermes .env，需继承相同环境；不猜测或切换另一套在线安装。插件安装检查仍针对 profile，连接检查针对 bridgeHome，不能把 plugin_missing 解释为扩展断连。
 
 ## Tool schemas
 
@@ -1001,6 +1025,11 @@ Wait for the same approval/manual-input request (max 300 s), without creating a 
         "type": "integer",
         "minimum": 1,
         "maximum": 500
+      },
+      "cursor": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9007199254740991
       },
       "clear": {
         "type": "boolean"

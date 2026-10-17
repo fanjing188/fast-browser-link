@@ -103,5 +103,17 @@ class ProjectionTests(unittest.TestCase):
             self.assertEqual(daemon.dedupe['t']['0'], ('payload', None, None))
             self.assertEqual(len(task['requestHistory']), 12)
 
+
+class EventCursorTests(unittest.TestCase):
+    def test_cursor_and_page_size_are_forwarded_without_coercing_invalid_inputs(self):
+        child = load('child')
+        with patch.object(child, '_call', return_value={'events': [], 'cursor': 17}) as call:
+            child.cdp_events(max=500, cursor=0, tab=7)
+            self.assertEqual(call.call_args.args, ('run', ['cdp.events', {'max': 500, 'cursor': 0}]))
+            child.cdp_events(cursor=17)
+            self.assertEqual(call.call_args.args[1][1]['cursor'], 17)
+            child.cdp_events()
+            self.assertNotIn('cursor', call.call_args.args[1][1])
+
 if __name__ == '__main__':
     unittest.main()

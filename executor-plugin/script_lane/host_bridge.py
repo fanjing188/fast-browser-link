@@ -295,10 +295,20 @@ class HostBridge:
                     revoked = state['revocations'][actions._task_id]
             if revoked.is_set():
                 raise BridgeDenied('native task binding revoked')
-            with actions._rpc_lock:
-                selected = actions if op in {'use_tab', 'current_tab', 'capabilities', 'checkpoint'} else actions.for_tab(request['tab']) if 'tab' in request else (
-                    actions.for_tab(actions.tab_id) if actions.tab_id is not None and op not in
-                    {'new_tab', 'official.new_tab', 'use_tab', 'current_tab', 'reconnect', 'capabilities', 'checkpoint'} and actions._pending is None else actions)
+            event_read = op == 'run' and isinstance(args, list) and len(args) == 2 and args[0] == 'cdp.events'
+            if event_read:
+                with state['guard']:
+                    selected = actions.for_tab(request.get('tab', actions.tab_id), event_reader=True)
+            else:
+                with actions._rpc_lock:
+                    if op in {'use_tab', 'current_tab', 'capabilities', 'checkpoint'}:
+                        selected = actions
+                    elif 'tab' in request:
+                        selected = actions.for_tab(request['tab'])
+                    elif actions.tab_id is not None and actions._pending is None and op not in {'new_tab', 'official.new_tab', 'reconnect'}:
+                        selected = actions.for_tab(actions.tab_id)
+                    else:
+                        selected = actions
             selected._rpc_lock.acquire()
             try:
                 if op == 'capabilities' and args == []:

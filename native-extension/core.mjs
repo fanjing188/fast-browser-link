@@ -1611,6 +1611,15 @@ export class Executor {
    if(!Number.isInteger(p.tabId))throw Error('explicit tabId required');
    if(this.leases.get(p.tabId)!==t.id)throw Error('tab lease denied');
   }
+  // 中文注释：取证只读内存，不占同页命令锁；仍在任务读屏障内复核来源、租约、代次与凭据排斥。
+  if(p.action==='cdp.events')return this.taskBarrier(t.id,false,async()=>{
+   const guard=()=>{this.check(t,p);this.pageRuntime.assert(t,p);};
+   guard();const tab=await this.api.tabs.get(p.tabId);guard();this.allowed(t,tab.url);
+   await this.collectPasswords(t,p);guard();
+   const result=this.pageRuntime.drain(t,p,p.max);
+   const passwords=await this.collectPasswords(t,p);guard();
+   return omitPasswordValues(result,passwords);
+  });
   if(p.action==='popup_catalog')return this.taskBarrier(t.id,false,()=>this.lock(p.tabId,()=>this.popupReceipt(t,p,()=>this.popups.catalog(t,p,this.popupGuard(t,p)))));
   if(p.action==='popup_adopt')return this.popupReceipt(t,p,()=>this.adoptPopup(t,p));
   p={...p,[OVERLAY_ACTION_TOKEN]:crypto.randomUUID()};

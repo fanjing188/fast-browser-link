@@ -23,6 +23,22 @@ _STARTUP_LOCKS_GUARD = threading.Lock()
 _STARTUP_LOCKS: dict[Path, threading.Lock] = {}
 
 
+def resolve_bridge_home(home):
+    """中文注释：RPC 与只读诊断共用显式桥接根/profile 解析；不按在线状态猜测其他安装。"""
+    home = Path(home).expanduser().resolve()
+    override = os.environ.get('FAST_BROWSER_BRIDGE_HOME', '').strip()
+    if override:
+        return Path(override).expanduser().resolve()
+    return home.parent.parent if home.parent.name == 'profiles' else home
+
+
+def runtime_paths(home):
+    home = Path(home).expanduser().resolve()
+    data = _data_dir(home)
+    return {'bridgeHome': str(home), 'socket': str(data / 'bridge.sock'),
+            'tokenFile': str(data / 'token'), 'pidFile': str(data / 'daemon.pid')}
+
+
 def _data_dir(home: os.PathLike[str] | str) -> Path:
     return Path(home).expanduser().resolve() / "plugin-data" / "fast-browser-link-native"
 

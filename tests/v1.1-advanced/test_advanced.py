@@ -405,5 +405,18 @@ class PageExecutionDaemonTests(unittest.TestCase):
         self.assertEqual(len(stopped()), 1)
 
 
-if __name__ == "__main__":
+
+class EventSchemaTests(unittest.TestCase):
+    def test_cursor_is_optional_bounded_integer_and_does_not_widen_other_actions(self):
+        validate = daemon_module.BridgeDaemon._validate_run_params
+        base = {'owner': 'owner', 'taskId': 'task', 'requestId': 'req', 'action': 'cdp.events', 'tabId': 7, 'max': 500}
+        validate('cdp.events', base)
+        validate('cdp.events', {**base, 'cursor': 0})
+        for cursor in (-1, True, 1.5, '0', None, 9007199254740992):
+            with self.subTest(cursor=cursor), self.assertRaises(daemon_module.ProtocolError):
+                validate('cdp.events', {**base, 'cursor': cursor})
+        with self.assertRaises(daemon_module.ProtocolError):
+            validate('cdp.send', {**base, 'action': 'cdp.send', 'method': 'Network.enable', 'cursor': 0})
+
+if __name__ == '__main__':
     unittest.main()

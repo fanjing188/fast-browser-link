@@ -65,7 +65,7 @@ async function sourceSnapshot() {
     const file = path.join(source,relative), stat = await lstat(file);
     if (stat.isSymbolicLink()) throw new Error(`Refusing symbolic link in package: ${file}`);
     if (stat.isDirectory()) {
-      for (const name of (await readdir(file)).sort()) if (!excluded(name)&&!(relative==='cloud-link'&&name==='site')) await visit(path.join(relative,name));
+      for (const name of (await readdir(file)).sort()) if (!excluded(name)&&!(relative==='cloud-link'&&name==='site')&&!(relative==='docs'&&name==='growth')) await visit(path.join(relative,name));
     } else if (stat.isFile()) {
       if(tracked&&!tracked.has(relative.split(path.sep).join('/')))throw new Error(`Formal release input is not tracked: ${relative}`);
       entries[relative] = createHash('sha256').update(await readFile(file)).digest('hex');
@@ -258,7 +258,7 @@ try {
   await writeFile(path.join(output,'README.md'),installation.replace(/\]\((agent-install-prompt|configuration|development)\.md\)/g,'](docs/$1.md)'));
   await mkdir(path.join(output,'docs'));
   // 中文注释：模块索引与生成接口参考随包分发，避免脚本文档链接指向缺失文件。
-  await copyTree(path.join(source,'docs'),path.join(output,'docs'));
+  await copyTree(path.join(source,'docs'),path.join(output,'docs'),new Set(['growth']));
   await copyFile(path.join(source,'CHANGELOG.md'),path.join(output,'docs/CHANGELOG.md'));
   await writeFile(path.join(output,'RELEASE-STATUS.txt'),releaseVersion?
     // 中文注释：旧更新器只识别 RELEASE V 前缀，必须在其进入旧 CLI 前拒绝共享安装包。

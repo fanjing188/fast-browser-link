@@ -65,3 +65,6 @@ tests/v1.1-verification/fast-browser-full-*.json
 
 # Local collaboration settings (never packaged).
 .copilot-config.local.json
+
+# Local briefs, reports and browser evidence are not public source.
+/docs/growth/

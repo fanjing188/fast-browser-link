@@ -1,3 +1,4 @@
+import {taskTableAdapter} from '../../native-extension/copilot-table-job.mjs';
 import {CopilotBackground} from '../../native-extension/copilot-background.mjs';
 import {CloudLink} from '../support/cloud-link-stub.mjs';
 // 中文注释：VM 夹具显式注入独立 Cookie 模块，保持生产后台模块依赖一致。
@@ -57,12 +58,12 @@ async function harness(initialStorage={},manifestVersion=packageVersion){
   alarms:{create(){},onAlarm:event},tabs:{onCreated:event,onRemoved:event,onUpdated:event,query:async()=>[{id:7,url:'https://example.test/work',title:'工作页'}],get:async()=>({id:7,url:'https://example.test/work'})},debugger:{onDetach:event}
  };
  // Only ES module linking is replaced. The background handler body is unchanged.
- vm.runInNewContext(background.replace(/^import .*;\n/gm,''),{CopilotBackground,CloudLink,CookieMirror,Executor:TestExecutor,NativeWorkspaces:TestWorkspaces,Bridge,BrowserConsent,isUiSender,reloadForInstalledBuild:async()=>false,BUILD_ID:'',registerWorkspaceStartup:()=>{},origin:u=>new URL(u).origin,chrome:api,navigator:{userAgent:'Node DOM harness'},crypto:globalThis.crypto,console});
+ vm.runInNewContext(background.replace(/^import .*;\n/gm,''),{taskTableAdapter,CopilotBackground,CloudLink,CookieMirror,Executor:TestExecutor,NativeWorkspaces:TestWorkspaces,Bridge,BrowserConsent,isUiSender,reloadForInstalledBuild:async()=>false,BUILD_ID:'',registerWorkspaceStartup:()=>{},origin:u=>new URL(u).origin,chrome:api,navigator:{userAgent:'Node DOM harness'},crypto:globalThis.crypto,console});
  const flush=async()=>{for(let i=0;i<6;i++)await new Promise(r=>setImmediate(r));};await flush();
  const sender={id:'test',url:'chrome-extension://test/popup.html'};
  const send=m=>new Promise(resolve=>{popupCalls.push(clone(m));assert.equal(dispatch(m,sender,resolve),true);});
  const dom=new JSDOM(html,{url:sender.url,runScripts:'outside-only',pretendToBeVisual:true});
- dom.window.chrome={tabs:api.tabs,runtime:{getManifest:api.runtime.getManifest,sendMessage:send,onMessage:{addListener(){}}}};dom.window.setInterval=f=>{poll=f;return 1;};dom.window.clearInterval=()=>{};
+ dom.window.chrome={i18n:{getUILanguage:()=> 'zh-CN'},tabs:api.tabs,runtime:{getManifest:api.runtime.getManifest,sendMessage:send,onMessage:{addListener(){}}}};dom.window.setInterval=f=>{poll=f;return 1;};dom.window.clearInterval=()=>{};
  dom.window.eval(popup);await flush();
  const d=dom.window.document;
  const click=async selector=>{const b=d.querySelector(selector);assert.ok(b,selector);assert.equal(b.disabled,false,selector);b.click();await flush();};
@@ -104,7 +105,7 @@ test('connected task is full-only without selecting user tabs or a mode confirma
 
 test('popup exposes connection status without mode switch; foreign senders cannot change authorization',async()=>{
  const h=await harness();
- assert.match(h.d.querySelector('#connection-label').textContent,/已连接/);
+ assert.match(h.d.querySelector('#connection-label').getAttribute('aria-label'),/已连接/);
  assert.equal(h.d.querySelector('#tasks'),null);
  assert.equal(h.d.querySelector('#diagnostics'),null);
  assert.equal(h.d.querySelector('#access-toggle'),null);

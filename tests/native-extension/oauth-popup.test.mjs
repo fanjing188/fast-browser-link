@@ -260,7 +260,7 @@ test('adopted popup mounts a persistent cursor, veil and takeover/stop controls 
   const host=dom.window.document.querySelector('[data-fast-automation-overlay]');assert.ok(host);
   assert.equal(host.style.pointerEvents,'auto');assert.ok(shadow.querySelector('[data-role="veil"]'));
   assert.equal(shadow.querySelector('[data-role="virtual-cursor"]').style.display,'block');
-  assert.equal(shadow.querySelector('[data-action="takeover"]').textContent,'接管页面');assert.equal(shadow.querySelector('[data-action="stop"]').textContent,'停止任务');
+  assert.ok(['接管','Take over'].includes(shadow.querySelector('[data-action="takeover"]').textContent));assert.ok(['停止','Stop'].includes(shadow.querySelector('[data-action="stop"]').textContent));
   await f.executor.overlayCall(2,t.overlays.get(2),'update',{update:{state:'waiting'}});
   assert.equal(shadow.querySelector('[data-role="virtual-cursor"]').style.display,'block');
   await f.executor.release({taskId:'a',generation:1,closeAgentTabs:true});

@@ -52,9 +52,13 @@
     {
       "resources": [
         "copilot-collector.mjs",
+        "copilot-tables.mjs",
         "copilot-observation.mjs",
         "vendor/page-semantics.mjs",
-        "vendor/redact.mjs"
+        "vendor/redact.mjs",
+        "copilot-selection.mjs",
+        "copilot-i18n.mjs",
+        "brand.mjs"
       ],
       "matches": [
         "http://*/*",

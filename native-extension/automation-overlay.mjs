@@ -1,4 +1,4 @@
-const states={waiting:'Fast-browser-link 正在工作',running:'Fast-browser-link 正在工作',pausing:'正在暂停…',paused:'已暂停 · 你可以操作页面',resuming:'正在恢复…',stopping:'正在停止…',stopped:'已停止',disconnected:'与扩展的连接已断开',unknown:'状态待核查'};
+import {createOverlayView} from './overlay-view.mjs';
 const interactionLabels={click:'准备点击',input:'正在输入',select:'正在选择',drag:'正在拖动'};
 export const stepLabels=Object.freeze({
  tabs:'读取标签页',new_tab:'打开新标签页',navigate:'打开网页',back:'返回上一页',
@@ -16,7 +16,7 @@ export const stepLabels=Object.freeze({
 const rectOk=r=>r&&[r.x,r.y,r.width,r.height].every(Number.isFinite)&&r.x>=0&&r.y>=0&&r.width>0&&r.height>0&&r.width<=100000&&r.height<=100000;
 const highlightRectOk=r=>r&&[r.left,r.top,r.width,r.height].every(Number.isFinite)&&r.width>0&&r.height>0&&r.width<=100000&&r.height<=100000;
 
-export function createAutomationOverlay({document:doc=globalThis.document,taskId,generation,tabId,origin,documentId=null,onStop,onTakeover,onResume,commandTimeoutMs=8000}={}){
+export function createAutomationOverlay({document:doc=globalThis.document,taskId,generation,tabId,origin,documentId=null,title='',startedAt,language='zh',preferences={},onPreference=()=>{},onStop,onTakeover,onResume,commandTimeoutMs=8000}={}){
  if(!doc?.documentElement||doc.location?.origin!==origin||!/^https?:\/\//.test(origin)||!taskId||!Number.isSafeInteger(generation)||generation<1||!Number.isInteger(tabId)||typeof onStop!=='function'||typeof onTakeover!=='function'||typeof onResume!=='function')throw Error('overlay scope denied');
  const host=doc.createElement('div');host.dataset.fastAutomationOverlay='';host.dataset.fastOverlayTask=taskId;host.dataset.fastOverlayGeneration=String(generation);host.setAttribute?.('aria-hidden','false');
  Object.assign(host.style,{position:'fixed',inset:'0',zIndex:'2147483647',pointerEvents:'auto',background:'transparent'});
@@ -27,12 +27,16 @@ export function createAutomationOverlay({document:doc=globalThis.document,taskId
  const veil=doc.createElement('div');veil.dataset.role='veil';veil.setAttribute?.('aria-hidden','true');
  Object.assign(veil.style,{position:'fixed',inset:'0',background:'rgba(13,35,25,.10)',pointerEvents:'none'});
  const border=doc.createElement('div');border.dataset.role='border';border.setAttribute?.('aria-hidden','true');
- Object.assign(border.style,{position:'fixed',inset:'0',border:'2px solid rgba(31,117,75,.55)',boxSizing:'border-box',pointerEvents:'none'});
+ Object.assign(border.style,{position:'fixed',inset:'0',border:'2px solid var(--brand-edge)',transition:'opacity 150ms',boxSizing:'border-box',pointerEvents:'none'});
+ const corner=doc.createElement('span');corner.dataset.role='lock-corner';corner.setAttribute('aria-hidden','true');Object.assign(corner.style,{position:'fixed',right:'0',top:'0',padding:'2px 5px',font:'11px system-ui',background:'var(--brand-edge)',color:'var(--brand-surface)',borderRadius:'0 0 0 5px'});border.append(corner);
  const target=doc.createElement('div');target.dataset.role='target';target.setAttribute?.('aria-hidden','true');
  Object.assign(target.style,{position:'fixed',display:'none',border:'2px solid #e59b17',background:'rgba(229,155,23,.12)',boxSizing:'border-box',pointerEvents:'none'});
  // 中文注释：交互高亮加粗、外发光并脉冲闪烁，标签贴在目标旁边，便于实时看清正在操作的模块。
  const pulse=doc.createElement('style');
  pulse.textContent='@keyframes fast-pulse{0%{box-shadow:0 0 0 0 rgba(255,138,0,.65),0 0 14px rgba(255,138,0,.55)}100%{box-shadow:0 0 0 12px rgba(255,138,0,0),0 0 14px rgba(255,138,0,.55)}}@media(prefers-reduced-motion:reduce){[data-role="virtual-cursor"],[data-role="cursor-hint"]{transition:none!important}[data-role="cursor-ripple"]{transition:opacity 180ms cubic-bezier(.23,1,.32,1)!important;transform:none!important}[data-role="target"],[data-role="drag-start"],[data-role="drag-end"]{animation:none!important}}';
+ pulse.textContent+=`[data-action="takeover"]::before,[data-action="resume"]::before,[data-role="lock-corner"]::before{content:"";display:inline-block;width:12px;height:12px;margin-right:5px;vertical-align:-1px;background:currentColor;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='5' y='11' width='14' height='10' rx='2'/%3E%3Cpath d='M8 11V7a4 4 0 0 1 8 0v4'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='5' y='11' width='14' height='10' rx='2'/%3E%3Cpath d='M8 11V7a4 4 0 0 1 8 0v4'/%3E%3C/svg%3E") center/contain no-repeat}
+ [data-action="resume"]::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='5' y='11' width='14' height='10' rx='2'/%3E%3Cpath d='M8 11V7a4 4 0 0 1 7.5-2'/%3E%3C/svg%3E");mask-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='5' y='11' width='14' height='10' rx='2'/%3E%3Cpath d='M8 11V7a4 4 0 0 1 7.5-2'/%3E%3C/svg%3E")}
+ [data-role="lock-corner"]::before{margin-right:0}`;
  // 中文注释：扫描只动画 transform 和 opacity；减少动态效果时保留静态边框，取消大幅扫屏位移。
  pulse.textContent+=`@keyframes fast-scan{from{transform:translateY(-100%)}to{transform:translateY(calc(100vh + 100%))}}
  [data-role="parsing-beam"]{animation:fast-scan 1400ms linear infinite}
@@ -61,19 +65,12 @@ export function createAutomationOverlay({document:doc=globalThis.document,taskId
  Object.assign(cursorHint.style,{position:'fixed',left:'0',top:'0',display:'none',padding:'2px 5px',borderRadius:'4px',background:'#163a2a',color:'#fff',font:'11px system-ui',pointerEvents:'none',transition:cursorMotion,zIndex:'3'});
  const ripple=doc.createElement('div');ripple.dataset.role='cursor-ripple';ripple.setAttribute('aria-hidden','true');
  Object.assign(ripple.style,{position:'fixed',display:'none',width:'26px',height:'26px',border:'2px solid #ff8a00',borderRadius:'50%',pointerEvents:'none',zIndex:'2',opacity:'0',transition:'opacity 180ms cubic-bezier(.23,1,.32,1),transform 180ms cubic-bezier(.23,1,.32,1)'});
- const bar=doc.createElement('div');bar.dataset.role='status';
- // 中文注释：窄窗口下将内边距计入现有宽度限制，避免解析状态栏超出视口。
- // 中文注释：控制卡片放右下角；谷歌 One Tap / FedCM 等登录框固定在右上角，放在上面会盖住“接管页面”按钮。
- Object.assign(bar.style,{position:'fixed',bottom:'16px',right:'16px',width:'min(342px,calc(100vw - 32px))',boxSizing:'border-box',padding:'14px 16px',border:'1px solid rgba(255,255,255,.16)',borderRadius:'14px',background:'#172a20',color:'#fff',font:'13px/1.45 system-ui,sans-serif',boxShadow:'0 12px 35px rgba(0,0,0,.22)',pointerEvents:'auto'});
- const eyebrow=doc.createElement('div');eyebrow.textContent='HERMES · 浏览器任务';Object.assign(eyebrow.style,{fontSize:'10px',letterSpacing:'.09em',color:'#a9c9b6',marginBottom:'6px'});bar.append(eyebrow);
- const label=doc.createElement('div');label.textContent=states.waiting;Object.assign(label.style,{fontSize:'15px',fontWeight:'650'});bar.append(label);
- const detail=doc.createElement('div');detail.textContent='页面暂不可点击 · Ctrl+Alt+Shift+F12 接管';Object.assign(detail.style,{fontSize:'12px',color:'#bfd0c4',marginTop:'3px'});bar.append(detail);
- const actions=doc.createElement('div');actions.dataset.role='actions';Object.assign(actions.style,{display:'flex',gap:'8px',marginTop:'12px'});bar.append(actions);
- const recent=doc.createElement('details');Object.assign(recent.style,{marginTop:'8px',fontSize:'11px'});
- const recentTitle=doc.createElement('summary');recentTitle.textContent='最近步骤';recent.append(recentTitle);
- const recentList=doc.createElement('ol');Object.assign(recentList.style,{paddingLeft:'18px',margin:'6px 0 0'});recent.append(recentList);bar.append(recent);
- let recentRows=[],waitingTextTimer=null;
- const waitingDetail='页面暂不可点击 · Ctrl+Alt+Shift+F12 接管';
+ const view=createOverlayView(doc,{title,startedAt,language,preferences,onPreference});
+ const {bar,actions}=view;
+ let waitingTextTimer=null,confirmStopTimer=null,confirmUntil=0;
+ const zh=language.startsWith('zh'),tr=(a,b)=>zh?a:b;
+ const englishSteps={"tabs": "Read tabs", "new_tab": "Open new tab", "navigate": "Open page", "back": "Go back", "snapshot": "Scan page", "semantic_snapshot": "Scan page", "page.parse": "Scan page", "page.observe": "Inspect page structure", "frame_catalog": "Inspect frames", "click": "Click element", "ref_click": "Click element", "fill": "Fill field", "ref_fill": "Fill field", "press": "Press key", "ref_press": "Press key", "ref_set_checked": "Set checkbox", "ref_select_option": "Select option", "scroll": "Scroll page", "screenshot": "Capture page", "interaction.capture": "Capture page", "interaction.bounds": "Inspect element position", "interaction.click": "Click element", "interaction.drag_coordinates": "Drag element", "interaction.drag_elements": "Drag element", "official.ready_state": "Check readiness", "official.goto_url": "Open page", "official.new_tab": "Open new tab", "files.upload": "Choose upload file", "js.evaluate": "Run page operation", "cdp.send": "Run browser operation", "cdp.events": "Inspect browser events", "cdp.input": "Operate page", "network.inspect": "Inspect network", "api_request": "Request site data", "images": "Inspect images", "console": "Inspect page console", "dialog": "Handle page dialog", "popup_catalog": "Inspect popup windows", "popup_adopt": "Adopt popup", "gateway.authorize": "Authorize connection", "vault.authorize": "Authorize sensitive input", "vault.fill": "Fill sensitive field", "use_tab": "Switch tab"};
+ const actionLabel=action=>zh?(Object.hasOwn(stepLabels,action)?stepLabels[action]:'处理页面'):(Object.hasOwn(englishSteps,action)?englishSteps[action]:'Process page');
  const roleLabels={button:'按钮',textbox:'输入框',searchbox:'搜索框',link:'链接',checkbox:'复选框',combobox:'下拉框',listbox:'下拉框',option:'选项',tab:'标签',menuitem:'菜单项',menuitemcheckbox:'菜单复选框',menuitemradio:'菜单单选项',radio:'单选框',switch:'开关',slider:'滑块',spinbutton:'数字输入框',treeitem:'树形项目'};
  function describeStep(row){
   const action=row.action,label=Object.hasOwn(stepLabels,action)?stepLabels[action]:'处理页面';
@@ -97,7 +94,7 @@ export function createAutomationOverlay({document:doc=globalThis.document,taskId
  const invoke=async(action,el,callback)=>{
    if(removed||busy)return;
    busy=true;lastCommand={action,el,callback};commandAbort=new AbortController();const controller=commandAbort;
-   overlay.update({state:action==='takeover'?'pausing':action==='resume'?'resuming':'stopping'});el.disabled=true;
+   overlay.update({state:action==='takeover'?'pausing':action==='resume'?'resuming':'stopping'});el.disabled=true;view.setBusy(el,true);
    try{
     // 中文注释：扩展确认仍在等待步骤时续期；断连后进度回执停止，八秒内进入可恢复提示。
     let expire;const timeout=new Promise(resolve=>{expire=resolve;});
@@ -111,21 +108,20 @@ export function createAutomationOverlay({document:doc=globalThis.document,taskId
     if(result?.state==='running'){overlay.update({state:'waiting'});return;}
     overlay.update({state:result?.state==='disconnected'?'disconnected':'unknown'});
    }catch{if(!removed&&commandAbort===controller)overlay.update({state:'disconnected'});}
-   finally{clearTimeout(commandTimer);commandTimer=null;if(commandAbort===controller){commandAbort=null;busy=false;el.disabled=false;}}
+   finally{clearTimeout(commandTimer);commandTimer=null;if(commandAbort===controller){commandAbort=null;busy=false;el.disabled=false;view.setBusy(el,false);}}
  };
  const button=(name,action,callback,local=false)=>{
   const el=doc.createElement('button');el.type='button';el.textContent=name;el.dataset.action=action;controls.push(el);
-  const primary=['takeover','resume','retry'].includes(action);
-  Object.assign(el.style,{padding:'7px 12px',border:'1px solid #83a28e',borderRadius:'8px',background:primary?'#e8f3eb':'transparent',color:primary?'#183b27':'#e6f2e9',font:'600 12px system-ui,sans-serif',pointerEvents:'auto',cursor:'pointer'});
-  el.addEventListener('click',event=>{if(event.isTrusted)return local?callback():invoke(action,el,callback);});
+  Object.assign(el.style,{pointerEvents:'auto'});
+  el.addEventListener('click',event=>{if(!event.isTrusted||busy)return;if(action==='stop'&&(!confirmUntil||Date.now()>confirmUntil)){confirmUntil=Date.now()+3000;el.textContent=tr('确认停止','Confirm stop');clearTimeout(confirmStopTimer);confirmStopTimer=setTimeout(()=>{confirmUntil=0;el.textContent=tr('停止','Stop');},3000);return;}if(action==='stop'){confirmUntil=0;clearTimeout(confirmStopTimer);el.textContent=tr('停止','Stop');}return local?callback():invoke(action,el,callback);});
   return el;
  };
- const takeover=button('接管页面','takeover',onTakeover),resume=button('退出接管','resume',onResume),stop=button('停止任务','stop',onStop);
+ const takeover=button(tr('接管','Take over'),'takeover',onTakeover),resume=button(tr('交还','Return'),'resume',onResume),stop=button(tr('停止','Stop'),'stop',onStop);
  // 中文注释：恢复操作复用同一个按钮组件，只有真实用户事件能放开页面或重试控制。
- const release=button('放开页面','release',remove,true);
- const retry=button('重试','retry',()=>{if(lastCommand)return invoke(lastCommand.action,lastCommand.el,lastCommand.callback);},true);
- release.style.display=retry.style.display=resume.style.display='none';actions.append(takeover,resume,stop,release,retry);
- shadow.append(veil,border,target,parsingScan,parsingElements,interactionTarget,dragStart,dragEnd,interactionStatus,cursor,cursorHint,ripple,bar,pulse);doc.documentElement.append(host);
+ const release=button(tr('放开页面','Release page'),'release',remove,true);release.title=tr('放开页面仅恢复本地输入，不代表任务已暂停；请核查任务状态','Release restores local input only. It does not pause the task; verify task status.');
+ const retry=button(tr('重试','Retry'),'retry',()=>{if(lastCommand)return invoke(lastCommand.action,lastCommand.el,lastCommand.callback);},true);
+ release.style.display=retry.style.display=resume.style.display='none';const takeoverWrap=doc.createElement('span');takeoverWrap.className='takeover-wrap';const tip=doc.createElement('span');tip.className='takeover-tip';tip.setAttribute('role','tooltip');tip.id='fast-takeover-tip';tip.textContent=tr('页面已锁定 · ','Page locked · ');const key=doc.createElement('kbd');key.textContent='⌃⌥⇧F12';tip.append(key,doc.createTextNode?doc.createTextNode(tr(' 接管',' Take over')):doc.createElement('span'));takeover.setAttribute('aria-describedby',tip.id);takeoverWrap.append(takeover,tip);actions.append(takeoverWrap,resume,stop,release,retry);
+ shadow.append(veil,border,target,parsingScan,parsingElements,interactionTarget,dragStart,dragEnd,interactionStatus,cursor,cursorHint,ripple,bar,pulse,view.style);doc.documentElement.append(host);
  const parsingSteps=new Set(['snapshot','semantic_snapshot','page.parse','page.observe','frame_catalog']);
  const parsingFeedbackDelayMs=120;
  let parsingStep=null,parsingStartTimer=null,parsingTimer=null,parsingFadeTimer=null;
@@ -201,7 +197,7 @@ export function createAutomationOverlay({document:doc=globalThis.document,taskId
    if(activeHighlightToken&&activeHighlightToken!==request.operationToken)return {ok:false,code:'STALE_OPERATION'};
    activeHighlightToken=request.operationToken;host.setAttribute('data-fast-interaction-highlight','');
    for(const element of [interactionTarget,dragStart,dragEnd]){element.style.opacity='1';element.style.transition='left 180ms ease-out, top 180ms ease-out, width 180ms ease-out, height 180ms ease-out, opacity 600ms ease-out';}
-   interactionStatus.style.opacity='1';interactionStatus.textContent=`${interactionLabels[request.kind]}${request.label?`：${String(request.label).slice(0,48)}`:''}`;
+   interactionStatus.style.opacity='1';interactionStatus.textContent=`${(zh?interactionLabels:{click:'Preparing click',input:'Typing',select:'Selecting',drag:'Dragging'})[request.kind]}${request.label?`：${String(request.label).slice(0,48)}`:''}`;
    const anchor=request.rects[request.rects.length-1],view=doc.defaultView;
    const labelTop=anchor.top>=30?anchor.top-28:Math.min(anchor.top+anchor.height+6,(view?.innerHeight||10000)-28);
    Object.assign(interactionStatus.style,{display:'block',top:`${Math.max(4,labelTop)}px`,left:`${Math.max(4,Math.min(anchor.left,(view?.innerWidth||10000)-160))}px`});
@@ -217,7 +213,7 @@ export function createAutomationOverlay({document:doc=globalThis.document,taskId
      {x:anchor.left+anchor.width/2,y:anchor.top+anchor.height/2};
     const newOperation=cursorOperationToken!==request.operationToken;
     if(newOperation){cancelCursorMotion();cursorOperationToken=request.operationToken;}
-    cursorHint.style.display=request.kind==='input'?'block':'none';cursorHint.textContent=request.kind==='input'?'⌨ 输入中':'';
+    cursorHint.style.display=request.kind==='input'?'block':'none';cursorHint.textContent=request.kind==='input'?tr('⌨ 输入中','⌨ Typing'):'';
     if(request.kind!=='drag')moveCursor(point);
     // 中文注释：高亮每帧校准不重复启动点击反馈，旧操作的延迟回调不能作用于新目标。
     if(request.kind==='click'&&newOperation)cursorTimer=setTimeout(()=>{cursorTimer=null;if(activeHighlightToken!==request.operationToken||!cursorVisible())return;
@@ -296,7 +292,7 @@ export function createAutomationOverlay({document:doc=globalThis.document,taskId
  function remove(){
   if(removed)return;
   if(activeHighlightToken)interactionSurface.clear({taskId,generation,...(documentId===null?{}:{documentId}),operationToken:activeHighlightToken});
-  removed=true;clearTimeout(waitingTextTimer);waitingTextTimer=null;clearParsing();cancelCursorMotion();cursor.style.display='none';clearTimeout(commandTimer);commandTimer=null;commandAbort?.abort();commandAbort=null;observer?.disconnect();doc.defaultView?.removeEventListener?.('pageshow',recover);doc.defaultView?.removeEventListener?.('blur',checkFrameFocus,true);doc.removeEventListener?.('focusin',checkFrameFocus,true);doc.removeEventListener?.('visibilitychange',syncCursor);doc.defaultView?.removeEventListener?.('resize',resizeCursor);hiddenHosts=null;hideDepth=0;clearTimeout(inputWindowTimer);inputWindowTimer=null;host.remove();
+  removed=true;view.dispose();clearTimeout(confirmStopTimer);clearTimeout(waitingTextTimer);waitingTextTimer=null;clearParsing();cancelCursorMotion();cursor.style.display='none';clearTimeout(commandTimer);commandTimer=null;commandAbort?.abort();commandAbort=null;observer?.disconnect();doc.defaultView?.removeEventListener?.('pageshow',recover);doc.defaultView?.removeEventListener?.('blur',checkFrameFocus,true);doc.removeEventListener?.('focusin',checkFrameFocus,true);doc.removeEventListener?.('visibilitychange',syncCursor);doc.defaultView?.removeEventListener?.('resize',resizeCursor);hiddenHosts=null;hideDepth=0;clearTimeout(inputWindowTimer);inputWindowTimer=null;host.remove();
   for(const type of keyEvents)doc.defaultView?.removeEventListener?.(type,blockKeys,true);
  }
  // 中文注释：清理事件只能本地卸载浮层；即使网页主动触发，也不能授予任务权限或伪造暂停。
@@ -325,33 +321,17 @@ export function createAutomationOverlay({document:doc=globalThis.document,taskId
     invalid_target_state:'控件状态无法核验，请核对实际状态，不要直接重试',
     execution_denied:'安全检查未通过，请核对目标和授权',
     origin_denied:'目标网站不在任务授权范围',permission_denied:'浏览器权限不足',instance_unavailable:'浏览器已断开'};
-   const available=[...recentRows];
-   const next=steps.slice(-5).map(row=>{
-    const state=typeof row.result==='string'?row.result:'';
-    // 中文注释：结果未知仍显示未知；原因独立展示，任意页面异常文字不作为错误码输出。
-    const reason=state==='unknown'||state==='failed'?row.errorCode:state;
-    const code=typeof reason==='string'&&/^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(reason)?reason:'';
-    const failed=state!=='succeeded'&&state!=='pending';
-    const time=new Date(row.time),localTime=Number.isFinite(time.getTime())?[time.getHours(),time.getMinutes(),time.getSeconds()].map(value=>String(value).padStart(2,'0')).join(':'):'';
-    const duration=Number(row.durationMs);
-    let text=`${describeStep(row)} · ${state==='succeeded'?'成功':state==='pending'?'等待确认':state==='unknown'?'结果不确定':'失败'}`;
-    if(failed){
-     const explanation=Object.hasOwn(explanations,code)?explanations[code]:'请核对页面状态，不要重复提交';
-     text+=`（${explanation}）`;
-    }
-    if(localTime)text+=` · ${localTime}`;
-    if(Number.isFinite(duration)&&duration>1000)text+=` · 用时 ${(duration/1000).toFixed(1)} 秒`;
-    const title=failed?code:'',key=JSON.stringify([text,title]);
-    const index=available.findIndex(entry=>entry.key===key);
-    if(index>=0)return available.splice(index,1)[0];
-    const item=doc.createElement('li');item.textContent=text;item.title=title;
-    if(failed)item.style.color='#ffaaa2';
-    return {key,item};
-   });
-   // 中文注释：滚动的五步窗口复用未变化行；相同回执不触碰列表，保留展开状态和节点。
-   for(const {item} of available)item.remove();
-   next.forEach(({item},index)=>{if(recentList.children[index]!==item)recentList.insertBefore(item,recentList.children[index]||null);});
-   recentRows=next;
+   const englishReasons={task_paused:'User took over',element_timeout:'Target did not appear',target_occluded:'Target is covered',scroll_timeout:'Scroll result unconfirmed',stale_ref:'Page reference expired',document_changed:'Document changed',stale_reference:'Page reference expired; inspect the current page',select_option_missing:'Option not found; read the available choices',invalid_target_state:'Control state unconfirmed; inspect before retrying',execution_denied:'Security check denied; verify target and authorization',origin_denied:'Site is outside task scope',permission_denied:'Browser permission missing',instance_unavailable:'Browser disconnected'};
+   view.setRows(steps.slice(-100).map(row=>{
+    const result=typeof row.result==='string'?row.result:'unknown';
+    const rawCode=['failed','unknown'].includes(result)?row.errorCode:result;
+    const code=typeof rawCode==='string'&&/^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(rawCode)?rawCode:'';
+    const failed=!['succeeded','pending','paused'].includes(result),reasons=zh?explanations:englishReasons;
+    const targetLabel=typeof row.target==='string'&&!/敏感字段|sensitive|名称未提供|页面或任务/i.test(row.target)?row.target.slice(0,80).replace(/^[a-z_]+ · /,''):'';
+    return {description:zh?describeStep(row):actionLabel(row.action),targetLabel:zh?'':targetLabel,
+     result:['succeeded','pending','unknown','paused'].includes(result)?result:'failed',time:row.time,durationMs:row.durationMs,errorCode:failed?code:'',
+     reason:failed?(Object.hasOwn(reasons,code)?reasons[code]:tr('请核对页面状态','Check the current page state')):''};
+   }));
   },
   update({state,step='',targetRect,holdMs,scrollDirection}={}){
    if(removed)return;
@@ -362,14 +342,8 @@ export function createAutomationOverlay({document:doc=globalThis.document,taskId
    for(const node of [release,retry])setStyles(node,{display:recovery?'inline-block':'none'});
    if(retry.disabled!==!lastCommand)retry.disabled=!lastCommand;
    setStyles(stop,{display:recovery?'none':'inline-block'});
-   setText(label,state==='pausing'?'等待当前步骤结束…':states[state]||states.unknown);
-   // 中文注释：只延迟等待文案；权限状态、派发窗口与接管提示仍即时更新。轮询不延长等待期限。
-   if(state==='waiting'&&detail.textContent.startsWith('当前步骤：')){
-    if(waitingTextTimer===null)waitingTextTimer=setTimeout(()=>{waitingTextTimer=null;if(!removed&&currentState==='waiting')setText(detail,waitingDetail);},400);
-   }else{
-    clearTimeout(waitingTextTimer);waitingTextTimer=null;
-    setText(detail,recovery?'放开页面仅恢复本地输入，不代表任务已暂停；请核查任务状态':state==='paused'?'页面操作权已交给你':state==='running'&&step?`当前步骤：${Object.hasOwn(stepLabels,step)?stepLabels[step]:'处理页面'} · Ctrl+Alt+Shift+F12 接管`:waitingDetail);
-   }
+   const displayStep=step?actionLabel(step):'';
+   view.state(state,displayStep);
    // 中文注释：遮罩一直拦截用户点击和键盘，直到用户点“接管页面”；普通模式只在页面动作派发时放行，
    // 原始 CDP 只在输入派发的短窗口内放行，窗口到期由页面内计时器自行恢复拦截。
    const dispatching=['click','fill','press','ref_click','ref_fill','ref_press','ref_set_checked','ref_select_option','interaction.click','interaction.drag_coordinates','interaction.drag_elements','scroll'];
@@ -383,13 +357,13 @@ export function createAutomationOverlay({document:doc=globalThis.document,taskId
    }
    for(const node of [bar,...controls])setStyles(node,{pointerEvents:passThrough?'none':'auto'});
    if(!passThrough&&state!=='paused')checkFrameFocus();
-   for(const node of [veil,border])setStyles(node,{display:state==='paused'?'none':'block'});
+   setStyles(veil,{display:state==='paused'?'none':'block'});setStyles(border,{opacity:state==='paused'?'0':'1'});
    setStyles(takeover,{display:state==='paused'||recovery?'none':'inline-block'});setStyles(resume,{display:state==='paused'?'inline-block':'none'});
    if(rectOk(targetRect)){setStyles(target,{display:'block',left:`${targetRect.x}px`,top:`${targetRect.y}px`,width:`${targetRect.width}px`,height:`${targetRect.height}px`});}
    else setStyles(target,{display:'none'});
    syncCursor();
    if(cursorVisible()&&state==='running'&&step==='scroll'){
-    setText(cursorHint,scrollDirection==='up'?'↑ 向上滚动':'↓ 向下滚动');setStyles(cursorHint,{display:'block'});
+    setText(cursorHint,scrollDirection==='up'?tr('↑ 向上滚动','↑ Scrolling up'):tr('↓ 向下滚动','↓ Scrolling down'));setStyles(cursorHint,{display:'block'});
    }else if(!activeHighlightToken)setStyles(cursorHint,{display:'none'});
   },
   async withHidden(fn){

@@ -24,8 +24,8 @@ function fixture(callback=()=>new Promise(()=>{}),timeout=15){
 
 test('无回执在期限后显示断开和恢复按钮，保留任务未确认提示',async()=>{
  const f=fixture();try{
-  const pending=f.click('takeover');assert.match(f.shadow.textContent,/等待当前步骤结束/);await pending;
-  assert.match(f.shadow.textContent,/与扩展的连接已断开/);assert.match(f.shadow.textContent,/不代表任务已暂停/);
+  const pending=f.click('takeover');assert.match(f.shadow.textContent,/正在接管/);await pending;
+  assert.match(f.shadow.textContent,/连接中断/);assert.match(f.button('release').title,/不代表任务已暂停/);assert.equal(f.shadow.querySelector('[data-role=state]').dataset.state,'disconnected');
   for(const action of ['release','retry'])assert.equal(f.button(action).style.display,'inline-block');
   assert.equal(f.button('retry').disabled,false);assert.equal(f.key(),true);
  }finally{f.close();}
@@ -40,27 +40,27 @@ test('放开只移除本地浮层和捕获监听器，不再调用任务控制�
 test('重试允许恢复连接，旧请求迟到不能覆盖新回执，超时清理信号已取消',async()=>{
  let calls=0,late,firstSignal;const f=fixture((_scope,{signal})=>{calls++;if(calls===1){firstSignal=signal;return new Promise(resolve=>{late=resolve;});}return Promise.resolve({state:'paused'});});try{
   await f.click('takeover');assert.equal(firstSignal.aborted,true);await f.click('retry');
-  assert.equal(calls,2);assert.equal(f.overlay.host.style.pointerEvents,'none');assert.match(f.shadow.textContent,/已暂停/);
+  assert.equal(calls,2);assert.equal(f.overlay.host.style.pointerEvents,'none');assert.match(f.shadow.textContent,/等待用户/);
   late({state:'running'});await tick();assert.equal(f.overlay.host.style.pointerEvents,'none');
  }finally{f.close();}
 });
 test('扩展进度回执续期，长步骤期间不误报断开；进度停止后仍会超时',async()=>{
  let finish,timer;const f=fixture((_scope,{onProgress})=>{timer=setInterval(onProgress,5);return new Promise(resolve=>{finish=resolve;});});try{
-  const pending=f.click('takeover');await new Promise(resolve=>setTimeout(resolve,45));assert.match(f.shadow.textContent,/等待当前步骤结束/);assert.doesNotMatch(f.shadow.textContent,/与扩展的连接已断开/);
-  clearInterval(timer);await pending;assert.match(f.shadow.textContent,/与扩展的连接已断开/);finish({state:'paused'});await tick();assert.equal(f.overlay.host.style.pointerEvents,'auto');
+  const pending=f.click('takeover');await new Promise(resolve=>setTimeout(resolve,45));assert.match(f.shadow.textContent,/正在接管/);assert.doesNotMatch(f.shadow.textContent,/连接中断/);
+  clearInterval(timer);await pending;assert.match(f.shadow.textContent,/连接中断/);finish({state:'paused'});await tick();assert.equal(f.overlay.host.style.pointerEvents,'auto');
  }finally{clearInterval(timer);f.close();}
 });
 test('快捷键走同一期限和恢复流程；脚本点击不能重试或放开',async()=>{
  let calls=0;const f=fixture(()=>{calls++;return new Promise(()=>{});});try{
   f.windowHandlers.get('keydown')({type:'keydown',key:'F12',ctrlKey:true,altKey:true,shiftKey:true,metaKey:false,isTrusted:true,preventDefault(){},stopImmediatePropagation(){}});
-  await new Promise(resolve=>setTimeout(resolve,30));assert.match(f.shadow.textContent,/与扩展的连接已断开/);assert.equal(calls,1);
+  await new Promise(resolve=>setTimeout(resolve,30));assert.match(f.shadow.textContent,/连接中断/);assert.equal(calls,1);
   f.button('retry').click();f.button('release').click();await tick();assert.equal(calls,1);assert.equal(f.overlay.host.isConnected,true);
   f.click('release');assert.equal(f.windowHandlers.size,0);
  }finally{f.close();}
 });
 test('明确断开和异常均可恢复；未知结果不伪造暂停或停止',async()=>{
  for(const callback of [async()=>({state:'disconnected'}),async()=>{throw Error('transport');},async()=>({state:'unknown'})]){
-  const f=fixture(callback);try{await f.click('stop');assert.equal(f.overlay.host.isConnected,true);assert.equal(f.overlay.host.style.pointerEvents,'auto');assert.equal(f.button('release').style.display,'inline-block');assert.notEqual(f.button('retry').style.display,'none');}finally{f.close();}
+  const f=fixture(callback);try{await f.click('stop');assert.equal(f.button('stop').textContent,'确认停止');await f.click('stop');assert.equal(f.overlay.host.isConnected,true);assert.equal(f.overlay.host.style.pointerEvents,'auto');assert.equal(f.button('release').style.display,'inline-block');assert.notEqual(f.button('retry').style.display,'none');}finally{f.close();}
  }
 });
 test('本地清理事件只能卸载输入，不会调用暂停、停止或继续回调',()=>{
@@ -76,8 +76,8 @@ test('长动作暂停等待显示进度，屏障收尾前不伪造已暂停',asy
  executor.tasks.set('task',task);executor.syncTaskOverlays=async(_task,state)=>f.overlay.update({state});executor.taskBarrier=()=>gate;
  try{
   const pending=executor.pause('task',2);await tick();assert.equal(task.pauseRequested,true);assert.notEqual(task.paused,true);
-  assert.match(f.shadow.textContent,/等待当前步骤结束/);assert.equal(f.key(),true);
-  finish();await pending;assert.equal(task.paused,true);assert.equal(f.key(),false);assert.match(f.shadow.textContent,/已暂停/);
+  assert.match(f.shadow.textContent,/正在接管/);assert.equal(f.key(),true);
+  finish();await pending;assert.equal(task.paused,true);assert.equal(f.key(),false);assert.match(f.shadow.textContent,/等待用户/);
  }finally{finish();f.close();}
 });
 

@@ -1,7 +1,7 @@
 {
   "id": "seo.keyword_check",
   "name": "关键词检查",
-  "prompt": "优先使用 API 或批量脚本，必要时才浏览器读页。查目标关键词当前 SERP 前十、页面类型、小站数、DR、搜索量、KD、CPC 和意图，给出档位及证据。不能编造数据。keywords 返回此词及查实的 vol/kd，详细数字和来源写 details。",
+  "prompt": "只填判断结构；不输出量、KD、CPC或排名数字。verdict≤30字，写判断，不写查询过程。根据脚本的原始指标及SERP定档；批量对象的每个词放入checks，同一次判断处理全部词。",
   "params_schema": {
     "type": "object",
     "properties": {
@@ -14,73 +14,307 @@
         "type": "string",
         "minLength": 1,
         "maxLength": 2000
+      },
+      "keywords": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "maxItems": 1000
       }
     },
-    "required": [
-      "keyword"
-    ],
+    "required": [],
     "additionalProperties": false
   },
   "result_schema": {
     "type": "object",
     "properties": {
-      "summary": {
+      "verdict": {
         "type": "string",
-        "minLength": 1,
+        "maxLength": 30
+      },
+      "level": {
+        "type": "string",
+        "enum": [
+          "go",
+          "test",
+          "skip",
+          "info"
+        ]
+      },
+      "metrics": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "label": {
+              "type": "string",
+              "maxLength": 30
+            },
+            "value": {
+              "type": "string",
+              "maxLength": 80
+            }
+          },
+          "required": [
+            "label",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        "maxItems": 3
+      },
+      "missing": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "field": {
+              "type": "string",
+              "maxLength": 80
+            },
+            "reason": {
+              "type": "string",
+              "maxLength": 300
+            }
+          },
+          "required": [
+            "field",
+            "reason"
+          ],
+          "additionalProperties": false
+        },
+        "maxItems": 20
+      },
+      "process": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "maxLength": 600
+        },
+        "maxItems": 30
+      },
+      "next": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": [
+                "seo.keyword_check",
+                "seo.longtail",
+                "seo.competitor_keywords",
+                "seo.serp_breakdown",
+                "seo.save_pool",
+                "seo.trends",
+                "seo.ranking_sites",
+                "seo.domain_rating",
+                "seo.top_pages",
+                "browser.open",
+                "general.task"
+              ]
+            },
+            "object": {
+              "type": "string",
+              "maxLength": 2000
+            }
+          },
+          "required": [
+            "action",
+            "object"
+          ],
+          "additionalProperties": false
+        },
+        "maxItems": 2
+      },
+      "keyword": {
+        "type": "string",
         "maxLength": 2000
       },
-      "keywords": {
+      "tier": {
+        "type": "string",
+        "maxLength": 30
+      },
+      "vol": {
+        "type": "number"
+      },
+      "kd": {
+        "type": "number"
+      },
+      "cpc": {
+        "type": "number"
+      },
+      "source": {
+        "type": "string",
+        "maxLength": 500
+      },
+      "field_sources": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": true
+      },
+      "intent": {
+        "type": "string",
+        "maxLength": 300
+      },
+      "serp": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "rank": {
+              "type": "integer"
+            },
+            "domain": {
+              "type": "string",
+              "maxLength": 300
+            },
+            "page_type": {
+              "type": "string",
+              "maxLength": 60
+            },
+            "small_site": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "rank",
+            "domain",
+            "page_type",
+            "small_site"
+          ],
+          "additionalProperties": false
+        },
+        "maxItems": 10
+      },
+      "reasons": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "maxItems": 10
+      },
+      "checks": {
         "type": "array",
         "items": {
           "type": "object",
           "properties": {
             "keyword": {
               "type": "string",
-              "minLength": 1,
               "maxLength": 2000
             },
-            "market": {
+            "tier": {
               "type": "string",
-              "minLength": 1,
-              "maxLength": 2000
-            },
-            "lang": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 2000
+              "maxLength": 30
             },
             "vol": {
               "type": "number"
             },
             "kd": {
               "type": "number"
+            },
+            "cpc": {
+              "type": "number"
+            },
+            "source": {
+              "type": "string",
+              "maxLength": 500
+            },
+            "field_sources": {
+              "type": "object",
+              "properties": {},
+              "additionalProperties": true
+            },
+            "intent": {
+              "type": "string",
+              "maxLength": 300
+            },
+            "serp": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "rank": {
+                    "type": "integer"
+                  },
+                  "domain": {
+                    "type": "string",
+                    "maxLength": 300
+                  },
+                  "page_type": {
+                    "type": "string",
+                    "maxLength": 60
+                  },
+                  "small_site": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "rank",
+                  "domain",
+                  "page_type",
+                  "small_site"
+                ],
+                "additionalProperties": false
+              },
+              "maxItems": 10
+            },
+            "reasons": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "maxItems": 10
             }
           },
           "required": [
-            "keyword"
+            "keyword",
+            "tier",
+            "intent",
+            "serp",
+            "reasons"
           ],
           "additionalProperties": false
         },
-        "maxItems": 100
-      },
-      "details": {
-        "type": "string",
-        "maxLength": 12000
-      },
-      "usage_tokens": {
-        "type": "integer"
+        "maxItems": 1000
       }
     },
     "required": [
-      "summary",
-      "keywords"
+      "verdict",
+      "level",
+      "metrics",
+      "missing",
+      "process",
+      "next",
+      "keyword",
+      "tier",
+      "intent",
+      "serp",
+      "reasons"
     ],
     "additionalProperties": false
   },
   "display_fields": [
-    "summary",
-    "keywords",
-    "details"
+    "verdict",
+    "level",
+    "metrics",
+    "missing",
+    "process",
+    "next",
+    "keyword",
+    "tier",
+    "vol",
+    "kd",
+    "cpc",
+    "intent",
+    "serp",
+    "reasons",
+    "checks"
   ],
   "toolsets": [
     "fast-browser-link",
@@ -89,5 +323,386 @@
     "file"
   ],
   "cacheable": true,
-  "max_turns": 30
+  "max_turns": 15,
+  "fetch": [
+    {
+      "script": "keyword_metrics",
+      "params_schema": {
+        "type": "object",
+        "properties": {
+          "keyword": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "market": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "keywords": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2000
+            },
+            "maxItems": 1000
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "keywords": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "keyword": {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                "vol": {
+                  "type": "number"
+                },
+                "kd": {
+                  "type": "number"
+                },
+                "cpc": {
+                  "type": "number"
+                },
+                "url": {
+                  "type": "string",
+                  "maxLength": 2000
+                },
+                "position": {
+                  "type": "number"
+                },
+                "source": {
+                  "type": "string",
+                  "maxLength": 500
+                },
+                "field_sources": {
+                  "type": "object",
+                  "properties": {},
+                  "additionalProperties": true
+                }
+              },
+              "required": [
+                "keyword"
+              ],
+              "additionalProperties": false
+            },
+            "maxItems": 1000
+          },
+          "source": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "queries": {
+            "type": "integer"
+          },
+          "pages": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 2000
+            },
+            "maxItems": 20
+          }
+        },
+        "required": [
+          "keywords",
+          "source"
+        ],
+        "additionalProperties": false
+      },
+      "timeout": 30
+    },
+    {
+      "script": "serp_top10",
+      "params_schema": {
+        "type": "object",
+        "properties": {
+          "keyword": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "market": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "keywords": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2000
+            },
+            "maxItems": 1000
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "results": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "type": "string",
+                  "maxLength": 2000
+                },
+                "title": {
+                  "type": "string",
+                  "maxLength": 500
+                }
+              },
+              "required": [
+                "url"
+              ],
+              "additionalProperties": false
+            },
+            "maxItems": 10
+          },
+          "source": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "queries": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "keyword": {
+                  "type": "string",
+                  "maxLength": 2000
+                },
+                "results": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "url": {
+                        "type": "string",
+                        "maxLength": 2000
+                      },
+                      "title": {
+                        "type": "string",
+                        "maxLength": 500
+                      }
+                    },
+                    "required": [
+                      "url"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "maxItems": 10
+                }
+              },
+              "required": [
+                "keyword",
+                "results"
+              ],
+              "additionalProperties": false
+            },
+            "maxItems": 1000
+          }
+        },
+        "required": [
+          "source"
+        ],
+        "additionalProperties": false
+      },
+      "timeout": 30
+    }
+  ],
+  "fetch_fallback": {
+    "enabled": false,
+    "max_turns": 3
+  },
+  "decision_schema": {
+    "type": "object",
+    "properties": {
+      "verdict": {
+        "type": "string",
+        "maxLength": 30
+      },
+      "level": {
+        "type": "string",
+        "enum": [
+          "go",
+          "test",
+          "skip",
+          "info"
+        ]
+      },
+      "process": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "maxLength": 600
+        },
+        "maxItems": 30
+      },
+      "next": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": [
+                "seo.keyword_check",
+                "seo.longtail",
+                "seo.competitor_keywords",
+                "seo.serp_breakdown",
+                "seo.save_pool",
+                "seo.trends",
+                "seo.ranking_sites",
+                "seo.domain_rating",
+                "seo.top_pages",
+                "browser.open",
+                "general.task"
+              ]
+            },
+            "object": {
+              "type": "string",
+              "maxLength": 2000
+            }
+          },
+          "required": [
+            "action",
+            "object"
+          ],
+          "additionalProperties": false
+        },
+        "maxItems": 2
+      },
+      "tier": {
+        "type": "string",
+        "maxLength": 30
+      },
+      "intent": {
+        "type": "string",
+        "maxLength": 300
+      },
+      "reasons": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "maxItems": 10
+      },
+      "serp_judgments": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "domain": {
+              "type": "string",
+              "maxLength": 300
+            },
+            "page_type": {
+              "type": "string",
+              "maxLength": 60
+            },
+            "small_site": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "domain",
+            "page_type",
+            "small_site"
+          ],
+          "additionalProperties": false
+        },
+        "maxItems": 10
+      },
+      "checks": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "keyword": {
+              "type": "string",
+              "maxLength": 2000
+            },
+            "tier": {
+              "type": "string",
+              "maxLength": 30
+            },
+            "intent": {
+              "type": "string",
+              "maxLength": 300
+            },
+            "reasons": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "maxItems": 10
+            },
+            "serp_judgments": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "domain": {
+                    "type": "string",
+                    "maxLength": 300
+                  },
+                  "page_type": {
+                    "type": "string",
+                    "maxLength": 60
+                  },
+                  "small_site": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "domain",
+                  "page_type",
+                  "small_site"
+                ],
+                "additionalProperties": false
+              },
+              "maxItems": 10
+            }
+          },
+          "required": [
+            "keyword",
+            "tier",
+            "intent",
+            "reasons"
+          ],
+          "additionalProperties": false
+        },
+        "maxItems": 1000
+      }
+    },
+    "required": [
+      "verdict",
+      "level",
+      "process",
+      "next",
+      "tier",
+      "intent",
+      "reasons"
+    ],
+    "additionalProperties": false
+  },
+  "prompt_en": "Judge keyword intent and evidence. For a batch include every keyword in checks. Do not copy metrics or invent SERP rankings."
 }

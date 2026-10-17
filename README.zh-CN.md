@@ -1,5 +1,9 @@
 # Fast-browser-link
 
+<img src="native-extension/brand-logo.svg" width="64" height="64" alt="Fast-browser-link logo">
+
+[品牌规范](docs/brand.zh-CN.md)
+
 **2.2.0 — macOS 本地候选。** 通过 skills、JSON CLI 或 MCP stdio，让本机 agent 操作 Chrome / Edge，支持普通登录态、无痕任务及跨登录跳转的连续任务日志。
 
 [English](README.md)

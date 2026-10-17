@@ -39,6 +39,7 @@ export class NativeWorkspaces {
  }
  // 中文注释：只在本扩展工作窗口内切前台；用户拖走的工作页继续遵循既有所有权规则。
  async withInput(task,p,guard,work){
+  if(task.silent)return work();
   if((!task.incognito&&task.workWindowMode==='current')||(!INPUT_ACTIONS.has(p.action)&&!(p.action==='cdp.send'&&p.method?.startsWith('Input.')))||!task.workspaceCapability)return work();
   const windowId=this.authority.resolve(task.workspaceCapability).windowId;
   const workWindow=task.incognito?this.incognitoWindow:this.workWindow;

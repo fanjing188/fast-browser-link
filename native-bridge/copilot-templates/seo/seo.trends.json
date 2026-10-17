@@ -1,0 +1,406 @@
+{
+  "id": "seo.trends",
+  "name": "查热度趋势",
+  "prompt": "只判断给定数据，不使用工具，不抄写数字。缺数据不猜测。verdict≤30字，写判断不写过程。依据四组曲线判断上升、平稳、季节性或下降；peak_months只列有依据的峰值月份；曲线未取得时pattern=unknown。",
+  "prompt_en": "Judge only the supplied data. Do not use tools or copy numeric metrics. Never invent missing data. Return a verdict of at most 30 characters and the required decision schema. Compare the US/world and 12-month/5-year curves. Identify rising, stable, seasonal with peak months, or falling; use unknown when unavailable.",
+  "params_schema": {
+    "type": "object",
+    "properties": {
+      "keyword": {
+        "type": "string",
+        "maxLength": 2000,
+        "minLength": 1
+      },
+      "keywords": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "maxLength": 2000,
+          "minLength": 1
+        },
+        "maxItems": 50
+      }
+    },
+    "required": [],
+    "additionalProperties": false
+  },
+  "result_schema": {
+    "type": "object",
+    "properties": {
+      "verdict": {
+        "type": "string",
+        "maxLength": 30
+      },
+      "level": {
+        "type": "string",
+        "enum": [
+          "go",
+          "test",
+          "skip",
+          "info"
+        ]
+      },
+      "metrics": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "label": {
+              "type": "string",
+              "maxLength": 30
+            },
+            "value": {
+              "type": "string",
+              "maxLength": 80
+            }
+          },
+          "required": [
+            "label",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        "maxItems": 3
+      },
+      "missing": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "field": {
+              "type": "string",
+              "maxLength": 80
+            },
+            "reason": {
+              "type": "string",
+              "maxLength": 300
+            }
+          },
+          "required": [
+            "field",
+            "reason"
+          ],
+          "additionalProperties": false
+        },
+        "maxItems": 20
+      },
+      "process": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "maxLength": 600
+        },
+        "maxItems": 30
+      },
+      "next": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": [
+                "seo.keyword_check",
+                "seo.longtail",
+                "seo.competitor_keywords",
+                "seo.serp_breakdown",
+                "seo.save_pool",
+                "seo.trends",
+                "seo.ranking_sites",
+                "seo.domain_rating",
+                "seo.top_pages",
+                "browser.open",
+                "general.task"
+              ]
+            },
+            "object": {
+              "type": "string",
+              "maxLength": 2000
+            }
+          },
+          "required": [
+            "action",
+            "object"
+          ],
+          "additionalProperties": false
+        },
+        "maxItems": 2
+      },
+      "series": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "keyword": {
+              "type": "string",
+              "maxLength": 2000
+            },
+            "region": {
+              "type": "string",
+              "maxLength": 20
+            },
+            "period": {
+              "type": "string",
+              "maxLength": 30
+            },
+            "points": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "date": {
+                    "type": "string",
+                    "maxLength": 40
+                  },
+                  "value": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "date",
+                  "value"
+                ],
+                "additionalProperties": false
+              },
+              "maxItems": 400
+            }
+          },
+          "required": [
+            "keyword",
+            "region",
+            "period",
+            "points"
+          ],
+          "additionalProperties": false
+        },
+        "maxItems": 200
+      },
+      "pattern": {
+        "type": "string",
+        "enum": [
+          "rising",
+          "stable",
+          "seasonal",
+          "falling",
+          "unknown"
+        ]
+      },
+      "peak_months": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "maxItems": 24
+      }
+    },
+    "required": [
+      "verdict",
+      "level",
+      "metrics",
+      "missing",
+      "process",
+      "next",
+      "series",
+      "pattern",
+      "peak_months"
+    ],
+    "additionalProperties": false
+  },
+  "decision_schema": {
+    "type": "object",
+    "properties": {
+      "verdict": {
+        "type": "string",
+        "maxLength": 30
+      },
+      "level": {
+        "type": "string",
+        "enum": [
+          "go",
+          "test",
+          "skip",
+          "info"
+        ]
+      },
+      "process": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "maxLength": 600
+        },
+        "maxItems": 30
+      },
+      "next": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": [
+                "seo.keyword_check",
+                "seo.longtail",
+                "seo.competitor_keywords",
+                "seo.serp_breakdown",
+                "seo.save_pool",
+                "seo.trends",
+                "seo.ranking_sites",
+                "seo.domain_rating",
+                "seo.top_pages",
+                "browser.open",
+                "general.task"
+              ]
+            },
+            "object": {
+              "type": "string",
+              "maxLength": 2000
+            }
+          },
+          "required": [
+            "action",
+            "object"
+          ],
+          "additionalProperties": false
+        },
+        "maxItems": 2
+      },
+      "pattern": {
+        "type": "string",
+        "enum": [
+          "rising",
+          "stable",
+          "seasonal",
+          "falling",
+          "unknown"
+        ]
+      },
+      "peak_months": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "maxItems": 24
+      }
+    },
+    "required": [
+      "verdict",
+      "level",
+      "process",
+      "next",
+      "pattern",
+      "peak_months"
+    ],
+    "additionalProperties": false
+  },
+  "display_fields": [
+    "verdict",
+    "level",
+    "metrics",
+    "missing",
+    "process",
+    "next",
+    "series",
+    "pattern",
+    "peak_months"
+  ],
+  "toolsets": [
+    "none"
+  ],
+  "cacheable": false,
+  "max_turns": 1,
+  "fetch": [
+    {
+      "script": "google_trends",
+      "params_schema": {
+        "type": "object",
+        "properties": {
+          "keyword": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 1
+          },
+          "keywords": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 2000,
+              "minLength": 1
+            },
+            "maxItems": 50
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "series": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "keyword": {
+                  "type": "string",
+                  "maxLength": 2000
+                },
+                "region": {
+                  "type": "string",
+                  "maxLength": 20
+                },
+                "period": {
+                  "type": "string",
+                  "maxLength": 30
+                },
+                "points": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "date": {
+                        "type": "string",
+                        "maxLength": 40
+                      },
+                      "value": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "date",
+                      "value"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "maxItems": 400
+                }
+              },
+              "required": [
+                "keyword",
+                "region",
+                "period",
+                "points"
+              ],
+              "additionalProperties": false
+            },
+            "maxItems": 200
+          },
+          "source": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "series",
+          "source"
+        ],
+        "additionalProperties": false
+      },
+      "timeout": 120
+    }
+  ],
+  "fetch_fallback": {
+    "enabled": false
+  }
+}

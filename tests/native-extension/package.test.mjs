@@ -11,7 +11,7 @@ test('independent MV3 has no content script and popup preserves task protections
  assert.deepEqual(m.host_permissions,['<all_urls>']);assert.equal(m.content_scripts,undefined);assert.equal(m.externally_connectable,undefined);
  assert.doesNotMatch(m.description,/智能审批|smart[- ]approval/i);assert.match(m.description,/连接授权后直接执行/);
  const ui=await readFile(new URL('popup.html',root),'utf8');
- assert.match(ui,/连接状态/);assert.match(ui,/任务页访问/);assert.match(ui,/id="version-label"/);
+ assert.match(ui,/连接状态/);assert.match(ui,/本地连接/);assert.match(ui,/授权仅限任务页/);assert.match(ui,/id="version-label"/);
  assert.match(ui,/id="takeover"[^>]*>接管/);assert.match(ui,/id="stop-task"[^>]*>停止/);assert.match(ui,/密码输入值不回显/);
  assert.doesNotMatch(ui,/id="filter-toggle"/);
  assert.doesNotMatch(ui,/id="(?:cookie-mirror|cursor-toggle|shield-settings|consent-toggle|browser-full-consent|access-toggle)"/);
@@ -47,6 +47,9 @@ for layout in ('legacy','missing','incomplete-flat'):
 `,path.join(import.meta.dirname,'real-helper.py'),work],{cwd:repo});}finally{await rm(work,{recursive:true,force:true});}});
 
 test('real helper extracts and verifies the current package before native E2E',async()=>{const work=await mkdtemp(path.join(scratch,'native-package-'));try{const python=process.env.HERMES_PYTHON||path.join(process.env.HOME,'.hermes/hermes-agent/venv/bin/python');const zip=process.env.BROWSER_EXECUTOR_PACKAGE?path.resolve(process.env.BROWSER_EXECUTOR_PACKAGE):await buildCurrentPackageArchive(repo,work,python);const {stdout}=await exec(python,[path.join(import.meta.dirname,'real-helper.py'),'prepare',work,zip],{cwd:repo,timeout:30000});const result=JSON.parse(stdout);assert.equal(result.manifestExact,true);assert.ok(Number.isInteger(result.hashedFiles)&&result.hashedFiles>0);assert.equal(result.packageRoot,path.join(work,'package'));assert.equal(result.extensionRoot,path.join(work,'package','native-extension'));assert.equal(result.extensionLayout,'flat');assert.match(result.pluginSource,/package\/fast-browser-link$/);
+ await assert.rejects(readFile(path.join(result.packageRoot,'docs/growth/report-copilot-mode-p1.md')),{code:'ENOENT'});
+ assert.equal(JSON.parse(await readFile(path.join(result.packageRoot,'docs/examples/copilot-package/package.json'),'utf8')).id,'example-seo-tool');
+ assert.equal(JSON.parse(await readFile(path.join(result.pluginSource,'native_bridge/copilot-packages/generic/package.json'),'utf8')).id,'generic');
  const installation=await readFile(path.join(result.packageRoot,'INSTALL.txt'),'utf8');
  assert.doesNotMatch(installation,/smart[- ]approval|智能审批/i);
  assert.match(installation,/confirm connection authorization/);assert.match(installation,/ordinary task-page actions run directly/);

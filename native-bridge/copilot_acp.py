@@ -8,16 +8,24 @@ import subprocess
 import threading
 import time
 import uuid
+from copilot_usage import counts
 
 
 def hermes_environment(config, extra=None):
     # 中文注释：daemon 的 HERMES_HOME 指向 browser-link 运行时根，子进程必须回到 Hermes 自己的主目录，否则会在运行时根里重建 Hermes。
     env = {**os.environ, **(extra or {})}
+    env['HERMES_YOLO_MODE']='false'
+    if config.get('copilot_resource_token'):env['FAST_BROWSER_COPILOT_RESOURCE_TOKEN']=config['copilot_resource_token']
+    if config.get('copilot_silent_token'):env['FAST_BROWSER_COPILOT_SILENT_TOKEN']=config['copilot_silent_token']
     env['HERMES_HOME'] = str(Path(config.get('hermes_home') or Path.home() / '.hermes').expanduser())
     return env
 
 
 class ACPError(RuntimeError):
+    pass
+
+
+class ACPDisconnected(ACPError):
     pass
 
 
@@ -28,7 +36,7 @@ class ACP:
         self.pending = {}
         self.lock = threading.RLock()
         self.write_lock = threading.Lock()
-        self.turn_lock = threading.Lock()
+        self.turn_lock = threading.RLock()
         self.close_lock = threading.RLock()
         self.session = None
         self.messages = {}
@@ -37,9 +45,12 @@ class ACP:
         self.capabilities = {}
         self.failure = None
         self.last_usage = 0
+        self.last_components = counts()
         self.tools_verified = False
+        self.model_state = None
+        self.active_model = ''
 
-    def start(self):
+    def start(self, catalog_only=False, initialize_only=False):
         with self.lock:
             if self.process:
                 return
@@ -55,7 +66,7 @@ class ACP:
             result = self.call('initialize', {'protocolVersion': 1, 'clientInfo': {'name': 'fast-browser-link-copilot', 'version': '2.2.0'},
                                             'clientCapabilities': {'fs': {'readTextFile': False, 'writeTextFile': False}, 'terminal': False}})
             self.capabilities = result.get('agentCapabilities', {})
-            self.new_session()
+            if not initialize_only:self.new_session(verify=not catalog_only)
         except BaseException:
             self.close()
             raise
@@ -63,7 +74,7 @@ class ACP:
     def _send(self, message):
         with self.write_lock:
             if self.closed or not self.process or self.process.poll() is not None:
-                raise ACPError('ACP disconnected')
+                raise ACPDisconnected('ACP disconnected')
             try:
                 self.process.stdin.write(json.dumps(message, ensure_ascii=False) + '\n')
                 self.process.stdin.flush()
@@ -83,6 +94,7 @@ class ACP:
                 self.cancel()
                 raise ACPError('ACP request timed out; not replayed')
             if 'error' in pending:
+                if pending.get('disconnected'):raise ACPDisconnected('ACP disconnected')
                 raise ACPError('ACP request failed')
             return pending.get('result', {})
         finally:
@@ -106,37 +118,44 @@ class ACP:
                     continue
                 if message.get('method') == 'session/update':
                     params = message.get('params', {})
-                    if params.get('sessionId') != self.session:
-                        continue
-                    update = params.get('update', {})
-                    if update.get('sessionUpdate') == 'agent_message_chunk':
-                        content = update.get('content', {})
-                        if content.get('type') == 'text':
-                            key = update.get('messageId', 'current')
-                            with self.lock:
-                                text = self.messages.get(key, '') + content.get('text', '')
-                                if len(text.encode()) > 65536:
-                                    raise ACPError('ACP message exceeds budget')
-                                self.messages[key] = text
-                    if update.get('sessionUpdate') == 'usage_update':
-                        self.context_tokens = max(0, int(update.get('used', 0)))
-                    self.on_update(update)
+                    self.session_update(params.get('sessionId'),params.get('update',{}))
                 elif 'id' in message:
                     # 中文注释：协作进程不能自动批准终端/编辑/其他敏感确认，也不提供文件系统旁路。
                     if message.get('method') == 'session/request_permission':
-                        self._send({'jsonrpc': '2.0', 'id': message['id'], 'result': {'outcome': {'outcome': 'cancelled'}}})
+                        self._send({'jsonrpc': '2.0', 'id': message['id'], 'result': {'outcome': self.permission(message.get('params',{}))}})
                     else:
                         self._send({'jsonrpc': '2.0', 'id': message['id'], 'error': {'code': -32601, 'message': 'Client operation unavailable'}})
         except (OSError, ValueError, TypeError, ACPError) as exc:
             self.failure = type(exc).__name__
             self.on_update({'sessionUpdate':'copilot_transport_error'})
         finally:
+            if not self.closed:self.on_update({'sessionUpdate':'copilot_transport_error'})
             with self.lock:
                 for pending in self.pending.values():
                     pending['error'] = {'message': 'ACP disconnected'}
+                    pending['disconnected']=True
                     pending['event'].set()
 
-    def new_session(self):
+    def permission(self, params):
+        return {'outcome':'cancelled'}
+
+    def session_update(self,session_id,update):
+        if session_id != self.session:
+            return
+        if update.get('sessionUpdate') == 'agent_message_chunk':
+            content = update.get('content', {})
+            if content.get('type') == 'text':
+                key = update.get('messageId', 'current')
+                with self.lock:
+                    text = self.messages.get(key, '') + content.get('text', '')
+                    if len(text.encode()) > 65536:
+                        raise ACPError('ACP message exceeds budget')
+                    self.messages[key] = text
+        if update.get('sessionUpdate') == 'usage_update':
+            self.context_tokens = max(0, int(update.get('used', 0)))
+        self.on_update(update)
+
+    def new_session(self, verify=True):
         result = self.call('session/new', {'cwd': self.cwd, 'mcpServers': []})
         session = result.get('sessionId')
         if not isinstance(session, str) or not session:
@@ -144,13 +163,25 @@ class ACP:
         self.session = session
         self.context_tokens = 0
         self.last_usage = 0
-        if self.config.get('inference_model'):
-            self.call('session/set_model', {'sessionId': session, 'modelId': self.config['inference_model']})
+        self.last_components = counts()
+        self.model_state=result.get('models')
+        self.active_model=(self.model_state or {}).get('currentModelId','')
+        if not verify:return session
+        self.select_model(self.config.get('inference_model',''))
         tools,_ = self.prompt('/tools')
         if tools.strip() != 'No tools available.':
             raise ACPError('inference profile must expose zero tools')
         self.tools_verified = True
         return session
+
+    def select_model(self, selected):
+        target=selected or (self.model_state or {}).get('currentModelId','')
+        if target and target!=self.active_model:
+            self.call('session/set_model',{'sessionId':self.session,'modelId':target})
+            self.active_model=target
+            # 中文注释：Hermes 切模型会重建 agent，其累计用量从零开始；旧量已记入协作账本。
+            self.last_usage=0
+            self.last_components=counts()
 
     def prompt(self, text):
         with self.turn_lock:
@@ -164,18 +195,30 @@ class ACP:
                 messages = list(self.messages.values())
             final = messages[-1] if messages else ''
             usage = result.get('usage')
-            # 中文注释：Hermes usage 是本会话累计量，必须先取差值；usage_update.used 是上下文大小，不能混为累计花费。
-            if isinstance(usage, dict) and isinstance(usage.get('totalTokens'), (int, float)):
-                reported=max(0,int(usage['totalTokens']))
-                if reported < self.last_usage:
-                    raise ACPError('cumulative usage counter moved backwards')
-                tokens,source=reported-self.last_usage,'acp.usage.totalTokens.delta'
-                self.last_usage=reported
+            detailed=isinstance(usage,dict) and all(type(usage.get(key)) is int for key in ('inputTokens','cachedReadTokens','outputTokens'))
+            if detailed:
+                current=counts(usage['inputTokens'],usage['cachedReadTokens'],usage['outputTokens'])
+                delta={key:max(0,current[key]-self.last_components[key]) for key in current}
+                # 中文注释：ACP inputTokens 来自 prompt_tokens，包含缓存；stream-json input 则已经是不含缓存的输入。
+                components=counts(max(0,delta['input']-delta['cache_read']),delta['cache_read'],delta['output'])
+                self.last_components=current
             else:
-                tokens, source = (len(text.encode()) + len(final.encode()) + 3) // 4, 'estimated_utf8_bytes/4'
+                components=None
+            if isinstance(usage,dict) and type(usage.get('totalTokens')) is int:
+                reported=max(0,usage['totalTokens'])
+                if reported<self.last_usage:raise ACPError('cumulative usage counter moved backwards')
+                tokens=reported-self.last_usage
+                self.last_usage=reported
+                source='acp.usage.totalTokens.delta'
+            else:
+                tokens=(len(text.encode())+len(final.encode())+3)//4
+                source='estimated_utf8_bytes/4'
             if text.startswith('/') and not isinstance(usage,dict):tokens,source=0,'acp.local_control'
-            return final, {'tokens': tokens, 'source': source, 'cumulative_tokens':self.last_usage, 'input_bytes': len(text.encode()),
-                           'estimated_input_tokens': (len(text.encode()) + 3) // 4, 'seconds': time.monotonic() - started}
+            if detailed:source='acp.usage.components.delta'
+            components=components if components is not None else counts(tokens)
+            return final, {'model':self.active_model or 'unknown','tokens':sum(components.values()),'usage':components,'estimated':not detailed,
+                           'source':source,'cumulative_tokens':self.last_usage,'input_bytes':len(text.encode()),
+                           'estimated_input_tokens':(len(text.encode())+3)//4,'seconds':time.monotonic()-started}
 
     def cancel(self):
         if self.session and not self.closed:

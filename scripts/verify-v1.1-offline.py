@@ -40,6 +40,11 @@ NODE_BOUNDARIES = ('.', 'cloud-link/site')
 # Explicit runner inventory: no glob expands into browser, install, or evidence suites.
 NODE_TESTS = (
     'tests/copilot/copilot.test.mjs',
+    'tests/copilot/ui.test.mjs',
+    'tests/copilot/results-tables.test.mjs',
+    'tests/copilot/selection.test.mjs',
+    'tests/copilot/capabilities.test.mjs',
+    'tests/copilot/popup-overlay-brand.test.mjs',
     'tests/v1.11.0/recovery.test.mjs',
     # 中文注释：云端授权与 SQLite/MCP 测试使用合成配对和设备，不连接个人浏览器。
     'tests/native-extension/cloud-link.test.mjs',
@@ -157,7 +162,7 @@ PYTHON_SUITES = (
 )
 # Some directories contain explicitly unsafe runners: select files by fixed name.
 PYTHON_FILES = {
-    'tests/copilot': ('test_copilot.py',),
+    'tests/copilot': ('test_copilot.py','test_copilot_exec.py','test_copilot_results.py','test_copilot_selection.py','test_copilot_capabilities.py'),
     'tests/agent-link': ('test_agent_link.py',),
     'cloud-link/tests': ('test_cloud.py', 'test_native.py', 'test_scheduler.py', 'test_service.py'),
     'tests/auto-update': ('test_update.py',),

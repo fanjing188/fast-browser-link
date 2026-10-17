@@ -4,6 +4,8 @@
 
 ## 核心 Node
 
+- `tests/copilot/ui.test.mjs`：中文状态、结果表/复制/报告请求、SPA稳定等待、工作页排除及去重。
+
 - `tests/copilot/copilot.test.mjs`：有界语义采集、输入值排除、特殊页跳过、有序轨迹、动态注册和看板消息身份。
 - `tests/copilot/test_copilot.py`：假 ACP 与独立 Hermes 子进程端到端、参数/流解析、单飞节流、稳定建议、profile 初始化幂等、进程树停止及报告/词池落盘。
 
@@ -237,3 +239,22 @@
 - `tests/agent-link/test_agent_link.py` 覆盖独立入口的无痕参数、下载方法身份注入及 `close keepTabs` 到既有 handoff 通道的映射。
 - `tests/native-v2/real-login-continuity.mjs`：non-offline，临时 Chrome/Edge profile 验证普通/无痕 Cookie 隔离及 A→B→C 同任务日志。
 - `tests/native-v2/real-incognito-matrix.mjs --package --headed`：non-offline，17 组打包后的无痕能力验收，包括真实保存确认后的下载归属、领取/哈希和取消。`--core-only` 明确排除下载，不构成下载通过证据。
+
+- `tests/copilot/test_copilot_exec.py`：独立执行会话、同进程并发/取消/一次重连、权限拒绝、500字节记忆、确定性取数→单轮判读、缺数据及受管 profile 升级。
+
+- `tests/copilot/results-tables.test.mjs`：按类型折叠/展开、分组和选择、排序/筛选、父子结果、表格识别与隐私、分页与虚拟滚动、限页/停止/部分保存、后台焦点守卫及生产Executor分页派发。
+- `tests/copilot/test_copilot_results.py`：六类合同、原始指标归源、旧格式、单次批量执行/补数不判断、XLSX/CSV回读、文件ID隔离和静默任务令牌。
+
+## R8 划词与通用扩展包
+
+- `tests/copilot/selection.test.mjs`：中英文分类、closed shadow、300ms、编辑区/长选区排除、关闭条件、快捷键、推荐替换、工作页排除、10分钟去重、地址筛选保留、可见趋势表读取与分组后台收集、曲线展示、中英文固定文案。
+- `tests/copilot/test_copilot_selection.py`：趋势原始值与缺项、包覆盖、缓存/词池只读命中、实例/epoch回传隔离、一次趋势判断、SERP一次+前三站取数后一次判断、推理模型独立零工具单轮。
+- 注册固定离线清单；Python显式步骤为56。真实浏览器、真实数据工具、截图与私人扩展包验收均独立。
+
+## R9 工具记忆与声明式能力
+
+`test_copilot_capabilities.py`覆盖虚构工具多页识别、字段映射、七条建议、命令参数/批量、精确来源优先、多源降级、共享停源/文件锁、步骤停止存档、草稿确认、资源租约、真实替身stdio单轮及分块回传。`capabilities.test.mjs`覆盖只读状态、报告分页、绑定/学习UI、组合卡片和分块通道。两文件加入显式默认离线清单；显式离线矩阵57步。真实网页/真实工具包/实际模型与数据验收独立。
+
+## R10 popup, brand and task overlay
+
+`tests/copilot/popup-overlay-brand.test.mjs` covers local/cloud status, explicit pairing, pending/success/error feedback, Escape and navigation close, bilingual labels, reduced motion, recent/all logs, scroll following, copy, scoped presentation preferences, closed shadow screenshot blocking and stop confirmation. It joins the explicit offline list (57 grouped steps; the added Node file shares the existing Node group); live browser evidence remains separate. Existing popup/overlay security tests retain unknown-state, generation/lease/origin, trusted-click and screenshot blocking assertions with updated UI selectors.

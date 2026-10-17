@@ -20,7 +20,7 @@ test('弹窗入口保留中文状态语义、连接授权说明和任务控制',
   assert.ok(document.querySelector('#takeover'))
   assert.ok(document.querySelector('#stop-task'))
   assert.equal(document.querySelector('#tasks,#verify-control,#task-list'), null)
-  assert.equal(document.querySelector('#access-detail').closest('details'),null)
+  assert.ok(document.querySelector('#access-detail').closest('[role=tooltip]'))
   // 中文注释：设置直接展示，主要链接仅在桌面页操作。
   // 中文注释：常用鼠标固定启用，镜像入口只放桌面，额外区域不在浏览器弹窗显示。
   assert.equal(document.querySelector('#cursor-toggle,#cookie-mirror,#shield-settings'),null)

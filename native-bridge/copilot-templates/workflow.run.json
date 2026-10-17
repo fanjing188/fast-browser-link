@@ -1,0 +1,484 @@
+{
+  "id": "workflow.run",
+  "name": "组合工作流",
+  "prompt": "只做单轮意图与理由判断，不使用工具，不修改原始指标。",
+  "prompt_en": "One-turn intent and explanation only. No tools or metric changes.",
+  "params_schema": {
+    "type": "object",
+    "properties": {
+      "flow": {
+        "type": "string",
+        "maxLength": 100
+      },
+      "object": {
+        "type": "string",
+        "maxLength": 2000
+      }
+    },
+    "required": [
+      "flow",
+      "object"
+    ],
+    "additionalProperties": false
+  },
+  "result_schema": {
+    "type": "object",
+    "properties": {
+      "verdict": {
+        "type": "string",
+        "maxLength": 30
+      },
+      "level": {
+        "type": "string",
+        "enum": [
+          "go",
+          "test",
+          "skip",
+          "info"
+        ]
+      },
+      "metrics": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "label": {
+              "type": "string",
+              "maxLength": 30
+            },
+            "value": {
+              "type": "string",
+              "maxLength": 80
+            }
+          },
+          "required": [
+            "label",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        "maxItems": 3
+      },
+      "missing": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "field": {
+              "type": "string",
+              "maxLength": 80
+            },
+            "reason": {
+              "type": "string",
+              "maxLength": 300
+            }
+          },
+          "required": [
+            "field",
+            "reason"
+          ],
+          "additionalProperties": false
+        },
+        "maxItems": 20
+      },
+      "process": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "maxLength": 600
+        },
+        "maxItems": 30
+      },
+      "next": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": [
+                "seo.keyword_check",
+                "seo.longtail",
+                "seo.competitor_keywords",
+                "seo.serp_breakdown",
+                "seo.save_pool",
+                "seo.trends",
+                "seo.ranking_sites",
+                "seo.domain_rating",
+                "seo.top_pages",
+                "browser.open",
+                "general.task"
+              ]
+            },
+            "object": {
+              "type": "string",
+              "maxLength": 2000
+            }
+          },
+          "required": [
+            "action",
+            "object"
+          ],
+          "additionalProperties": false
+        },
+        "maxItems": 2
+      },
+      "records": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "keyword": {
+              "type": "string",
+              "maxLength": 2000
+            },
+            "vol": {
+              "type": "number"
+            },
+            "kd": {
+              "type": "number"
+            },
+            "cpc": {
+              "type": "number"
+            },
+            "source": {
+              "type": "string",
+              "maxLength": 500
+            },
+            "position": {
+              "type": "number"
+            },
+            "url": {
+              "type": "string",
+              "maxLength": 2000
+            },
+            "opportunity": {
+              "type": "boolean"
+            },
+            "field_sources": {
+              "type": "object",
+              "properties": {},
+              "additionalProperties": true
+            },
+            "domain": {
+              "type": "string",
+              "maxLength": 300
+            },
+            "traffic": {
+              "type": "number"
+            },
+            "authority": {
+              "type": "number"
+            },
+            "authority_kind": {
+              "type": "string",
+              "maxLength": 100
+            },
+            "reg_date": {
+              "type": "string",
+              "maxLength": 40
+            },
+            "weak": {
+              "type": "boolean"
+            },
+            "intent": {
+              "type": "string",
+              "maxLength": 300
+            },
+            "intent_tool": {
+              "type": "integer"
+            },
+            "excluded": {
+              "type": "integer"
+            },
+            "host": {
+              "type": "string",
+              "maxLength": 300
+            },
+            "host_duplicate": {
+              "type": "integer"
+            },
+            "trend12": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "maxItems": 400
+            },
+            "serp_json": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": true
+              },
+              "maxItems": 20
+            },
+            "tier": {
+              "type": "string",
+              "maxLength": 100
+            },
+            "verdict": {
+              "type": "string",
+              "maxLength": 500
+            },
+            "reason": {
+              "type": "string",
+              "maxLength": 1000
+            },
+            "group": {
+              "type": "string",
+              "maxLength": 100
+            },
+            "already_checked": {
+              "type": "boolean"
+            },
+            "is_home": {
+              "type": "integer"
+            },
+            "rank": {
+              "type": "integer"
+            },
+            "page_type": {
+              "type": "string",
+              "maxLength": 60
+            },
+            "small_site": {
+              "type": "boolean"
+            },
+            "title": {
+              "type": "string",
+              "maxLength": 500
+            },
+            "kd_source": {
+              "type": "string",
+              "maxLength": 100
+            },
+            "trend_source": {
+              "type": "string",
+              "maxLength": 100
+            },
+            "metric_quality": {
+              "type": "object",
+              "properties": {},
+              "additionalProperties": true
+            },
+            "measurement": {
+              "type": "string",
+              "maxLength": 30
+            }
+          },
+          "required": [],
+          "additionalProperties": false
+        },
+        "maxItems": 1000
+      },
+      "steps": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "label": {
+              "type": "string",
+              "maxLength": 300
+            },
+            "status": {
+              "type": "string",
+              "maxLength": 40
+            },
+            "source": {
+              "type": "string",
+              "maxLength": 500
+            },
+            "count": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "label",
+            "status",
+            "source",
+            "count"
+          ],
+          "additionalProperties": false
+        },
+        "maxItems": 50
+      },
+      "artifacts": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "label": {
+              "type": "string",
+              "maxLength": 100
+            },
+            "path": {
+              "type": "string",
+              "maxLength": 2000
+            }
+          },
+          "required": [
+            "label",
+            "path"
+          ],
+          "additionalProperties": false
+        },
+        "maxItems": 50
+      }
+    },
+    "required": [
+      "verdict",
+      "level",
+      "metrics",
+      "missing",
+      "process",
+      "next",
+      "records",
+      "steps",
+      "artifacts"
+    ],
+    "additionalProperties": false
+  },
+  "decision_schema": {
+    "type": "object",
+    "properties": {
+      "verdict": {
+        "type": "string",
+        "maxLength": 30
+      },
+      "level": {
+        "type": "string",
+        "enum": [
+          "go",
+          "test",
+          "skip",
+          "info"
+        ]
+      },
+      "process": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "maxLength": 600
+        },
+        "maxItems": 30
+      },
+      "next": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": [
+                "seo.keyword_check",
+                "seo.longtail",
+                "seo.competitor_keywords",
+                "seo.serp_breakdown",
+                "seo.save_pool",
+                "seo.trends",
+                "seo.ranking_sites",
+                "seo.domain_rating",
+                "seo.top_pages",
+                "browser.open",
+                "general.task"
+              ]
+            },
+            "object": {
+              "type": "string",
+              "maxLength": 2000
+            }
+          },
+          "required": [
+            "action",
+            "object"
+          ],
+          "additionalProperties": false
+        },
+        "maxItems": 2
+      },
+      "bullets": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "maxItems": 30
+      },
+      "links": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "label": {
+              "type": "string",
+              "maxLength": 100
+            },
+            "url": {
+              "type": "string",
+              "maxLength": 2000
+            }
+          },
+          "required": [
+            "label",
+            "url"
+          ],
+          "additionalProperties": false
+        },
+        "maxItems": 30
+      },
+      "artifacts": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "label": {
+              "type": "string",
+              "maxLength": 100
+            },
+            "path": {
+              "type": "string",
+              "maxLength": 2000
+            }
+          },
+          "required": [
+            "label",
+            "path"
+          ],
+          "additionalProperties": false
+        },
+        "maxItems": 30
+      }
+    },
+    "required": [
+      "verdict",
+      "level",
+      "process",
+      "next",
+      "bullets",
+      "links",
+      "artifacts"
+    ],
+    "additionalProperties": false
+  },
+  "display_fields": [
+    "verdict",
+    "level",
+    "metrics",
+    "missing",
+    "process",
+    "next",
+    "records",
+    "steps",
+    "artifacts"
+  ],
+  "toolsets": [
+    "none"
+  ],
+  "max_turns": 1,
+  "fetch": [],
+  "fetch_fallback": {
+    "enabled": false
+  }
+}

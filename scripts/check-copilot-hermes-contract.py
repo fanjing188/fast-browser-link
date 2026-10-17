@@ -37,7 +37,20 @@ def check(root):
     assert pairs['max_iterations']=='self.max_turns' and pairs['enabled_toolsets']=='self.enabled_toolsets'
     loop=(root/'agent/conversation_loop.py').read_text()
     assert 's.api_call_count < agent.max_iterations' in loop
-    return {'parser':{'model':args.model,'max_turns':limit,'toolsets':args.toolsets,'source':args.source},
+    acp_server=(root/'acp_adapter/server.py').read_text()
+    session_source=(root/'acp_adapter/session.py').read_text()
+    command_source=(root/'acp_adapter/commands.py').read_text()
+    server_methods={n.name for n in ast.walk(ast.parse(acp_server)) if isinstance(n,ast.AsyncFunctionDef)}
+    assert not server_methods.intersection({'close_session','stop_session','end_session','delete_session'})
+    assert 'with state.runtime_lock:' in acp_server and 'run_in_executor(_executor, ctx.run, _run_agent)' in acp_server
+    config_option=next(n for n in ast.walk(ast.parse(acp_server)) if isinstance(n,ast.AsyncFunctionDef) and n.name=='set_config_option')
+    config_text=ast.unparse(config_option)
+    assert 'state.config_options' in config_text and 'max_iterations' not in config_text and 'enabled_toolsets' not in config_text
+    factory=next(n for n in ast.walk(ast.parse(session_source)) if isinstance(n,ast.FunctionDef) and n.name=='_make_agent')
+    assert 'max_iterations' not in ast.unparse(factory)
+    reset=next(n for n in ast.walk(ast.parse(command_source)) if isinstance(n,ast.FunctionDef) and n.name=='_cmd_reset')
+    assert 'state.history.clear()' in ast.unparse(reset)
+    return {'acp':{'concurrent_sessions':'per-session locks + executor','per_session_tool_or_turn_options':False,'close_session_method':False,'local_reset_clears_history':True},'parser':{'model':args.model,'max_turns':limit,'toolsets':args.toolsets,'source':args.source},
             'synthetic_unrelated_mcp_filter_matches':0,'agent_wiring':pairs,
             'limit_semantics':'30 ordinary iterations; Hermes may make a final summary/grace request',
             'scope':'real parser and extracted source functions executed; wiring statically checked; no provider call'}

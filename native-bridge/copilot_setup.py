@@ -9,7 +9,8 @@ def setup(directory, source=None, overrides=None):
     directory = Path(directory)
     source = Path(source) if source else Path(__file__).parent / 'copilot-templates'
     destinations = [(source / 'seo' / (action + '.json'), directory / 'templates' / (action + '.json'))
-                    for action in ('seo.keyword_check', 'seo.competitor_keywords', 'seo.longtail', 'seo.serp_breakdown', 'seo.save_pool')]
+                    for action in ('seo.keyword_check', 'seo.competitor_keywords', 'seo.longtail', 'seo.serp_breakdown', 'seo.save_pool','seo.trends','seo.ranking_sites','seo.domain_rating','seo.top_pages')]
+    destinations.append((source/'browser.open.json',directory/'templates/browser.open.json'))
     destinations.append((None, directory / 'config.json'))
     for _, target in destinations:
         if any(part.is_symlink() for part in (target, *target.parents)):
@@ -25,7 +26,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--directory', type=Path, required=True)
     parser.add_argument('--report-dir')
-    parser.add_argument('--pool-command-json', help='JSON argv ending with ingest; csv/link/date are added by host')
+    parser.add_argument('--pool-command-json', help='JSON argv accepting stdin JSON keywords/csv_path/date; no implicit arguments')
     args = parser.parse_args()
     overrides = {}
     if args.report_dir:

@@ -13,6 +13,7 @@ const root = path.resolve(import.meta.dirname, '../..');
 // 中文注释：构建验收只使用系统临时目录，避免写入实际 Hermes 安装。
 const scratch = await realpath(tmpdir());
 const dependencyFiles = [
+  'native-extension/brand.css','native-extension/brand.mjs','native-extension/brand-logo.svg','native-extension/brand-logo-small.svg','native-extension/overlay-view.mjs',
   'THIRD_PARTY_NOTICES.md', 'third-party/licenses/hermes-agent-MIT.txt',
   'page-semantics/oauth-providers.mjs',
   'page-semantics/redact.mjs',
@@ -24,6 +25,8 @@ const dependencyFiles = [
   'browser-interactions/index.mjs',
 ];
 const sourceCopies = [
+  'brand.css','brand.mjs','brand-logo.svg','brand-logo-small.svg','brand-mark.svg','overlay-view.mjs',
+  'copilot-tool-reports.mjs','copilot-capabilities-panel.mjs','copilot-selection.mjs','copilot-browser-data.mjs','copilot-i18n.mjs','copilot-tables.mjs','copilot-table-job.mjs','copilot-table-panel.mjs','copilot-result-view.mjs','copilot-result.mjs','copilot-result.html','copilot-settings.mjs','copilot-view.mjs','copilot-entry.js','copilot-collector.mjs','copilot-background.mjs','copilot-observation.mjs','copilot-panel.html','copilot-panel.css','copilot-panel.mjs',
   // 中文注释：新增工作窗口和效果模块同样进入显式构建闭包。
   'action-effects.mjs', 'work-window.mjs', 'work-window.html',
   'manifest.json',
@@ -180,7 +183,7 @@ async function assertBuildContents(sourceRoot, output) {
   for (const relative of sourceCopies) {
     const staged = await readFile(path.join(output, relative));
     const rawSource = await readFile(path.join(sourceRoot, 'native-extension', relative));
-    const source = relative==='oauth-popups.mjs'?Buffer.from(rawSource.toString().replace("from '../page-semantics/oauth-providers.mjs'", "from './vendor/oauth-providers.mjs'")):rawSource;
+    const source = relative==='copilot-observation.mjs'?Buffer.from(rawSource.toString().replace("from '../page-semantics/index.js'","from './vendor/page-semantics.mjs'")):relative==='oauth-popups.mjs'?Buffer.from(rawSource.toString().replace("from '../page-semantics/oauth-providers.mjs'", "from './vendor/oauth-providers.mjs'")):rawSource;
     assert.deepEqual(staged, source, `${relative} source`);
     assert.equal(sha256(staged), sha256(source), `${relative} source hash`);
   }

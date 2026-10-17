@@ -341,3 +341,11 @@ for(const kind of ['public','overlay','missing'])test(`CDP CSSPseudoElement хо┐ф
  });
  try{if(kind==='public')await adapter.verifyHit({x:10,y:10});else await assert.rejects(adapter.verifyHit({x:10,y:10}),kind==='missing'?/HIT_RECHECK_FAILED/:/UNSUPPORTED_SHADOW_DOM/);assert(calls.includes('Runtime.releaseObject'));}finally{dom.window.close();}
 });
+
+test('overlay UI preferences require the current scoped binding and never pause or release a task',async()=>{
+ const {api}=fixture(),writes=[];const e=new Executor(api);await e.approve(task);api.storage={local:{get:async()=>({}),set:async value=>writes.push(value)}};await e.execute(request('screenshot'));const current=e.tasks.get(task.id),entry=current.overlays.get(1);
+ const emit=async({nonce=entry.nonce,context=entry.contextId,tabId=1,value={minimized:true,collapsed:false}}={})=>{entry.listener({tabId},'Runtime.bindingCalled',{name:'fastOverlayCommand',executionContextId:context,payload:JSON.stringify({nonce,commandId:1,kind:'ui_state',value})});await new Promise(done=>setImmediate(done));};
+ await emit({nonce:'wrong'});await emit({context:99});await emit({tabId:2});await emit({value:{minimized:true,collapsed:'false'}});assert.equal(writes.length,0);
+ await emit();assert.deepEqual(writes,[{['fast.overlay.ui.'+task.id+'.'+task.generation]:{minimized:true,collapsed:false}}]);assert.equal(current.revoked,false);assert.notEqual(current.paused,true);assert.equal(e.leases.get(1),task.id);
+ await e.release({taskId:task.id,generation:task.generation,closeAgentTabs:false});await emit();assert.equal(writes.length,1);
+});

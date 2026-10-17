@@ -1,3 +1,4 @@
+import {taskTableAdapter} from './copilot-table-job.mjs';
 import {CopilotBackground} from './copilot-background.mjs';
 import {NativeWorkspaces,registerWorkspaceStartup} from './workspace-adapter.mjs';
 // 中文注释：顶层同步注册浏览器启动撤权，不能等 connect 或 ready 完成后注册。
@@ -9,7 +10,7 @@ import {BUILD_ID} from './build-id.mjs';
 import {reloadForInstalledBuild} from './build-reload.mjs';
 import {CookieMirror} from './cookie-mirror.mjs';
 import {createApprovalNotifier,showPanelNotification,clearPanelNotification} from './approval-notifier.mjs';
-const copilot=new CopilotBackground(chrome,(method,params)=>{if(!connected||!bridge)return Promise.reject(Error('本地桥未连接'));return bridge.request('extension.copilot.'+method,params);});
+const copilot=new CopilotBackground(chrome,(method,params)=>{if(!connected||!bridge)return Promise.reject(Error('本地桥未连接'));return bridge.request('extension.copilot.'+method,params);},id=>executor.leases.has(id)||[...executor.tasks.values()].some(task=>(task.tabIds?.has?.(id)||task.tabIds?.includes?.(id))||task.agentTabs?.has(id)));
 let bridge=null,connected=false,connecting=false,lastError='尚未连接本地桥';
 let notifier=null,approvalInstance=null,approvalRefresh=Promise.resolve();
 let connectedInstanceId=null,connectedGeneration=null;
@@ -150,7 +151,7 @@ const executor=new Executor(chrome,p=>bridge?.request('extension.tab_event',p).c
   }
  },onOverlayReady:task=>bridge&&refreshOverlaySteps(bridge,task),onOverlayCommand:overlayCommand,onDownloadEvent:reportDownload,onCdpEvents:pushCdpEvents,
  // 中文注释：系统通知只说明需要登录，不携带网站、任务或账号信息。
- onSignInRedirect:()=>void showPanelNotification(chrome,'fast-browser-sign-in','任务页面跳到了第三方登录页。请在该标签页亲自选择账号并完成登录，完成后任务会自动继续。')});
+ onSignInRedirect:info=>{if(executor.tasks.get(info?.taskId)?.silent)return;void showPanelNotification(chrome,'fast-browser-sign-in','任务页面跳到了第三方登录页。请在该标签页亲自选择账号并完成登录，完成后任务会自动继续。');}});
 // 中文注释：镜像状态变化只刷新源扩展确认面板，弹窗不保留复制结果。
 const cookieMirror=new CookieMirror(chrome,{onChanged:()=>{void refreshApprovals();}});
 let cloud=null;
@@ -158,6 +159,8 @@ const consent=new BrowserConsent(chrome.storage.local,executor);
 // 中文注释：云端状态通知只刷新弹窗，不触发本地任务的全局权限同步。
 cloud=new CloudLink(chrome,{localBridge:()=>connected?bridge:null,executor,consent,changed:()=>chrome.runtime.sendMessage({type:'changed'}).catch(()=>{})});
 const consentLoaded=consent.load();
+executor.resourceGuard=async(task,url)=>{if(!copilot.protectedHosts)throw Error('TOOL_POLICY_UNAVAILABLE');if(!copilot.protectedHosts.includes(new URL(url).hostname))return;const result=await bridge?.request('extension.copilot.resource_check',{taskId:task.id,url});if(!result?.allowed)throw Error('SERIAL_TOOL_REQUIRES_CAPABILITY_LANE');};
+copilot.attachTableAdapter(taskTableAdapter(chrome,executor,()=>bridge,consent));
 let disconnectBarrier=Promise.resolve();
 // The host list is authoritative. Never accept a request supplied by the page,
 // model, or panel as approval scope; the panel receives only display fields.
@@ -232,7 +235,7 @@ async function pendingAction(a,t,instanceId){
 async function collectApprovals(current,instanceId){
  const tasks=await current.request('extension.tasks');
  const approvals=await current.request('extension.approvals');
- const requests=await Promise.all(approvals.map(a=>pendingAction(a,tasks.find(t=>t.id===a?.taskId),instanceId)));
+ const requests=await Promise.all(approvals.filter(a=>!tasks.find(t=>t.id===a?.taskId)?.silent).map(a=>pendingAction(a,tasks.find(t=>t.id===a?.taskId),instanceId)));
  // 中文注释：Cookie 确认独立于任务和全部访问模式，只有源扩展界面能批准。
  if(!cookieMirror.transfers.size)return requests.filter(Boolean);
  const window=await chrome.windows.getLastFocused({windowTypes:['normal']});
@@ -282,11 +285,11 @@ async function dispatchAction(r,decision){
  }catch(e){executor.actionGrants.delete(r.nonce);throw e;}
 }
 async function refreshOverlaySteps(current,selectedTask=null){
- // 中文注释：仅把守护进程脱敏后的最近五步送进任务遮罩，不读取网页或输入内容。
+ // 中文注释：仅把守护进程脱敏后的最近至多100步送进任务遮罩，不读取网页或输入内容。
  for(const task of selectedTask?[selectedTask]:executor.tasks.values()){
   if(task.revoked||!task.overlays?.size)continue;
   try{
-   const steps=await current.request('extension.task_log',{taskId:task.id,generation:task.generation,limit:5});
+   const steps=await current.request('extension.task_log',{taskId:task.id,generation:task.generation,limit:100});
    if(current!==bridge||task.revoked||executor.tasks.get(task.id)!==task)continue;
    task.recentSteps=steps;
    for(const [tabId,entry] of task.overlays)void executor.overlayCall(tabId,entry,'log',{steps}).catch(()=>{});
@@ -348,6 +351,7 @@ chrome.debugger.onDetach.addListener(({tabId},reason)=>{
  void executor.release({taskId:t.id,generation:t.generation,closeAgentTabs:false})
   .then(async()=>{await executor.cleanupDetachedOverlay(t,tabId);await current?.request('extension.stop',{taskId:t.id,generation:t.generation});}).catch(()=>{});
 });
+chrome.runtime.onConnect?.addListener(port=>copilot.attachPanel(port));
 chrome.runtime.onMessage.addListener((m,sender,respond)=>{
  if(copilot.handle(m,sender,respond))return true;
  if(m?.type==='approval_panel_view'||m?.type==='approval_panel_decision'){
@@ -388,7 +392,7 @@ chrome.runtime.onMessage.addListener((m,sender,respond)=>{
  // 中文注释：弹窗只读取当前浏览器的任务摘要和实际归属页，不返回输入或日志正文。
  if(m.type==='popup_status'){
   // 中文注释：弹窗状态版本与 Native 握手共用当前扩展清单。
-  const base={connected,browserFullConsentStatus:await consent.readStatus(),browser:/Edg/.test(navigator.userAgent)?'Edge':'Chrome',instanceId:connectedInstanceId,cloud:cloud.view(),observedAt:Date.now(),version:chrome.runtime.getManifest().version};
+  const base={connected,browserFullConsentStatus:await consent.readStatus(),browser:/Edg/.test(navigator.userAgent)?'Edge':'Chrome',instanceId:connectedInstanceId,cloud:cloud.view(),copilot:{enabled:copilot.enabled,running:[...copilot.rows.values()].filter(row=>['queued','executing','stopping'].includes(row.status)).length+[...copilot.localJobs.values()].filter(row=>row.status==='executing').length,unread:copilot.unread.size},observedAt:Date.now(),version:chrome.runtime.getManifest().version};
   if(!connected||!bridge)return {...base,tasks:[],page:null};
   const tasks=await bridge.request('extension.tasks');
   const active=(await chrome.tabs.query({active:true,currentWindow:true}))[0];
@@ -398,7 +402,7 @@ chrome.runtime.onMessage.addListener((m,sender,respond)=>{
   if(task){const view=await executor.status({taskId:task.id,generation:task.generation});page=view.pages.find(p=>p.tabId===active.id)||null;}
   const local=task&&executor.tasks.get(task.id);
   const state=local?.pauseRequested&&!local.paused?'pausing':local?.paused?'paused':task?.state;
-  return {...base,tasks:page&&!['closed','cancelled'].includes(task.state)?[{id:task.id,state,generation:task.generation,activeMode:local?.policy.activeMode||'smart',pendingInteraction:task.pendingInteraction?{kind:task.pendingInteraction.kind}:null}]:[],page:page?{...page,taskId:task.id}:null};
+  return {...base,tasks:page&&!['closed','cancelled'].includes(task.state)?[{id:task.id,title:String(task.title||'').slice(0,120),state,generation:task.generation,activeMode:local?.policy.activeMode||'smart',pendingInteraction:task.pendingInteraction?{kind:task.pendingInteraction.kind}:null}]:[],page:page?{...page,taskId:task.id}:null};
  }
  if(m.type==='popup_action'){
   const t=executor.tasks.get(m.taskId);

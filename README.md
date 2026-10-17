@@ -1,5 +1,9 @@
 # Fast-browser-link
 
+<img src="native-extension/brand-logo.svg" width="64" height="64" alt="Fast-browser-link logo">
+
+[Brand guidelines](docs/brand.md)
+
 **2.2.0 — local macOS candidate.** Connect local agents to Chrome or Edge through skills, a JSON CLI or MCP stdio. Use regular signed-in sessions or opt-in incognito tasks, with continuous task logs across login redirects and popups.
 
 [简体中文](README.zh-CN.md)

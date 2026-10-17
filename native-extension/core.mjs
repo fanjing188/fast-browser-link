@@ -1,3 +1,5 @@
+import {BRAND_CSS,createBrandMark} from './brand.mjs';
+import {createOverlayView} from './overlay-view.mjs';
 import {passwordValues,omitPasswordValues} from './password-values.mjs';
 import {RECOVERY_ACTIONS,recoverTarget,recoveryReason} from './target-recovery.mjs';
 const RECOVERY_ROUND=Symbol('recovery round');
@@ -816,10 +818,10 @@ export function preveilSource(allowedOrigins,{taskId='',generation=0}={}){
   if(!host){
    host=document.createElement('div');host.setAttribute('data-fast-automation-overlay','');host.setAttribute('data-fast-preveil','');host.dataset.fastOverlayTask=${JSON.stringify(taskId)};host.dataset.fastOverlayGeneration=${JSON.stringify(String(generation))};host.tabIndex=-1;
    host.addEventListener('fast-overlay-release',()=>globalThis.__fastRemovePreveil?.());
-   host.style.cssText='position:fixed;inset:0;z-index:2147483647;pointer-events:auto;background:rgba(13,35,25,.10);border:2px solid rgba(31,117,75,.55);box-sizing:border-box;margin:0';
-   const label=document.createElement('div');label.textContent='Fast-browser-link 正在工作 · 页面加载中';
-   label.style.cssText='position:fixed;top:16px;right:16px;padding:12px 16px;border-radius:14px;background:#172a20;color:#fff;font:600 14px/1.4 system-ui,sans-serif';
-   host.attachShadow({mode:'closed'}).append(label);
+   host.style.cssText='position:fixed;inset:0;z-index:2147483647;pointer-events:auto;background:rgba(20,32,55,.06);border:2px solid #7088bc;box-sizing:border-box;margin:0';
+   const label=document.createElement('div');const createBrandMark=${createBrandMark.toString()};label.append(createBrandMark(document));const name=document.createElement('span');name.textContent='Fast-browser-link';const state=document.createElement('span');state.setAttribute('role','status');state.textContent=/^zh/i.test(navigator.language)?'◌ 加载中':'◌ Loading';label.append(name,state);
+   label.style.cssText='position:fixed;top:16px;right:16px;display:flex;align-items:center;gap:8px;padding:10px 12px;border-radius:10px;background:#fff;color:#202733;font:600 12px/1.4 system-ui,sans-serif';
+   const shadow=host.attachShadow({mode:'closed'});const style=document.createElement('style');style.textContent=${JSON.stringify(BRAND_CSS)}+'div{background:var(--brand-surface)!important;color:var(--brand-ink)!important}';shadow.append(style,label);
    // 中文注释：预遮罩不会因等待超时自行放开，完整遮罩接手后才卸载。
    for(const type of ['wheel','touchmove'])host.addEventListener(type,event=>event.preventDefault(),{passive:false});
   }
@@ -840,6 +842,7 @@ const SCRIPT_ACTIONS=new Set(['js.evaluate','cdp.send','cdp.events','network.ins
 const SITE_READ_ACTIONS=new Set(['snapshot','screenshot','page.observe','page.parse','semantic_snapshot','frame_catalog','interaction.capture','interaction.bounds','official.ready_state','images','console']);
 function assertV1Action(action) { if(!V1_ACTIONS.includes(action))throw Error('V1 unsupported action'); }
 
+const SILENT_WINDOW_METHODS=new Set(['Page.bringToFront','Browser.setWindowBounds','Browser.close','Browser.crash','Target.activateTarget','Target.createTarget','Target.createBrowserContext','Target.disposeBrowserContext','Target.sendMessageToTarget']);
 export class Executor {
  constructor(api,onEvent=()=>{},{beforeLeaseRelease=async()=>{},onOverlayCommand=null,releaseDeadlineMs=RELEASE_DEADLINE_MS,onDownloadEvent=null,onCdpEvents=null,onSignInRedirect=null,onPopupAdopt=async()=>{},onOverlayReady=null,oauthProviders=OAUTH_PROVIDERS}={}) {
   this.onOverlayReady=onOverlayReady;this.onPopupAdopt=onPopupAdopt;this.oauthProviders=oauthProviders;this.onSignInRedirect=onSignInRedirect;
@@ -855,9 +858,19 @@ export class Executor {
   this.vault=new VaultController(this);
   this.popups=new OAuthPopups(this);
  }
+ async assertSilentTarget(task,tabId){
+  if(!task.silent||!Number.isInteger(tabId))return;
+  const cap=this.workspaces?.authority.resolve(task.workspaceCapability),tab=await this.api.tabs.get(tabId);
+  if(!cap||!task.agentTabs.has(tabId)||this.leases.get(tabId)!==task.id||tab.windowId!==cap.windowId||tab.groupId!==task.agentTabGroups?.get(tabId))throw Object.assign(Error('后台工作页归属已变化，未执行'),{preDispatch:true});
+  if(this.resourceGuard)await this.resourceGuard(task,tab.url);
+  const window=await this.api.windows.get(tab.windowId);
+  if(tab.active&&window.focused)throw Object.assign(Error('用户正在查看工作页，后台操作已暂停'),{preDispatch:true});
+ }
  // 中文注释：网关请求不进入普通动作队列，但每一步都重新核实任务、代次、租约与浏览器访问。
  async gateway(method,p){
   const t=this.tasks.get(p.taskId);this.check(t,p);
+  if(t.silent&&(method==='browser.cdp_activate'||SILENT_WINDOW_METHODS.has(p.method)))throw Error('SILENT_TASK_FOCUS_DENIED');
+  await this.assertSilentTarget(t,p.tabId);
   this.pageRuntime.assertAccess(t);
   const checkMode=()=>{if(p.modeGeneration!==t.policy.modeGeneration)throw Error('mode generation mismatch');};checkMode();
   const guard=()=>{this.check(t,p);checkMode();this.pageRuntime.assertAccess(t);if(Number.isInteger(p.tabId)&&this.leases.get(p.tabId)!==t.id)throw Error('tab lease denied');};
@@ -881,6 +894,7 @@ export class Executor {
    this.pageRuntime.assert(t,{...p,tabId:await tabByTarget(p.targetId)});
    const tabId=await tabByTarget(p.targetId);
    // 中文注释：只关闭本任务新建的工作页，用户原有标签页不因网关请求关闭。
+   await this.assertSilentTarget(t,tabId);
    if(!t.agentTabs.has(tabId))throw Error('TARGET_NOT_OWNED');
    // 中文注释：主动关页导致的 debugger detach 不应撤销整个任务；失败时立即清除此标记。
    this.closingTabs.add(tabId);
@@ -888,6 +902,7 @@ export class Executor {
    catch(error){this.closingTabs.delete(tabId);throw error;}
   }
   if(method==='browser.cdp_activate'){
+   if(t.silent)throw Error('SILENT_TASK_FOCUS_DENIED');
    const tabId=await tabByTarget(p.targetId);this.pageRuntime.assert(t,{...p,tabId});
    await this.api.tabs.update(tabId,{active:true});return {};
   }
@@ -938,7 +953,7 @@ export class Executor {
    for(const id of ids)if(this.leases.has(id)&&this.leases.get(id)!==task.id)throw Error('tab claimed');
    if(!stillValid())throw Error('approval disconnected');
    for(const id of ids)for(const prior of this.tasks.values())if(prior.revoked){prior.agentTabs.delete(id);prior.tabIds.delete(id);}
-   const t={...task,workspaceTabs:tabs,tabIds:new Set(ids),agentTabs:new Set(),revoked:false,releasing:0,semanticBindings:new Map(),frameSessions:new Map(),frameRefs:new Map(),childHighlights:new Map(),interactions:new Map(),interactionRefs:new Map(),interactionOperations:new Set(),pendingInteractionProbes:new Set(),pendingInteractionCleanups:new Set()};
+   const t={...task,displayStartedAt:Number.isFinite(task.createdAt)&&task.createdAt>0?task.createdAt*1000:Date.now(),workspaceTabs:tabs,tabIds:new Set(ids),agentTabs:new Set(),revoked:false,releasing:0,semanticBindings:new Map(),frameSessions:new Map(),frameRefs:new Map(),childHighlights:new Map(),interactions:new Map(),interactionRefs:new Map(),interactionOperations:new Set(),pendingInteractionProbes:new Set(),pendingInteractionCleanups:new Set()};
    // 中文注释：保留原批准来源；实际 www 来源由扩展核实后加入本任务。
    t.approvedOrigins=[...task.allowedOrigins];t.allowedOrigins=[...task.allowedOrigins];
    t.policy=this.policy.createState({browserInstanceId:task.instanceId||task.id,taskId:task.id,ownerId:task.approvalScope||task.id,sessionId:task.approvalScope||task.id,taskGeneration:task.generation,connectionGeneration:task.generation});
@@ -2201,14 +2216,17 @@ export class Executor {
   const tab=initialTab||await this.api.tabs.get(tabId);guard();this.allowed(t,tab.url);
   if(origin(tab.url)!==origin(frame.url))throw Error('overlay frame changed');
   const world=await this.api.debugger.sendCommand(target,'Page.createIsolatedWorld',{frameId:frame.id,worldName:'fast-automation-overlay',grantUniveralAccess:false});guard();
+  const preferenceKey='fast.overlay.ui.'+t.id+'.'+t.generation;
+  let preferences={};try{preferences=(await this.api.storage?.local?.get(preferenceKey))?.[preferenceKey]||{};}catch{}guard();
   const nonce=crypto.randomUUID(),binding='fastOverlayCommand',contextId=world.executionContextId;
   await this.api.debugger.sendCommand(target,'Runtime.addBinding',{name:binding,executionContextId:contextId});guard();
   entry={contextId,documentId:frame.loaderId,nonce};
   entry.listener=(source,method,params)=>{
    if(source?.tabId!==tabId||method!=='Runtime.bindingCalled'||params?.name!==binding||params.executionContextId!==contextId||t.overlays?.get(tabId)!==entry)return;
    let command;try{command=JSON.parse(params.payload);}catch{return;}
-   if(command?.nonce!==nonce||!['stop','takeover','resume'].includes(command.kind)||!Number.isSafeInteger(command.commandId))return;
+   if(command?.nonce!==nonce||!['stop','takeover','resume','ui_state'].includes(command.kind)||!Number.isSafeInteger(command.commandId))return;
    void (async()=>{
+    if(command.kind==='ui_state'){try{this.check(t,{generation:t.generation});if(this.leases.get(tabId)!==t.id||typeof command.value?.minimized!=='boolean'||typeof command.value?.collapsed!=='boolean')return;await this.api.storage?.local?.set({[preferenceKey]:{minimized:command.value.minimized,collapsed:command.value.collapsed}});}catch{}return;}
     let result={state:'unknown'};
     // 中文注释：只通过原隔离世界回报控制请求仍在处理，不授予暂停或任务权限；worker 消失后续期自动停止。
     const progress=()=>this.overlayCall(tabId,entry,'progress',{commandId:command.commandId}).catch(()=>{});
@@ -2237,13 +2255,15 @@ export class Executor {
   try{
    const result=await this.api.debugger.sendCommand(target,'Runtime.callFunctionOn',{executionContextId:contextId,
     functionDeclaration:`function(scope){
-     const states={waiting:'Fast-browser-link 正在工作',running:'Fast-browser-link 正在工作',pausing:'正在暂停…',paused:'已暂停 · 你可以操作页面',resuming:'正在恢复…',stopping:'正在停止…',stopped:'已停止',disconnected:'与扩展的连接已断开',unknown:'状态待核查'};
      const interactionLabels={click:'准备点击',input:'正在输入',select:'正在选择',drag:'正在拖动'};
      const stepLabels=${JSON.stringify(stepLabels)};
      const rectOk=r=>r&&[r.x,r.y,r.width,r.height].every(Number.isFinite)&&r.x>=0&&r.y>=0&&r.width>0&&r.height>0&&r.width<=100000&&r.height<=100000;
      const highlightRectOk=r=>r&&[r.left,r.top,r.width,r.height].every(Number.isFinite)&&r.width>0&&r.height>0&&r.width<=100000&&r.height<=100000;
      const labels=Object.freeze({click:'准备点击',input:'正在输入',select:'正在选择',drag:'正在拖动'});
      const DEFAULT_COMPLETE_MS=600,MAX_COMPLETE_MS=2000,owners=new WeakMap();
+     const BRAND_CSS=${JSON.stringify(BRAND_CSS)};
+     const createBrandMark=${createBrandMark.toString()};
+     const createOverlayView=${createOverlayView.toString()};
      const createAutomationOverlay=${createAutomationOverlay.toString()};
      const createInteractionHighlight=${createInteractionHighlight.toString()};
      globalThis.__fastAutomationOverlay?.highlight?.clear({taskId:globalThis.__fastAutomationOverlay.taskId,generation:globalThis.__fastAutomationOverlay.generation,documentId:globalThis.__fastAutomationOverlay.documentId,operationToken:globalThis.__fastAutomationOverlay.operationToken});
@@ -2258,13 +2278,13 @@ export class Executor {
       try{globalThis[scope.binding](JSON.stringify({nonce:scope.nonce,commandId:id,kind}));}
       catch(error){pending.delete(id);signal.removeEventListener('abort',abort);reject(error);}
      });
-     const overlay=createAutomationOverlay({document,taskId:scope.taskId,generation:scope.generation,tabId:scope.tabId,origin:scope.origin,documentId:scope.documentId,onStop:(_scope,options)=>command('stop',options),onTakeover:(_scope,options)=>command('takeover',options),onResume:(_scope,options)=>command('resume',options)});
+     const overlay=createAutomationOverlay({document,taskId:scope.taskId,generation:scope.generation,tabId:scope.tabId,origin:scope.origin,documentId:scope.documentId,title:scope.title,startedAt:scope.startedAt,language:scope.language,preferences:scope.preferences,onPreference:value=>{try{globalThis[scope.binding](JSON.stringify({nonce:scope.nonce,kind:'ui_state',commandId:++commandId,value}));}catch{}},onStop:(_scope,options)=>command('stop',options),onTakeover:(_scope,options)=>command('takeover',options),onResume:(_scope,options)=>command('resume',options)});
      const state={overlay,nonce:scope.nonce,pending,taskId:scope.taskId,generation:scope.generation,documentId:scope.documentId,origin:scope.origin,modeGeneration:scope.modeGeneration,active:true,operationToken:null,paintedToken:null};
      globalThis.__fastAutomationOverlay=state;
      state.highlight=createInteractionHighlight({document,taskId:scope.taskId,generation:scope.generation,documentId:scope.documentId,surface:overlay.interactionSurface,
       isCurrent:binding=>globalThis.__fastAutomationOverlay===state&&state.active&&binding.taskId===state.taskId&&binding.generation===state.generation&&binding.documentId===state.documentId});
      return true;}`,
-    arguments:[{value:{taskId:t.id,generation:t.generation,tabId,origin:origin(tab.url),documentId:frame.loaderId,modeGeneration:t.policy.modeGeneration,nonce,binding}}],returnByValue:true});
+    arguments:[{value:{taskId:t.id,generation:t.generation,tabId,origin:origin(tab.url),documentId:frame.loaderId,modeGeneration:t.policy.modeGeneration,nonce,binding,title:String(t.title||'').slice(0,120),startedAt:t.displayStartedAt,language:this.api.i18n?.getUILanguage?.()||globalThis.navigator?.language||'zh',preferences}}],returnByValue:true});
    // 中文注释：保留原拒绝码与重试行为，仅增加固定阶段原因，不回传异常原文。
    guard();if(result.exceptionDetails||result.result?.value!==true)throw Object.assign(Error('overlay injection failed'),{stage:'overlay',reasonCode:result.exceptionDetails?'initialization_exception':'return_type_invalid'});
    if(!t.overlays)t.overlays=new Map();t.overlays.set(tabId,entry);
@@ -2852,6 +2872,9 @@ export class Executor {
   }
  }
  async perform(t,p) {
+  if(t.silent&&this.resourceGuard){const url=p.url||p.params?.url;if(typeof url==='string'&&/^https?:/.test(url))await this.resourceGuard(t,url);}
+  if(t.silent&&p.action==='cdp.send'&&SILENT_WINDOW_METHODS.has(p.method))throw Error('SILENT_TASK_FOCUS_DENIED');
+  await this.assertSilentTarget(t,p.tabId);
   actionObservationOptions(p);
   assertV1Action(p.action);
   this.check(t,p);const modeGeneration=t.policy.modeGeneration;const guard=()=>{p[OBSERVATION_FENCE]?.();this.check(t,p);if(Number.isInteger(p.tabId)&&this.leases.get(p.tabId)!==t.id)throw Error('tab lease denied');if(t.policy.modeGeneration!==modeGeneration)throw Error('mode revoked');};const get=async id=>{const tab=await this.api.tabs.get(id);guard();this.allowed(t,tab.url);return tab;};

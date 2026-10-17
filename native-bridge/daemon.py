@@ -744,6 +744,7 @@ class BridgeDaemon:
         allowed = required | {"requestIdHash"}
         if set(params) - allowed or required - set(params):
             raise ProtocolError("invalid_params", "invalid diagnostics query")
+        if silent and not table_export and isinstance(params.get('allowedOrigins'),list) and any(isinstance(url,str) and not self.copilot.resource_allowed(params.get('instanceId'),url,fetch_id=params.get('copilotResourceToken')) for url in params['allowedOrigins']):raise ProtocolError('copilot_resource_denied','Serialized tool requires a capability workflow')
         owner = self._required_string(params, "owner")
         task_id = self._required_string(params, "taskId")
         request_hash = params.get("requestIdHash")
@@ -1170,6 +1171,7 @@ class BridgeDaemon:
         if method == "browser.access_request":
             return self._browser_access_request(params)
         if method == "shared.create":
+            if 'copilotTableExport' in params:raise ProtocolError('invalid_params','internal table flag denied')
             return self._create_task(params)
         if method == "shared.get":
             task = self._owned_task(params)
@@ -1322,7 +1324,10 @@ class BridgeDaemon:
                 extension["accessRequest"] = None
             return {"closed": True}
 
-    def _create_task(self, params: Dict[str, Any]) -> Dict[str, Any]:
+    def _create_task(self, params: Dict[str, Any], *, table_export=False) -> Dict[str, Any]:
+        token=params.get('copilotSilentToken')
+        silent=token is not None
+        if silent and (self.copilot is None or not (self.copilot.valid_silent_token(token) or table_export and token==self.copilot.silent_token)):raise ProtocolError('copilot_silent_denied','协作后台会话已失效')
         owner = self._required_string(params, "owner")
         title = self._required_string(params, "title")
         instance_id = self._required_string(params, "instanceId")
@@ -1352,7 +1357,8 @@ class BridgeDaemon:
             task = {
                 "id": task_id,
                 "owner": owner,
-                "title": title,
+                "title": ("Fast-browser-link ·"+title.removeprefix("Fast-browser-link ·").removeprefix("Hermes 协作·")) if silent else title,
+                "silent": silent,
                 "instanceId": instance_id,
                 "browser": extension["browser"],
                 "state": "pending_approval",
@@ -1375,6 +1381,7 @@ class BridgeDaemon:
                 "isolation": "incognito-profile" if incognito else "shared-profile",
             }
             self.tasks[task_id] = task
+            if silent and params.get('copilotResourceToken'):self.copilot.resource_tasks[task_id]=params['copilotResourceToken']
             self.task_locks[task_id] = threading.RLock()
             self.cleanup_locks[task_id] = threading.Lock()
             self.dedupe[task_id] = {}
@@ -2866,7 +2873,7 @@ class BridgeDaemon:
                                   for tab_id in row.get('agentTabIds', [])
                                   if self.tab_leases.get((row['instanceId'], tab_id)) == row['id'])
         # 中文注释：恢复旧任务也使用当前 daemon 配置。
-        result['workWindowMode'] = self.work_window_mode
+        result['workWindowMode'] = 'separate' if task.get('silent') else self.work_window_mode
         fields = {"action", "state", "startedAt", "completedAt", "durationMs", "errorCode", "tabId", "automatic"}
         if isinstance(task.get("currentOperation"), dict):
             result["currentOperation"] = {key: value for key, value in task["currentOperation"].items() if key in fields}
@@ -2956,6 +2963,17 @@ class BridgeDaemon:
                             if current:
                                 self._send_extension(current, {'method': 'copilot.changed', 'params': payload})
                         self.copilot = Copilot(self.data_dir / 'copilot', notify)
+                        self.copilot.resource_status=lambda task_id:self.tasks.get(task_id,{}).get('state') in {'closed','cancelled'} and self.tasks.get(task_id,{}).get('cleanupState')=='succeeded'
+                if method=='extension.copilot.work_create':
+                    if set(params)-{'url','incognito','resourceId'} or not isinstance(params.get('url'),str) or type(params.get('incognito',False)) is not bool:raise ValueError('invalid table workspace')
+                    parsed=urlsplit(params['url'])
+                    if parsed.scheme not in {'http','https'} or not parsed.hostname or parsed.username or parsed.password:raise ValueError('invalid work URL')
+                    # 中文注释：表格保存由可信侧栏明确点选；只发放新工作页范围，仍走标准授权/租约安装。
+                    if not self.copilot.resource_allowed(instance_id,params['url'],fetch_id=params.get('resourceId')):raise ValueError('serialized tool requires capability lane')
+                    token=self.copilot.silent_token
+                    result=self._create_task({'owner':'copilot-table-'+secrets.token_hex(12),'title':'Fast-browser-link ·后台数据','instanceId':instance_id,'allowedOrigins':[f'{parsed.scheme}://{parsed.netloc}'],'incognito':params.get('incognito',False),'copilotSilentToken':token},table_export=True)
+                    if params.get('resourceId'):self.copilot.resource_tasks[result['id']]=params['resourceId']
+                    return result
                 return self.copilot.request(instance_id, method.removeprefix('extension.copilot.'), params)
             except (ValueError, OSError, KeyError, TypeError):
                 raise ProtocolError('copilot_denied', 'Copilot request failed; check local configuration') from None

@@ -1,47 +1,82 @@
 # 协作模式（2.2.0 本地候选）
 
-协作模式读取普通网页的有界语义快照与最近30步操作，在侧栏展示建议、进行中和结果。只有开启时才动态注册采集；关闭时注销、清空采集窗口，并取消/回收本次启动的 ACP 与执行进程。
+协作模式读取普通网页的有界语义快照与最近30步操作，侧栏展示建议、任务进度和结果。关闭时注销采集，取消本次任务并回收协作进程。未安装、同步或发布当前候选；验收记录见[实施报告](growth/report-copilot-mode-p1.md)。
 
-主会话只推理，默认 `inference_profile=copilot`，不需要创建任务组；启动时通过 ACP `/tools` 核对零工具，发现工具即拒绝继续。点击建议后 daemon 启动独立 Hermes chat 子进程，默认 `exec_profile=gefei`。执行进程通过正常 browser-link 工具创建自己的任务和 `Hermes 协作·` 开头的组，结束按2.1规则清理，不共享 owner 或任务文件，不合并多个任务组。
+## 开启前设置
 
-这是未发布候选。用户提供的本机 copilot 测量已达到早期轮次约1.5k–2.2k tokens、含去抖p50约2.7–3.0秒；更长上下文成本、浏览器操作、任务组清理和外部词池仍须验收，见 [实施报告](growth/report-copilot-mode-p1.md)。
+打开侧栏先读取两个 Hermes profile 的模型清单，缓存24小时；“刷新模型”强制重取。发现只做 ACP initialize/session/new，不发送 prompt，不消耗模型 token；Hermes 仍可能访问提供商模型目录。失败时可手动填写合法 `provider:model`（含 `custom:name:model`）。不接受空格、命令选项或 shell 符号；空值使用对应 profile 默认。
 
-## 初始化与配置
+选择省钱/均衡/高质量/自定义，再调整推理模型、执行模型、并发1–3、每日加权预算、上下文阈值、模板轮数倍率及执行通道。预设按 Luna/mini/flash、Sol/Opus 等名字挑选，不是实时价格排序；找不到留空。预设只填表，最终使用表单值。点击“开启协作”先保存本地配置再启动；开启后设置折叠，展开保存后下一次推理或执行生效，当前任务保持原配置。
 
-配置位于 `<运行时根>/plugin-data/fast-browser-link-native/copilot/config.json`。独立安装根为 `~/.fast-browser-link`；Hermes 适配器沿用既有 HERMES_HOME/shared-root。安装/同步只填充不存在的配置和模板，不覆盖用户修改。本轮没有安装或开发同步。
+设置只存在 daemon 的本机 `copilot/config.json`，不存浏览器、不修改 Hermes 全局或 profile 默认模型。模型通过 ACP session/set_model 或独立 CLI `-m` 传递。卡片分别标注 ACP 会话模型、oneshot 启动回报或缓存来源；后者不是提供商逐请求路由的独立证明。今日/会话/任务分别列输入、缓存读、输出，并按模型汇总；旧账本无法归属的量标为历史/未归属。
 
-先预览专用 profile 初始化内容，再由你执行：
+## 初始化与升级
+
+由用户执行预览，确认后加 `--apply`：
 
 ```sh
-bash scripts/setup-copilot-profile.sh --model '<可用的低价快速模型>' --provider '<对应供应商>'
-bash scripts/setup-copilot-profile.sh --model '<可用的低价快速模型>' --provider '<对应供应商>' --apply
+bash scripts/setup-copilot-profile.sh
+bash scripts/setup-copilot-profile.sh --profile copilot-exec
+bash scripts/setup-copilot-profile.sh --apply
+bash scripts/setup-copilot-profile.sh --profile copilot-exec --apply
 ```
 
-脚本只新建 `copilot`，不克隆 gefei、不复制凭据、不改 active_profile、不改现有 profile。相同受管文件重复运行不写入；已有未知或被修改的 copilot 会明确拒绝。配置将 ACP 工具设为空、禁用 MCP/插件/记忆/技能索引，SOUL 和工作区规则文件为空；Hermes 本身的少量身份和运行提示仍可能存在。认证遵循 Hermes 的共享规则，本机已确认可共享根目录凭据，无需重复配置。用户已在本机用 gpt-5.6-luna / openai-codex 初始化 copilot；本轮没有改动该 profile。
+默认 `gpt-5.6-luna / openai-codex`，可传 model/provider。脚本只新建或升级摘要仍匹配的自有受管文件；未知 profile、用户修改、插件引用变化、模型/provider不匹配均拒绝。现有模型不同需传原模型/provider。升级补关闭自动标题/后台review/记忆、manual审批等项；执行 profile 的 ACP 工具改为空用于纯判读，CLI 保留 fast-browser-link/web/terminal/file。终端永久放行清单为空，没有 yolo。确定性取数已由 daemon 负责，判读无需授权危险命令。认证不复制，沿用 Hermes 的共享规则。
 
-本地配置字段：
+真实 config 位于 `<运行时根>/plugin-data/fast-browser-link-native/copilot/`。独立根为 `~/.fast-browser-link`，Hermes 适配器使用既有 shared-root。仓库示例为 `native-bridge/copilot-config.example.json`。安装/同步只补不存在的配置和模板，已有文件需用户合并本轮字段/schema/fetch步骤，本轮未实际安装或同步。
 
-- `inference_profile` 默认 `copilot`；`inference_model` 可按 ACP 会话覆盖；`context_limit` 默认8000且可配置，达到阈值后“≤500字摘要→新会话接续”。它不是单轮请求的硬上限；不再隐式限制为2200，也不因单轮超过3000自动暂停。每日预算仍有效。
-- `exec_profile` 默认 `gefei`；`exec_model` 非空时通过 `-m` 覆盖，否则沿用执行 profile 模型；`max_turns` 默认30，通过 `--max-turns` 与模板上限取小值；`max_parallel` 默认3。
-- 模板 `toolsets` 通过 `-t` 实际传给 CLI，不包含 all/* 或无关 MCP。Hermes 的30轮语义是普通工具循环上限，上游可能另做收尾摘要请求。
-- `report_dir` 可为绝对路径或相对 copilot 数据目录的路径。`pool_command` 为结尾包含 ingest 的 argv；宿主追加 CSV、`--link L1 --date YYYY-MM-DD`，CSV写 `seed=copilot`。未配置时明确报落盘失败。已有配置中的显式 context_limit 会保留，需要用户按本轮要求自行调整；初始化不覆盖既有配置。
+## 执行与已知限制
 
-仓库示例为 `native-bridge/copilot-config.example.json`，模板位于 `native-bridge/copilot-templates/`。个人路径只能保存在本机配置。
+默认 `exec_transport=acp`：协作开启时建立常驻执行连接，每个SEO判读任务新建独立会话；先核对零工具，再仅发一个模型判读 prompt。工具检查 `/tools` 和清理 `/reset` 是本地命令，不调用模型。结果 JSON 由 daemon 校验并私有落盘，模型不需要文件或终端权限。同进程多会话并发，上限 max_parallel；停止发对应 session/cancel。传输崩溃只重启一次，失败任务不自动重放；再失败显示中文诊断，需要检查后重新连接。
 
-## 使用与成本
+**当前 Hermes ACP 不支持每会话工具/轮数上限配置，也没有逐会话关闭接口。** 通用任务在 ACP 路径会明确拒绝，请选择 `oneshot` 后备完整执行；不会悄悄放开工具。任务完成用 `/reset` 清空历史并停止客户端使用该会话，Hermes 仍保留会话对象/记录到进程关闭，这不等同于真正逐会话结束。本轮不能宣称完整实现了这两项上游能力。
 
-从扩展弹窗或浏览器侧栏打开看板，开启协作后继续浏览；点击执行才启动执行进程，忽略的同ID建议当天不再出现。悬浮球可拖动/隐藏；点击立即尝试打开侧栏，浏览器拒绝时展示页内迷你列表。
+`exec_transport=oneshot` 保留独立 `hermes chat`。通用任务继续完整工具执行；SEO取数后使用 `-t none --max-turns 1` 输出JSON，不再工具循环。显式启用的关键词取数后备才用浏览器，受后备上限和模板/全局上限共同限制。常规工具上限取小，模板基础：关键词15、长尾12、竞品15、SERP6；倍率仅作用于工具路径，SEO纯判读固定单轮。Hermes 可能额外收尾/重试，真实API次数需账单核对。
 
-本地过滤滚动、悬停和细碎 DOM 变化；导航、内容点击、选中、新页停留3秒及显著变化才推理。默认1.5秒去抖、5秒最小间隔、单飞；新页快照≤3KB，同页只发差异。固定规则/模板只在新会话开头发送。
+新任务附本次已完成工作的短清单，总长≤500 UTF-8字节；每个任务始终新会话，不把历史任务上下文串成一条长会话。
 
-主会话达到 context_limit 时摘要并换会话；3分钟空闲暂停、30分钟自动关闭。每日 token 预算耗尽暂停模型任务；缓存命中和存词池仍在本地完成。关键词/同域竞品结果缓存7天，当前读取的是本模块的结果副本。
+## SEO 取数接口
 
-执行进程将完整结果写入指定 JSON；daemon 限制大小、校验 schema，写 Markdown/缓存/词池并渲染结果卡。完成后仅将≤100字节状态加入下一轮主会话增量，不把完整结果带回主会话。“停止”取消对应执行进程组，已发生的写入不会撤销。
+模板 `fetch` 声明 script、params_schema、output_schema、timeout。`fetch_commands` 将脚本名映射为本机命令 argv；命令从 stdin 读参数JSON，向 stdout 写符合模板schema的JSON，stderr不送模型。无 shell 拼接。相对可执行文件可由 `fetch_dir` 指定本机脚本目录；私有工具/凭据不要放进公开模板。
 
-主会话 token 优先按 ACP 累计 usage 的差值统计；执行按 stream-json 的 usage。缺失 usage 明确标为估算，不能视为准确账单。
+- 长尾：内置 Google Suggest 英文接口，种子+26字母+5问句前缀，最多100个去重候选。HTTP无模型token；部分失败会注明，不能将该来源当作地区精确搜索量。
+- 关键词：`keyword_metrics` 提供词/量/KD/CPC；`serp_top10` 提供前十URL/标题。由本机配置JSON接口包装现有工具；没有配置明确标缺数据，不能把 不同来源的 KD 冒充example-seo-tool KD。
+- 竞品：`competitor_keywords` 提供流量词与 pages，未配置标缺数据。
+- SERP拆解：只用与对象URL对应的现有采集快照，不额外取数。
+- 存词池：本地CSV/配置的 pool_command，不调用模型。已有关键词/竞品7天缓存命中也不调用模型。
 
-不采集输入框、文本域、密码框或 contenteditable 的值，不读 cookie、页面存储或整页DOM。特殊协议页和PDF不采集。日志保留7天，报告/缓存等保存本机，勿加入公开源码。
+查看各模板 output_schema 配置私有适配命令；例如关键词接口输出 `{"keywords":[{"keyword":"example","vol":100,"kd":12,"cpc":1.2}],"source":"本机查实来源"}`，SERP接口输出 `{"results":[{"url":"https://example.test/","title":"样例"}],"source":"本机查实来源"}`。只接受查实数字，缺失字段省略。命令成功并不代表数据来自正确市场，需适配器保留来源语义。
 
-真实验收需在 Chrome/Edge 分别检查采集隐私、侧栏手势、差异建议、独立任务组、停止/关闭回收、报告/词池回读、缓存与预算。离线夹具不替代这些结果。
+缺源/超时/错误格式都会进入 `missing_data` 和结果卡。关键词模板的 `fetch_fallback.enabled` 默认false；用户显式启用后仅用受限oneshot补缺，默认最多3轮。不会静默回退到无限工具调用。
 
-模型输出允许去除前后空白和整段JSON代码围栏后严格解析；失败仅重试一次，再失败保留原建议/标记未就绪。不会从额外说明文字中猜取JSON，重试用量也计入每日预算。
+## 采集、预算与隐私
+
+默认上下文阈值6000，达到阈值请求≤160字摘要后新会话接续；不是单次请求硬上限。每日预算 = 不含缓存输入 + 输出 + 缓存读 × cache_weight（默认0.1），是调用控制单位，不是金额。缺少usage标估算。3分钟空闲暂停、30分钟自动关闭；本地缓存/存词池不受模型预算阻挡。
+
+实时lease/task及持久化workspace归属的工作页均不采集。导航等待DOM静默800ms，最长5秒；晚到表格补发，相同快照合并。语义快照≤3KB，不读输入值、cookie、存储或整页DOM；PDF和特殊协议不采集。
+
+悬浮球位置全局保存在扩展local storage，右键/长按隐藏，侧栏打开时不显示迷你列表。报告与模型缓存保存在本机；日志保留7天，勿公开个人数据。
+
+## R7 结构化结果与后台表格
+
+结果统一包含 verdict（≤30字结论）、level、最多3项metrics、missing、process、最多2个next；各模板有独立主体和decision_schema。模型只输出判断，量/KD/CPC/排名由daemon从取数源合并，非法模型字段仍记已发生用量后拒绝。旧缓存尽量转换，无法转换时通用卡提示核对；不会将原始JSON倒进侧栏。
+
+结果默认折叠；长尾按组切换、前5条、组头全选，竞品优先可做词、前10条并可排序。勾选后批量查词只建一个执行，存池走本地；上限1000词，超出明确拒绝，不截断。补取指标只重跑keyword_metrics批量接口，保留原判断，不发模型请求。缺量/KD整列隐藏并注明原因。✓池仅根据可核实的accepted_keywords回执，未回执不凭退出0假定已入池；written未知用null与missing说明。
+
+新结果按完成时间排序，同对象同动作的显式新结果替换旧记录，旧记录/报告进历史；子任务挂父结果，20个根结果后折叠，更早内容可展开。完整表在后台新标签页打开扩展内部页，可排序/筛选并由daemon导出CSV；不会自动激活标签。
+
+表格条支持原生table、ARIA grid/table/treegrid、data-ui-name和重复行/表头div表格。只读取已渲染且未隐藏的文本；控件、编辑区、隐藏字段不读，链接地址单独保留。自动采集只把列名/行数摘要送推理；手动“识别当前表格”及导出可在模型未开启时使用，操作本身0模型token。用户主动选词仍可成为操作上下文。
+
+Excel/CSV保存到table_export_dir（默认~/Downloads/fast-browser-link/），不走浏览器下载框。XLSX由stdlib ZIP/XML生成，原文为文字、数值另列、链接另列；CSV UTF-8 BOM，公式样式文本作文字保护。复制TSV提供原表可见文字。打开文件/目录只接受本次导出的文件ID，不接受任意路径。
+
+“保存全部”只在独立“Hermes 协作·”工作页运行，经原有workspace-only授权/租约安装，不借用用户标签；保持原普通/无痕上下文。URL分页、按钮分页、无限/虚拟滚动逐批合并、整行去重。生产按钮点击通过Executor语义引用，滚动通过受控Executor/CDP静态操作，保留原权限/遮挡检查。无法核实的分页目标、登录/验证码/额度、结构变化、焦点或归属变化立即停止并保存部分；不点站点导出。
+
+默认1.5–3秒随机页间隔，table_max_pages默认50，可配1–200；预计超过配置上限要在侧栏再次确认，未知页数触顶仅保存部分。虚拟滚动按“批次”计，不假称页数。后台节流通过worker轮询加载/稳定状态应对，单次脚本10秒硬超时，不激活页面、不禁用浏览器节流；不能保证所有站点隐藏渲染都可运行。
+
+静默能力由daemon短期令牌下发Hermes子进程，再经正常BridgeClient标记任务；每次开启轮换，不持久化令牌。静默任务强制separate工作窗口，禁止CDP显式激活/新建非受管target/窗口调整；输入不走激活队列，用户移走或正在前台查看工作页则拒绝动作。审批不弹系统通知，结果/进度只在侧栏，球显示进行中/新结果及表格提示。显式用户点击“打开文件”仍交系统默认程序处理。
+
+本轮未安装、同步、发布或改真实配置；PNG与真实Edge验收仍待本机。三种表格本地页：`docs/growth/assets/r7-table-fixture.html`，可从仓库根运行普通HTTP静态服务器后访问（由用户执行），详见报告。R6b通用任务ACP/真正逐会话关闭的上游限制保持。
+
+划词任务、趋势及本机适配扩展点参见[协作扩展包](copilot-packages.zh-CN.md)。
+
+工具记忆、能力绑定、只读体检和组合编排见[能力说明](copilot-capabilities.zh-CN.md)。

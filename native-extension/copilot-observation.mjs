@@ -1,3 +1,4 @@
+import {selectedText} from './copilot-selection.mjs';
 import {createPageSemantics} from '../page-semantics/index.js';
 
 export function ordinaryPage(url, contentType='text/html') {
@@ -20,10 +21,8 @@ export function safeText(node, limit=220) {
 }
 export function describeEvent(event, doc) {
  if(['selectionchange','copy'].includes(event.type)){
-  const selection=doc.getSelection();if(!selection?.rangeCount||selection.isCollapsed)return null;
-  const common=selection.getRangeAt(0).commonAncestorContainer,ancestor=common.nodeType===1?common:common.parentElement;
-  if(!ancestor||ancestor.closest(controls)||ancestor.querySelector?.(controls))return null;
-  return `${event.type==='copy'?'复制':'选中'} ${selection.toString().slice(0,220)}`;
+  const selection=selectedText(doc);if(!selection)return null;
+  return `${event.type==='copy'?'复制':'选中'} ${selection.text.slice(0,220)}`;
  }
  const target=event.target?.nodeType===1?event.target:event.target?.parentElement;
  if(!target||target.closest('[data-fast-automation-overlay]')||target.closest(controls))return null;
@@ -39,7 +38,7 @@ export function pageSnapshot(doc, url, budget=3072) {
  const engine=createPageSemantics({document:doc,taskId:'copilot-readonly',documentId:'current',leaseId:'no-execution',maxScan:2500,maxItems:60,maxText:180});
  try {
   const items=[];
-  for(const mode of ['content','table','interactive']){
+  for(const mode of ['table','content','interactive']){
    const snapshot=engine.snapshot({mode,budget:1600});
    for(const row of snapshot.items){
     // 中文注释：只投影语义库已经排除输入值的名称和角色，不输出动作引用、状态或表单值。
@@ -65,4 +64,18 @@ export function safeURL(raw) {
 }
 export function appendStep(trace, description, tabId, page, now=Date.now()) {
  return [...trace,{at:now,tabId,description:description.slice(0,300),url:page.url,title:page.title?.slice(0,200)||''}].slice(-30);
+}
+
+
+// 中文注释：所有导航和SPA变更共用静默窗口，5秒上限只约束同一批变化。
+export function stableSnapshots(capture,{quiet=800,maxWait=5000,schedule=setTimeout,cancel=clearTimeout}={}){
+ let silence=null,deadline=null,reason=null;
+ const flush=()=>{cancel(silence);cancel(deadline);silence=deadline=null;const current=reason;reason=null;capture(current);};
+ return {change(description){if(description)reason=description;if(deadline===null)deadline=schedule(flush,maxWait);cancel(silence);silence=schedule(flush,quiet);},
+  stop(){cancel(silence);cancel(deadline);silence=deadline=null;}};
+}
+
+// 中文注释：表格数据留在本机采集/导出通路；推理仅收到列名与已识别行数。
+export function tableSummary(capture){
+ return (capture.tables||[]).slice(0,3).map(table=>({role:'table',name:clipBytes(`识别到表格：${table.headers.length} 列 · ${table.rows.length} 行${table.incomplete?' · 可能不完整':''}；列名 ${table.headers.join(' / ')}`,280)}));
 }

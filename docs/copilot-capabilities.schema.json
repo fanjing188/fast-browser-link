@@ -1,0 +1,5450 @@
+{
+  "keyword.metrics": {
+    "input": {
+      "type": "object",
+      "properties": {
+        "keyword": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "keywords": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "maxItems": 1000
+        },
+        "domain": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "domains": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 300
+          },
+          "maxItems": 1000
+        },
+        "url": {
+          "type": "string",
+          "maxLength": 4000
+        },
+        "urls": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "maxItems": 1000
+        },
+        "records": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "keyword": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "vol": {
+                "type": "number"
+              },
+              "kd": {
+                "type": "number"
+              },
+              "cpc": {
+                "type": "number"
+              },
+              "source": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "position": {
+                "type": "number"
+              },
+              "url": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "opportunity": {
+                "type": "boolean"
+              },
+              "field_sources": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": true
+              },
+              "domain": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "traffic": {
+                "type": "number"
+              },
+              "authority": {
+                "type": "number"
+              },
+              "authority_kind": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "reg_date": {
+                "type": "string",
+                "maxLength": 40
+              },
+              "weak": {
+                "type": "boolean"
+              },
+              "intent": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "intent_tool": {
+                "type": "integer"
+              },
+              "excluded": {
+                "type": "integer"
+              },
+              "host": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "host_duplicate": {
+                "type": "integer"
+              },
+              "trend12": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 400
+              },
+              "serp_json": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {},
+                  "additionalProperties": true
+                },
+                "maxItems": 20
+              },
+              "tier": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "verdict": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "reason": {
+                "type": "string",
+                "maxLength": 1000
+              },
+              "group": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "already_checked": {
+                "type": "boolean"
+              },
+              "is_home": {
+                "type": "integer"
+              },
+              "rank": {
+                "type": "integer"
+              },
+              "page_type": {
+                "type": "string",
+                "maxLength": 60
+              },
+              "small_site": {
+                "type": "boolean"
+              },
+              "title": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "kd_source": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "trend_source": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "metric_quality": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": true
+              },
+              "measurement": {
+                "type": "string",
+                "maxLength": 30
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          },
+          "maxItems": 5000
+        },
+        "n": {
+          "type": "integer"
+        },
+        "report": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "market": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "language": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "period": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "region": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 40
+          },
+          "maxItems": 20
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "records": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "keyword": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "vol": {
+                "type": "number"
+              },
+              "kd": {
+                "type": "number"
+              },
+              "cpc": {
+                "type": "number"
+              },
+              "source": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "position": {
+                "type": "number"
+              },
+              "url": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "opportunity": {
+                "type": "boolean"
+              },
+              "field_sources": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": true
+              },
+              "domain": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "traffic": {
+                "type": "number"
+              },
+              "authority": {
+                "type": "number"
+              },
+              "authority_kind": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "reg_date": {
+                "type": "string",
+                "maxLength": 40
+              },
+              "weak": {
+                "type": "boolean"
+              },
+              "intent": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "intent_tool": {
+                "type": "integer"
+              },
+              "excluded": {
+                "type": "integer"
+              },
+              "host": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "host_duplicate": {
+                "type": "integer"
+              },
+              "trend12": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 400
+              },
+              "serp_json": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {},
+                  "additionalProperties": true
+                },
+                "maxItems": 20
+              },
+              "tier": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "verdict": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "reason": {
+                "type": "string",
+                "maxLength": 1000
+              },
+              "group": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "already_checked": {
+                "type": "boolean"
+              },
+              "is_home": {
+                "type": "integer"
+              },
+              "rank": {
+                "type": "integer"
+              },
+              "page_type": {
+                "type": "string",
+                "maxLength": 60
+              },
+              "small_site": {
+                "type": "boolean"
+              },
+              "title": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "kd_source": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "trend_source": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "metric_quality": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": true
+              },
+              "measurement": {
+                "type": "string",
+                "maxLength": 30
+              }
+            },
+            "required": [
+              "keyword"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 5000
+        },
+        "source": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "missing": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "maxItems": 50
+        },
+        "partial": {
+          "type": "boolean"
+        },
+        "pages": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "records",
+        "source"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "keyword.expand": {
+    "input": {
+      "type": "object",
+      "properties": {
+        "keyword": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "keywords": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "maxItems": 1000
+        },
+        "domain": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "domains": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 300
+          },
+          "maxItems": 1000
+        },
+        "url": {
+          "type": "string",
+          "maxLength": 4000
+        },
+        "urls": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "maxItems": 1000
+        },
+        "records": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "keyword": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "vol": {
+                "type": "number"
+              },
+              "kd": {
+                "type": "number"
+              },
+              "cpc": {
+                "type": "number"
+              },
+              "source": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "position": {
+                "type": "number"
+              },
+              "url": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "opportunity": {
+                "type": "boolean"
+              },
+              "field_sources": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": true
+              },
+              "domain": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "traffic": {
+                "type": "number"
+              },
+              "authority": {
+                "type": "number"
+              },
+              "authority_kind": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "reg_date": {
+                "type": "string",
+                "maxLength": 40
+              },
+              "weak": {
+                "type": "boolean"
+              },
+              "intent": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "intent_tool": {
+                "type": "integer"
+              },
+              "excluded": {
+                "type": "integer"
+              },
+              "host": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "host_duplicate": {
+                "type": "integer"
+              },
+              "trend12": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 400
+              },
+              "serp_json": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {},
+                  "additionalProperties": true
+                },
+                "maxItems": 20
+              },
+              "tier": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "verdict": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "reason": {
+                "type": "string",
+                "maxLength": 1000
+              },
+              "group": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "already_checked": {
+                "type": "boolean"
+              },
+              "is_home": {
+                "type": "integer"
+              },
+              "rank": {
+                "type": "integer"
+              },
+              "page_type": {
+                "type": "string",
+                "maxLength": 60
+              },
+              "small_site": {
+                "type": "boolean"
+              },
+              "title": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "kd_source": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "trend_source": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "metric_quality": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": true
+              },
+              "measurement": {
+                "type": "string",
+                "maxLength": 30
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          },
+          "maxItems": 5000
+        },
+        "n": {
+          "type": "integer"
+        },
+        "report": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "market": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "language": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "period": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "region": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 40
+          },
+          "maxItems": 20
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "records": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "keyword": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "vol": {
+                "type": "number"
+              },
+              "kd": {
+                "type": "number"
+              },
+              "cpc": {
+                "type": "number"
+              },
+              "source": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "position": {
+                "type": "number"
+              },
+              "url": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "opportunity": {
+                "type": "boolean"
+              },
+              "field_sources": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": true
+              },
+              "domain": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "traffic": {
+                "type": "number"
+              },
+              "authority": {
+                "type": "number"
+              },
+              "authority_kind": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "reg_date": {
+                "type": "string",
+                "maxLength": 40
+              },
+              "weak": {
+                "type": "boolean"
+              },
+              "intent": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "intent_tool": {
+                "type": "integer"
+              },
+              "excluded": {
+                "type": "integer"
+              },
+              "host": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "host_duplicate": {
+                "type": "integer"
+              },
+              "trend12": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 400
+              },
+              "serp_json": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {},
+                  "additionalProperties": true
+                },
+                "maxItems": 20
+              },
+              "tier": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "verdict": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "reason": {
+                "type": "string",
+                "maxLength": 1000
+              },
+              "group": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "already_checked": {
+                "type": "boolean"
+              },
+              "is_home": {
+                "type": "integer"
+              },
+              "rank": {
+                "type": "integer"
+              },
+              "page_type": {
+                "type": "string",
+                "maxLength": 60
+              },
+              "small_site": {
+                "type": "boolean"
+              },
+              "title": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "kd_source": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "trend_source": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "metric_quality": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": true
+              },
+              "measurement": {
+                "type": "string",
+                "maxLength": 30
+              }
+            },
+            "required": [
+              "keyword"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 5000
+        },
+        "source": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "missing": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "maxItems": 50
+        },
+        "partial": {
+          "type": "boolean"
+        },
+        "pages": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "records",
+        "source"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "keyword.questions": {
+    "input": {
+      "type": "object",
+      "properties": {
+        "keyword": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "keywords": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "maxItems": 1000
+        },
+        "domain": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "domains": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 300
+          },
+          "maxItems": 1000
+        },
+        "url": {
+          "type": "string",
+          "maxLength": 4000
+        },
+        "urls": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "maxItems": 1000
+        },
+        "records": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "keyword": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "vol": {
+                "type": "number"
+              },
+              "kd": {
+                "type": "number"
+              },
+              "cpc": {
+                "type": "number"
+              },
+              "source": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "position": {
+                "type": "number"
+              },
+              "url": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "opportunity": {
+                "type": "boolean"
+              },
+              "field_sources": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": true
+              },
+              "domain": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "traffic": {
+                "type": "number"
+              },
+              "authority": {
+                "type": "number"
+              },
+              "authority_kind": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "reg_date": {
+                "type": "string",
+                "maxLength": 40
+              },
+              "weak": {
+                "type": "boolean"
+              },
+              "intent": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "intent_tool": {
+                "type": "integer"
+              },
+              "excluded": {
+                "type": "integer"
+              },
+              "host": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "host_duplicate": {
+                "type": "integer"
+              },
+              "trend12": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 400
+              },
+              "serp_json": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {},
+                  "additionalProperties": true
+                },
+                "maxItems": 20
+              },
+              "tier": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "verdict": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "reason": {
+                "type": "string",
+                "maxLength": 1000
+              },
+              "group": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "already_checked": {
+                "type": "boolean"
+              },
+              "is_home": {
+                "type": "integer"
+              },
+              "rank": {
+                "type": "integer"
+              },
+              "page_type": {
+                "type": "string",
+                "maxLength": 60
+              },
+              "small_site": {
+                "type": "boolean"
+              },
+              "title": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "kd_source": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "trend_source": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "metric_quality": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": true
+              },
+              "measurement": {
+                "type": "string",
+                "maxLength": 30
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          },
+          "maxItems": 5000
+        },
+        "n": {
+          "type": "integer"
+        },
+        "report": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "market": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "language": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "period": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "region": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 40
+          },
+          "maxItems": 20
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "records": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "keyword": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "vol": {
+                "type": "number"
+              },
+              "kd": {
+                "type": "number"
+              },
+              "cpc": {
+                "type": "number"
+              },
+              "source": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "position": {
+                "type": "number"
+              },
+              "url": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "opportunity": {
+                "type": "boolean"
+              },
+              "field_sources": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": true
+              },
+              "domain": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "traffic": {
+                "type": "number"
+              },
+              "authority": {
+                "type": "number"
+              },
+              "authority_kind": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "reg_date": {
+                "type": "string",
+                "maxLength": 40
+              },
+              "weak": {
+                "type": "boolean"
+              },
+              "intent": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "intent_tool": {
+                "type": "integer"
+              },
+              "excluded": {
+                "type": "integer"
+              },
+              "host": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "host_duplicate": {
+                "type": "integer"
+              },
+              "trend12": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 400
+              },
+              "serp_json": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {},
+                  "additionalProperties": true
+                },
+                "maxItems": 20
+              },
+              "tier": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "verdict": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "reason": {
+                "type": "string",
+                "maxLength": 1000
+              },
+              "group": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "already_checked": {
+                "type": "boolean"
+              },
+              "is_home": {
+                "type": "integer"
+              },
+              "rank": {
+                "type": "integer"
+              },
+              "page_type": {
+                "type": "string",
+                "maxLength": 60
+              },
+              "small_site": {
+                "type": "boolean"
+              },
+              "title": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "kd_source": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "trend_source": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "metric_quality": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": true
+              },
+              "measurement": {
+                "type": "string",
+                "maxLength": 30
+              }
+            },
+            "required": [
+              "keyword"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 5000
+        },
+        "source": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "missing": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "maxItems": 50
+        },
+        "partial": {
+          "type": "boolean"
+        },
+        "pages": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "records",
+        "source"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "serp.top": {
+    "input": {
+      "type": "object",
+      "properties": {
+        "keyword": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "keywords": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "maxItems": 1000
+        },
+        "domain": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "domains": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 300
+          },
+          "maxItems": 1000
+        },
+        "url": {
+          "type": "string",
+          "maxLength": 4000
+        },
+        "urls": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "maxItems": 1000
+        },
+        "records": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "keyword": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "vol": {
+                "type": "number"
+              },
+              "kd": {
+                "type": "number"
+              },
+              "cpc": {
+                "type": "number"
+              },
+              "source": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "position": {
+                "type": "number"
+              },
+              "url": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "opportunity": {
+                "type": "boolean"
+              },
+              "field_sources": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": true
+              },
+              "domain": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "traffic": {
+                "type": "number"
+              },
+              "authority": {
+                "type": "number"
+              },
+              "authority_kind": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "reg_date": {
+                "type": "string",
+                "maxLength": 40
+              },
+              "weak": {
+                "type": "boolean"
+              },
+              "intent": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "intent_tool": {
+                "type": "integer"
+              },
+              "excluded": {
+                "type": "integer"
+              },
+              "host": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "host_duplicate": {
+                "type": "integer"
+              },
+              "trend12": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 400
+              },
+              "serp_json": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {},
+                  "additionalProperties": true
+                },
+                "maxItems": 20
+              },
+              "tier": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "verdict": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "reason": {
+                "type": "string",
+                "maxLength": 1000
+              },
+              "group": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "already_checked": {
+                "type": "boolean"
+              },
+              "is_home": {
+                "type": "integer"
+              },
+              "rank": {
+                "type": "integer"
+              },
+              "page_type": {
+                "type": "string",
+                "maxLength": 60
+              },
+              "small_site": {
+                "type": "boolean"
+              },
+              "title": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "kd_source": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "trend_source": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "metric_quality": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": true
+              },
+              "measurement": {
+                "type": "string",
+                "maxLength": 30
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          },
+          "maxItems": 5000
+        },
+        "n": {
+          "type": "integer"
+        },
+        "report": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "market": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "language": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "period": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "region": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 40
+          },
+          "maxItems": 20
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "records": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "keyword": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "vol": {
+                "type": "number"
+              },
+              "kd": {
+                "type": "number"
+              },
+              "cpc": {
+                "type": "number"
+              },
+              "source": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "position": {
+                "type": "number"
+              },
+              "url": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "opportunity": {
+                "type": "boolean"
+              },
+              "field_sources": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": true
+              },
+              "domain": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "traffic": {
+                "type": "number"
+              },
+              "authority": {
+                "type": "number"
+              },
+              "authority_kind": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "reg_date": {
+                "type": "string",
+                "maxLength": 40
+              },
+              "weak": {
+                "type": "boolean"
+              },
+              "intent": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "intent_tool": {
+                "type": "integer"
+              },
+              "excluded": {
+                "type": "integer"
+              },
+              "host": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "host_duplicate": {
+                "type": "integer"
+              },
+              "trend12": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 400
+              },
+              "serp_json": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {},
+                  "additionalProperties": true
+                },
+                "maxItems": 20
+              },
+              "tier": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "verdict": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "reason": {
+                "type": "string",
+                "maxLength": 1000
+              },
+              "group": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "already_checked": {
+                "type": "boolean"
+              },
+              "is_home": {
+                "type": "integer"
+              },
+              "rank": {
+                "type": "integer"
+              },
+              "page_type": {
+                "type": "string",
+                "maxLength": 60
+              },
+              "small_site": {
+                "type": "boolean"
+              },
+              "title": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "kd_source": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "trend_source": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "metric_quality": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": true
+              },
+              "measurement": {
+                "type": "string",
+                "maxLength": 30
+              }
+            },
+            "required": [
+              "url",
+              "domain",
+              "rank"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 5000
+        },
+        "source": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "missing": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "maxItems": 50
+        },
+        "partial": {
+          "type": "boolean"
+        },
+        "pages": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "records",
+        "source"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "domain.keywords": {
+    "input": {
+      "type": "object",
+      "properties": {
+        "keyword": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "keywords": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "maxItems": 1000
+        },
+        "domain": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "domains": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 300
+          },
+          "maxItems": 1000
+        },
+        "url": {
+          "type": "string",
+          "maxLength": 4000
+        },
+        "urls": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "maxItems": 1000
+        },
+        "records": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "keyword": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "vol": {
+                "type": "number"
+              },
+              "kd": {
+                "type": "number"
+              },
+              "cpc": {
+                "type": "number"
+              },
+              "source": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "position": {
+                "type": "number"
+              },
+              "url": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "opportunity": {
+                "type": "boolean"
+              },
+              "field_sources": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": true
+              },
+              "domain": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "traffic": {
+                "type": "number"
+              },
+              "authority": {
+                "type": "number"
+              },
+              "authority_kind": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "reg_date": {
+                "type": "string",
+                "maxLength": 40
+              },
+              "weak": {
+                "type": "boolean"
+              },
+              "intent": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "intent_tool": {
+                "type": "integer"
+              },
+              "excluded": {
+                "type": "integer"
+              },
+              "host": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "host_duplicate": {
+                "type": "integer"
+              },
+              "trend12": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 400
+              },
+              "serp_json": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {},
+                  "additionalProperties": true
+                },
+                "maxItems": 20
+              },
+              "tier": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "verdict": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "reason": {
+                "type": "string",
+                "maxLength": 1000
+              },
+              "group": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "already_checked": {
+                "type": "boolean"
+              },
+              "is_home": {
+                "type": "integer"
+              },
+              "rank": {
+                "type": "integer"
+              },
+              "page_type": {
+                "type": "string",
+                "maxLength": 60
+              },
+              "small_site": {
+                "type": "boolean"
+              },
+              "title": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "kd_source": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "trend_source": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "metric_quality": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": true
+              },
+              "measurement": {
+                "type": "string",
+                "maxLength": 30
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          },
+          "maxItems": 5000
+        },
+        "n": {
+          "type": "integer"
+        },
+        "report": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "market": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "language": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "period": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "region": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 40
+          },
+          "maxItems": 20
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "records": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "keyword": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "vol": {
+                "type": "number"
+              },
+              "kd": {
+                "type": "number"
+              },
+              "cpc": {
+                "type": "number"
+              },
+              "source": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "position": {
+                "type": "number"
+              },
+              "url": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "opportunity": {
+                "type": "boolean"
+              },
+              "field_sources": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": true
+              },
+              "domain": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "traffic": {
+                "type": "number"
+              },
+              "authority": {
+                "type": "number"
+              },
+              "authority_kind": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "reg_date": {
+                "type": "string",
+                "maxLength": 40
+              },
+              "weak": {
+                "type": "boolean"
+              },
+              "intent": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "intent_tool": {
+                "type": "integer"
+              },
+              "excluded": {
+                "type": "integer"
+              },
+              "host": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "host_duplicate": {
+                "type": "integer"
+              },
+              "trend12": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 400
+              },
+              "serp_json": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {},
+                  "additionalProperties": true
+                },
+                "maxItems": 20
+              },
+              "tier": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "verdict": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "reason": {
+                "type": "string",
+                "maxLength": 1000
+              },
+              "group": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "already_checked": {
+                "type": "boolean"
+              },
+              "is_home": {
+                "type": "integer"
+              },
+              "rank": {
+                "type": "integer"
+              },
+              "page_type": {
+                "type": "string",
+                "maxLength": 60
+              },
+              "small_site": {
+                "type": "boolean"
+              },
+              "title": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "kd_source": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "trend_source": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "metric_quality": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": true
+              },
+              "measurement": {
+                "type": "string",
+                "maxLength": 30
+              }
+            },
+            "required": [
+              "domain"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 5000
+        },
+        "source": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "missing": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "maxItems": 50
+        },
+        "partial": {
+          "type": "boolean"
+        },
+        "pages": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "records",
+        "source"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "domain.top_pages": {
+    "input": {
+      "type": "object",
+      "properties": {
+        "keyword": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "keywords": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "maxItems": 1000
+        },
+        "domain": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "domains": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 300
+          },
+          "maxItems": 1000
+        },
+        "url": {
+          "type": "string",
+          "maxLength": 4000
+        },
+        "urls": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "maxItems": 1000
+        },
+        "records": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "keyword": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "vol": {
+                "type": "number"
+              },
+              "kd": {
+                "type": "number"
+              },
+              "cpc": {
+                "type": "number"
+              },
+              "source": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "position": {
+                "type": "number"
+              },
+              "url": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "opportunity": {
+                "type": "boolean"
+              },
+              "field_sources": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": true
+              },
+              "domain": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "traffic": {
+                "type": "number"
+              },
+              "authority": {
+                "type": "number"
+              },
+              "authority_kind": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "reg_date": {
+                "type": "string",
+                "maxLength": 40
+              },
+              "weak": {
+                "type": "boolean"
+              },
+              "intent": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "intent_tool": {
+                "type": "integer"
+              },
+              "excluded": {
+                "type": "integer"
+              },
+              "host": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "host_duplicate": {
+                "type": "integer"
+              },
+              "trend12": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 400
+              },
+              "serp_json": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {},
+                  "additionalProperties": true
+                },
+                "maxItems": 20
+              },
+              "tier": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "verdict": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "reason": {
+                "type": "string",
+                "maxLength": 1000
+              },
+              "group": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "already_checked": {
+                "type": "boolean"
+              },
+              "is_home": {
+                "type": "integer"
+              },
+              "rank": {
+                "type": "integer"
+              },
+              "page_type": {
+                "type": "string",
+                "maxLength": 60
+              },
+              "small_site": {
+                "type": "boolean"
+              },
+              "title": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "kd_source": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "trend_source": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "metric_quality": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": true
+              },
+              "measurement": {
+                "type": "string",
+                "maxLength": 30
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          },
+          "maxItems": 5000
+        },
+        "n": {
+          "type": "integer"
+        },
+        "report": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "market": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "language": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "period": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "region": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 40
+          },
+          "maxItems": 20
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "records": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "keyword": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "vol": {
+                "type": "number"
+              },
+              "kd": {
+                "type": "number"
+              },
+              "cpc": {
+                "type": "number"
+              },
+              "source": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "position": {
+                "type": "number"
+              },
+              "url": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "opportunity": {
+                "type": "boolean"
+              },
+              "field_sources": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": true
+              },
+              "domain": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "traffic": {
+                "type": "number"
+              },
+              "authority": {
+                "type": "number"
+              },
+              "authority_kind": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "reg_date": {
+                "type": "string",
+                "maxLength": 40
+              },
+              "weak": {
+                "type": "boolean"
+              },
+              "intent": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "intent_tool": {
+                "type": "integer"
+              },
+              "excluded": {
+                "type": "integer"
+              },
+              "host": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "host_duplicate": {
+                "type": "integer"
+              },
+              "trend12": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 400
+              },
+              "serp_json": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {},
+                  "additionalProperties": true
+                },
+                "maxItems": 20
+              },
+              "tier": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "verdict": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "reason": {
+                "type": "string",
+                "maxLength": 1000
+              },
+              "group": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "already_checked": {
+                "type": "boolean"
+              },
+              "is_home": {
+                "type": "integer"
+              },
+              "rank": {
+                "type": "integer"
+              },
+              "page_type": {
+                "type": "string",
+                "maxLength": 60
+              },
+              "small_site": {
+                "type": "boolean"
+              },
+              "title": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "kd_source": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "trend_source": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "metric_quality": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": true
+              },
+              "measurement": {
+                "type": "string",
+                "maxLength": 30
+              }
+            },
+            "required": [
+              "url"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 5000
+        },
+        "source": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "missing": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "maxItems": 50
+        },
+        "partial": {
+          "type": "boolean"
+        },
+        "pages": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "records",
+        "source"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "domain.authority": {
+    "input": {
+      "type": "object",
+      "properties": {
+        "keyword": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "keywords": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "maxItems": 1000
+        },
+        "domain": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "domains": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 300
+          },
+          "maxItems": 1000
+        },
+        "url": {
+          "type": "string",
+          "maxLength": 4000
+        },
+        "urls": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "maxItems": 1000
+        },
+        "records": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "keyword": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "vol": {
+                "type": "number"
+              },
+              "kd": {
+                "type": "number"
+              },
+              "cpc": {
+                "type": "number"
+              },
+              "source": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "position": {
+                "type": "number"
+              },
+              "url": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "opportunity": {
+                "type": "boolean"
+              },
+              "field_sources": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": true
+              },
+              "domain": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "traffic": {
+                "type": "number"
+              },
+              "authority": {
+                "type": "number"
+              },
+              "authority_kind": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "reg_date": {
+                "type": "string",
+                "maxLength": 40
+              },
+              "weak": {
+                "type": "boolean"
+              },
+              "intent": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "intent_tool": {
+                "type": "integer"
+              },
+              "excluded": {
+                "type": "integer"
+              },
+              "host": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "host_duplicate": {
+                "type": "integer"
+              },
+              "trend12": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 400
+              },
+              "serp_json": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {},
+                  "additionalProperties": true
+                },
+                "maxItems": 20
+              },
+              "tier": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "verdict": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "reason": {
+                "type": "string",
+                "maxLength": 1000
+              },
+              "group": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "already_checked": {
+                "type": "boolean"
+              },
+              "is_home": {
+                "type": "integer"
+              },
+              "rank": {
+                "type": "integer"
+              },
+              "page_type": {
+                "type": "string",
+                "maxLength": 60
+              },
+              "small_site": {
+                "type": "boolean"
+              },
+              "title": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "kd_source": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "trend_source": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "metric_quality": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": true
+              },
+              "measurement": {
+                "type": "string",
+                "maxLength": 30
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          },
+          "maxItems": 5000
+        },
+        "n": {
+          "type": "integer"
+        },
+        "report": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "market": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "language": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "period": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "region": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 40
+          },
+          "maxItems": 20
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "records": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "keyword": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "vol": {
+                "type": "number"
+              },
+              "kd": {
+                "type": "number"
+              },
+              "cpc": {
+                "type": "number"
+              },
+              "source": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "position": {
+                "type": "number"
+              },
+              "url": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "opportunity": {
+                "type": "boolean"
+              },
+              "field_sources": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": true
+              },
+              "domain": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "traffic": {
+                "type": "number"
+              },
+              "authority": {
+                "type": "number"
+              },
+              "authority_kind": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "reg_date": {
+                "type": "string",
+                "maxLength": 40
+              },
+              "weak": {
+                "type": "boolean"
+              },
+              "intent": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "intent_tool": {
+                "type": "integer"
+              },
+              "excluded": {
+                "type": "integer"
+              },
+              "host": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "host_duplicate": {
+                "type": "integer"
+              },
+              "trend12": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 400
+              },
+              "serp_json": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {},
+                  "additionalProperties": true
+                },
+                "maxItems": 20
+              },
+              "tier": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "verdict": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "reason": {
+                "type": "string",
+                "maxLength": 1000
+              },
+              "group": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "already_checked": {
+                "type": "boolean"
+              },
+              "is_home": {
+                "type": "integer"
+              },
+              "rank": {
+                "type": "integer"
+              },
+              "page_type": {
+                "type": "string",
+                "maxLength": 60
+              },
+              "small_site": {
+                "type": "boolean"
+              },
+              "title": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "kd_source": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "trend_source": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "metric_quality": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": true
+              },
+              "measurement": {
+                "type": "string",
+                "maxLength": 30
+              }
+            },
+            "required": [
+              "domain"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 5000
+        },
+        "source": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "missing": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "maxItems": 50
+        },
+        "partial": {
+          "type": "boolean"
+        },
+        "pages": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "records",
+        "source"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "domain.competitors": {
+    "input": {
+      "type": "object",
+      "properties": {
+        "keyword": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "keywords": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "maxItems": 1000
+        },
+        "domain": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "domains": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 300
+          },
+          "maxItems": 1000
+        },
+        "url": {
+          "type": "string",
+          "maxLength": 4000
+        },
+        "urls": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "maxItems": 1000
+        },
+        "records": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "keyword": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "vol": {
+                "type": "number"
+              },
+              "kd": {
+                "type": "number"
+              },
+              "cpc": {
+                "type": "number"
+              },
+              "source": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "position": {
+                "type": "number"
+              },
+              "url": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "opportunity": {
+                "type": "boolean"
+              },
+              "field_sources": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": true
+              },
+              "domain": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "traffic": {
+                "type": "number"
+              },
+              "authority": {
+                "type": "number"
+              },
+              "authority_kind": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "reg_date": {
+                "type": "string",
+                "maxLength": 40
+              },
+              "weak": {
+                "type": "boolean"
+              },
+              "intent": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "intent_tool": {
+                "type": "integer"
+              },
+              "excluded": {
+                "type": "integer"
+              },
+              "host": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "host_duplicate": {
+                "type": "integer"
+              },
+              "trend12": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 400
+              },
+              "serp_json": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {},
+                  "additionalProperties": true
+                },
+                "maxItems": 20
+              },
+              "tier": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "verdict": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "reason": {
+                "type": "string",
+                "maxLength": 1000
+              },
+              "group": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "already_checked": {
+                "type": "boolean"
+              },
+              "is_home": {
+                "type": "integer"
+              },
+              "rank": {
+                "type": "integer"
+              },
+              "page_type": {
+                "type": "string",
+                "maxLength": 60
+              },
+              "small_site": {
+                "type": "boolean"
+              },
+              "title": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "kd_source": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "trend_source": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "metric_quality": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": true
+              },
+              "measurement": {
+                "type": "string",
+                "maxLength": 30
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          },
+          "maxItems": 5000
+        },
+        "n": {
+          "type": "integer"
+        },
+        "report": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "market": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "language": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "period": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "region": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 40
+          },
+          "maxItems": 20
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "records": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "keyword": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "vol": {
+                "type": "number"
+              },
+              "kd": {
+                "type": "number"
+              },
+              "cpc": {
+                "type": "number"
+              },
+              "source": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "position": {
+                "type": "number"
+              },
+              "url": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "opportunity": {
+                "type": "boolean"
+              },
+              "field_sources": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": true
+              },
+              "domain": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "traffic": {
+                "type": "number"
+              },
+              "authority": {
+                "type": "number"
+              },
+              "authority_kind": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "reg_date": {
+                "type": "string",
+                "maxLength": 40
+              },
+              "weak": {
+                "type": "boolean"
+              },
+              "intent": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "intent_tool": {
+                "type": "integer"
+              },
+              "excluded": {
+                "type": "integer"
+              },
+              "host": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "host_duplicate": {
+                "type": "integer"
+              },
+              "trend12": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 400
+              },
+              "serp_json": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {},
+                  "additionalProperties": true
+                },
+                "maxItems": 20
+              },
+              "tier": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "verdict": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "reason": {
+                "type": "string",
+                "maxLength": 1000
+              },
+              "group": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "already_checked": {
+                "type": "boolean"
+              },
+              "is_home": {
+                "type": "integer"
+              },
+              "rank": {
+                "type": "integer"
+              },
+              "page_type": {
+                "type": "string",
+                "maxLength": 60
+              },
+              "small_site": {
+                "type": "boolean"
+              },
+              "title": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "kd_source": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "trend_source": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "metric_quality": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": true
+              },
+              "measurement": {
+                "type": "string",
+                "maxLength": 30
+              }
+            },
+            "required": [
+              "domain"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 5000
+        },
+        "source": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "missing": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "maxItems": 50
+        },
+        "partial": {
+          "type": "boolean"
+        },
+        "pages": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "records",
+        "source"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "site.page_family": {
+    "input": {
+      "type": "object",
+      "properties": {
+        "keyword": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "keywords": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "maxItems": 1000
+        },
+        "domain": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "domains": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 300
+          },
+          "maxItems": 1000
+        },
+        "url": {
+          "type": "string",
+          "maxLength": 4000
+        },
+        "urls": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "maxItems": 1000
+        },
+        "records": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "keyword": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "vol": {
+                "type": "number"
+              },
+              "kd": {
+                "type": "number"
+              },
+              "cpc": {
+                "type": "number"
+              },
+              "source": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "position": {
+                "type": "number"
+              },
+              "url": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "opportunity": {
+                "type": "boolean"
+              },
+              "field_sources": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": true
+              },
+              "domain": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "traffic": {
+                "type": "number"
+              },
+              "authority": {
+                "type": "number"
+              },
+              "authority_kind": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "reg_date": {
+                "type": "string",
+                "maxLength": 40
+              },
+              "weak": {
+                "type": "boolean"
+              },
+              "intent": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "intent_tool": {
+                "type": "integer"
+              },
+              "excluded": {
+                "type": "integer"
+              },
+              "host": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "host_duplicate": {
+                "type": "integer"
+              },
+              "trend12": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 400
+              },
+              "serp_json": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {},
+                  "additionalProperties": true
+                },
+                "maxItems": 20
+              },
+              "tier": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "verdict": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "reason": {
+                "type": "string",
+                "maxLength": 1000
+              },
+              "group": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "already_checked": {
+                "type": "boolean"
+              },
+              "is_home": {
+                "type": "integer"
+              },
+              "rank": {
+                "type": "integer"
+              },
+              "page_type": {
+                "type": "string",
+                "maxLength": 60
+              },
+              "small_site": {
+                "type": "boolean"
+              },
+              "title": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "kd_source": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "trend_source": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "metric_quality": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": true
+              },
+              "measurement": {
+                "type": "string",
+                "maxLength": 30
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          },
+          "maxItems": 5000
+        },
+        "n": {
+          "type": "integer"
+        },
+        "report": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "market": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "language": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "period": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "region": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 40
+          },
+          "maxItems": 20
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "records": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "keyword": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "vol": {
+                "type": "number"
+              },
+              "kd": {
+                "type": "number"
+              },
+              "cpc": {
+                "type": "number"
+              },
+              "source": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "position": {
+                "type": "number"
+              },
+              "url": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "opportunity": {
+                "type": "boolean"
+              },
+              "field_sources": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": true
+              },
+              "domain": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "traffic": {
+                "type": "number"
+              },
+              "authority": {
+                "type": "number"
+              },
+              "authority_kind": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "reg_date": {
+                "type": "string",
+                "maxLength": 40
+              },
+              "weak": {
+                "type": "boolean"
+              },
+              "intent": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "intent_tool": {
+                "type": "integer"
+              },
+              "excluded": {
+                "type": "integer"
+              },
+              "host": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "host_duplicate": {
+                "type": "integer"
+              },
+              "trend12": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 400
+              },
+              "serp_json": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {},
+                  "additionalProperties": true
+                },
+                "maxItems": 20
+              },
+              "tier": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "verdict": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "reason": {
+                "type": "string",
+                "maxLength": 1000
+              },
+              "group": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "already_checked": {
+                "type": "boolean"
+              },
+              "is_home": {
+                "type": "integer"
+              },
+              "rank": {
+                "type": "integer"
+              },
+              "page_type": {
+                "type": "string",
+                "maxLength": 60
+              },
+              "small_site": {
+                "type": "boolean"
+              },
+              "title": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "kd_source": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "trend_source": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "metric_quality": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": true
+              },
+              "measurement": {
+                "type": "string",
+                "maxLength": 30
+              }
+            },
+            "required": [
+              "url"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 5000
+        },
+        "source": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "missing": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "maxItems": 50
+        },
+        "partial": {
+          "type": "boolean"
+        },
+        "pages": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "records",
+        "source"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "trends.series": {
+    "input": {
+      "type": "object",
+      "properties": {
+        "keyword": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "keywords": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "maxItems": 1000
+        },
+        "domain": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "domains": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 300
+          },
+          "maxItems": 1000
+        },
+        "url": {
+          "type": "string",
+          "maxLength": 4000
+        },
+        "urls": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "maxItems": 1000
+        },
+        "records": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "keyword": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "vol": {
+                "type": "number"
+              },
+              "kd": {
+                "type": "number"
+              },
+              "cpc": {
+                "type": "number"
+              },
+              "source": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "position": {
+                "type": "number"
+              },
+              "url": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "opportunity": {
+                "type": "boolean"
+              },
+              "field_sources": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": true
+              },
+              "domain": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "traffic": {
+                "type": "number"
+              },
+              "authority": {
+                "type": "number"
+              },
+              "authority_kind": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "reg_date": {
+                "type": "string",
+                "maxLength": 40
+              },
+              "weak": {
+                "type": "boolean"
+              },
+              "intent": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "intent_tool": {
+                "type": "integer"
+              },
+              "excluded": {
+                "type": "integer"
+              },
+              "host": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "host_duplicate": {
+                "type": "integer"
+              },
+              "trend12": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 400
+              },
+              "serp_json": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {},
+                  "additionalProperties": true
+                },
+                "maxItems": 20
+              },
+              "tier": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "verdict": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "reason": {
+                "type": "string",
+                "maxLength": 1000
+              },
+              "group": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "already_checked": {
+                "type": "boolean"
+              },
+              "is_home": {
+                "type": "integer"
+              },
+              "rank": {
+                "type": "integer"
+              },
+              "page_type": {
+                "type": "string",
+                "maxLength": 60
+              },
+              "small_site": {
+                "type": "boolean"
+              },
+              "title": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "kd_source": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "trend_source": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "metric_quality": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": true
+              },
+              "measurement": {
+                "type": "string",
+                "maxLength": 30
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          },
+          "maxItems": 5000
+        },
+        "n": {
+          "type": "integer"
+        },
+        "report": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "market": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "language": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "period": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "region": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 40
+          },
+          "maxItems": 20
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "series": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "keyword": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "region": {
+                "type": "string",
+                "maxLength": 20
+              },
+              "period": {
+                "type": "string",
+                "maxLength": 30
+              },
+              "points": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "date": {
+                      "type": "string",
+                      "maxLength": 40
+                    },
+                    "value": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "date",
+                    "value"
+                  ],
+                  "additionalProperties": false
+                },
+                "maxItems": 400
+              }
+            },
+            "required": [
+              "keyword",
+              "region",
+              "period",
+              "points"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 200
+        },
+        "source": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "missing": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "maxItems": 50
+        }
+      },
+      "required": [
+        "series",
+        "source"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "keyword.judge": {
+    "input": {
+      "type": "object",
+      "properties": {
+        "keyword": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "keywords": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "maxItems": 1000
+        },
+        "domain": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "domains": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 300
+          },
+          "maxItems": 1000
+        },
+        "url": {
+          "type": "string",
+          "maxLength": 4000
+        },
+        "urls": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "maxItems": 1000
+        },
+        "records": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "keyword": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "vol": {
+                "type": "number"
+              },
+              "kd": {
+                "type": "number"
+              },
+              "cpc": {
+                "type": "number"
+              },
+              "source": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "position": {
+                "type": "number"
+              },
+              "url": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "opportunity": {
+                "type": "boolean"
+              },
+              "field_sources": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": true
+              },
+              "domain": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "traffic": {
+                "type": "number"
+              },
+              "authority": {
+                "type": "number"
+              },
+              "authority_kind": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "reg_date": {
+                "type": "string",
+                "maxLength": 40
+              },
+              "weak": {
+                "type": "boolean"
+              },
+              "intent": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "intent_tool": {
+                "type": "integer"
+              },
+              "excluded": {
+                "type": "integer"
+              },
+              "host": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "host_duplicate": {
+                "type": "integer"
+              },
+              "trend12": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 400
+              },
+              "serp_json": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {},
+                  "additionalProperties": true
+                },
+                "maxItems": 20
+              },
+              "tier": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "verdict": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "reason": {
+                "type": "string",
+                "maxLength": 1000
+              },
+              "group": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "already_checked": {
+                "type": "boolean"
+              },
+              "is_home": {
+                "type": "integer"
+              },
+              "rank": {
+                "type": "integer"
+              },
+              "page_type": {
+                "type": "string",
+                "maxLength": 60
+              },
+              "small_site": {
+                "type": "boolean"
+              },
+              "title": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "kd_source": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "trend_source": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "metric_quality": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": true
+              },
+              "measurement": {
+                "type": "string",
+                "maxLength": 30
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          },
+          "maxItems": 5000
+        },
+        "n": {
+          "type": "integer"
+        },
+        "report": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "market": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "language": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "period": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "region": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 40
+          },
+          "maxItems": 20
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "records": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "keyword": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "vol": {
+                "type": "number"
+              },
+              "kd": {
+                "type": "number"
+              },
+              "cpc": {
+                "type": "number"
+              },
+              "source": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "position": {
+                "type": "number"
+              },
+              "url": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "opportunity": {
+                "type": "boolean"
+              },
+              "field_sources": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": true
+              },
+              "domain": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "traffic": {
+                "type": "number"
+              },
+              "authority": {
+                "type": "number"
+              },
+              "authority_kind": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "reg_date": {
+                "type": "string",
+                "maxLength": 40
+              },
+              "weak": {
+                "type": "boolean"
+              },
+              "intent": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "intent_tool": {
+                "type": "integer"
+              },
+              "excluded": {
+                "type": "integer"
+              },
+              "host": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "host_duplicate": {
+                "type": "integer"
+              },
+              "trend12": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 400
+              },
+              "serp_json": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {},
+                  "additionalProperties": true
+                },
+                "maxItems": 20
+              },
+              "tier": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "verdict": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "reason": {
+                "type": "string",
+                "maxLength": 1000
+              },
+              "group": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "already_checked": {
+                "type": "boolean"
+              },
+              "is_home": {
+                "type": "integer"
+              },
+              "rank": {
+                "type": "integer"
+              },
+              "page_type": {
+                "type": "string",
+                "maxLength": 60
+              },
+              "small_site": {
+                "type": "boolean"
+              },
+              "title": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "kd_source": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "trend_source": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "metric_quality": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": true
+              },
+              "measurement": {
+                "type": "string",
+                "maxLength": 30
+              }
+            },
+            "required": [
+              "keyword"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 5000
+        },
+        "source": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "missing": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "maxItems": 50
+        },
+        "partial": {
+          "type": "boolean"
+        },
+        "pages": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "records",
+        "source"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "pool.lookup": {
+    "input": {
+      "type": "object",
+      "properties": {
+        "keyword": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "keywords": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "maxItems": 1000
+        },
+        "domain": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "domains": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 300
+          },
+          "maxItems": 1000
+        },
+        "url": {
+          "type": "string",
+          "maxLength": 4000
+        },
+        "urls": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "maxItems": 1000
+        },
+        "records": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "keyword": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "vol": {
+                "type": "number"
+              },
+              "kd": {
+                "type": "number"
+              },
+              "cpc": {
+                "type": "number"
+              },
+              "source": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "position": {
+                "type": "number"
+              },
+              "url": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "opportunity": {
+                "type": "boolean"
+              },
+              "field_sources": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": true
+              },
+              "domain": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "traffic": {
+                "type": "number"
+              },
+              "authority": {
+                "type": "number"
+              },
+              "authority_kind": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "reg_date": {
+                "type": "string",
+                "maxLength": 40
+              },
+              "weak": {
+                "type": "boolean"
+              },
+              "intent": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "intent_tool": {
+                "type": "integer"
+              },
+              "excluded": {
+                "type": "integer"
+              },
+              "host": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "host_duplicate": {
+                "type": "integer"
+              },
+              "trend12": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 400
+              },
+              "serp_json": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {},
+                  "additionalProperties": true
+                },
+                "maxItems": 20
+              },
+              "tier": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "verdict": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "reason": {
+                "type": "string",
+                "maxLength": 1000
+              },
+              "group": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "already_checked": {
+                "type": "boolean"
+              },
+              "is_home": {
+                "type": "integer"
+              },
+              "rank": {
+                "type": "integer"
+              },
+              "page_type": {
+                "type": "string",
+                "maxLength": 60
+              },
+              "small_site": {
+                "type": "boolean"
+              },
+              "title": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "kd_source": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "trend_source": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "metric_quality": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": true
+              },
+              "measurement": {
+                "type": "string",
+                "maxLength": 30
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          },
+          "maxItems": 5000
+        },
+        "n": {
+          "type": "integer"
+        },
+        "report": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "market": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "language": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "period": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "region": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 40
+          },
+          "maxItems": 20
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "records": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "keyword": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "vol": {
+                "type": "number"
+              },
+              "kd": {
+                "type": "number"
+              },
+              "cpc": {
+                "type": "number"
+              },
+              "source": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "position": {
+                "type": "number"
+              },
+              "url": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "opportunity": {
+                "type": "boolean"
+              },
+              "field_sources": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": true
+              },
+              "domain": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "traffic": {
+                "type": "number"
+              },
+              "authority": {
+                "type": "number"
+              },
+              "authority_kind": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "reg_date": {
+                "type": "string",
+                "maxLength": 40
+              },
+              "weak": {
+                "type": "boolean"
+              },
+              "intent": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "intent_tool": {
+                "type": "integer"
+              },
+              "excluded": {
+                "type": "integer"
+              },
+              "host": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "host_duplicate": {
+                "type": "integer"
+              },
+              "trend12": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 400
+              },
+              "serp_json": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {},
+                  "additionalProperties": true
+                },
+                "maxItems": 20
+              },
+              "tier": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "verdict": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "reason": {
+                "type": "string",
+                "maxLength": 1000
+              },
+              "group": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "already_checked": {
+                "type": "boolean"
+              },
+              "is_home": {
+                "type": "integer"
+              },
+              "rank": {
+                "type": "integer"
+              },
+              "page_type": {
+                "type": "string",
+                "maxLength": 60
+              },
+              "small_site": {
+                "type": "boolean"
+              },
+              "title": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "kd_source": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "trend_source": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "metric_quality": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": true
+              },
+              "measurement": {
+                "type": "string",
+                "maxLength": 30
+              }
+            },
+            "required": [
+              "keyword"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 5000
+        },
+        "source": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "missing": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "maxItems": 50
+        },
+        "partial": {
+          "type": "boolean"
+        },
+        "pages": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "records",
+        "source"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "pool.save": {
+    "input": {
+      "type": "object",
+      "properties": {
+        "keyword": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "keywords": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "maxItems": 1000
+        },
+        "domain": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "domains": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 300
+          },
+          "maxItems": 1000
+        },
+        "url": {
+          "type": "string",
+          "maxLength": 4000
+        },
+        "urls": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "maxItems": 1000
+        },
+        "records": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "keyword": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "vol": {
+                "type": "number"
+              },
+              "kd": {
+                "type": "number"
+              },
+              "cpc": {
+                "type": "number"
+              },
+              "source": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "position": {
+                "type": "number"
+              },
+              "url": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "opportunity": {
+                "type": "boolean"
+              },
+              "field_sources": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": true
+              },
+              "domain": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "traffic": {
+                "type": "number"
+              },
+              "authority": {
+                "type": "number"
+              },
+              "authority_kind": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "reg_date": {
+                "type": "string",
+                "maxLength": 40
+              },
+              "weak": {
+                "type": "boolean"
+              },
+              "intent": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "intent_tool": {
+                "type": "integer"
+              },
+              "excluded": {
+                "type": "integer"
+              },
+              "host": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "host_duplicate": {
+                "type": "integer"
+              },
+              "trend12": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 400
+              },
+              "serp_json": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {},
+                  "additionalProperties": true
+                },
+                "maxItems": 20
+              },
+              "tier": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "verdict": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "reason": {
+                "type": "string",
+                "maxLength": 1000
+              },
+              "group": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "already_checked": {
+                "type": "boolean"
+              },
+              "is_home": {
+                "type": "integer"
+              },
+              "rank": {
+                "type": "integer"
+              },
+              "page_type": {
+                "type": "string",
+                "maxLength": 60
+              },
+              "small_site": {
+                "type": "boolean"
+              },
+              "title": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "kd_source": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "trend_source": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "metric_quality": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": true
+              },
+              "measurement": {
+                "type": "string",
+                "maxLength": 30
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          },
+          "maxItems": 5000
+        },
+        "n": {
+          "type": "integer"
+        },
+        "report": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "market": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "language": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "period": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "region": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 40
+          },
+          "maxItems": 20
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "written": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "skipped": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "keyword": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "reason": {
+                "type": "string",
+                "maxLength": 300
+              }
+            },
+            "required": [
+              "keyword",
+              "reason"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 1000
+        },
+        "accepted_keywords": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "maxItems": 1000
+        },
+        "source": {
+          "type": "string",
+          "maxLength": 500
+        }
+      },
+      "required": [
+        "written",
+        "skipped",
+        "source"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "keyword.filter": {
+    "input": {
+      "type": "object",
+      "properties": {
+        "keyword": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "keywords": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "maxItems": 1000
+        },
+        "domain": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "domains": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 300
+          },
+          "maxItems": 1000
+        },
+        "url": {
+          "type": "string",
+          "maxLength": 4000
+        },
+        "urls": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "maxItems": 1000
+        },
+        "records": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "keyword": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "vol": {
+                "type": "number"
+              },
+              "kd": {
+                "type": "number"
+              },
+              "cpc": {
+                "type": "number"
+              },
+              "source": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "position": {
+                "type": "number"
+              },
+              "url": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "opportunity": {
+                "type": "boolean"
+              },
+              "field_sources": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": true
+              },
+              "domain": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "traffic": {
+                "type": "number"
+              },
+              "authority": {
+                "type": "number"
+              },
+              "authority_kind": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "reg_date": {
+                "type": "string",
+                "maxLength": 40
+              },
+              "weak": {
+                "type": "boolean"
+              },
+              "intent": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "intent_tool": {
+                "type": "integer"
+              },
+              "excluded": {
+                "type": "integer"
+              },
+              "host": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "host_duplicate": {
+                "type": "integer"
+              },
+              "trend12": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 400
+              },
+              "serp_json": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {},
+                  "additionalProperties": true
+                },
+                "maxItems": 20
+              },
+              "tier": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "verdict": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "reason": {
+                "type": "string",
+                "maxLength": 1000
+              },
+              "group": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "already_checked": {
+                "type": "boolean"
+              },
+              "is_home": {
+                "type": "integer"
+              },
+              "rank": {
+                "type": "integer"
+              },
+              "page_type": {
+                "type": "string",
+                "maxLength": 60
+              },
+              "small_site": {
+                "type": "boolean"
+              },
+              "title": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "kd_source": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "trend_source": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "metric_quality": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": true
+              },
+              "measurement": {
+                "type": "string",
+                "maxLength": 30
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          },
+          "maxItems": 5000
+        },
+        "n": {
+          "type": "integer"
+        },
+        "report": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "market": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "language": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "period": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "region": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 40
+          },
+          "maxItems": 20
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "records": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "keyword": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "vol": {
+                "type": "number"
+              },
+              "kd": {
+                "type": "number"
+              },
+              "cpc": {
+                "type": "number"
+              },
+              "source": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "position": {
+                "type": "number"
+              },
+              "url": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "opportunity": {
+                "type": "boolean"
+              },
+              "field_sources": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": true
+              },
+              "domain": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "traffic": {
+                "type": "number"
+              },
+              "authority": {
+                "type": "number"
+              },
+              "authority_kind": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "reg_date": {
+                "type": "string",
+                "maxLength": 40
+              },
+              "weak": {
+                "type": "boolean"
+              },
+              "intent": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "intent_tool": {
+                "type": "integer"
+              },
+              "excluded": {
+                "type": "integer"
+              },
+              "host": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "host_duplicate": {
+                "type": "integer"
+              },
+              "trend12": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 400
+              },
+              "serp_json": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {},
+                  "additionalProperties": true
+                },
+                "maxItems": 20
+              },
+              "tier": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "verdict": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "reason": {
+                "type": "string",
+                "maxLength": 1000
+              },
+              "group": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "already_checked": {
+                "type": "boolean"
+              },
+              "is_home": {
+                "type": "integer"
+              },
+              "rank": {
+                "type": "integer"
+              },
+              "page_type": {
+                "type": "string",
+                "maxLength": 60
+              },
+              "small_site": {
+                "type": "boolean"
+              },
+              "title": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "kd_source": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "trend_source": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "metric_quality": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": true
+              },
+              "measurement": {
+                "type": "string",
+                "maxLength": 30
+              }
+            },
+            "required": [
+              "keyword"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 5000
+        },
+        "source": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "missing": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "maxItems": 50
+        },
+        "partial": {
+          "type": "boolean"
+        },
+        "pages": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "records",
+        "source"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

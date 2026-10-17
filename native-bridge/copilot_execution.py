@@ -9,6 +9,7 @@ import subprocess
 import threading
 import time
 from copilot_acp import hermes_environment
+from copilot_usage import stream_metrics
 
 
 class ExecutionError(RuntimeError):
@@ -34,7 +35,7 @@ class StreamJSON:
             self.result = event
             if event.get('exit_code') != 0 or event.get('error'):
                 raise ExecutionError('Hermes reported failure')
-        return {key: event[key] for key in ('type', 'name') if key in event}
+        return {key: event[key] for key in ('type', 'name','model') if key in event}
 
     def finish(self):
         if self.result is None:
@@ -46,13 +47,15 @@ def execution_argv(config, template, title, query):
     toolsets = template.get('toolsets')
     if not isinstance(toolsets, list) or not toolsets or any(not isinstance(item, str) or not item or ',' in item or item in {'*', 'all'} for item in toolsets):
         raise ExecutionError('explicit narrow toolsets required')
-    limit = min(config['max_turns'], template.get('max_turns', config['max_turns']))
+    limit = min(config['max_turns'], template.get('max_turns', config['max_turns'])*config.get('turn_multiplier',1))
     if type(limit) is not int or limit < 1:
         raise ExecutionError('invalid turn limit')
     args = [config.get('hermes_command', 'hermes'), '-p', config['exec_profile'], 'chat', '-c', title,
             '--create-if-missing', '--query-file', str(query), '--oneshot', '-Q', '--format', 'stream-json',
             '--source', 'copilot', '-t', ','.join(toolsets), '--max-turns', str(limit)]
     if config.get('exec_model'):
+        from copilot_models import model_id
+        model_id(config['exec_model'])
         args += ['-m', config['exec_model']]
     return args
 
@@ -72,6 +75,9 @@ class Executions:
         except ProcessLookupError:
             pass
 
+    def prepare(self,key):
+        with self.lock:self.cancelled.discard(key)
+
     def cancel(self, key):
         with self.lock:
             self.cancelled.add(key)
@@ -81,7 +87,7 @@ class Executions:
                 if job['process'].poll() is None:
                     self._signal(job['process'], signal.SIGTERM)
 
-    def run(self, key, argv, result_path, progress=lambda _: None):
+    def run(self, key, argv, result_path, progress=lambda _: None, inline=False, env_extra=None):
         started = time.monotonic()
         done, cancelled = threading.Event(), threading.Event()
         process = None
@@ -93,7 +99,7 @@ class Executions:
                     raise ExecutionError('execution stopped')
                 process = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                            stderr=subprocess.DEVNULL, start_new_session=True,
-                                           env=hermes_environment(self.config))
+                                           env=hermes_environment(self.config,env_extra),cwd=result_path.parent)
                 self.jobs[key] = {'process': process, 'cancel': cancelled, 'done': done}
             selector.register(process.stdout, selectors.EVENT_READ)
             buffer = b''
@@ -121,22 +127,16 @@ class Executions:
             path = Path(result_path)
             if any(part.is_symlink() for part in (path, *path.parents)):
                 raise ExecutionError('result path contains symlink')
-            with path.open('rb') as handle:
-                raw = handle.read(131073)
+            if inline:raw=event.get('text','').encode()
+            else:
+                with path.open('rb') as handle:raw=handle.read(131073)
             if len(raw) > 131072:
                 raise ExecutionError('result file exceeds budget')
             result = json.loads(raw)
-            usage = event.get('tokens', {})
-            reported = usage.get('total') if isinstance(usage, dict) else None
-            metrics = {'tokens': max(0, int(reported)) if type(reported) is int else (len(raw) + 3) // 4,
-                       'source': 'hermes.stream-json.tokens.total' if type(reported) is int else 'estimated_execution_result_bytes/4',
-                       'seconds': time.monotonic() - started, 'input_bytes': 0, 'estimated_input_tokens': 0}
+            metrics=stream_metrics(event,len(raw),time.monotonic()-started)
             return result, metrics
         except (ExecutionError,ValueError,OSError,subprocess.SubprocessError) as exc:
-            usage=(parser.result or {}).get('tokens',{})
-            total=usage.get('total') if isinstance(usage,dict) else None
-            if type(total) is int:
-                exc.metrics={'tokens':max(0,total),'source':'hermes.stream-json.tokens.total','seconds':time.monotonic()-started,'input_bytes':0,'estimated_input_tokens':0}
+            if parser.result:exc.metrics=stream_metrics(parser.result,seconds=time.monotonic()-started)
             raise
         finally:
             selector.close()

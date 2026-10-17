@@ -57,7 +57,7 @@ def stage(home: Path, extension_origins: Iterable[str], *, runtime_home: Path | 
     if not diagnostics_source.is_dir():
         diagnostics_source = source_dir.parent / "browser-diagnostics" / "python" / "browser_diagnostics"
     # 中文注释：同一清单用于预检及复制，避免安装文件与防链接检查范围不一致。
-    native_files = ("copilot.py", "copilot_acp.py", "copilot_execution.py", "copilot_setup.py", "cookie_mirror.py", "host.py", "client.py", "daemon.py", "api_client.py", "artifacts.py", "downloads.py", "cdp_gateway.py", "vault_private.py", "vault_client.py")
+    native_files = ("copilot.py", "copilot_acp.py", "copilot_execution.py", "copilot_usage.py", "copilot_models.py", "copilot_exec_acp.py", "copilot_fetch.py", "copilot_results.py", "copilot_tables.py", "copilot_packages.py", "copilot_capabilities.py", "copilot_tools.py", "copilot_setup.py", "cookie_mirror.py", "host.py", "client.py", "daemon.py", "api_client.py", "artifacts.py", "downloads.py", "cdp_gateway.py", "vault_private.py", "vault_client.py")
     diagnostic_files = ("__init__.py", "schema.py", "runtime.py", "sink.py")
     required = [source_dir / name for name in native_files]
     required += [diagnostics_source / name for name in diagnostic_files]
@@ -96,6 +96,12 @@ def stage(home: Path, extension_origins: Iterable[str], *, runtime_home: Path | 
             raise ValueError('copilot template target contains symlink')
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(origin, target)
+    packages_source=source_dir/'copilot-packages'
+    for origin in packages_source.rglob('*'):
+        if not origin.is_file() or origin.suffix not in {'.json','.py'}:continue
+        target=host_bin/'copilot-packages'/origin.relative_to(packages_source)
+        if any(part.is_symlink() for part in (target,*target.parents)):raise ValueError('package target contains symlink')
+        target.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(origin,target)
     import importlib.util
     import sys
     sys.path.insert(0, str(source_dir))

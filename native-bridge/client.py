@@ -231,7 +231,14 @@ class BridgeClient:
         return not readable
 
     def call(self, method: str, params: Dict[str, Any] | None = None) -> Any:
-        request = {"id": uuid.uuid4().hex, "method": method, "params": params or {}}
+        params=dict(params or {})
+        silent=os.environ.get('FAST_BROWSER_COPILOT_SILENT_TOKEN')
+        if silent and method=='browser.access_request':raise BridgeError('copilot_background_only','协作任务不能打开前台授权窗口，请在侧栏处理连接。')
+        if silent and method=='shared.create':
+            params['copilotSilentToken']=silent
+            resource=os.environ.get('FAST_BROWSER_COPILOT_RESOURCE_TOKEN')
+            if resource:params['copilotResourceToken']=resource
+        request = {"id": uuid.uuid4().hex, "method": method, "params": params}
         with self._lock:
             if self._socket is not None and not self._reusable():
                 self._disconnect()

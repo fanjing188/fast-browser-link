@@ -36,7 +36,7 @@ test('trajectory records row context and selection, never typed values',()=>{
 function background(){const registered=[],messages=[],native=[];
  const api={runtime:{id:'fixture',getURL:path=>'chrome-extension://fixture/'+path,sendMessage:async m=>messages.push(m)},sidePanel:{open:async()=>{}},
  scripting:{getRegisteredContentScripts:async()=>registered,registerContentScripts:async rows=>registered.push(...rows),unregisterContentScripts:async()=>registered.splice(0),executeScript:async()=>{}},
- tabs:{query:async()=>[{id:1,url:'https://example.test/'}],sendMessage:async(id,m)=>messages.push(m)},storage:{session:{set:async()=>{},get:async()=>({}),remove:async()=>{}}}};
+ tabs:{query:async()=>[{id:1,url:'https://example.test/'}],sendMessage:async(id,m)=>messages.push(m)},storage:{local:{get:async()=>({}),set:async()=>{}},session:{set:async()=>{},get:async()=>({}),remove:async()=>{}}}};
  const service=new CopilotBackground(api,async(method,params)=>{native.push({method,params});return {enabled:true,show_ball:true,suggestions:[]};});return {service,registered,messages,native,api};
 }
 test('content and panel protocols are separate; dynamic registration and native events',async()=>{
@@ -48,7 +48,7 @@ test('content and panel protocols are separate; dynamic registration and native 
  assert.equal(f.native.at(-1).method,'observe');assert.equal(f.native.at(-1).params.trace.length,1);
  await assert.rejects(()=>f.service.observation(content,{url:'https://other.test/'},'click'));
  await f.service.notification({type:'add',revision:1,suggestion:{id:'a',title:'Fixture',status:'pending'}});
- assert.equal(f.service.unread.size,1);assert.ok(f.messages.some(m=>m.type==='copilot.badge'&&m.count===1));
+ assert.equal(f.service.suggestionsUnread.size,1);await f.service.notification({type:'update',revision:2,suggestion:{id:'a',title:'Fixture',status:'completed'}});assert.equal(f.service.unread.size,1);assert.ok(f.messages.some(m=>m.type==='copilot.badge'&&m.count===1));
  await f.service.settings({enabled:false});assert.equal(f.registered.length,0);assert.equal(f.service.trace.length,0);assert.ok(f.messages.some(m=>m.type==='copilot.teardown'));
 });
 test('ball open invokes API synchronously before async work, and returns fallback on refusal',async()=>{

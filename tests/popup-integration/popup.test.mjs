@@ -11,7 +11,7 @@ async function mount(initial) {
   const calls = []
   let status = initial
   let changed
-  dom.window.chrome = {runtime: {
+  dom.window.chrome = {i18n:{getUILanguage:()=> 'zh-CN'},runtime: {
     getManifest:()=>({version:'9.8.7'}),
     sendMessage: async message => {
       calls.push(message)
@@ -44,7 +44,7 @@ async function mount(initial) {
 
 test('弹窗只展示当前页归属，不展示其他任务或诊断正文', async () => {
   const h = await mount({ connected: true, browserFullConsentStatus: 'disabled', tasks: [{ id: 'private', title: '不展示的任务' }], tabs: [], approvals: [] })
-  assert.equal(h.document.querySelector('#connection-label').textContent, '已连接')
+  assert.equal(h.document.querySelector('#connection-label').getAttribute('aria-label'), '本地已连接')
   assert.equal(h.document.querySelector('#access-toggle,#confirm'), null)
   assert.equal(h.document.querySelector('#tasks'), null)
   assert.equal(h.document.querySelector('#diagnostics'), null)
@@ -73,7 +73,7 @@ test('连接前说明授权范围，一次连接点击即读取结果，不追�
     assert.doesNotMatch(h.document.querySelector('#access-detail').textContent, /已连接|已授权/)
     h.document.querySelector('#connect').click()
     await h.flush()
-    assert.equal(h.document.querySelector('#connection-label').textContent, '已连接')
+    assert.equal(h.document.querySelector('#connection-label').getAttribute('aria-label'), '本地已连接')
     assert.equal(h.document.querySelector('#connect').hidden, true)
     assert.equal(h.calls.filter(call => call.type === 'connect').length, 1)
     assert.equal(h.calls.some(call => call.type === 'browser_consent'), false)
@@ -93,7 +93,7 @@ test('云端配对前明确任务页授权范围，移除云端权限开关和�
       assert.doesNotMatch(detail, /脚本|JavaScript|CDP/)
     }
     assert.doesNotMatch(h.document.body.textContent, /智能审批|逐项确认|按网站确认/)
-    assert.equal(h.document.querySelector('#cloud-dialog').open, false)
+    assert.equal(h.document.querySelector('#cloud-dialog').dataset.open, 'false')
     assert.equal(h.calls.some(call => call.type === 'cloud_full_access' || call.type === 'browser_consent'), false)
   } finally { h.dom.window.close() }
 })
@@ -103,13 +103,13 @@ test('云端在线时说明直接访问，断线和状态未知时不声称已�
   const initial = {connected: true, tasks: [], cloud: {state: 'active', paired: true, online: true, fullAccess: false}}
   const h = await mount(initial)
   try {
-    assert.equal(h.document.querySelector('#cloud-status').textContent, '已在线')
+    assert.equal(h.document.querySelector('#cloud-status').textContent, '已配对')
     assert.match(h.document.querySelector('#cloud-detail').textContent, /云端任务页.*直接/)
     assert.equal(h.document.querySelector('#cloud-code-panel').hidden, true)
     assert.equal(h.document.querySelector('#cloud-disconnect').hidden, false)
     h.setStatus({...initial, cloud: {...initial.cloud, state: 'offline', online: false, fullAccess: true}})
     await h.flush()
-    assert.equal(h.document.querySelector('#cloud-status').textContent, '离线')
+    assert.equal(h.document.querySelector('#cloud-status').textContent, '正在重连')
     assert.match(h.document.querySelector('#cloud-detail').textContent, /未在线.*恢复连接后/)
     assert.doesNotMatch(h.document.querySelector('#cloud-detail').textContent, /已在线|可直接/)
     h.dom.window.chrome.runtime.sendMessage = async () => { throw Error('unavailable') }
@@ -124,6 +124,7 @@ test('云端在线时说明直接访问，断线和状态未知时不声称已�
 test('新云端连接码不继承旧连接码的复制成功提示', async () => {
   const dom=new JSDOM(html,{url:'chrome-extension://test/popup.html',runScripts:'outside-only'})
   try {
+    dom.window.chrome={i18n:{getUILanguage:()=> 'zh-CN'}}
     dom.window.setInterval=()=>1
     let click,clipboard,finish
     const button=dom.window.document.querySelector('#cloud-copy-code')
@@ -154,7 +155,7 @@ test('状态读取失败时显示未知并禁用页面控制', async () => {
   h.dom.window.chrome.runtime.sendMessage=async()=>{throw Error('unavailable')}
   h.setStatus({})
   await h.flush()
-  assert.equal(h.document.querySelector('#connection-label').textContent,'状态待确认')
+  assert.equal(h.document.querySelector('#connection-label').getAttribute('aria-label'),'状态待确认')
   assert.match(h.document.querySelector('#access-detail').textContent,/状态待确认/)
   assert.doesNotMatch(h.document.querySelector('#access-detail').textContent,/已连接|已授权|可由 Fast-browser-link 直接访问/)
   assert.equal(h.document.querySelector('#connect').hidden,false)
@@ -163,10 +164,11 @@ test('状态读取失败时显示未知并禁用页面控制', async () => {
 })
 
 // 中文注释：新弹窗只保留当前页一行任务状态，模拟鼠标和过滤设置直接展示。
-test('任务页访问说明和文字过滤常驻，无任务时隐藏任务区',async()=>{
+test('授权说明迁入可聚焦提示，无任务时隐藏任务区',async()=>{
  const h=await mount({connected:true,browserFullConsentStatus:'enabled',tasks:[]});
  try{
-  assert.equal(h.document.querySelector('#access-detail').closest('details'),null);
+  assert.ok(h.document.querySelector('#access-detail').closest('[role=tooltip]'));
+  assert.ok(h.document.querySelector('#local-row .info-button').getAttribute('aria-describedby').includes('access-detail'));
   assert.equal(h.document.querySelector('#filter-toggle'),null);
   assert.equal(h.document.querySelector('#page-task').hidden,true);
   assert.equal(h.document.querySelector('#task-list,#verify-control'),null);

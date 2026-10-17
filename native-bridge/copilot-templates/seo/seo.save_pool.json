@@ -1,7 +1,7 @@
 {
   "id": "seo.save_pool",
   "name": "保存词池",
-  "prompt": "优先使用 API 或批量脚本，必要时才浏览器读页。把参数中的词整理为 keywords，保留已知指标。不要执行写入命令，宿主负责写入。",
+  "prompt": "只填判断结构；不输出量、KD、CPC或排名数字。verdict≤30字，写判断，不写查询过程。本地词池操作，不调用模型。",
   "params_schema": {
     "type": "object",
     "properties": {
@@ -48,70 +48,259 @@
   "result_schema": {
     "type": "object",
     "properties": {
-      "summary": {
+      "verdict": {
         "type": "string",
-        "minLength": 1,
-        "maxLength": 2000
+        "maxLength": 30
       },
-      "keywords": {
+      "level": {
+        "type": "string",
+        "enum": [
+          "go",
+          "test",
+          "skip",
+          "info"
+        ]
+      },
+      "metrics": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "label": {
+              "type": "string",
+              "maxLength": 30
+            },
+            "value": {
+              "type": "string",
+              "maxLength": 80
+            }
+          },
+          "required": [
+            "label",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        "maxItems": 3
+      },
+      "missing": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "field": {
+              "type": "string",
+              "maxLength": 80
+            },
+            "reason": {
+              "type": "string",
+              "maxLength": 300
+            }
+          },
+          "required": [
+            "field",
+            "reason"
+          ],
+          "additionalProperties": false
+        },
+        "maxItems": 20
+      },
+      "process": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "maxLength": 600
+        },
+        "maxItems": 30
+      },
+      "next": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": [
+                "seo.keyword_check",
+                "seo.longtail",
+                "seo.competitor_keywords",
+                "seo.serp_breakdown",
+                "seo.save_pool",
+                "seo.trends",
+                "seo.ranking_sites",
+                "seo.domain_rating",
+                "seo.top_pages",
+                "browser.open",
+                "general.task"
+              ]
+            },
+            "object": {
+              "type": "string",
+              "maxLength": 2000
+            }
+          },
+          "required": [
+            "action",
+            "object"
+          ],
+          "additionalProperties": false
+        },
+        "maxItems": 2
+      },
+      "written": {
+        "type": [
+          "integer",
+          "null"
+        ]
+      },
+      "skipped": {
         "type": "array",
         "items": {
           "type": "object",
           "properties": {
             "keyword": {
               "type": "string",
-              "minLength": 1,
               "maxLength": 2000
             },
-            "market": {
+            "reason": {
               "type": "string",
-              "minLength": 1,
-              "maxLength": 2000
-            },
-            "lang": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 2000
-            },
-            "vol": {
-              "type": "number"
-            },
-            "kd": {
-              "type": "number"
+              "maxLength": 300
             }
           },
           "required": [
-            "keyword"
+            "keyword",
+            "reason"
           ],
           "additionalProperties": false
         },
-        "maxItems": 100
-      },
-      "details": {
-        "type": "string",
-        "maxLength": 12000
-      },
-      "usage_tokens": {
-        "type": "integer"
+        "maxItems": 1000
       }
     },
     "required": [
-      "summary",
-      "keywords"
+      "verdict",
+      "level",
+      "metrics",
+      "missing",
+      "process",
+      "next",
+      "written",
+      "skipped"
     ],
     "additionalProperties": false
   },
   "display_fields": [
-    "summary",
-    "keywords",
-    "details"
+    "verdict",
+    "level",
+    "metrics",
+    "missing",
+    "process",
+    "next",
+    "written",
+    "skipped"
   ],
-  "toolsets": [
-    "fast-browser-link",
-    "web",
-    "terminal",
-    "file"
-  ],
+  "toolsets": [],
   "cacheable": false,
-  "max_turns": 30
+  "max_turns": 1,
+  "fetch": [],
+  "fetch_fallback": {
+    "enabled": false
+  },
+  "decision_schema": {
+    "type": "object",
+    "properties": {
+      "verdict": {
+        "type": "string",
+        "maxLength": 30
+      },
+      "level": {
+        "type": "string",
+        "enum": [
+          "go",
+          "test",
+          "skip",
+          "info"
+        ]
+      },
+      "process": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "maxLength": 600
+        },
+        "maxItems": 30
+      },
+      "next": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": [
+                "seo.keyword_check",
+                "seo.longtail",
+                "seo.competitor_keywords",
+                "seo.serp_breakdown",
+                "seo.save_pool",
+                "seo.trends",
+                "seo.ranking_sites",
+                "seo.domain_rating",
+                "seo.top_pages",
+                "browser.open",
+                "general.task"
+              ]
+            },
+            "object": {
+              "type": "string",
+              "maxLength": 2000
+            }
+          },
+          "required": [
+            "action",
+            "object"
+          ],
+          "additionalProperties": false
+        },
+        "maxItems": 2
+      },
+      "written": {
+        "type": [
+          "integer",
+          "null"
+        ]
+      },
+      "skipped": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "keyword": {
+              "type": "string",
+              "maxLength": 2000
+            },
+            "reason": {
+              "type": "string",
+              "maxLength": 300
+            }
+          },
+          "required": [
+            "keyword",
+            "reason"
+          ],
+          "additionalProperties": false
+        },
+        "maxItems": 1000
+      }
+    },
+    "required": [
+      "verdict",
+      "level",
+      "process",
+      "next",
+      "written",
+      "skipped"
+    ],
+    "additionalProperties": false
+  },
+  "prompt_en": "Local keyword pool operation; no model is called."
 }

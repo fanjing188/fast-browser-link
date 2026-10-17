@@ -179,20 +179,24 @@ class ActionSession:
             self._popup_closed = {'returnedTo': source}
         return self._popup_closed
 
-    def for_tab(self, tab_id):
+    def for_tab(self, tab_id, *, event_reader=False):
         # 中文注释：显式页参数不改变当前页，各页单独保存待确认及未知结果围栏。
         if self._unknown:
             raise OutcomeUnknown('task operation outcome unknown')
         if type(tab_id) is not int:
             raise NoBoundTab('explicit work tab required')
-        if tab_id == self.tab_id and str(tab_id) in self._popup_sources:
+        if event_reader and self._tab_sessions.get(tab_id) is not None and self._tab_sessions[tab_id]._unknown:
+            raise OutcomeUnknown('task operation outcome unknown')
+        if not event_reader and tab_id == self.tab_id and str(tab_id) in self._popup_sources:
             return self
-        if tab_id not in self._tab_sessions:
+        # 中文注释：缓存读取独立排队，不占长命令的在途状态；仍纳入父会话完成/未知结果审计。
+        key = (tab_id, 'events') if event_reader else tab_id
+        if key not in self._tab_sessions:
             child = ActionSession(self._runtime, owner=self._owner, task_id=self._task_id)
             child.install_scope(self._instance_id, self._generation)
             child.use_tab(tab_id)
-            self._tab_sessions[tab_id] = child
-        return self._tab_sessions[tab_id]
+            self._tab_sessions[key] = child
+        return self._tab_sessions[key]
 
     def install_scope(self, instance_id: str, generation: int) -> None:
         if (not isinstance(instance_id, str) or not instance_id or type(generation) is not int
@@ -595,7 +599,7 @@ class ActionSession:
         # 中文注释：JavaScript/CDP 与网络观察复用现有任务的浏览器访问。
         'js.evaluate': frozenset({'expression', 'world', 'awaitPromise', 'timeoutMs', 'frameToken', 'arguments'}),
         'cdp.send': frozenset({'method', 'params', 'frameToken'}),
-        'cdp.events': frozenset({'max'}),
+        'cdp.events': frozenset({'max', 'cursor'}),
         # 中文注释：网络查询仍经同一任务与浏览器授权链。
         'network.inspect': frozenset({'options'}),
     }

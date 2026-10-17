@@ -43,9 +43,17 @@ export function cdpMethodAllowed(method){
  return {allowed:category!=='invalid',category};
 }
 
-// 中文注释：内部隔离世界不属于网页事件；其余事件保留原始字段。
+// 中文注释：事件在进入队列前剥离凭据头与 Cookie 附带元数据，游标和网关共用此出口。
+const privateEventKey=/^(cookie|set-cookie|authorization|proxy-authorization|headersText|associatedCookies|blockedCookies|exemptedCookies)$/i;
+function publicEvent(value,depth=0){
+ if(depth>32)return '[TRUNCATED]';
+ if(typeof value==='string')return value.replace(/Bearer\s+[^\s"'<>]+/gi,'Bearer [REDACTED]');
+ if(Array.isArray(value))return value.map(item=>publicEvent(item,depth+1));
+ if(value&&typeof value==='object')return Object.fromEntries(Object.entries(value).filter(([key])=>!privateEventKey.test(key)).map(([key,item])=>[key,publicEvent(item,depth+1)]));
+ return value;
+}
 export function scrubCdpEvent(method,params){
  if(method==='Runtime.executionContextCreated'&&/^fast-/.test(params?.context?.name||''))return null;
  if(method==='Runtime.bindingCalled'&&String(params?.name||'').startsWith('hermes'))return null;
- return params;
+ return publicEvent(params);
 }

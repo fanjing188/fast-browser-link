@@ -2556,7 +2556,7 @@ class BridgeDaemon:
             "interaction.drag_coordinates": {"mode", "steps"},
             "interaction.drag_elements": {"mode", "steps"},
             "js.evaluate": {"world", "awaitPromise", "timeoutMs", "frameToken", "arguments"},
-            "cdp.send": {"params", "frameToken", "targetId", "timeoutMs"}, "cdp.events": {"max"},
+            "cdp.send": {"params", "frameToken", "targetId", "timeoutMs"}, "cdp.events": {"max", "cursor"},
             "console": {"clear"}, "dialog": {"promptText"},
             # 中文注释：官方视觉工具的编号标注只引用本次语义快照的引用，不接受坐标或脚本。
             "screenshot": {"annotate", "selector", "binding", "snapshotId", "ref", "format"},
@@ -2706,6 +2706,8 @@ class BridgeDaemon:
             raise ProtocolError("invalid_params", "invalid dialog response")
         if action == "cdp.events" and "max" in params and (type(params["max"]) is not int or not 1 <= params["max"] <= 500):
             raise ProtocolError("invalid_params", "invalid event count")
+        if action == "cdp.events" and "cursor" in params and (type(params["cursor"]) is not int or not 0 <= params["cursor"] <= 9007199254740991):
+            raise ProtocolError("invalid_params", "invalid event cursor")
         if action == "scroll" and params.get("direction") not in {"up", "down"}:
             raise ProtocolError("invalid_params", "scroll direction must be up or down")
         if action == "screenshot" and "annotate" in params:

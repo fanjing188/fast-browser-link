@@ -456,5 +456,55 @@ class PopupDirectIntegrationTest(unittest.TestCase):
         self.assertEqual(len(adoption_runs), 1)
 
 
+
+class EventReadConcurrencyTests(unittest.TestCase):
+    def test_host_event_reads_do_not_wait_for_same_tab_command_or_clear_its_pending_state(self):
+        from concurrent.futures import ThreadPoolExecutor
+        path = MODULE.with_name('host_bridge.py')
+        host_spec = importlib.util.spec_from_file_location('event_host_bridge', path)
+        host = importlib.util.module_from_spec(host_spec); host_spec.loader.exec_module(host)
+        started = threading.Event(); release = threading.Event()
+        calls = []
+        class Runtime:
+            def call(self, method, params):
+                calls.append((method, dict(params)))
+                if method == 'shared.get':
+                    return {'id': 'task-1', 'state': 'running', 'generation': 1,
+                            'instanceId': 'edge', 'tabIds': [7], 'workTabs': [{'tabId': 7}]}
+                if method == 'shared.run':
+                    if params['action'] == 'js.evaluate':
+                        started.set(); release.wait(2)
+                        return {'value': 1}
+                    return {'events': [{'method': 'Network.loadingFinished', 'params': {'requestId': 'one'}}],
+                            'cursor': 1, 'dropped': 0, 'hasMore': False}
+                return {}
+        root = adapter.ActionSession(Runtime(), owner='owner', task_id='task-1')
+        root.install_scope('edge', 1); root.use_tab(7)
+        revoked = threading.Event(); closed = threading.Event()
+        state = {'current': root, 'guard': threading.RLock(), 'roots': {'task-1': root},
+                 'revocations': {'task-1': revoked}}
+        resolver = lambda tab: (root, revoked)
+        def request(action, params):
+            return host.HostBridge._helper_reply({'op': 'run', 'args': [action, params], 'tab': 7},
+                root, revoked, closed, set(), None, state, resolver)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            command = pool.submit(request, 'js.evaluate', {'expression': 'long()'})
+            self.assertTrue(started.wait(1))
+            pending = root._tab_sessions[7]._pending
+            try:
+                event = pool.submit(request, 'cdp.events', {'cursor': 0, 'max': 500}).result(timeout=0.5)
+                self.assertTrue(event['ok'], event)
+                self.assertEqual(event['value']['cursor'], 1)
+                self.assertIs(root._tab_sessions[7]._pending, pending)
+                self.assertFalse(command.done())
+            finally:
+                release.set()
+            self.assertTrue(command.result(timeout=1)['ok'])
+        self.assertEqual(len([p for method, p in calls if method == 'shared.run']), 2)
+        root._tab_sessions[7]._unknown = True
+        refused = request('cdp.events', {'cursor': 1})
+        self.assertFalse(refused['ok'])
+        self.assertTrue(root._tab_sessions[7]._unknown)
+
 if __name__ == '__main__':
     unittest.main()

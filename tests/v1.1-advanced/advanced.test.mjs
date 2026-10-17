@@ -162,7 +162,7 @@ test('page events remain readable, subscriptions and buffers remain bounded',asy
   ['Network.requestWillBeSentExtraInfo',{headers:{Cookie:'a=b',Accept:'*/*'}}],
   ['Network.responseReceivedExtraInfo',{headersText:'Set-Cookie: a=b',headers:{'Set-Cookie':'a=b','Proxy-Authorization':'Bearer secret'},blockedCookies:[{cookieLine:'a=b'}]}],
   ['Runtime.consoleAPICalled',{text:'Bearer synthetic-token'}],
- ])assert.deepEqual(scrubCdpEvent(method,params),params);
+ ]){const clean=JSON.stringify(scrubCdpEvent(method,params));assert.doesNotMatch(clean,/a=b|synthetic-token|Bearer secret/);}
  assert.equal(scrubCdpEvent('Runtime.executionContextCreated',{context:{name:'fast-automation-overlay'}}),null);
  const f=fixture();f.controller.assert(f.task,{tabId:7});
  f.controller.observe({tabId:7},'Page.loadEventFired',{});
@@ -364,4 +364,68 @@ test('non-function result after evaluating a callable expression remains uncerta
  assert.equal(reply.error.data.retryable,false);
  assert.equal(f.sent.filter(row=>row.method==='Runtime.evaluate').length,1);
  assert.ok(f.sent.some(row=>row.method==='Runtime.releaseObjectGroup'));
+});
+
+// 中文注释：短时突发超过旧 500 上限，游标分页必须覆盖每个开始和终结；旧读者仍明确收到丢失数。
+test('cursor journal drains a burst of 2400 events without losing request terminals',()=>{
+ const f=fixture();f.controller.assert(f.task,{tabId:7});f.controller.subscribe(f.task,7,null,'buffer');
+ for(let i=0;i<800;i++)for(const method of ['Network.requestWillBeSent','Network.responseReceived',i%2?'Network.loadingFinished':'Network.loadingFailed'])
+  f.controller.observe({tabId:7},method,{requestId:String(i)});
+ const events=[];let cursor=0,batch;
+ do{batch=f.controller.drain(f.task,{tabId:7,cursor},500);assert.equal(batch.dropped,0);assert.deepEqual(batch.lostRanges,[]);events.push(...batch.events);assert.ok(batch.cursor>cursor);cursor=batch.cursor;}while(batch.hasMore);
+ assert.equal(events.length,2400);assert.equal(cursor,2400);
+ assert.deepEqual(events.map(e=>e.sequence),Array.from({length:2400},(_,i)=>i+1));
+ for(let i=0;i<800;i++)assert.equal(events.filter(e=>e.params.requestId===String(i)&&/loading(Finished|Failed)$/.test(e.method)).length,1);
+ const replay=f.controller.drain(f.task,{tabId:7,cursor:0},500);assert.deepEqual(replay.events,events.slice(0,500));
+ const legacy=f.controller.drain(f.task,{tabId:7},500);assert.equal(legacy.events.length,500);assert.equal(legacy.dropped,1900);
+ assert.deepEqual(legacy.lostRanges,[{from:501,to:2400}]);assert.equal(legacy.requestState.state,'unknown');
+ assert.equal(f.controller.drain(f.task,{tabId:7},500).dropped,0);
+});
+
+test('retention and oversize gaps explicitly mark previously started requests unknown',()=>{
+ const f=fixture();f.controller.assert(f.task,{tabId:7});f.controller.subscribe(f.task,7,null,'buffer');
+ f.controller.observe({tabId:7},'Network.requestWillBeSent',{requestId:'started'});
+ const start=f.controller.drain(f.task,{tabId:7,cursor:0},500);
+ f.controller.observe({tabId:7},'Network.loadingFinished',{requestId:'started'});
+ for(let i=0;i<10000;i++)f.controller.observe({tabId:7},'Page.loadEventFired',{i});
+ const gap=f.controller.drain(f.task,{tabId:7,cursor:start.cursor},500);
+ assert.equal(gap.dropped,1);assert.deepEqual(gap.lostRanges,[{from:2,to:2}]);
+ assert.deepEqual(gap.requestState,{state:'unknown',throughSequence:2,reason:'event_gap'});
+ assert.equal(f.task.execution.buffers.get(7).journal.length,10000);
+ const last=10002;
+ f.controller.observe({tabId:7},'Runtime.consoleAPICalled',{text:'中'.repeat(100000)});
+ const large=f.controller.drain(f.task,{tabId:7,cursor:last},500);
+ assert.equal(large.dropped,1);assert.equal(large.cursor,last+1);assert.equal(large.hasMore,false);
+ assert.throws(()=>f.controller.drain(f.task,{tabId:7,cursor:last+2},500),/INVALID_EVENT_CURSOR/);
+ assert.throws(()=>f.controller.drain(f.task,{tabId:7,cursor:true},500),/INVALID_EVENT_CURSOR/);
+});
+
+test('UTF-8 page bytes stay below the native transport budget and preserve all small events',()=>{
+ const f=fixture();f.controller.assert(f.task,{tabId:7});f.controller.subscribe(f.task,7,null,'buffer');
+ for(let i=0;i<300;i++)f.controller.observe({tabId:7},'Page.loadEventFired',{text:'中'.repeat(400),i});
+ let cursor=0,count=0,batch;
+ do{batch=f.controller.drain(f.task,{tabId:7,cursor},500);assert.ok(Buffer.byteLength(JSON.stringify(batch))<300000);assert.equal(batch.dropped,0);count+=batch.events.length;cursor=batch.cursor;}while(batch.hasMore);
+ assert.equal(count,300);
+});
+
+test('event reads finish while a long command holds the same tab lock, with task fences intact',async()=>{
+ const {Executor}=await import('../../native-extension/core.mjs');
+ let release,entered;const blocked=new Promise(resolve=>{release=resolve;}),started=new Promise(resolve=>{entered=resolve;});
+ const executor=new Executor({tabs:{get:async()=>({url:'https://site.test/'})}});
+ const task={id:'t1',generation:3,policy:{activeMode:'full',modeGeneration:1},allowedOrigins:['https://site.test'],tabIds:new Set([7]),agentTabs:new Set([7])};
+ executor.tasks.set(task.id,task);executor.leases.set(7,task.id);
+ executor.performRecovering=async()=>{entered();await blocked;return {ok:true};};
+ executor.pageRuntime.assert(task,{tabId:7});executor.pageRuntime.subscribe(task,7,null,'buffer');
+ executor.pageRuntime.observe({tabId:7},'Network.loadingFinished',{requestId:'one'});
+ const params={taskId:task.id,generation:3,modeGeneration:1,allowedOrigins:task.allowedOrigins,tabId:7};
+ const long=executor.execute({...params,action:'js.evaluate',expression:'long()'});await started;
+ let timer;
+ try{
+  const result=await Promise.race([executor.execute({...params,action:'cdp.events',cursor:0,max:500}),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('EVENT_READ_BLOCKED_BY_COMMAND')),500);})]);
+  assert.equal(result.events[0].method,'Network.loadingFinished');
+  task.credentialTabs=new Set([7]);await assert.rejects(executor.execute({...params,action:'cdp.events'}),/CREDENTIAL_MODE_CONFLICT/);task.credentialTabs.clear();
+  task.paused=true;await assert.rejects(executor.execute({...params,action:'cdp.events'}),/task paused/);task.paused=false;
+  executor.leases.delete(7);await assert.rejects(executor.execute({...params,action:'cdp.events'}),/tab lease denied/);executor.leases.set(7,task.id);
+  task.revoked=true;await assert.rejects(executor.execute({...params,action:'cdp.events'}),/stale generation/);
+ }finally{clearTimeout(timer);release();await long;}
 });

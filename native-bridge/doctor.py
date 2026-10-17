@@ -1,5 +1,6 @@
 """中文注释：只读安装和连接诊断；不启动 daemon、不修复文件、不恢复授权。"""
 import argparse
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -9,6 +10,11 @@ import stat
 import sys
 
 HOST = 'com.fast.browser_link'
+_spec = importlib.util.spec_from_file_location('doctor_bridge_client', Path(__file__).with_name('client.py'))
+_client = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_client)
+resolve_bridge_home = _client.resolve_bridge_home
+runtime_paths = _client.runtime_paths
 
 
 def probe(home):
@@ -51,7 +57,7 @@ def probe(home):
         return {'ok': False, 'code': 'host_unconfirmed'}
 
 
-def diagnose(home, user_home=None, probe_fn=probe):
+def diagnose(home, user_home=None, probe_fn=probe, *, bridge_home=None):
     home = Path(home).expanduser().resolve()
     user_home = Path(user_home or Path.home()).expanduser().resolve()
     checks, advice = [], []
@@ -71,10 +77,13 @@ def diagnose(home, user_home=None, probe_fn=probe):
                 code = 'registered' if valid else 'manifest_invalid'
             except (OSError, ValueError, KeyError, TypeError):
                 code = 'manifest_invalid'
-        checks.append({'component': browser, 'ok': valid, 'code': code})
+        checks.append({'component': browser, 'ok': valid, 'code': code, 'manifestFile': str(path),
+                       'launcher': str(launcher) if valid else None})
     if not any(c['ok'] for c in checks[1:]):
         advice.append('核对 Native Messaging manifest、扩展 ID 与启动文件路径；运行安装预览查看差异。')
-    live = probe_fn(home)
+    bridge_home = Path(bridge_home).expanduser().resolve() if bridge_home is not None else resolve_bridge_home(home)
+    paths = {'profileHome': str(home), **runtime_paths(bridge_home)}
+    live = probe_fn(bridge_home)
     browsers = live.get('browsers', []) if live.get('ok') else []
     checks.append({'component': 'host', 'ok': live.get('ok') is True, 'code': 'connected' if live.get('ok') else live.get('code', 'host_unconfirmed')})
     connected = [b for b in browsers if isinstance(b, dict) and b.get('connected') is True]
@@ -87,7 +96,7 @@ def diagnose(home, user_home=None, probe_fn=probe):
         if browser.get('consentStatus') != 'enabled':
             advice.append('在目标浏览器扩展中打开浏览器访问；连接成功不代表任务已获授权。')
     return {'ok': checks[0]['ok'] and any(c['ok'] for c in checks[1:3]) and bool(connected) and live.get('ok') is True,
-            'checks': checks, 'browsers': connected, 'advice': list(dict.fromkeys(advice)), 'read_only': True}
+            'runtime': paths, 'checks': checks, 'browsers': connected, 'advice': list(dict.fromkeys(advice)), 'read_only': True}
 
 
 if __name__ == '__main__':

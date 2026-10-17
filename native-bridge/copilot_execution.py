@@ -8,6 +8,7 @@ import signal
 import subprocess
 import threading
 import time
+from copilot_acp import hermes_environment
 
 
 class ExecutionError(RuntimeError):
@@ -91,7 +92,8 @@ class Executions:
                 if self.closed or key in self.cancelled:
                     raise ExecutionError('execution stopped')
                 process = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                                           stderr=subprocess.DEVNULL, start_new_session=True)
+                                           stderr=subprocess.DEVNULL, start_new_session=True,
+                                           env=hermes_environment(self.config))
                 self.jobs[key] = {'process': process, 'cancel': cancelled, 'done': done}
             selector.register(process.stdout, selectors.EVENT_READ)
             buffer = b''

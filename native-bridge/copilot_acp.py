@@ -10,6 +10,13 @@ import time
 import uuid
 
 
+def hermes_environment(config, extra=None):
+    # 中文注释：daemon 的 HERMES_HOME 指向 browser-link 运行时根，子进程必须回到 Hermes 自己的主目录，否则会在运行时根里重建 Hermes。
+    env = {**os.environ, **(extra or {})}
+    env['HERMES_HOME'] = str(Path(config.get('hermes_home') or Path.home() / '.hermes').expanduser())
+    return env
+
+
 class ACPError(RuntimeError):
     pass
 
@@ -41,7 +48,7 @@ class ACP:
                 raise ACPError('acp_command must be argv')
             self.process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                             stderr=subprocess.DEVNULL, text=True, start_new_session=True, cwd=self.cwd,
-                                            env={**os.environ,'HERMES_ACP_SKIP_CONFIGURED_MCP':'1'})
+                                            env=hermes_environment(self.config,{'HERMES_ACP_SKIP_CONFIGURED_MCP':'1'}))
         self.reader = threading.Thread(target=self._read, daemon=True)
         self.reader.start()
         try:

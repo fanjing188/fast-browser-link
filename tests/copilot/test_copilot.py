@@ -15,7 +15,7 @@ from unittest.mock import patch
 ROOT=Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(ROOT/'native-bridge'))
 from copilot import Copilot,suggestion_id,validate,private_write,parse_model_json,model_json_prompt
-from copilot_acp import ACP,ACPError
+from copilot_acp import ACP,ACPError,hermes_environment
 from copilot_execution import StreamJSON,ExecutionError,execution_argv
 from copilot_setup import setup
 
@@ -307,5 +307,17 @@ class ProfileSetupTest(unittest.TestCase):
         from copilot import DEFAULTS
         for toolsets in ([],['all'],['*'],['web,terminal']):
             with self.assertRaises(ExecutionError):execution_argv(DEFAULTS,{'toolsets':toolsets},'协作·test',Path('/tmp/query'))
+
+    def test_hermes_children_use_hermes_home_not_runtime_root(self):
+        old=os.environ.get('HERMES_HOME')
+        os.environ['HERMES_HOME']='/tmp/runtime-root'
+        try:
+            env=hermes_environment({},{'HERMES_ACP_SKIP_CONFIGURED_MCP':'1'})
+            self.assertEqual(env['HERMES_HOME'],str(Path.home()/'.hermes'))
+            self.assertEqual(env['HERMES_ACP_SKIP_CONFIGURED_MCP'],'1')
+            self.assertEqual(hermes_environment({'hermes_home':'/tmp/custom-hermes'})['HERMES_HOME'],'/tmp/custom-hermes')
+        finally:
+            if old is None:os.environ.pop('HERMES_HOME',None)
+            else:os.environ['HERMES_HOME']=old
 
 if __name__=='__main__':unittest.main()

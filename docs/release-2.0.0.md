@@ -12,7 +12,7 @@
 ## 选择安装包
 
 - `fast-browser-link-2.0.0.zip`：默认推荐的独立 skills 模式。解压后 `bash install.sh --dry-run`，再 `bash install.sh`。
-- `fast-browser-link-hermes-2.0.0.zip`：可选 Hermes 适配器。旧 browser-link 插件存在时拒绝安装，不能作为旧插件的静默替换。
+- `fast-browser-link-hermes-2.0.0.zip`：可选 Hermes integration。旧 browser-link 插件存在时拒绝安装，不能作为旧插件的静默替换。
 - `SHA256SUMS.txt`：两份 ZIP 的 SHA256；每份 ZIP 内另有逐文件 `SHA256SUMS.json` 和来源信息。
 
 扩展目录须通过 Chrome/Edge 正常扩展管理界面加载。现有 Fast-browser-link 目录不会自动覆盖；独立安装包当前提供首次安装流程，不提供自动升级。

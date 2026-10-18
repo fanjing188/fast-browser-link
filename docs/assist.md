@@ -1,6 +1,6 @@
-# Copilot (2.2.0 local candidate)
+# Assist (2.2.0 local candidate)
 
-The connection Agent is **Fast-copilot**, with the lowercase Hermes profile ID `fast-copilot`. New setup creates one profile shared by analysis and execution. ACP and CLI default to no tools; oneshot enables only each task's explicit toolsets and turn limit. Setup can inherit configuration from owned legacy `copilot` or `copilot-exec` profiles without copying credentials or deleting their directories. Archive legacy profiles only after local synchronization and setup.
+The connection Agent is **Hermes**. Assist currently supports Hermes; Codex support is in development. The local Assist data directory remains `copilot/`, and the Hermes profile remains `fast-copilot`; these are internal identifiers. New setup creates one profile shared by analysis and execution. ACP and CLI default to no tools; oneshot enables only each task's explicit toolsets and turn limit. Setup can inherit configuration from owned legacy `copilot` or `copilot-exec` profiles without copying credentials or deleting their directories. Archive legacy profiles only after local synchronization and setup.
 
 First-use Agent onboarding detects the local collaboration runtime without starting installation or model requests. Hermes is currently the only supported adapter. Choosing the default Agent and explicitly starting setup runs the supported installation, dedicated profile configuration, browser-tool binding and ACP initialization checks in a background worker. Settings → Collaboration Agent reopens the guide; switching requires collaboration and tasks to stop. Configuration checks alone do not enable collaboration or prove an active session. The status uses the selected Agent name and reports connecting until enabled, ready and connected.
 
@@ -12,7 +12,7 @@ The Current goal card uses a moving status rail while collaboration is active, w
 
 Settings use the shared controls for local capability declarations. Default export folder offers a native macOS folder picker and Restore default; selecting a folder saves only after confirmation, while cancellation keeps the current path. The picker runs outside the request thread and is cancelled when the sidebar closes. Settings no longer include page-table identification; table confirmations and active jobs remain in the work view. About groups version, usage and connection status, with a clickable fixed runtime log folder. These directory operations require the matching updated extension and native host.
 
-Copilot follows bounded semantic snapshots and recent actions. The sidebar now loads Hermes model catalogs before activation, with a 24-hour daemon cache and explicit refresh. Catalog discovery uses initialize/session/new only, without model prompts. Missing catalogs allow manual provider:model IDs. Credentials and profile defaults are never changed.
+Assist follows bounded semantic snapshots and recent actions. The sidebar now loads Hermes model catalogs before activation, with a 24-hour daemon cache and explicit refresh. Catalog discovery uses initialize/session/new only, without model prompts. Missing catalogs allow manual provider:model IDs. Credentials and profile defaults are never changed.
 
 The main view shows a compact header and four counted tabs: suggestions, running, results and logs. Suggestions show at most ten compact cards, ordered by similarity to the current selection/page object, then capability availability and stable proposal priority. Card actions sit on the right; inline result accordions are replaced by Details and task-log entries. A connection problem exposes one repair notice, removed after recovery. Usage stays in the log footer and Settings → About; an empty basket stays hidden. Settings group execution mode, interface, local capabilities, table exports, collapsed advanced controls and about. First activation uses Balanced defaults with a brief dismissible notice. Fields auto-save; changes affect subsequent calls while running tasks retain their starting configuration. Presets match model names rather than live prices. Unmatched IDs use profile defaults.
 
@@ -34,7 +34,7 @@ SEO data acquisition runs in daemon subprocesses: Google Suggest for longtail; u
 
 Input, cache-read and output tokens remain informational per day/session/task/model. There is no weighted daily limit or usage-based pause. Legacy daily_token_budget/cache_weight keys are ignored on read and removed on the next save. Context rollover defaults to 6000; unreliable usage is labeled estimated. Idle pause after three minutes and automatic close after thirty minutes remain. Work-tab exclusion and typed-value privacy boundaries remain unchanged.
 
-See the [implementation report](growth/report-copilot-mode-p1.md) for verified tests, source contracts, user-supplied4198-token measurement, remaining blockers and real Edge checks.
+See the [testing guide](testing.md) for offline checks and separate real-browser acceptance gates.
 
 ## R7 structured results and local tables
 
@@ -48,9 +48,9 @@ Multi-page collection uses the existing workspace-only approval and ownership pi
 
 Silent child tasks receive a rotating nonpersisted capability, force separate windows, skip activation queues and deny explicit foreground/unmanaged-target CDP calls. User-focused or moved work tabs are rejected. No system notifications for these tasks; the sidebar owns progress/results. The user may explicitly open exported files. See the report for actual evidence, static samples, remaining upstream ACP limits and real Edge acceptance.
 
-Selection tasks, trends and local adapter packages: see [Copilot extension packages](copilot-packages.md).
+Selection tasks, trends and local adapter packages: see [Assist extension packages](assist-packages.md).
 
-Tool memory, capability binding, discovery and composable workflows: [capability guide](copilot-capabilities.md).
+Tool memory, capability binding, discovery and composable workflows: [capability guide](assist-capabilities.md).
 
 ## Live logs
 
@@ -60,11 +60,11 @@ Capture, inference, execution and system events record fixed summaries, sizes, t
 
 Events batch every 200ms. The log page renders only its fixed-height viewport window; JSON details are separate. At most 2,000 records are retained, with type/error/search filters, pause/follow, clear for the current browser/day, and full JSONL copy/export. Logs use the existing seven-day directory as logs/YYYY-MM-DD.events.jsonl with mode 0600 and reload on reopening the sidebar. Connection events observed offline remain explicitly volatile until reconnect submission and readback.
 
-The board defaults to “Hermes Copilot” (Chinese: “Hermes协作看板”). Rename it in Settings → Interface; the brand remains Fast-browser-link. Healthy connections occupy no primary row. The popup shows the inline Board button only while collaboration is enabled; turning collaboration on also opens the sidebar. The popup has three feature rows: local Agent connection, cloud Agent connection and Agent collaboration mode. Unpaired cloud access is an ordinary state.
+The sidebar defaults to “Assist” (Chinese: “协作”). Previous default names display the new localized default; custom names are preserved. Rename it in Settings → Interface; the brand remains Fast-browser-link. Healthy connections occupy no primary row. The popup shows the inline Assist button only while collaboration is enabled; turning collaboration on also opens the sidebar. The popup has three feature rows: local Agent connection, cloud Agent connection and Assist. Unpaired cloud access is an ordinary state.
 
 Table extraction requires synchronized confirmation in the sidebar and a closed-shadow decoration on the source page. No export or multipage work starts before confirmation. Escape, cancellation and target removal clear it; changed ownership, navigation or changed captured rows reject stale confirmation. Multipage confirmation opens the same URL in a background work page, retaining the 200-page ceiling.
 
-Local Hermes health reads ACP readiness, execution-profile file and executable existence, and the latest call result. `execution_startable` denotes a structural check, not a live launch or model proof. Reading health starts no model and consumes no tokens; Retry after a startup failure starts a new collaboration session. A disconnected state can mean collaboration is off. Renaming and export preferences only write this extension instance's Copilot configuration.
+Local Hermes health reads ACP readiness, execution-profile file and executable existence, and the latest call result. `execution_startable` denotes a structural check, not a live launch or model proof. Reading health starts no model and consumes no tokens; Retry after a startup failure starts a new collaboration session. A disconnected state can mean collaboration is off. Renaming and export preferences only write this extension instance's Assist configuration.
 
 
 ## Managed templates and startup recovery
@@ -107,8 +107,7 @@ Step logs name the step/capability/provider and returned count/duration, folding
 
 Table reading covers native/ARIA tables, split headers/bodies, virtual rows, open shadow roots and readable same-origin frames. Page profiles may declare `table_selectors` and `columns` header aliases. Only visible rows are sampled; control values, inaccessible frames and closed roots are excluded. Nested-context pagination is withheld and marked incomplete. Confirmation and workspace ownership checks remain required.
 
-
-[Page annotations, basket and execution risk](copilot-page-work.md)
+[Page annotations, basket and execution risk](assist-page-work.md)
 
 
 功能插件的安装、初始化、管理和开发标准见 [功能插件与技能适配包](adapter-packs.zh-CN.md)。

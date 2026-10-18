@@ -147,7 +147,7 @@ def stage(
     for origin in templates_source.rglob("*.json"):
         target = templates_target / origin.relative_to(templates_source)
         if any(part.is_symlink() for part in (target, *target.parents)):
-            raise ValueError("copilot template target contains symlink")
+            raise ValueError("Assist template target contains symlink")
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(origin, target)
     packages_source = source_dir / "copilot-packages"

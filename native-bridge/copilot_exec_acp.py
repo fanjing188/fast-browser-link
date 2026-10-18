@@ -187,7 +187,7 @@ class ACPExecutions:
             )
             if job["text"].strip() != "No tools available.":
                 raise ExecutionError(
-                    "ACP 无法按会话限制工具：判断 profile 含工具，请升级受管 copilot profile"
+                    "ACP 无法按会话限制工具：判断 profile 含工具，请升级受管 Hermes profile（fast-copilot）"
                 )
             if brief["action"] == "general.task" and brief.get("single_judgment") is not True:
                 raise ExecutionError(

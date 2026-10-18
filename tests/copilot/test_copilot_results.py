@@ -247,6 +247,17 @@ class SilentTaskBoundaries(unittest.TestCase):
                 self.assertEqual(quiet["workWindowMode"], "separate")
                 self.assertEqual(quiet["tabIds"], [])
                 self.assertTrue(quiet["title"].startswith("Fast-browser-link ·"))
+                for title in (
+                    "任务",
+                    "协作·任务",
+                    "Hermes 协作·任务",
+                    "Fast-browser-link ·任务",
+                    "Fast-browser-link · 任务",
+                ):
+                    migrated = daemon._create_task(
+                        {**params, "title": title, "copilotSilentToken": "proof"}
+                    )
+                    self.assertEqual(migrated["title"], "Fast-browser-link · 任务")
                 with self.assertRaises(ProtocolError):
                     daemon._create_task({**params, "copilotSilentToken": "forged"})
                 with self.assertRaises(ProtocolError):

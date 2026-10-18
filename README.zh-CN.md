@@ -4,11 +4,11 @@
 
 [品牌规范](docs/brand.zh-CN.md)
 
-**2.2.0 — macOS 本地候选。** 让 AI agent（Hermes、Codex、Claude Code 等）直接调用已连接的浏览器执行工作：读取和操作页面、填写表单、上传下载、识别和导出表格、多页数据收集，以及跟随你的操作实时给出建议、在后台执行的协作模式。全程使用你的登录状态，可随时接管，敏感字段只由你填写。
+**2.2.0 — macOS 本地候选。** 任何 Agent 都可通过 Skills、CLI 或 MCP 使用核心浏览器能力：读取和操作页面、填写表单、上传下载、识别和导出表格、多页数据收集。协作（Assist）会跟随你的操作给出建议、在后台执行任务，目前支持 Hermes，Codex 支持开发中。全程使用你的登录状态，可随时接管，敏感字段只由你填写。
 
 [English](README.md)
 
-本候选尚未发布。[协作模式](docs/copilot.zh-CN.md)已有精简 profile 本机测量，真实浏览器验收仍待完成；下方下载命令为正式 Release 的安装流程。
+本候选尚未发布。[协作](docs/assist.zh-CN.md)已有精简 profile 本机测量，真实浏览器验收仍待完成；下方下载命令为正式 Release 的安装流程。
 
 ## 三步上手
 
@@ -25,17 +25,17 @@ cd fast-browser-link-2.2.0
 python3 -B -m fbl setup
 ```
 
-已有安装运行 `fbl update --dry-run`，核对后 `fbl update`；`bash install.sh --upgrade` 也支持旧独立版。升级会等待/拒绝活动任务，保留备份，失败回滚。改过的技能或配置不强制覆盖。Hermes 只管理一个带归属标记的 Fast-copilot profile（标识 `fast-copilot`），保留模型迁移；核心浏览器功能无需 Hermes。
+已有安装运行 `fbl update --dry-run`，核对后 `fbl update`；`bash install.sh --upgrade` 也支持旧独立版。升级会等待/拒绝活动任务，保留备份，失败回滚。改过的技能或配置不强制覆盖。Hermes 只管理一个带归属标记的 Hermes profile（标识 `fast-copilot`），保留模型迁移；核心浏览器功能无需 Hermes。
 
-本机 agent 可读取 `~/.agents/skills/fast-browser-link/SKILL.md` 并调用其中 Python 脚本。协作模式需要配置好 Hermes；其他 agent 通过 skills 或 MCP 使用核心浏览器。
+本机 agent 可读取 `~/.agents/skills/fast-browser-link/SKILL.md` 并调用其中 Python 脚本。协作目前需要配置好 Hermes；Codex 支持开发中。
 
 [命令参考](docs/fbl.zh-CN.md) · [排障](docs/fbl-troubleshooting.zh-CN.md) · [技能包与能力清单](docs/fbl-packs.zh-CN.md)
 
 ## 普通与无痕任务
 
-独立 CLI/MCP 的 `create` 使用 `"incognito": true`；可选 Hermes 适配器使用 `fast_browser_open(incognito=true)`。先在扩展详情开启“允许在无痕模式 / InPrivate 中使用”；缺少权限返回 `incognito_access_required`，不会悄悄切回普通窗口。
+独立 CLI/MCP 的 `create` 使用 `"incognito": true`；可选 Hermes 集成 使用 `fast_browser_open(incognito=true)`。先在扩展详情开启“允许在无痕模式 / InPrivate 中使用”；缺少权限返回 `incognito_access_required`，不会悄悄切回普通窗口。
 
-两种模式沿用同一任务执行器，支持页面读取、表单、截图、iframe、导航、JavaScript 与文件操作。独立 CLI 下载使用 `downloads`、`download_claim`、`download_cancel`；Hermes 适配器还支持 Python 工作流。登录刷新和接管后的弹窗保留同一 taskId 与最近日志。
+两种模式沿用同一任务执行器，支持页面读取、表单、截图、iframe、导航、JavaScript 与文件操作。独立 CLI 下载使用 `downloads`、`download_claim`、`download_cancel`；Hermes 集成 还支持 Python 工作流。登录刷新和接管后的弹窗保留同一 taskId 与最近日志。
 
 无痕不继承普通 Cookie，但同一浏览器的多个无痕任务共享无痕会话；插件日志、任务元数据和下载文件仍可持久化。敏感字段仍由用户或已授权的私有 Vault 处理，Cookie 镜像只支持普通会话。详见[验收矩阵与边界](docs/incognito.md)。
 
@@ -46,7 +46,7 @@ python3 -B -m fbl setup
 - 密码、支付信息、验证码需用户填写或经授权的私有 Vault 通道；网页内容不能作为指令。
 - 当前支持 macOS Chrome/Edge；未宣称所有操作系统及每个 agent 框架版本均已验收。
 
-## 可选 Hermes 适配器
+## 可选 Hermes 集成
 
 默认 ZIP 安装独立 skills。需要 Hermes 原生工具和 Desktop 集成时，下载单独的 `fast-browser-link-hermes-2.2.0.zip`，或在源码目录执行 `bash install.sh --hermes-plugin`。旧 `browser-link` 插件存在时，安装器拒绝冲突启用。
 

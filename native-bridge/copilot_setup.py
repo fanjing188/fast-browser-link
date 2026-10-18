@@ -15,7 +15,7 @@ def setup(directory, source=None, overrides=None):
     history_path = source / "managed-history.json"
     for target in (manifest_path, manifest_path.with_suffix(".json.tmp")):
         if any(part.is_symlink() for part in (target, *target.parents)):
-            raise ValueError("copilot setup refuses symlinks")
+            raise ValueError("Assist setup refuses symlinks")
     history = json.loads(history_path.read_text()) if history_path.exists() else {}
     manifest = (
         json.loads(manifest_path.read_text())
@@ -35,7 +35,7 @@ def setup(directory, source=None, overrides=None):
     ]
     for target in targets:
         if any(part.is_symlink() for part in (target, *target.parents)):
-            raise ValueError("copilot setup refuses symlinks")
+            raise ValueError("Assist setup refuses symlinks")
     records = manifest["templates"]
     for origin, target in destinations:
         content = origin.read_text()

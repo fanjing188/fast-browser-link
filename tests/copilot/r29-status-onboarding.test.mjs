@@ -150,7 +150,7 @@ test('work status uses the current Agent name and requires enabled, ready and co
       renderWorkContext(f.doc, base, { command: async () => ({}) });
       assert.equal(
         f.doc.getElementById('work-status').textContent,
-        locale === 'zh' ? 'Other协作中' : 'Other collaborating',
+        locale === 'zh' ? 'Other · 协作中' : 'Other · Assist on',
       );
       assert.equal(f.doc.getElementById('work-context').dataset.activity, 'following');
       for (const change of [
@@ -160,10 +160,7 @@ test('work status uses the current Agent name and requires enabled, ready and co
         { agent: { ...base.agent, state: 'disconnected' } },
       ]) {
         renderWorkContext(f.doc, { ...base, ...change }, { command: async () => ({}) });
-        assert.doesNotMatch(
-          f.doc.getElementById('work-status').textContent,
-          /协作中|collaborating/,
-        );
+        assert.doesNotMatch(f.doc.getElementById('work-status').textContent, /协作中|Assist on/);
       }
       renderWorkContext(
         f.doc,
@@ -226,9 +223,9 @@ test('sidebar connection labels follow state.agent.name without treating connect
     const label = f.doc.getElementById('hermes-status').parentElement.textContent;
     assert.match(label, /Synthetic/);
     assert.doesNotMatch(label, /本机 Hermes/);
-    assert.doesNotMatch(f.doc.getElementById('work-status').textContent, /协作中|collaborating/);
+    assert.doesNotMatch(f.doc.getElementById('work-status').textContent, /协作中|Assist on/);
     await f.update({ ...state, enabled: true, ready: false, revision: 2 });
-    assert.doesNotMatch(f.doc.getElementById('work-status').textContent, /协作中|collaborating/);
+    assert.doesNotMatch(f.doc.getElementById('work-status').textContent, /协作中|Assist on/);
     assert.equal(
       f.calls.some((message) => message.command === 'settings'),
       false,

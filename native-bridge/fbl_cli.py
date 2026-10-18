@@ -771,7 +771,10 @@ def init_pack(ctx, name, argv=None, url=None, capability=None):
 
 
 def parser():
-    p = argparse.ArgumentParser(prog="fbl")
+    p = argparse.ArgumentParser(
+        prog="fbl",
+        description="Core browser tools for any Agent via Skills, CLI or MCP. Assist supports Hermes; Codex support is in development.",
+    )
     sub = p.add_subparsers(dest="command", required=True)
 
     def common(s):

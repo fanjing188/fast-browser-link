@@ -6,7 +6,7 @@
 
 | agent 能力 | 接入方式 | 验证范围 |
 |---|---|---|
-| Codex / Claude Code / Cursor / Copilot / Gemini CLI / Hermes 的本地技能目录 | 安装器复制同一 SKILL.md 与 Python 入口 | 已覆盖七处目录安装；未逐个启动这些产品验收 |
+| Codex / Claude Code / Cursor / GitHub Copilot / Gemini CLI / Hermes 的本地技能目录 | 安装器复制同一 SKILL.md 与 Python 入口 | 已覆盖七处目录安装；未逐个启动这些产品验收 |
 | 能执行命令的 LangChain / LangGraph / AutoGen / CrewAI 等框架 | 调用 JSON CLI，或将 Python Browser.call 包装为框架工具 | CLI 已在 Chrome/Edge 实测读写与会话隔离；框架集成尚未逐个实测 |
 | MCP 客户端 | 启动 `runtime/agent-link/fast_browser_link.py --mcp` | JSON-RPC initialize、tools/list、tools/call、错误帧已有测试 |
 | 无本机命令能力的纯云端 agent | 使用既有云端适配器 | 需要云端配对，单独安装 skill 无法访问本机 |
@@ -30,7 +30,7 @@ python3 <技能目录>/scripts/browser.py --session /tmp/fast-task-unique.sessio
 
 安装器的 `extensionStatus=requires_browser_confirmation` 表示文件及注册已准备，尚未确认扩展已加载。首次加载扩展并开启连接后，用 `browsers` 查看连接。`health` 只证明 daemon 可用，不能证明浏览器已连接。
 
-当前通用安装器遇到既有目标会在写入前拒绝覆盖，失败时回滚本次创建的运行时、skills 和 Native host 注册。Fast-browser-link 的 Hermes 适配器使用 `./install.sh --hermes-plugin`。发现旧 `browser-link` 插件时，安装器和插件加载入口均拒绝同时启用，避免官方工具和钩子冲突；保留旧插件时应使用独立 skills 模式。旧插件的更新/卸载仍使用旧版自己的安装器。新旧 Native host 名、工具名、数据目录已分离，不会自动复制旧任务或权限。旧版数据保留在原目录。发布包默认是独立模式；Hermes 适配器使用单独的 fast-browser-link-hermes ZIP。
+当前通用安装器遇到既有目标会在写入前拒绝覆盖，失败时回滚本次创建的运行时、skills 和 Native host 注册。Fast-browser-link 的 Hermes 集成使用 `./install.sh --hermes-plugin`。发现旧 `browser-link` 插件时，安装器和插件加载入口均拒绝同时启用，避免官方工具和钩子冲突；保留旧插件时应使用独立 skills 模式。旧插件的更新/卸载仍使用旧版自己的安装器。新旧 Native host 名、工具名、数据目录已分离，不会自动复制旧任务或权限。旧版数据保留在原目录。发布包默认是独立模式；Hermes 集成使用单独的 fast-browser-link-hermes ZIP。
 
 macOS 普通 Chrome 用户必须确认加载未上架扩展。说明依据：[Chrome 扩展分发规则](https://developer.chrome.com/docs/extensions/how-to/distribute)。安装器不会修改浏览器安全策略或用户 Preferences 来绕过限制。
 
@@ -38,12 +38,11 @@ macOS 普通 Chrome 用户必须确认加载未上架扩展。说明依据：[Ch
 
 默认 skills 安装不修改 Hermes 的 config.yaml，不注册 Hermes 工具覆盖或生命周期 hooks。旧浏览器插件、Native host 和数据目录保持原状。
 
-单独启用 Fast-browser-link Hermes 适配器时，未授予 tools.override 不覆盖官方工具；授予后仅已绑定任务会话走共享浏览器，未绑定会话继续原工具，卸载恢复原注册。Vault 还需单独启用，覆盖时保留官方 toolset、可用性检查和环境要求。旧 browser_shared_* 名称属于旧插件，新插件工具名为 fast_browser_*；旧脚本不会被悄悄迁移。
-
+单独启用 Fast-browser-link Hermes 集成时，未授予 tools.override 不覆盖官方工具；授予后仅已绑定任务会话走共享浏览器，未绑定会话继续原工具，卸载恢复原注册。Vault 还需单独启用，覆盖时保留官方 toolset、可用性检查和环境要求。旧 browser_shared_* 名称属于旧插件，新插件工具名为 fast_browser_*；旧脚本不会被悄悄迁移。
 
 ### 无痕任务和登录连续性
 
-独立 CLI/MCP 的 `create` 支持 `incognito: true`，Hermes 适配器的 `fast_browser_open` 和 `fast_browser_create` 同样支持。浏览器须允许扩展在无痕/InPrivate 模式运行，否则返回 `incognito_access_required`，不会降级为普通窗口。普通与无痕任务分开复用；同一浏览器的无痕任务仍共享无痕会话，任务元数据和日志继续遵循原持久化规则。
+独立 CLI/MCP 的 `create` 支持 `incognito: true`，Hermes 集成的 `fast_browser_open` 和 `fast_browser_create` 同样支持。浏览器须允许扩展在无痕/InPrivate 模式运行，否则返回 `incognito_access_required`，不会降级为普通窗口。普通与无痕任务分开复用；同一浏览器的无痕任务仍共享无痕会话，任务元数据和日志继续遵循原持久化规则。
 
 登录点击后，源页刷新或跳转保留原操作剩余的两分钟弹窗观察期；旧候选仍失效，新弹窗沿用原任务。新文档及已接管弹窗自动恢复同一任务的最近五步日志。
 

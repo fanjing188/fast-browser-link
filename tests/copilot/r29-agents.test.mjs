@@ -685,7 +685,7 @@ test('active collaboration prevents agent reconfiguration while preserving the c
     assert.match(f.doc.getElementById('agent-default-status').textContent, /Configured/);
     assert.match(
       f.doc.getElementById('agent-default-status').textContent,
-      /Turn off collaboration and wait for tasks/,
+      /Turn off Assist and wait for tasks/,
     );
     await f.panel.select('hermes');
     await f.panel.start();
@@ -703,10 +703,7 @@ test('a failed default switch asks to turn collaboration off rather than merely 
   try {
     await f.panel.refresh();
     await f.panel.select('hermes');
-    assert.match(
-      f.doc.getElementById('agent-default-status').textContent,
-      /Turn off collaboration/,
-    );
+    assert.match(f.doc.getElementById('agent-default-status').textContent, /Turn off Assist/);
     assert.doesNotMatch(
       f.doc.getElementById('agent-default-status').textContent,
       /Pause collaboration/,

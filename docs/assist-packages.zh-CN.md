@@ -2,7 +2,7 @@
 
 仓库仅内置中性通用包：Google 搜索、Google Trends、可见表格导出和关键词工作流。私人工具、凭据、团队规则与适配器放在仓库外的本机扩展包。扩展包不能授予浏览器权限，仍受工作区、租约、来源与后台静默守卫约束。
 
-在本机协作 `config.json` 的 `extension_dirs` 中声明包的绝对目录。daemon 启动时显式读取，不自动发现、下载或执行包。无需改 Hermes 根配置；初始化保留已有配置与模板。升级后应审阅新合同并合并到本机模板，不能只替换前端。完整字段和协议参见[英文说明](copilot-packages.md)及[离线示例包](examples/copilot-package/package.json)。
+在本机协作 `config.json` 的 `extension_dirs` 中声明包的绝对目录。daemon 启动时显式读取，不自动发现、下载或执行包。无需改 Hermes 根配置；初始化保留已有配置与模板。升级后应审阅新合同并合并到本机模板，不能只替换前端。完整字段和协议参见[英文说明](assist-packages.md)及[离线示例包](examples/copilot-package/package.json)。
 
 ```json
 {"extension_dirs":["/absolute/path/copilot-packages/my-adapters"]}

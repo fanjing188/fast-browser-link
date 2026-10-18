@@ -15,7 +15,7 @@ import urllib.request
 from urllib.parse import urlsplit
 import uuid
 
-REGISTRY = {"hermes": {"id": "hermes", "name": "Fast-copilot"}}
+REGISTRY = {"hermes": {"id": "hermes", "name": "Hermes"}}
 METHODS = {
     "agent_catalog",
     "agent_setup_start",

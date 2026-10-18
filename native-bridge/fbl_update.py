@@ -17,8 +17,8 @@ from fbl_profiles import repair
 
 
 TASK_REASONS = {
-    "basket_active": "Copilot basket 仍在排队或运行，请先结束任务",
-    "basket_unverified": "Copilot basket 状态无法核实，请检查活动记录",
+    "basket_active": "Assist basket 仍在排队或运行，请先结束任务",
+    "basket_unverified": "Assist basket 状态无法核实，请检查活动记录",
     "records_unreadable": "任务记录无法安全读取（权限、格式或未合并日志），请先修复记录",
     "browser_epoch_unavailable": "浏览器纪元无法确认：无法确认浏览器是否已重启，请稍后重试或先打开再关闭浏览器；仍失败时先打开浏览器再重试并检查 ps 权限",
     "current_epoch_or_missing_times": "任务活动未能证明早于当前浏览器纪元（当前纪元或时间证据缺失），请先核实浏览器残留，再显式 tasks:ack",
@@ -190,9 +190,9 @@ def task_status(ctx, cli):
                 groups[group].append(
                     {
                         "id": identity,
-                        "title": job.get("title", "Copilot basket")
+                        "title": job.get("title", "Assist basket")
                         if isinstance(job, dict)
-                        else "Copilot basket",
+                        else "Assist basket",
                         "runtime": str(root),
                         "reason": code,
                         "message": TASK_REASONS[code],
@@ -201,7 +201,7 @@ def task_status(ctx, cli):
         except (OSError, ValueError, TypeError, cli.InstallError):
             groups["needs_verification"].append(
                 {
-                    "title": "Copilot basket activity cannot be verified",
+                    "title": "Assist basket activity cannot be verified",
                     "runtime": str(root),
                     "reason": "basket_unverified",
                     "message": TASK_REASONS["basket_unverified"],

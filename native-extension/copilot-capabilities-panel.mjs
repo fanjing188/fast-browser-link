@@ -148,7 +148,7 @@ export class CapabilitiesPanel {
           this.render();
           notice.textContent = this.t(
             '声明已重读，新经验在下次开启协作时发送。',
-            'Declarations reloaded. New experience is sent when Copilot starts again.',
+            'Declarations reloaded. New experience is sent when Assist starts again.',
           );
         }),
       ),
@@ -220,7 +220,7 @@ export class CapabilitiesPanel {
             await this.refresh();
             notice.textContent = this.t(
               '已保存，关闭协作后重读声明',
-              'Saved. Close Copilot and reload declarations.',
+              'Saved. Close Assist and reload declarations.',
             );
           }),
         ),

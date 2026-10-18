@@ -125,7 +125,7 @@ export async function start() {
     ball.append(createBrandMark(document));
     ball.setAttribute(
       'aria-label',
-      language.startsWith('zh') ? '打开协作建议' : 'Open Copilot suggestions',
+      language.startsWith('zh') ? '打开协作建议' : 'Open Assist suggestions',
     );
     const badge = document.createElement('span');
     badge.id = 'badge';
@@ -345,7 +345,7 @@ export async function start() {
         const p = document.createElement('p');
         p.textContent = language.startsWith('zh')
           ? '暂时没有新建议；请从扩展菜单打开协作侧栏。'
-          : 'No new suggestions. Open Copilot from the extension menu.';
+          : 'No new suggestions. Open Assist from the extension menu.';
         mini.append(p);
       }
       mini.append(hide);

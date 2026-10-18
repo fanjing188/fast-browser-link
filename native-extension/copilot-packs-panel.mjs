@@ -49,7 +49,7 @@ export class PacksPanel {
           'p',
           this.t(
             '关闭协作并等待任务结束后，可以安装或卸载。',
-            'Turn off Copilot and wait for tasks before installing or uninstalling.',
+            'Turn off Assist and wait for tasks before installing or uninstalling.',
           ),
         ),
       );
@@ -67,14 +67,14 @@ export class PacksPanel {
           this.notice(
             this.t(
               '功能插件已更新，重新开启协作后生效。',
-              'Plugins updated. Start Copilot again to apply.',
+              'Plugins updated. Start Assist again to apply.',
             ),
           );
         } catch {
           this.notice(
             this.t(
               '操作未完成：请关闭协作，并确认插件未被修改、路径有效。',
-              'Action failed. Turn off Copilot and check the package path and local modifications.',
+              'Action failed. Turn off Assist and check the package path and local modifications.',
             ),
           );
         } finally {

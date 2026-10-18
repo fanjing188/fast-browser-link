@@ -7,7 +7,7 @@ document.documentElement.lang = chinese ? 'zh-CN' : 'en';
 for (const el of document.querySelectorAll('[data-zh]'))
   el.textContent = t(el.dataset.zh, el.dataset.en);
 for (const [id, zh, en] of [
-  ['copilot-toggle', 'Agent协作模式', 'Agent collaboration'],
+  ['copilot-toggle', '协作', 'Assist'],
   ['error-close', '关闭错误提示', 'Dismiss error'],
   ['version-label', '扩展版本', 'Extension version'],
 ])
@@ -371,10 +371,10 @@ $('#copilot-toggle').addEventListener(
         return;
       }
       if (typeof state.enabled !== 'boolean')
-        throw Error(t('协作状态未确认', 'Copilot state not confirmed'));
+        throw Error(t('协作状态未确认', 'Assist state not confirmed'));
       await refresh();
       if (enabling && opened.opened !== true)
-        throw Error(t('侧栏未打开，请点击看板重试', 'Open the board to retry.'));
+        throw Error(t('侧栏未打开，请点击协作重试', 'Open Assist to retry.'));
     }),
 );
 document.addEventListener('keydown', (event) => {

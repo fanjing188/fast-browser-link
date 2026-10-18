@@ -694,14 +694,14 @@ def load_basket_jobs(home):
             or state.get("version") != 1
             or not isinstance(state.get("jobs"), dict)
         ):
-            raise ValueError("unknown Copilot basket work")
+            raise ValueError("unknown Assist basket work")
         return state["jobs"]
     return {}
 
 
 def assert_basket_idle(home):
     if load_basket_jobs(home):
-        raise ValueError("active or unsettled Copilot basket work")
+        raise ValueError("active or unsettled Assist basket work")
 
 
 def task_block_reason(task, *, daemon_stopped=False):

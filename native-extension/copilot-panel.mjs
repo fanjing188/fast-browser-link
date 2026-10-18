@@ -250,7 +250,7 @@ function render() {
 function failed() {
   document.getElementById('notice').dataset.source = 'connection';
   document.getElementById('notice').textContent =
-    '连接暂时不可用，请确认本地服务已启动后刷新看板。';
+    '连接暂时不可用，请确认本地服务已启动后刷新侧栏。';
 }
 document.getElementById('process-selection').onclick = () =>
   command('quick_task', {

@@ -65,7 +65,7 @@ export class TaskLogPanel {
     this.root.setAttribute('aria-hidden', 'true');
     this.root.setAttribute('aria-label', this.t('任务日志', 'Task logs'));
     const heading = element(doc, 'header', undefined, 'view-heading');
-    this.back = element(doc, 'button', this.t('‹ 返回看板', '‹ Back to board'));
+    this.back = element(doc, 'button', this.t('‹ 返回侧栏', '‹ Back to sidebar'));
     this.back.type = 'button';
     this.back.onclick = () => this.close();
     this.title = element(doc, 'strong');

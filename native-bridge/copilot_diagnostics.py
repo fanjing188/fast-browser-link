@@ -148,10 +148,10 @@ def failure_message(value, language="zh"):
         "acp_disconnected": "Hermes disconnected; reconnecting",
         "acp_timeout": "Hermes timed out; previous suggestions retained",
         "acp_process_exited": "Hermes process exited; reconnecting",
-        "internal_error": "Copilot processing failed; previous suggestions retained",
+        "internal_error": "Assist processing failed; previous suggestions retained",
     }
     return (en if language == "en" else zh).get(
-        value.get("reason"), "Copilot failed" if language == "en" else "协作处理失败"
+        value.get("reason"), "Assist failed" if language == "en" else "协作处理失败"
     )
 
 

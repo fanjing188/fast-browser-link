@@ -1,7 +1,16 @@
 import { renderStatus, readableCopy } from './ui-design.mjs';
 // 中文注释：保留表单数据源；可见交互由同一套控件承担，避免侧栏和弹窗各自实现。
-export const boardName = (value, language = 'zh') =>
-  value?.trim() || (language.startsWith('zh') ? 'Agent协作看板' : 'Agent Board');
+const legacyBoardNames = new Set([
+  'Hermes协作看板',
+  'Hermes 协作看板',
+  'Hermes Copilot',
+  'Agent协作看板',
+  'Agent Board',
+]);
+export function boardName(value, language = 'zh') {
+  const name = value?.trim();
+  return name && !legacyBoardNames.has(name) ? name : language.startsWith('zh') ? '协作' : 'Assist';
+}
 export function connectionState(value) {
   if (!value) return { state: 'disconnected', zh: '未连接', en: 'Disconnected' };
   const state = value.state || 'disconnected';

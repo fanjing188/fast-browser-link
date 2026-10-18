@@ -35,6 +35,7 @@ with (
     commands = [
         # 中文注释：先核对运行元数据、当前发布文档和下载链接，再执行离线用例。
         ["node", "scripts/package-version.mjs"],
+        [sys.executable, "tests/test_assist_naming.py"],
         ["node", "--test", "--test-concurrency=1", *gate.NODE_TESTS],
         # 中文注释：首次网站读取确认覆盖 daemon 审批与浏览器来源回读的离线往返。
         [sys.executable, "tests/v1.1-approval-notify/test_site_read.py"],

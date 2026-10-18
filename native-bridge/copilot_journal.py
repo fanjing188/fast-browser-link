@@ -40,7 +40,7 @@ MESSAGES = {
         "推理未完成，保留已有建议",
         "Inference failed; existing suggestions retained",
     ),
-    "connecting": ("system", "正在连接协作会话", "Connecting Copilot session"),
+    "connecting": ("system", "正在连接协作会话", "Connecting Assist session"),
     "inference_return": (
         "inference",
         "推理返回，更新建议",
@@ -58,9 +58,9 @@ MESSAGES = {
     "execute_complete": ("execution", "任务完成", "Task completed"),
     "execute_failed": ("execution", "任务失败，请查看任务结果", "Task failed; inspect its result"),
     "execute_stop": ("execution", "任务停止", "Task stopped"),
-    "connected": ("system", "协作会话已连接", "Copilot session connected"),
-    "disconnected": ("system", "协作会话已断开", "Copilot session disconnected"),
-    "reconnected": ("system", "协作会话已重新连接", "Copilot session reconnected"),
+    "connected": ("system", "协作会话已连接", "Assist session connected"),
+    "disconnected": ("system", "协作会话已断开", "Assist session disconnected"),
+    "reconnected": ("system", "协作会话已重新连接", "Assist session reconnected"),
     "configuration": (
         "system",
         "设置已更新，后续调用生效",
@@ -69,8 +69,8 @@ MESSAGES = {
     "capabilities": ("system", "本机能力体检完成", "Local capability check completed"),
     "idle": ("system", "空闲已暂停，继续浏览可恢复", "Paused while idle; browse to resume"),
     "template_disabled": ("system", "模板无效，已跳过", "Invalid template skipped"),
-    "startup_failed": ("system", "协作会话启动失败", "Copilot session failed to start"),
-    "error": ("system", "协作请求未完成", "Copilot request did not complete"),
+    "startup_failed": ("system", "协作会话启动失败", "Assist session failed to start"),
+    "error": ("system", "协作请求未完成", "Assist request did not complete"),
 }
 NUMBERS = {
     "snapshot_bytes",

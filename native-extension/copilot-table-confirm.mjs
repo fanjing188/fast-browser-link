@@ -97,7 +97,10 @@ export function tableConfirmation(
       .catch(() => {
         chrome.runtime.sendMessage({ type: 'copilot.table_confirmation_error' }).catch(() => {});
         if (!closed)
-          card.textContent = t('操作未完成，请回看板重试', 'Action failed. Retry from the board.');
+          card.textContent = t(
+            '操作未完成，请回侧栏重试',
+            'Action failed. Retry from the sidebar.',
+          );
       });
   };
   function draw() {

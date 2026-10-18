@@ -252,7 +252,10 @@ export class SettingsForm {
     const name = this.doc.getElementById('board-name-input');
     if (name) name.placeholder = boardName('', state.locale || 'zh');
     for (const [id, value] of [
-      ['board-name-input', state.board_name || ''],
+      [
+        'board-name-input',
+        state.board_name ? boardName(state.board_name, state.locale || 'zh') : '',
+      ],
       ['table-export-dir', state.table_export_dir || ''],
       ['table-max-pages', state.table_config?.max_pages || 50],
       ['table-delay-min', state.table_config?.delay_min || 1.5],
@@ -343,7 +346,9 @@ export class SettingsForm {
       before = this.state;
     const previous =
       key === 'board_name'
-        ? before?.board_name || ''
+        ? before?.board_name
+          ? boardName(before.board_name, before.locale || 'zh')
+          : ''
         : key === 'table_export_dir'
           ? before?.table_export_dir || ''
           : before?.table_config?.[key.replace('table_', '')];

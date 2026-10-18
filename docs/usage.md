@@ -138,6 +138,6 @@ Look at `code` and `outcome_unknown` in the result. **If `outcome_unknown` is tr
 
 ## Incognito and independent CLI
 
-The optional Hermes adapter accepts `incognito=true` on `fast_browser_open` / `fast_browser_create`. Independent skills and MCP use `create` with the Native parameter `incognito: true`; their operation names and camelCase examples are in [agent integration](agent-integration.md). Enable browser extension Incognito/InPrivate access first. Do not fall back to a regular task when permission is missing.
+The optional Hermes integration accepts `incognito=true` on `fast_browser_open` / `fast_browser_create`. Independent skills and MCP use `create` with the Native parameter `incognito: true`; their operation names and camelCase examples are in [agent integration](agent-integration.md). Enable browser extension Incognito/InPrivate access first. Do not fall back to a regular task when permission is missing.
 
 The independent entry also supports `downloads`, `download_claim` and `download_cancel`. `close` with `keepTabs: true` and `handoffReason: "user_requested"` hands a page back without deleting it. See the [incognito matrix](incognito.md) for the exact tested capabilities and remaining browser/user confirmation boundaries.

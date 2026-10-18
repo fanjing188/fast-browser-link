@@ -272,7 +272,7 @@ test('English popup and motion contracts preserve concise labels and keyboard-ac
     { language: 'en-US' },
   );
   assert.equal(h.doc.documentElement.lang, 'en');
-  assert.equal(h.doc.querySelector('#open-copilot').textContent, 'Copilot board');
+  assert.equal(h.doc.querySelector('#open-copilot').textContent, 'Assist');
   assert.equal(h.doc.querySelector('#copilot-toggle').getAttribute('aria-checked'), 'true');
   assert.match(
     h.doc.querySelector('#connection-detail').textContent,
@@ -600,7 +600,7 @@ test('collaboration row keeps a stable label and only exposes its board when ena
     copilot: { enabled: false, board_name: 'My Agent', hermes_health: { state: 'disconnected' } },
   });
   try {
-    assert.equal(h.doc.querySelector('#popup-board-name').textContent, 'Agent协作模式');
+    assert.equal(h.doc.querySelector('#popup-board-name').textContent, '协作');
     assert.equal(h.doc.querySelector('#open-copilot').hidden, true);
     assert.equal(h.doc.querySelector('#copilot-toggle').getAttribute('aria-checked'), 'false');
     for (const state of ['connecting', 'connected', 'error', 'disconnected']) {

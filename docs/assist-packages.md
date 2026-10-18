@@ -1,8 +1,8 @@
-# Copilot extension packages
+# Assist extension packages
 
-Copilot ships a neutral generic package: Google Search, Google Trends, visible table export and keyword workflows. Private tools, credentials, team rules and adapters belong in local packages outside this repository. Packages never grant browser access; normal workspaces, leases, origin checks and quiet execution still apply.
+Assist ships a neutral generic package: Google Search, Google Trends, visible table export and keyword workflows. Private tools, credentials, team rules and adapters belong in local packages outside this repository. Packages never grant browser access; normal workspaces, leases, origin checks and quiet execution still apply.
 
-Add absolute package directories to `extension_dirs` in your local Copilot `config.json`. Loading is explicit, at daemon startup; no discovery, downloads or execution on package load. Do not change the Hermes root configuration. Existing managed configuration and templates are never overwritten by setup. After an upgrade, review the new template contracts and merge them into your local template copies.
+Add absolute package directories to `extension_dirs` in your local Assist `config.json`. Loading is explicit, at daemon startup; no discovery, downloads or execution on package load. Do not change the Hermes root configuration. Existing managed configuration and templates are never overwritten by setup. After an upgrade, review the new template contracts and merge them into your local template copies.
 
 ```json
 {"extension_dirs":["/absolute/path/copilot-packages/my-adapters"]}
@@ -25,11 +25,11 @@ For declaration generation, prepare your own `package.json`, then preview:
 python3 scripts/setup-copilot-package.py --source /absolute/path/source/package.json --destination /absolute/path/copilot-packages/my-adapters
 ```
 
-Add `--apply` only when ready. The generator writes the declaration with mode 0600, never overwrites an existing declaration, and does not edit Copilot/Hermes configuration. Place referenced local scripts/template files in the destination yourself. Relative template paths cannot escape the package directory. Configured local commands are trusted code and are executed only when their capability is requested.
+Add `--apply` only when ready. The generator writes the declaration with mode 0600, never overwrites an existing declaration, and does not edit Assist/Hermes configuration. Place referenced local scripts/template files in the destination yourself. Relative template paths cannot escape the package directory. Configured local commands are trusted code and are executed only when their capability is requested.
 
 Google Trends uses background work pages, groups up to five terms per chart, and visits US/world × last 12 months/5 years. It reads visible chart data tables with explicit dates and values (0–100). It does not infer values from SVG geometry, access private endpoints, log in or solve challenges. If the site's chart does not expose such a table, the result explicitly marks missing curves; real browser acceptance is required before claiming a working curve source. Trends batches are limited to 50 terms and the complete browser acquisition has a ten-minute bound. Curves from different comparison groups are independently normalized and must not be compared as absolute demand.
 
-Browser language selects Chinese or English interface labels and model prompts. Page content, keywords and source text retain their original language. The selection popup follows Copilot on/off, can be disabled separately, ignores editors/password forms/work pages, and only shows a sidebar entry beyond 300 characters. A seven-day hit opens the exact existing result without fetching or judging again. Selection-driven inference is deduplicated for ten minutes. Translation/explanation uses one turn on the inference model with no tools; tool-requiring general tasks retain the explicit oneshot boundary.
+Browser language selects Chinese or English interface labels and model prompts. Page content, keywords and source text retain their original language. The selection popup follows Assist on/off, can be disabled separately, ignores editors/password forms/work pages, and only shows a sidebar entry beyond 300 characters. A seven-day hit opens the exact existing result without fetching or judging again. Selection-driven inference is deduplicated for ten minutes. Translation/explanation uses one turn on the inference model with no tools; tool-requiring general tasks retain the explicit oneshot boundary.
 
 For page-related work, background pages receive the same URL, including filter/sort/search parameters and normal/incognito context. In-memory filters and form values are not copied; the UI warns that background filters may differ. No user tab is activated or modified.
 

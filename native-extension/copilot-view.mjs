@@ -40,18 +40,18 @@ export function renderWorkContext(doc, state, { command } = {}) {
               ? 'advancing'
               : 'following';
   root.dataset.activity = activity;
-  const collaborating = en ? `${name} collaborating` : `${name}协作中`;
+  const collaborating = en ? `${name} · Assist on` : `${name} · 协作中`;
   const statuses = {
     advancing: collaborating,
     following: collaborating,
     connecting: en ? `Connecting to ${fullName}` : `正在连接 ${fullName}`,
     paused: !state.enabled
       ? en
-        ? 'Collaboration is off'
+        ? 'Assist is off'
         : '协作未开启'
       : en
-        ? `${name} paused`
-        : `${name}协作已暂停`,
+        ? `${name} · Assist paused`
+        : `${name} · 协作已暂停`,
     error: en ? `${name} connection unavailable` : `${name}连接未就绪`,
   };
   const status = doc.getElementById('work-status');

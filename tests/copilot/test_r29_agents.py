@@ -442,7 +442,9 @@ class AgentManagerTests(unittest.TestCase):
         self.assertEqual(result["agents"][0]["setup_action"], "install_engine")
         self.assertFalse(result["agents"][0]["installed"])
         self.assertEqual((self.directory / "config.json").read_bytes(), before)
-        self.assertEqual(self.app.view("one")["agent"]["name"], "Fast-copilot")
+        self.app.config["inference_profile"] = "custom-analysis"
+        self.app.config["exec_profile"] = "custom-execution"
+        self.assertEqual(self.app.view("one")["agent"]["name"], "Hermes")
         self.assertFalse(self.app.view("one")["agent"]["acp_ready"])
 
     def test_request_shapes_and_unsupported_agents_are_rejected(self):
@@ -471,7 +473,7 @@ class AgentManagerTests(unittest.TestCase):
             selected = self.app.request("one", "agent_select", {"agent_id": "hermes"})
         self.assertEqual(selected["default_agent"], "hermes")
         self.assertFalse(selected["onboarding_required"])
-        self.assertEqual(self.app.view("one")["agent"]["name"], "Fast-copilot")
+        self.assertEqual(self.app.view("one")["agent"]["name"], "Hermes")
 
     def test_completion_persists_selection_and_emits_without_claiming_model_or_runtime_ready(self):
         receipt = {

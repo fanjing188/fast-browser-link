@@ -113,7 +113,10 @@ def model_json_prompt(runtime, prompt, on_usage=lambda _: None, should_continue=
 
 
 def inference_session_prompt(templates, context=None):
-    state = {"session_title": "协作·" + time.strftime("%Y-%m-%d %H:%M"), **(context or {})}
+    state = {
+        "session_title": "Fast-browser-link · " + time.strftime("%Y-%m-%d %H:%M"),
+        **(context or {}),
+    }
     return (
         inference_prompt(state, templates)
         + '\n固定规则只发送一次。此会话只推理，不执行任务、不使用工具、不创建工作区。准备好后只返回 {"ready":true}。'

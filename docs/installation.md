@@ -1,6 +1,6 @@
 # Installation / 安装
 
-> 本页说明可选 Hermes 适配器。默认独立 skills 安装请看 [通用接入](agent-integration.md)。适配器附件名为 `fast-browser-link-hermes-<版本>.zip`；不要把默认独立 ZIP 用于适配器升级。
+> 本页说明可选 Hermes 集成。默认独立 skills 安装请看 [通用接入](agent-integration.md)。适配器附件名为 `fast-browser-link-hermes-<版本>.zip`；不要把默认独立 ZIP 用于适配器升级。
 
 目前支持 macOS + Chrome/Edge。需要先安装 [Hermes](https://hermes-agent.nousresearch.com/docs/) 和 Python 3.11+；已测试 Hermes 0.21.4、浏览器 153。**Release 安装无需 Node.js、npm 或 Git**；仅源码安装需要 Node.js 22.12+。
 

@@ -28,7 +28,7 @@ from fbl_profiles import desired, profile_plan
 def setup(root, model, provider="auto", apply=False, command="hermes", profile="fast-copilot"):
     root = Path(root).expanduser().absolute()
     if profile != "fast-copilot":
-        raise ValueError("only dedicated copilot profiles may be created")
+        raise ValueError("only dedicated Hermes profiles may be created")
     target = root / "profiles" / profile
     if any(part.is_symlink() for part in (target, *target.parents)):
         raise ValueError("refusing symlink profile path")

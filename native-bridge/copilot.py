@@ -87,7 +87,7 @@ class Copilot(ObservationSupport, InferenceSupport, ResultSupport, ToolSupport):
             self.config.pop(key, None)
         for key, lower, upper in [("max_turns", 1, 1000)]:
             if type(self.config[key]) is not int or not lower <= self.config[key] <= upper:
-                raise ValueError("invalid copilot config: " + key)
+                raise ValueError("invalid Assist config: " + key)
         validate_settings({key: self.config[key] for key in SETTING_KEYS})
         if not isinstance(self.config["fetch_commands"], dict) or not isinstance(
             self.config["fetch_dir"], str
@@ -674,7 +674,7 @@ class Copilot(ObservationSupport, InferenceSupport, ResultSupport, ToolSupport):
         ):
             with self.lock:
                 if self.closed:
-                    raise ValueError("copilot closed")
+                    raise ValueError("Assist closed")
                 config = dict(self.config)
                 runtime = self.runtime
             with self.catalog_lock:
@@ -686,10 +686,10 @@ class Copilot(ObservationSupport, InferenceSupport, ResultSupport, ToolSupport):
                     runtime=runtime,
                 )
         if not isinstance(params, dict):
-            raise ValueError("invalid copilot request")
+            raise ValueError("invalid Assist request")
         with self.lock:
             if self.closed:
-                raise ValueError("copilot closed")
+                raise ValueError("Assist closed")
             state = self._state(instance)
             if method == "work_update":
                 if (
@@ -1502,7 +1502,7 @@ class Copilot(ObservationSupport, InferenceSupport, ResultSupport, ToolSupport):
                 else:
                     raise ValueError("invalid suggestion transition")
                 return self.view(instance)
-            raise ValueError("unknown copilot method")
+            raise ValueError("unknown Assist method")
 
     def _basket_request(self, instance, method, params):
         if not isinstance(params, dict):

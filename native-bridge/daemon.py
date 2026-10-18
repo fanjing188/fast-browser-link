@@ -1888,8 +1888,12 @@ class BridgeDaemon:
                 "id": task_id,
                 "owner": owner,
                 "title": (
-                    "Fast-browser-link ·"
-                    + title.removeprefix("Fast-browser-link ·").removeprefix("Hermes 协作·")
+                    "Fast-browser-link · "
+                    + title.removeprefix("Fast-browser-link ·")
+                    .strip()
+                    .removeprefix("Hermes 协作·")
+                    .removeprefix("协作·")
+                    .strip()
                 )
                 if silent
                 else title,
@@ -4713,7 +4717,7 @@ class BridgeDaemon:
                     result = self._create_task(
                         {
                             "owner": "copilot-table-" + secrets.token_hex(12),
-                            "title": "Fast-browser-link ·后台数据",
+                            "title": "Fast-browser-link · 后台数据",
                             "instanceId": instance_id,
                             "allowedOrigins": [f"{parsed.scheme}://{parsed.netloc}"],
                             "incognito": params.get("incognito", False),
@@ -4730,7 +4734,7 @@ class BridgeDaemon:
                 )
             except (ValueError, OSError, KeyError, TypeError):
                 raise ProtocolError(
-                    "copilot_denied", "Copilot request failed; check local configuration"
+                    "copilot_denied", "Assist request failed; check local configuration"
                 ) from None
         if isinstance(method, str) and method.startswith("extension.cookie_mirror."):
             # 中文注释：私有通路自行校验连接，不能持有状态锁等待浏览器回复。

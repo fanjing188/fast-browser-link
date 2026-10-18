@@ -155,7 +155,7 @@ export class BasketPanel {
       preview.append(
         node(
           'p',
-          this.t('协作模型：', 'Copilot model: ') +
+          this.t('协作模型：', 'Assistl: ') +
             (plan.model_id || this.t('不调用 / 待回报', 'None / pending')),
         ),
       );

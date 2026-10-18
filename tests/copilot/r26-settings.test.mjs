@@ -71,6 +71,41 @@ function fixture(handler) {
     },
   };
 }
+test('legacy defaults display Assist without writing preferences; custom names survive updates and failed saves', async () => {
+  const f = fixture(() => {
+    throw Error('synthetic save failure');
+  });
+  try {
+    const field = f.doc.getElementById('board-name-input');
+    for (const [locale, expected] of [
+      ['zh', '协作'],
+      ['en', 'Assist'],
+    ]) {
+      for (const board_name of [
+        'Hermes协作看板',
+        'Hermes Copilot',
+        'Agent协作看板',
+        'Agent Board',
+      ]) {
+        const state = { ...f.settings.state, locale, board_name };
+        f.settings.update(state);
+        assert.equal(field.value, expected);
+        assert.equal(state.board_name, board_name);
+        assert.equal(f.calls.length, 0);
+      }
+    }
+    f.settings.update({ ...f.settings.state, locale: 'en', board_name: 'Hermes Copilot' });
+    field.value = 'new name';
+    assert.equal(await f.settings.savePreference('board_name', field.value, field), false);
+    assert.equal(field.value, 'Assist');
+    for (const locale of ['zh', 'en']) {
+      f.settings.update({ ...f.settings.state, locale, board_name: 'My workspace' });
+      assert.equal(field.value, 'My workspace');
+    }
+  } finally {
+    f.close();
+  }
+});
 test('folder choice saves only a selected result after polling and preserves its exact path', async () => {
   const f = fixture((name, params, state) => {
     if (name === 'directory_choose_start') return { id: 'choice', status: 'pending' };

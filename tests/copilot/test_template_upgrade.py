@@ -149,6 +149,8 @@ class TemplateUpgradeTests(unittest.TestCase):
             self.ready(app)
             self.assertEqual(set(app.templates.disabled), {"seo.keyword_check", "seo.longtail"})
             prompt = inference_session_prompt(app.templates)
+            self.assertIn("Fast-browser-link · ", prompt)
+            self.assertNotIn("协作·", prompt)
             self.assertNotIn('"action": "seo.keyword_check"', prompt)
             self.assertIn('"action": "general.task"', prompt)
             self.assertIn("跳过 2 个模板", app.view("fixture")["hermes_health"]["reason"])

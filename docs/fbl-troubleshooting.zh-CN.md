@@ -10,7 +10,7 @@
 | extension / version | 打开浏览器，加载输出目录并连接；升级后重新加载，宿主与扩展版本应一致。 |
 | runtime_root | 多个清单指向不同运行时，显式选择并核对注册，不按哪个 socket 在线猜测。 |
 | hermes / models | 核心浏览器不依赖 Hermes；单独配置后再 setup，从实际模型清单选择。缓存模型元数据不证明实时可用。 |
-| fast-copilot | 只合并有标记的专用配置，保留迁移模型和版本，恢复 ACP 零工具、关闭标题和 low 推理。未知 profile 不写。 |
+| Hermes profile (`fast-copilot`) | 只合并有标记的专用配置，保留迁移模型和版本，恢复 ACP 零工具、关闭标题和 low 推理。未知 profile 不写。 |
 | templates | `.json.new` 需要人工合并；fix 升级摘要匹配项，保留用户原文。 |
 | packages | 用 install/discover 登记正确本机路径；私人工具不复制到公开仓库。 |
 | logs | 核对目录归属/可写性，不自动提权或改无关权限。 |

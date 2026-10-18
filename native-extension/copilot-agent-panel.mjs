@@ -131,7 +131,7 @@ export class AgentPanel {
     } catch (error) {
       if (this.disposed) return;
       this.error = true;
-      this.notice = `${this.t('未能切换默认 Agent，请关闭协作后重试。', 'Could not switch the default agent. Turn off collaboration and retry.')} ${error.message}`;
+      this.notice = `${this.t('未能切换默认 Agent，请关闭协作后重试。', 'Could not switch the default agent. Turn off Assist and retry.')} ${error.message}`;
       this.defaultError = this.notice;
     } finally {
       if (!this.disposed) {
@@ -218,7 +218,7 @@ export class AgentPanel {
       if (this.disposed || !catalog) return;
       this.notice = this.t(
         '配置与连接检查已完成，可以开启协作。',
-        'Configuration and connection checks passed. You can start collaboration.',
+        'Configuration and connection checks passed. You can start Assist.',
       );
       this.error = false;
     } else if (this.job?.status === 'failed') {
@@ -295,13 +295,13 @@ export class AgentPanel {
         this.error = true;
         this.notice = this.t(
           '协作尚未开启，请检查本地连接后重试。',
-          'Collaboration has not started. Check the local connection and retry.',
+          'Assist has not started. Check the local connection and retry.',
         );
       }
     } catch (error) {
       if (!this.disposed) {
         this.error = true;
-        this.notice = `${this.t('未能开启协作，请检查本地连接后重试。', 'Could not start collaboration. Check the local connection and retry.')} ${error.message}`;
+        this.notice = `${this.t('未能开启协作，请检查本地连接后重试。', 'Could not start Assist. Check the local connection and retry.')} ${error.message}`;
       }
     } finally {
       if (!this.disposed) {
@@ -339,7 +339,7 @@ export class AgentPanel {
     const busyMessage = this.catalog?.busy
       ? this.t(
           '关闭协作并等待任务完成后可切换或配置。',
-          'Turn off collaboration and wait for tasks to finish before switching or configuring.',
+          'Turn off Assist and wait for tasks to finish before switching or configuring.',
         )
       : '';
     const status = doc.getElementById('agent-default-status'),
@@ -383,17 +383,14 @@ export class AgentPanel {
     start.disabled = this.busy || pending || !agent?.can_setup || catalogError;
     start.textContent =
       agent?.setup_action === 'install_engine'
-        ? this.t(
-            `安装 ${agent.name} 并配置协作`,
-            `Install ${agent.name} and configure collaboration`,
-          )
+        ? this.t(`安装 ${agent.name} 并配置协作`, `Install ${agent.name} and configure Assist`)
         : this.t('配置并连接', 'Configure and connect');
     const enable = doc.getElementById('agent-enable');
     enable.hidden = !ready;
     enable.disabled = this.busy;
     enable.textContent =
       this.selected === this.catalog?.default_agent
-        ? this.t('开始协作', 'Start collaboration')
+        ? this.t('开始协作', 'Start Assist')
         : this.t('设为默认并开始', 'Set default and start');
     const refresh = doc.getElementById('agent-refresh');
     refresh.disabled = !!this.busy;

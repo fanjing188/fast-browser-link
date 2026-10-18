@@ -163,7 +163,7 @@ class CopilotTest(unittest.TestCase):
         ]:
             self.assertEqual(argv[argv.index(flag) + 1], value)
         self.assertEqual(argv[argv.index("-t") + 1], "none")
-        self.assertTrue(argv[argv.index("-c") + 1].startswith("协作·关键词检查·"))
+        self.assertTrue(argv[argv.index("-c") + 1].startswith("Fast-browser-link · 关键词检查·"))
         brief = json.loads(next((self.directory / "tasks").glob("*/query.txt")).read_text())
         self.assertIn("Fast-browser-link ·", brief["browser"])
         self.assertNotIn("trace", brief)

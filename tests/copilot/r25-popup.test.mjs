@@ -57,8 +57,8 @@ async function mount(initial, language = 'zh-CN') {
 
 test('popup always has exactly the three requested feature rows in Chinese and English', async () => {
   for (const [language, labels] of [
-    ['zh-CN', ['本地Agent连接', '云端Agent连接', 'Agent协作模式']],
-    ['en-US', ['Local Agent connection', 'Cloud Agent connection', 'Agent collaboration']],
+    ['zh-CN', ['本地Agent连接', '云端Agent连接', '协作']],
+    ['en-US', ['Local Agent connection', 'Cloud Agent connection', 'Assist']],
   ]) {
     const h = await mount(
       { connected: true, copilot: { enabled: false }, cloud: { state: 'unpaired' } },
@@ -102,7 +102,7 @@ test('board appears only for confirmed enabled collaboration and enabling keeps 
     await flush();
     await h.update({ connected: true, copilot: { enabled: true } });
     assert.equal(h.doc.querySelector('#open-copilot').hidden, false);
-    assert.equal(h.doc.querySelector('#open-copilot').textContent, '协作看板');
+    assert.equal(h.doc.querySelector('#open-copilot').textContent, '协作');
     await h.update({ connected: true, copilot: { enabled: false } });
     assert.equal(h.doc.querySelector('#open-copilot').hidden, true);
     assert.equal(

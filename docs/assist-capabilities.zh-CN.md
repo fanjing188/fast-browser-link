@@ -1,6 +1,6 @@
 # 工具感知协作能力
 
-协作读取通用包、显式配置的 `extension_dirs`，以及自身数据目录内的 `extensions/*/package.json`。声明加载不执行命令。公共仓库只放中性能力、[标准schema](copilot-capabilities.schema.json)、[虚构示例](examples/copilot-package/package.json)和说明；个人工具、凭据、规则及脚本位置属于本机包。旧fetcher声明继续兼容。
+协作读取通用包、显式配置的 `extension_dirs`，以及自身数据目录内的 `extensions/*/package.json`。声明加载不执行命令。公共仓库只放中性能力、[标准schema](assist-capabilities.schema.json)、[虚构示例](examples/copilot-package/package.json)和说明；个人工具、凭据、规则及脚本位置属于本机包。旧fetcher声明继续兼容。
 
 “本机能力”列出绑定实现、可执行文件/脚本检查、浏览器只读体检、成本、批量上限及串行状态。协作开启自动跑一次，也可手动刷新；模型关闭时仍能做只读体检。命令体检不调用供应商。浏览器体检只用独立后台工作页和声明的就绪标记，不读凭据、不登录、不导出或付款。“可调用”只表示可尝试，不代表实际数据、市场或剩余额度已经核实。
 
@@ -16,7 +16,7 @@
 
 ## 绑定声明
 
-v1包增加 `capabilities`、`flows`、可选 `schemas`、`experience_file`、`files`。详见[英文格式与示例](copilot-capabilities.md)。
+v1包增加 `capabilities`、`flows`、可选 `schemas`、`experience_file`、`files`。详见[英文格式与示例](assist-capabilities.md)。
 
 - `command`：argv、超时、JSON/CSV输出、必需路径、部分成功退出码、停用文本/退出码。stdin为JSON，支持本轮工作目录的input_json/input_csv/keywords_file/output_csv/output_json/work_dir占位符。不经shell；数据不能成为命令选项或插入解释器代码。
 - `browser`：画像tool/page/link、`verified`、浏览器限制、页数上限、停用条件。只打开画像主机，用可见表格及字段映射取数；同报表路径继承地址中未被模板覆盖的筛选参数。不确认链接就不可用。可用 `plan_argv` 生成本机查询计划，但不提交RPC，也不将待核链接自动升级为有效。
@@ -32,7 +32,7 @@ v1包增加 `capabilities`、`flows`、可选 `schemas`、`experience_file`、`f
 
 流程按唯一step ID排序，支持能力调用、foreach、`$input.object` / `$steps.id.records` / `$item.domain` 引用、words_from/domains_from、本地变换和最多一次判断。内置头部站、小站反查、页面族、关键词交集、意图拆分、季节窗口、词池联动、站点页面/变化/缺口及上升查询；具体来源和判档规则由本机绑定提供。显式市场/语言必须匹配绑定声明，不静默借用未知范围。基础模板取数也优先本机能力并保留字段来源；其原有通用判断接口与工作流的本机政策判档分别保留。
 
-每一步完成先独立落本机文件，再推进进度。停止会取消子进程/判断会话，保留已完成步骤与部分结果。报表复用原翻页/虚拟滚动守卫、随机间隔和页数预算，不点网站导出。通用每次最多选20个关键词候选，完整上游文件保留；预览最多1000行/200KiB并明确提示，组合结果展开后才读完整正文，避免每次看板更新重复大数据，分块报表回传最多4MiB，判断上下文最多128KiB。
+每一步完成先独立落本机文件，再推进进度。停止会取消子进程/判断会话，保留已完成步骤与部分结果。报表复用原翻页/虚拟滚动守卫、随机间隔和页数预算，不点网站导出。通用每次最多选20个关键词候选，完整上游文件保留；预览最多1000行/200KiB并明确提示，组合结果展开后才读完整正文，避免每次侧栏更新重复大数据，分块报表回传最多4MiB，判断上下文最多128KiB。
 
 模型只对已有行补意图、分组与理由；不能填指标/宿主/宿主排重、覆盖已知排除标记或编造行。判档用本地命令。写池必须单独点保存，数据流程不能自动写池。发现的小站只写本轮候选文件，不改外部backlog。
 
@@ -40,7 +40,7 @@ v1包增加 `capabilities`、`flows`、可选 `schemas`、`experience_file`、`f
 
 “把当前工具加入记忆”只发送host/path/title/表头做一次零工具推理，画像先是草稿。用户修改后必须单独确认保存本机包；保存画像不自动绑定能力或批准链接。保存前完整校验，不把失败声明写成生效配置。
 
-初始化脚本支持 `--copy-assets` 复制files显式列出的文件，以及多个 `--experience-source` 本机来源，免模型抽取最多800字。默认预览；apply只创建缺失文件，使用严格权限、最后写声明，不改Hermes/协作根配置，也不覆盖已有包文件。参见[扩展包说明](copilot-packages.zh-CN.md)。
+初始化脚本支持 `--copy-assets` 复制files显式列出的文件，以及多个 `--experience-source` 本机来源，免模型抽取最多800字。默认预览；apply只创建缺失文件，使用严格权限、最后写声明，不改Hermes/协作根配置，也不覆盖已有包文件。参见[扩展包说明](assist-packages.zh-CN.md)。
 
 工作流判断只接收语义投影（已有key、关键词、URL、标题与已知意图/排除标记）及请求的趋势序列；精确指标和权威证据保留在本机步骤及判断器。已有判档记录先排重，再补量；组合正文按需读取。
 

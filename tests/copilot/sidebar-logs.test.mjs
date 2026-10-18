@@ -231,7 +231,7 @@ test('usage is informational even for huge totals and models remain separated', 
       { command: async () => {} },
     );
     assert.equal(f.doc.getElementById('status'), null);
-    assert.equal(f.doc.getElementById('work-status').textContent, 'Hermes协作中');
+    assert.equal(f.doc.getElementById('work-status').textContent, 'Hermes · 协作中');
     assert.match(f.doc.getElementById('usage-label').textContent, /300,000 万 tokens/);
     assert.match(f.doc.getElementById('session-usage').textContent, /3,400/);
     assert.match(f.doc.getElementById('model-usage').textContent, /example:model/);

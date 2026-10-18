@@ -86,9 +86,24 @@ test('custom dropdown search, keyboard, segmented mode and stepper share backing
   }
 });
 test('board name defaults, custom names and connection states are shared and neutral', () => {
-  assert.equal(boardName('', 'zh'), 'Agent协作看板');
-  assert.equal(boardName('', 'en'), 'Agent Board');
-  assert.equal(boardName(' My agent ', 'en'), 'My agent');
+  assert.equal(boardName('', 'zh'), '协作');
+  assert.equal(boardName('', 'en'), 'Assist');
+  for (const old of [
+    'Hermes协作看板',
+    'Hermes 协作看板',
+    'Hermes Copilot',
+    'Agent协作看板',
+    'Agent Board',
+  ]) {
+    assert.equal(boardName(` ${old} `, 'zh-CN'), '协作');
+    assert.equal(boardName(old, 'en-US'), 'Assist');
+  }
+  for (const name of ['My agent', 'Hermes research', 'Assist', '协作']) {
+    assert.equal(boardName(` ${name} `, 'zh'), name);
+    assert.equal(boardName(name, 'en'), name);
+  }
+  assert.equal(boardName(undefined, 'en'), 'Assist');
+  assert.equal(boardName('  ', 'zh'), '协作');
   const d = new JSDOM('<span></span>').window.document;
   for (const state of ['connected', 'connecting', 'disconnected', 'error']) {
     renderConnection(d.querySelector('span'), { state, reason: 'synthetic reason' }, 'en');

@@ -490,6 +490,7 @@ def activate(hermes, home, profiles, action, env):
 
 
 TERMINAL_TASK_STATES = {'closed', 'cancelled', 'failed'}
+TERMINAL_OPERATION_STATES = {'succeeded', 'failed', 'confirmed'}
 MAINTENANCE_MARKER = 'maintenance.json'
 
 
@@ -546,14 +547,16 @@ def task_block_reason(task, *, daemon_stopped=False):
     verified = daemon_stopped and isinstance(task.get('userVerified'), dict)
     operation = task.get('currentOperation', {'state': 'succeeded'})
     timeline = task.get('operationTimeline', [])
-    # 中文注释：仅维护空闲判定可把无残留的终态 unknown 转入核实；运行时和原始操作结果不变。
     operations = [operation, *timeline] if isinstance(timeline, list) else [operation]
-    if (not verified and task.get('cleanupState') in {'succeeded', 'unknown', 'failed'} and isinstance(timeline, list)
-            and all(isinstance(row, dict) and row.get('state') in {'succeeded', 'failed', 'unknown'} for row in operations)
-            and any(row['state'] == 'unknown' for row in operations)):
-        return 'history' if isinstance(task.get('userVerified'), dict) else 'verification'
     if (not isinstance(timeline, list) or not isinstance(operation, dict)
-            or (not verified and any(not isinstance(row, dict) or row.get('state') not in {'succeeded', 'failed'} for row in operations))):
+            or any(not isinstance(row, dict) or not isinstance(row.get('state'), str) or not row['state'] for row in operations)):
+        return 'active'
+    # 中文注释：当前操作仍在运行时继续阻塞；终态任务的未结历史只进入维护核实，不改运行时或原始结果。
+    if operation['state'] not in TERMINAL_OPERATION_STATES | {'unknown'}:
+        return 'active'
+    if not verified and any(row['state'] not in TERMINAL_OPERATION_STATES for row in operations):
+        if task.get('cleanupState') in {'succeeded', 'unknown', 'failed'}:
+            return 'history' if isinstance(task.get('userVerified'), dict) else 'verification'
         return 'active'
     if task.get('cleanupState') == 'pending':
         return 'active'
@@ -561,7 +564,7 @@ def task_block_reason(task, *, daemon_stopped=False):
         return 'cleanup'
     if not daemon_stopped:
         for field, settled in (('requestHistory', {'confirmed', 'rejected'}),
-                               ('operationTimeline', {'succeeded', 'failed'})):
+                               ('operationTimeline', TERMINAL_OPERATION_STATES)):
             rows = task.get(field, [] if field == 'operationTimeline' else None)
             if not isinstance(rows, list) or any(not isinstance(row, dict) or row.get('state') not in settled for row in rows):
                 return 'history'
@@ -609,7 +612,7 @@ def old_browser_task(task, epoch):
         return False
     operation = task.get('currentOperation', {'state': 'succeeded'})
     if reason == 'cleanup' and (task.get('cleanupState') not in {'unknown', 'failed'}
-            or not isinstance(operation, dict) or operation.get('state') not in {'succeeded', 'failed'}):
+            or not isinstance(operation, dict) or operation.get('state') not in TERMINAL_OPERATION_STATES):
         return False
     times = [task.get('createdAt'), task.get('updatedAt')]
     for field in ('lastActivityAt',):
@@ -656,14 +659,14 @@ def acknowledge_tasks(home, task_ids, reason, env, descriptor, *, epoch=None):
     for task in selected:
         task['userVerified'] = {'reason': reason, 'at': stamp.isoformat(timespec='seconds'),
                                 'previousCleanupState': task.get('cleanupState'), 'previousCleanupReason': task.get('cleanupReason')}
-        # 中文注释：核实结果单独记入历史备注，不把未知写入伪装成执行成功，亦不改防重放账本。
+        # 中文注释：未结操作的核实结果单独记入备注，保留原始状态和防重放账本。
         notes = []
         for field in ('currentOperation', 'operationTimeline'):
             rows = [task.get(field)] if field == 'currentOperation' else task.get(field, [])
             if not isinstance(rows, list): continue
             for index, row in enumerate(rows):
-                if isinstance(row, dict) and row.get('state') == 'unknown':
-                    notes.append({'field': field, 'index': index, 'state': 'verified_complete', 'previousState': 'unknown',
+                if isinstance(row, dict) and row.get('state') not in TERMINAL_OPERATION_STATES:
+                    notes.append({'field': field, 'index': index, 'state': 'verified_complete', 'previousState': row.get('state'),
                                   **({'requestIdHash': row['requestIdHash']} if 'requestIdHash' in row else {})})
         if notes: task['userVerified']['operations'] = notes
         task['cleanupState'] = 'succeeded'

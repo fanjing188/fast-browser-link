@@ -78,7 +78,7 @@ class R18(unittest.TestCase):
                        {'requestHistory': [{'state': 'awaiting_approval'}]},
                        {'agentTabIds': [7]}, {'adoptedPopupTabIds': [8]}, {'agentTabIds': None},
                        {'cleanupState': 'pending'},
-                       {'currentOperation': {'state': 'running'}}, {'operationTimeline': [{'state': 'running'}]}):
+                       {'currentOperation': {'state': 'running'}}):
             with self.subTest(change=change):
                 row = {**base, **change}; self.rows = [row]; self.persist(); before = self.path.read_bytes()
                 groups, eligible = task_status(self.ctx, cli)

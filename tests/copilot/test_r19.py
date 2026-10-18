@@ -92,12 +92,13 @@ class R19(unittest.TestCase):
         with patch.object(self, 'prepare', side_effect=prepare):
             fixtures.R18.test_settled_unknown_write_still_reports_unknown_and_cannot_replay(self)
 
-    def test_unfinished_timeline_blocks_even_with_unknown_cleanup(self):
+    def test_unfinished_historical_timeline_requires_epoch_verification(self):
         cli = self.prepare()
         self.rows[0]['currentOperation']['state'] = 'succeeded'
         self.rows[0]['operationTimeline'][0]['state'] = 'running'; self.persist()
         groups, eligible = task_status(self.ctx, cli)
-        self.assertEqual(len(groups['active']), 1); self.assertFalse(eligible)
+        self.assertFalse(groups['active'])
+        self.assertEqual(len(groups['needs_verification']), 1); self.assertTrue(eligible)
 
     def test_transient_missing_epoch_recovers_in_dry_run_and_real_update(self):
         cli = self.prepare(); before = self.path.read_bytes()

@@ -258,3 +258,9 @@
 ## R10 popup, brand and task overlay
 
 `tests/copilot/popup-overlay-brand.test.mjs` covers local/cloud status, explicit pairing, pending/success/error feedback, Escape and navigation close, bilingual labels, reduced motion, recent/all logs, scroll following, copy, scoped presentation preferences, closed shadow screenshot blocking and stop confirmation. It joins the explicit offline list (57 grouped steps; the added Node file shares the existing Node group); live browser evidence remains separate. Existing popup/overlay security tests retain unknown-state, generation/lease/origin, trusted-click and screenshot blocking assertions with updated UI selectors.
+
+## R11 sidebar and journal
+
+`sidebar-logs.test.mjs` exercises compact work view, secondary navigation, immediate field saves, first Balanced activation, informational usage, bounded virtual logs, filters, scroll pause, clear/copy/export, batching protocol isolation and bilingual labels. `test_copilot_journal.py` covers the 2,000-record cap, persistence/scope/privacy, 200ms batches, seven-day retention and ignored legacy settings. Explicit offline inventory is 58 grouped steps after adding the Python file. Real installed Edge acceptance is separate.
+
+R12：`controls-confirmation.test.mjs` 归入现有 Copilot Node 组；`test_copilot_health.py` 独立 Python runner。矩阵共59组。覆盖共享控件键盘/搜索/步进、闭合影子确认层、跟随/切换/取消/移除、一次性确认凭据、变更拒绝、确认后才导出/后台采集，以及零模型健康与名称持久化。DOM夹具不是实际Edge证明。

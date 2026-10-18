@@ -2,7 +2,7 @@
 
 Copilot follows bounded semantic snapshots and recent actions. The sidebar now loads Hermes model catalogs before activation, with a 24-hour daemon cache and explicit refresh. Catalog discovery uses initialize/session/new only, without model prompts. Missing catalogs allow manual provider:model IDs. Credentials and profile defaults are never changed.
 
-Select saving/balanced/quality/custom, inference/execution models, concurrency1–3, weighted daily budget, context threshold, tool-turn multiplier and execution transport. Presets fill fields using name heuristics, not live price rankings. Start saves daemon-local configuration before activation. Changes apply to the next inference/execution; running tasks keep their settings. Models and input/cache/output usage appear on cards and in per-model totals. Oneshot model attribution uses Hermes startup metadata, not independent provider billing evidence.
+The main view shows status, informational daily/session usage and suggestions/running/results. Settings and logs use secondary views in the same sidebar. Settings are grouped into interface, execution mode, collapsed advanced controls and local capabilities. First activation uses Balanced defaults with a dismissible notice. Fields auto-save and show a brief check mark; changes affect subsequent calls while running tasks retain their starting configuration. Presets match model names rather than live prices. Unmatched IDs use profile defaults.
 
 User-run initialization/managed upgrade:
 
@@ -19,7 +19,7 @@ The default persistent execution ACP creates a fresh session per SEO judgment, v
 
 SEO data acquisition runs in daemon subprocesses: Google Suggest for longtail; user-configured keyword_metrics/serp_top10/competitor_keywords JSON commands; the existing matching snapshot for SERP breakdown. save_pool and cache hits remain local. Fetch commands take stdin JSON and return schema-validated stdout JSON; private adapters and credentials belong in local fetch_commands/fetch_dir configuration. See template output schemas. Missing sources, timeout or malformed data are explicitly marked. Keyword browser fallback is opt-in and uses bounded oneshot execution, default3 turns. Pure judgments use no tools and one turn, irrespective of the quality preset.
 
-Budget = uncached input + output + cache read × cache_weight(default0.1). Context rollover defaults to6000; usage without reliable channels is labeled estimated. Work tabs are excluded using task/workspace ownership; SPA snapshots wait800ms quiet, maximum5s. No typed values, cookies, page storage or full DOM are collected. The ball position is global in extension local storage; model settings remain daemon-local.
+Input, cache-read and output tokens remain informational per day/session/task/model. There is no weighted daily limit or usage-based pause. Legacy daily_token_budget/cache_weight keys are ignored on read and removed on the next save. Context rollover defaults to 6000; unreliable usage is labeled estimated. Idle pause after three minutes and automatic close after thirty minutes remain. Work-tab exclusion and typed-value privacy boundaries remain unchanged.
 
 See the [implementation report](growth/report-copilot-mode-p1.md) for verified tests, source contracts, user-supplied4198-token measurement, remaining blockers and real Edge checks.
 
@@ -38,3 +38,15 @@ Silent child tasks receive a rotating nonpersisted capability, force separate wi
 Selection tasks, trends and local adapter packages: see [Copilot extension packages](copilot-packages.md).
 
 Tool memory, capability binding, discovery and composable workflows: [capability guide](copilot-capabilities.md).
+
+## Live logs
+
+Capture, inference, execution and system events record fixed summaries, sizes, timings, model usage/estimate flags, suggestion counts, source IDs and page/script stages. No input values, cookies, authentication headers, page bodies, raw errors or command arguments are logged.
+
+Events batch every 200ms. The log page renders only its fixed-height viewport window; JSON details are separate. At most 2,000 records are retained, with type/error/search filters, pause/follow, clear for the current browser/day, and full JSONL copy/export. Logs use the existing seven-day directory as logs/YYYY-MM-DD.events.jsonl with mode 0600 and reload on reopening the sidebar. Connection events observed offline remain explicitly volatile until reconnect submission and readback.
+
+The board defaults to “Hermes Copilot” (Chinese: “Hermes协作看板”). Rename it in Settings → Interface; the brand remains Fast-browser-link. The primary view contains connections, suggestions/running tasks/collapsed results, the latest three logs and one usage line. Execution, table/export and local capabilities live in secondary settings. The popup shows the inline Board button only while collaboration is enabled.
+
+Table extraction requires synchronized confirmation in the sidebar and a closed-shadow decoration on the source page. No export or multipage work starts before confirmation. Escape, cancellation and target removal clear it; changed ownership, navigation or changed captured rows reject stale confirmation. Multipage confirmation opens the same URL in a background work page, retaining the 200-page ceiling.
+
+Local Hermes health reads ACP readiness, execution-profile file and executable existence, and the latest call result. `execution_startable` denotes a structural check, not a live launch or model proof. Reading or retrying health starts no model and consumes no tokens. A disconnected state can mean collaboration is off. Renaming and export preferences only write this extension instance's Copilot configuration.

@@ -42,7 +42,8 @@ export function captureTables(doc=globalThis.document,minimumRows=3){
   const current=key?Number(url.searchParams.get(key))||0:null;
   const pagination={kind,key:key||null,current,totalPages,totalRows,next:next.length===1,ambiguous:next.length>1,offsetStep:/offset|start/i.test(key||'')?data.length:1};
   const incomplete=truncated||kind!=='none'||(totalRows!==null&&totalRows>data.length);
-  tables.push({id:String(tables.length),dom_id:root.id&&doc.getElementById(root.id)===root?root.id:null,name:name.slice(0,200),headers,rows:data,pagination,incomplete,truncated});seen.add(root);
+  const path=[];for(let node=root;node?.nodeType===1;node=node.parentElement)path.unshift(node.localName+':nth-child('+([...node.parentElement?.children||[node]].indexOf(node)+1)+')');
+  tables.push({dom_path:path.join(' > '),id:String(tables.length),dom_id:root.id&&doc.getElementById(root.id)===root?root.id:null,name:name.slice(0,200),headers,rows:data,pagination,incomplete,truncated});seen.add(root);
   if(tables.length>=10)break;
  }
  return {url:doc.location.href,tables};

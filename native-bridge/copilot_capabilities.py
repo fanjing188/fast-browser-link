@@ -287,7 +287,7 @@ class Registry:
                 for chunk_no,chunk in enumerate(chunks):
                     if stop.is_set():raise Stopped('stopped')
                     if self.disabled(binding):break
-                    step=work/binding['id']/str(chunk_no);step.mkdir(parents=True,exist_ok=True,mode=0o700);progress({'provider':binding['id'],'capability':capability,'batch':chunk_no+1})
+                    step=work/binding['id']/str(chunk_no);step.mkdir(parents=True,exist_ok=True,mode=0o700);progress({'provider':binding['id'],'capability':capability,'batch':chunk_no+1,'implementation':binding['type']})
                     if binding['type']=='command':value=self._command(binding,chunk,step,stop)
                     elif binding['type']=='hermes':value=self.hermes(binding,chunk,step,stop,{**(context or {}),'capability':capability})
                     else:value=self.browser(binding,chunk,step,stop,{**(context or {}),'capability':capability})

@@ -1,11 +1,12 @@
+import {tableConfirmation} from './copilot-table-confirm.mjs';
 import {collectToolReport} from './copilot-tool-reports.mjs';
 import {collectBrowserData} from './copilot-browser-data.mjs';
 import {captureTables} from './copilot-tables.mjs';
 import {TableJobs} from './copilot-table-job.mjs';
 import {ordinaryPage,appendStep,safeURL} from './copilot-observation.mjs';
 export class CopilotBackground {
- constructor(api,request,isWorkTab=()=>false){
-  this.protectedHosts=null;this.selectionSeen=new Map();this.selectionPopup=true;this.tableCaptures=new Map();this.tableTab=null;this.tableJobs=null;this.localJobs=new Map();
+ constructor(api,request,isWorkTab=()=>false,reconnect=async()=>{}){
+  this.reconnectBridge=reconnect;this.protectedHosts=null;this.selectionSeen=new Map();this.selectionPopup=true;this.tableCaptures=new Map();this.tableTab=null;this.tableJobs=null;this.localJobs=new Map();
   this.api=api;this.request=request;this.liveWorkTab=isWorkTab;this.workspaceTabs=new Set();this.workspaceWindows=new Set();this.isWorkTab=id=>this.liveWorkTab(id)||this.workspaceTabs.has(id);this.panelPorts=new Set();this.lastNavigation=new Map();this.enabled=false;this.showBall=true;this.trace=[];this.pages=new Map();this.rows=new Map();this.unread=new Set();this.suggestionsUnread=new Set();this.queue=Promise.resolve();
  }
  panel(sender){return sender?.id===this.api.runtime.id&&(sender.url===this.api.runtime.getURL('copilot-panel.html')||sender.url?.startsWith(this.api.runtime.getURL('copilot-result.html')+'?'));}
@@ -29,17 +30,38 @@ export class CopilotBackground {
    this.tableCaptures.set(tab.id,{...captured[0].result,incognito:!!tab.incognito});this.tableTab=tab.id;void this.notification({type:'table_detected'});
   }
   if(name==='open_result'){await this.request('result',{id:params.id});await this.api.tabs.create({url:this.api.runtime.getURL('copilot-result.html')+'?id='+encodeURIComponent(params.id),active:false});return {};}
-  if(name==='table_state'||name==='recognize_tables')return {capture:this.tableCaptures.get(this.tableTab)||null,jobs:[...this.localJobs.values()]};
+  if(name==='table_state'||name==='recognize_tables')return {saved:this.lastTableSaved||null,confirmation:this.tableConfirmation?.view||null,capture:this.tableCaptures.get(this.tableTab)||null,jobs:[...this.localJobs.values()]};
+  if(name==='confirm_table')return this.resolveTableConfirmation(params.kind,params.token);
   const capture=this.tableCaptures.get(this.tableTab),table=capture?.tables.find(item=>item.id===params.id);
   if(name==='stop_table'){this.tableJobs?.stop(params.id);return {};}
   if(!table)throw Error('表格已变化，请重新识别');
-  if(name==='save_table')return this.exportTable({name:table.name,site:new URL(capture.url).hostname,headers:table.headers,rows:table.rows,pages:1,partial:table.incomplete,reason:table.incomplete?'只保存当前可见页，可能不完整':''},params.format);
-  if(name==='collect_table'){
-   if(!this.tableJobs)throw Error('工作区尚未连接');
-   const state=await this.request('state',{}),id=crypto.randomUUID();
-   void this.tableJobs.run(id,capture,table,state.table_config,params.confirmed===true,Number.isInteger(params.approved_limit)?params.approved_limit:0).catch(()=>{this.localJobs.set(id,{id,status:'failed',reason:'后台收集未完成，请核对连接与已保存部分'});void this.api.runtime.sendMessage({type:'copilot.tables_changed'}).catch(()=>{});});return {id};
+  if(['save_table','copy_table','collect_table'].includes(name)){
+   const [active]=await this.api.tabs.query({active:true,currentWindow:true});await this.refreshOwnership();
+   if(!active||active.id!==this.tableTab||active.url!==capture.url||this.owned(active))throw Error('目标页面已变化');
+   if(this.tableConfirmation)await this.resolveTableConfirmation('cancel',this.tableConfirmation.token);
+   const token=crypto.randomUUID(),pending={token,tab:active.id,url:capture.url,capture:structuredClone(capture),name,format:name==='copy_table'?'clipboard':params.format||'xlsx'};
+   const [result]=await this.api.scripting.executeScript({target:{tabId:active.id},func:tableConfirmation,args:[{token,tables:capture.tables,index:capture.tables.indexOf(table),format:pending.format,all:name==='collect_table',url:capture.url,language:this.locale||'zh'}]});
+   pending.view=result.result;this.tableConfirmation=pending;await this.tableConfirmationChanged();return {confirmation:pending.view};
   }
   throw Error('未知表格命令');
+ }
+ async tableConfirmationChanged(){await this.api.runtime.sendMessage({type:'copilot.tables_changed'}).catch(()=>{});}
+ async resolveTableConfirmation(kind,token){
+  const pending=this.tableConfirmation;if(!pending||token!==pending.token)throw Error('确认已失效');
+  if(kind==='removed'||kind==='cancel'){this.tableConfirmation=null;try{await this.api.scripting.executeScript({target:{tabId:pending.tab},func:tableConfirmation,args:[{action:'cancel',token}]});}catch{}await this.tableConfirmationChanged();if(kind==='removed')void this.api.runtime.sendMessage({type:'copilot.table_notice',removed:true}).catch(()=>{});return {cancelled:true,removed:kind==='removed'};}
+  if(!['switch','confirm'].includes(kind))throw Error('invalid confirmation');
+  await this.refreshOwnership();const tab=await this.api.tabs.get(pending.tab);
+  if(this.owned(tab)||tab.url!==pending.url){await this.resolveTableConfirmation('cancel',token);throw Error('页面归属已变化');}
+  let result;try{[result]=await this.api.scripting.executeScript({target:{tabId:pending.tab},func:tableConfirmation,args:[{action:kind,token}]});}catch(error){await this.resolveTableConfirmation('cancel',token);throw error;}
+  const view=result.result;if(!view||view.token!==token)throw Error('目标已取消');
+  if(kind==='switch'){pending.view=view;await this.tableConfirmationChanged();return {confirmation:view};}
+  this.tableConfirmation=null;await this.tableConfirmationChanged();
+  const [fresh]=await this.api.scripting.executeScript({target:{tabId:pending.tab},func:captureTables});
+  const capture=pending.capture,table=capture.tables.find(row=>row.id===view.id);if(!table||!fresh.result.tables.some(row=>row.dom_path===table.dom_path&&JSON.stringify(row.headers)===JSON.stringify(table.headers)&&JSON.stringify(row.rows)===JSON.stringify(table.rows)))throw Error('目标表格已变化，请重新识别');
+  if(pending.name==='copy_table')return {clipboard:[table.headers,...table.rows.map(row=>row.map(cell=>cell.text))].map(row=>row.map(value=>value.replaceAll('\t',' ').replaceAll('\n',' ')).join('\t')).join('\n')};
+  if(pending.name==='save_table'){const result=await this.exportTable({name:table.name,site:new URL(capture.url).hostname,headers:table.headers,rows:table.rows,pages:1,partial:table.incomplete},pending.format);this.lastTableSaved={key:capture.url+'|'+table.id,result};await this.tableConfirmationChanged();return result;}
+  if(!this.tableJobs)throw Error('工作区尚未连接');const state=await this.request('state',{}),id=crypto.randomUUID();
+  void this.tableJobs.run(id,capture,table,state.table_config,true,table.pagination.totalPages||state.table_config.max_pages).catch(()=>{this.localJobs.set(id,{id,status:'failed',reason:'后台收集未完成，请核对连接与已保存部分'});void this.tableConfirmationChanged();});return {id};
  }
  owned(tab){return this.isWorkTab(tab.id)||this.workspaceWindows.has(tab.windowId);}
  async refreshOwnership(){
@@ -51,9 +73,11 @@ export class CopilotBackground {
  }
  async synchronize(){const state=await this.request('state',{});this.trace=(await this.api.storage.session.get('copilotTrace')).copilotTrace||[];this.rows=new Map(state.suggestions.map(row=>[row.id,row]));await this.settings(state);return state;}
  async settings(state){
+  this.locale=state.locale;this.boardName=state.board_name;this.hermesHealth=state.hermes_health;
   const started=!this.enabled&&state.enabled;this.protectedHosts=state.protected_hosts||this.protectedHosts||[];
   await this.refreshOwnership();
-  if(this.enabled&&!state.enabled){this.tableCaptures.clear();this.tableTab=null;}
+  if(this.enabled&&!state.enabled&&this.tableConfirmation)await this.resolveTableConfirmation('cancel',this.tableConfirmation.token);
+  if(this.enabled&&!state.enabled){this.tableCaptures.clear();this.tableTab=null;this.lastTableSaved=null;}
   this.enabled=state.enabled===true;this.showBall=state.show_ball!==false;this.selectionPopup=state.selection_popup!==false;
   const scripts=await this.api.scripting.getRegisteredContentScripts({ids:['copilot']});
   if(this.enabled&&!scripts.length)await this.api.scripting.registerContentScripts([{id:'copilot',matches:['http://*/*','https://*/*'],js:['copilot-entry.js'],runAt:'document_idle',allFrames:false,persistAcrossSessions:false}]);
@@ -103,6 +127,7 @@ export class CopilotBackground {
   for(let start=0,index=0;start<text.length;start+=40000,index++){const response=await this.request('browser_fetch_chunk',{id,index,text:text.slice(start,start+40000)});if(!response.accepted)return;}return this.request('browser_fetch_result',{id,data:{chunked:true}});
  }
  async notification(event){
+  if(event.type==='logs'){await this.api.runtime.sendMessage({type:'copilot.logs',event}).catch(()=>{});return;}
   if(event.type==='browser_fetch'){const enabled=this.enabled;const collect=['capability','capability_probe'].includes(event.kind)?(adapter,event,permitted)=>collectToolReport(adapter,event,permitted,params=>this.request('capability_progress',params)):collectBrowserData;void collect(this.dataAdapter,event,async()=>enabled&&this.enabled&&(await this.request('browser_fetch_status',{id:event.id})).allowed).then(data=>this.browserResult(event.id,data),()=>this.browserResult(event.id,{error:'background_data_unavailable'})).catch(()=>{});return;}
 
   if(event.type==='add'||event.type==='update'){const previous=this.rows.get(event.suggestion.id);this.rows.set(event.suggestion.id,event.suggestion);if(!this.panelPorts.size){if(event.type==='add'&&event.suggestion.status==='pending')this.suggestionsUnread.add(event.suggestion.id);if(event.suggestion.status==='completed'&&previous?.status!=='completed')this.unread.add(event.suggestion.id);}}
@@ -128,7 +153,10 @@ export class CopilotBackground {
    try{Promise.resolve(this.api.sidePanel.open({windowId:sender.tab?.windowId??(popup&&Number.isInteger(message.windowId)?message.windowId:undefined)})).then(()=>respond({result:{opened:true}}),()=>respond({result:{opened:false}}));}catch{respond({result:{opened:false}});}return true;
   }
   let work;
-  if(popup&&message.type==='copilot.popup_settings'&&typeof message.enabled==='boolean'){work=this.request('settings',{enabled:message.enabled}).then(async state=>{await this.settings(state);return {enabled:state.enabled};});}
+  if(content&&message.type==='copilot.table_confirmation_error'){work=this.api.runtime.sendMessage({type:'copilot.table_notice',failed:true});}
+  else if(content&&message.type==='copilot.table_confirmation'&&sender.tab.id===this.tableConfirmation?.tab){work=this.resolveTableConfirmation(message.kind,message.token);}
+  else if(panel&&message.type==='copilot.reconnect'){work=this.reconnectBridge().then(()=>this.request('state',{}));}
+  else   if(popup&&message.type==='copilot.popup_settings'&&typeof message.enabled==='boolean'){work=this.request('settings',{enabled:message.enabled}).then(async state=>{await this.settings(state);return {enabled:state.enabled};});}
   else if(content&&this.enabled&&message.type==='copilot.selection'){
    if(message.command==='open_capabilities'){try{void this.api.sidePanel.open({windowId:sender.tab.windowId});}catch{}}
     if(message.command==='open_cached'){try{void this.api.sidePanel.open({windowId:sender.tab.windowId});}catch{}}
@@ -142,7 +170,7 @@ export class CopilotBackground {
     if(message.command==='selection_error')return this.request('selection_context',{text:params.text});
     throw Error('unknown selection command');});
   }else if(content&&message.type==='copilot.tables'){
-   work=this.refreshOwnership().then(()=>{if(this.owned(sender.tab)||message.capture?.url!==sender.url)throw Error('页面范围已变化');this.tableCaptures.set(sender.tab.id,{...message.capture,incognito:!!sender.tab.incognito});if(sender.tab.active||this.tableTab===null)this.tableTab=sender.tab.id;void this.notification({type:'table_detected'});void this.api.runtime.sendMessage({type:'copilot.tables_changed'}).catch(()=>{});return {};});
+   work=this.refreshOwnership().then(()=>{if(this.owned(sender.tab)||message.capture?.url!==sender.url)throw Error('页面范围已变化');this.tableCaptures.set(sender.tab.id,{...message.capture,incognito:!!sender.tab.incognito});void this.request('log_client',{event:'table',tables:message.capture.tables.length,rows:message.capture.tables.reduce((count,table)=>count+table.rows.length,0)}).catch(()=>{});if(sender.tab.active||this.tableTab===null)this.tableTab=sender.tab.id;void this.notification({type:'table_detected'});void this.api.runtime.sendMessage({type:'copilot.tables_changed'}).catch(()=>{});return {};});
   }else if(panel&&message.type==='copilot.local')work=this.localCommand(message.command,message.params||{});
   else
   if(sender?.id===this.api.runtime.id&&Number.isInteger(sender.tab?.id)&&message.type==='copilot.collector_state')work=this.refreshOwnership().then(()=>this.api.storage.local.get('copilotBallPosition')).then(saved=>({enabled:this.enabled&&!this.owned(sender.tab),selection_popup:this.selectionPopup,show_ball:this.showBall,position:saved.copilotBallPosition,panel_open:this.panelPorts.size>0}));
@@ -152,9 +180,9 @@ export class CopilotBackground {
    this.queue=this.queue.catch(()=>{}).then(()=>this.observation(sender,message.page,message.description));work=this.queue;
   }else if(content&&this.enabled&&message.type==='copilot.mini')work=Promise.resolve({suggestions:[...this.rows.values()].filter(row=>row.status==='pending')});
   else if(content&&this.enabled&&message.type==='copilot.hide_ball')work=this.request('settings',{show_ball:false}).then(state=>this.settings(state));
-  else if(panel&&message.type==='copilot.command'&&['capability_state','capability_reload','capability_health','capability_discover','capability_bind','tool_learn_context','tool_draft','tool_save','locale','quick_task','selection_context','open_result','export_results','result','clear_read','batch','replenish','next_action','table_begin','table_append','table_finish','table_read','table_column_action','table_open','models','configure','state','settings','execute','ignore','stop','open_report','save_result','followup','retry','retry_inference'].includes(message.command)){
+  else if(panel&&message.type==='copilot.command'&&['preferences','logs_read','logs_clear','logs_export','log_client','capability_state','capability_reload','capability_health','capability_discover','capability_bind','tool_learn_context','tool_draft','tool_save','locale','quick_task','selection_context','open_result','export_results','result','clear_read','batch','replenish','next_action','table_begin','table_append','table_finish','table_read','table_column_action','table_open','models','configure','state','settings','execute','ignore','stop','open_report','save_result','followup','retry','retry_inference'].includes(message.command)){
    work=(message.command==='open_result'?this.localCommand('open_result',message.params||{}):this.request(message.command,message.params||{})).then(async state=>{
-    if(message.command==='settings')await this.settings(state);if(state.protected_hosts)this.protectedHosts=state.protected_hosts;
+    if(message.command==='settings'||message.command==='preferences')await this.settings(state);if(state.hermes_health)this.hermesHealth=state.hermes_health;if(state.protected_hosts)this.protectedHosts=state.protected_hosts;
     if(state.suggestions){this.rows=new Map(state.suggestions.map(row=>[row.id,row]));this.unread.clear();this.suggestionsUnread.clear();}
     return state;
    });

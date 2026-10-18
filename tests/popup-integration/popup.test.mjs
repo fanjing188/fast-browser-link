@@ -4,7 +4,9 @@ import { readFile } from 'node:fs/promises'
 import { JSDOM } from 'jsdom'
 
 const root = new URL('../../native-extension/', import.meta.url)
-const [html, script, cloudScript] = await Promise.all(['popup.html', 'popup.mjs', 'cloud-popup.mjs'].map(file => readFile(new URL(file, root), 'utf8')))
+const [html, popupModule, cloudScript, controlsModule] = await Promise.all(['popup.html', 'popup.mjs', 'cloud-popup.mjs', 'copilot-controls.mjs'].map(file => readFile(new URL(file, root), 'utf8')))
+// 中文注释：jsdom 的 eval 只执行经典脚本；把弹窗依赖的共享组件模块内联成同一作用域，行为与浏览器按模块加载一致。
+const script = '(()=>{' + controlsModule.replace(/^export (const|function) /gm, '$1 ') + '\n' + popupModule.replace(/^import \{[^}]*\} from '\.\/copilot-controls\.mjs';?\s*$/m, '') + '\n})()'
 
 async function mount(initial) {
   const dom = new JSDOM(html, { url: 'chrome-extension://test/popup.html', runScripts: 'outside-only' })
@@ -67,14 +69,14 @@ test('连接确认授予任务页直接访问，不再显示权限开关或二�
 test('连接前说明授权范围，一次连接点击即读取结果，不追加权限确认', async () => {
   const h = await mount({ connected: false, browserFullConsentStatus: 'enabled', tasks: [], tabs: [] })
   try {
-    assert.equal(h.document.querySelector('#connect').hidden, false)
+    assert.equal(h.document.querySelector('#local-connect').hidden, false)
     assert.match(h.document.querySelector('#access-detail').textContent, /^未连接/)
     assert.match(h.document.querySelector('#connection-detail').textContent, /确认连接.*允许.*直接.*任务页.*脚本/)
     assert.doesNotMatch(h.document.querySelector('#access-detail').textContent, /已连接|已授权/)
-    h.document.querySelector('#connect').click()
+    h.document.querySelector('#local-connect').click()
     await h.flush()
     assert.equal(h.document.querySelector('#connection-label').getAttribute('aria-label'), '本地已连接')
-    assert.equal(h.document.querySelector('#connect').hidden, true)
+    assert.equal(h.document.querySelector('#local-connect').hidden, true)
     assert.equal(h.calls.filter(call => call.type === 'connect').length, 1)
     assert.equal(h.calls.some(call => call.type === 'browser_consent'), false)
   } finally { h.dom.window.close() }
@@ -158,7 +160,7 @@ test('状态读取失败时显示未知并禁用页面控制', async () => {
   assert.equal(h.document.querySelector('#connection-label').getAttribute('aria-label'),'状态待确认')
   assert.match(h.document.querySelector('#access-detail').textContent,/状态待确认/)
   assert.doesNotMatch(h.document.querySelector('#access-detail').textContent,/已连接|已授权|可由 Fast-browser-link 直接访问/)
-  assert.equal(h.document.querySelector('#connect').hidden,false)
+  assert.equal(h.document.querySelector('#local-connect').hidden,false)
   assert.equal(h.document.querySelector('#page-task').hidden,true)
   h.dom.window.close()
 })

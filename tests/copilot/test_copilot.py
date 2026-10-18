@@ -89,12 +89,11 @@ class CopilotTest(unittest.TestCase):
         self.assertIs(process,self.module.runtime.process);wait_for(lambda:any(event['type']=='progress' for _,event in self.messages))
         self.assertEqual(first['tokens'],23)
 
-    def test_weighted_channels_result_actions_and_completed_suppression(self):
-        from copilot_usage import stream_metrics,weighted
+    def test_usage_channels_result_actions_and_completed_suppression(self):
+        from copilot_usage import stream_metrics
         usage={'input':100,'cache_read':1000,'output':20}
         metrics=stream_metrics({'tokens':usage})
         self.assertEqual(metrics['tokens'],1120);self.assertFalse(metrics['estimated'])
-        self.assertEqual(weighted(usage,.1),220)
         before=self.module.daily['usage'].copy()
         self.module._account('browser',metrics)
         for key in usage:self.assertEqual(self.module.view('browser')['daily_usage'][key],before[key]+usage[key])
@@ -114,16 +113,11 @@ class CopilotTest(unittest.TestCase):
         self.assertFalse(any(r['status']=='pending' and r['action']==row['action'] for r in self.state['suggestions'].values()))
         self.module.request('browser','followup',{'id':row['id'],'action':'seo.longtail'})
         self.assertTrue(any(r['action']=='seo.longtail' and r['status']=='pending' for r in self.state['suggestions'].values()))
-        self.module.config['daily_token_budget']=int(weighted(self.module.daily['usage'],.1))+1
-        self.assertTrue(self.module._budget_available(self.state))
-        self.module._account('browser',stream_metrics({'tokens':{'input':0,'cache_read':10,'output':0}}))
-        self.assertFalse(self.module._budget_available(self.state))
-
     def test_configure_persist_next_turn_model_and_execution_usage(self):
         self.infer('first')
         row=next(iter(self.state['suggestions'].values()))
         selected='openai-codex:gpt-6.1-sol';execution='openai-codex:gpt-5.6-luna'
-        saved=self.module.request('browser','configure',{'inference_model':selected,'exec_model':execution,'mode':'custom','max_parallel':1,'daily_token_budget':200000,'context_limit':7000,'turn_multiplier':2})
+        saved=self.module.request('browser','configure',{'inference_model':selected,'exec_model':execution,'mode':'custom','max_parallel':1,'context_limit':7000,'turn_multiplier':2})
         self.assertTrue(saved['settings_saved']);self.assertEqual(saved['config']['inference_model'],selected)
         self.assertEqual(json.loads((self.directory/'config.json').read_text())['exec_model'],execution)
         self.infer('second')
@@ -228,12 +222,33 @@ class CopilotTest(unittest.TestCase):
         self.assertFalse(self.state['ready'])
         self.assertEqual(self.state['diagnostic'],'acp_start_blocked')
 
-    def test_idle_pause_auto_close_and_daily_budget(self):
+    def test_idle_pause_and_auto_close(self):
         self.now[0]+=180;self.module.tick();self.assertTrue(self.state['idle_paused'])
         self.observe('first');self.assertFalse(self.state['idle_paused']);wait_for(lambda:not self.state['running'])
-        self.module.daily['usage']={'input':self.config['daily_token_budget'],'cache_read':0,'output':0};count=len(self.state['input_metrics']);self.observe('second');time.sleep(.05)
-        self.assertEqual(count,len(self.state['input_metrics']))
         self.now[0]+=1800;process=self.module.runtime.process;self.module.tick();self.assertFalse(self.state['enabled']);wait_for(lambda:process.poll() is not None)
+
+    def test_configuration_keeps_running_execution_snapshot_and_process(self):
+        self.infer('before-config');row=next(iter(self.state['suggestions'].values()));entered=threading.Event();release=threading.Event();captured=[]
+        original=self.module.executions.run;process=self.module.runtime.process
+        def held(*args,**kwargs):
+            captured.append(args[1]);entered.set();self.assertTrue(release.wait(3));return original(*args,**kwargs)
+        with patch.object(self.module.executions,'run',side_effect=held):
+            self.module.request('browser','execute',{'id':row['id']});self.assertTrue(entered.wait(3))
+            self.module.request('browser','configure',{'exec_model':'example:new-model','max_parallel':1,'turn_multiplier':2})
+            self.assertEqual(row['status'],'executing');self.assertIs(self.module.runtime.process,process);self.assertIn('fixture-small',captured[0]);self.assertNotIn('example:new-model',captured[0])
+            release.set();wait_for(lambda:row['status']=='completed')
+        self.assertEqual(self.module.config['exec_model'],'example:new-model');self.assertIs(self.module.runtime.process,process)
+
+    def test_large_usage_never_pauses_inference_or_execution(self):
+        self.module.daily['usage']={'input':10**9,'cache_read':10**9,'output':10**9}
+        self.module.daily['tokens']=3*10**9
+        count=len(self.state['input_metrics']);self.infer('large-usage')
+        self.assertGreater(len(self.state['input_metrics']),count)
+        row=next(iter(self.state['suggestions'].values()))
+        self.module.request('browser','execute',{'id':row['id']});wait_for(lambda:row['status']=='completed')
+        view=self.module.view('browser');self.assertTrue(view['enabled']);self.assertIsNone(view['diagnostic'])
+        self.assertFalse(hasattr(self.module,'_budget_available'))
+        for key in ('daily_budget','daily_spend','cache_weight'):self.assertNotIn(key,view)
 
     def test_cache_and_save_pool_never_spawn_execution(self):
         self.infer('first');row=next(iter(self.state['suggestions'].values()));result={'summary':'cached','keywords':[{'keyword':'sample keyword'}]}
@@ -294,7 +309,7 @@ class CopilotTest(unittest.TestCase):
         with self.assertRaises(ValueError):validate({'keyword':'x','command':'bad'},self.module.templates.get('seo.keyword_check')['params_schema'])
         config=(self.directory/'config.json').read_text();setup(self.directory);self.assertEqual(config,(self.directory/'config.json').read_text())
         self.assertEqual(os.stat(self.directory/'templates/seo.keyword_check.json').st_mode&0o777,0o600)
-        self.observe('first');logs=self.directory/'logs';old=logs/((date.today()-timedelta(days=7)).isoformat()+'.jsonl');old.write_text('fixture');self.observe('next');self.assertFalse(old.exists())
+        self.observe('first');self.module.journal.flush();logs=self.directory/'logs';old=logs/((date.today()-timedelta(days=7)).isoformat()+'.jsonl');old.write_text('fixture');self.observe('next');self.module.journal.flush();self.assertFalse(old.exists())
         from daemon import BridgeDaemon,ProtocolError
         daemon=BridgeDaemon(self.directory/'home');extension={'instanceId':'fixture'};daemon.extensions['fixture']=extension
         self.assertFalse(daemon._dispatch_connected_extension(extension,'extension.copilot.state',{})['enabled'])
@@ -372,7 +387,7 @@ class ProfileSetupTest(unittest.TestCase):
         module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
         with tempfile.TemporaryDirectory() as temporary:
             root=Path(temporary).resolve()
-            existing=root/'profiles/gefei';existing.mkdir(parents=True);sentinel=existing/'config.yaml';sentinel.write_text('user-owned')
+            existing=root/'profiles/existing-profile';existing.mkdir(parents=True);sentinel=existing/'config.yaml';sentinel.write_text('user-owned')
             fake=root/'hermes'
             fake.write_text('#!/usr/bin/env python3\nimport os,sys\nfrom pathlib import Path\nassert sys.argv[1:]==["profile","create","copilot","--no-alias","--no-skills"]\n(Path(os.environ["HERMES_HOME"])/"profiles/copilot").mkdir()\n')
             fake.chmod(0o700)

@@ -1,4 +1,4 @@
-"""统一用量口径：输入不含缓存读；预算对缓存读加权。"""
+"""统一用量口径：输入不含缓存读，三类token仅用于信息统计。"""
 
 
 def counts(input_tokens=0,cache_read_tokens=0,output_tokens=0):
@@ -14,10 +14,6 @@ def from_metrics(metrics):
 
 def add(target,usage):
     for key in ('input','cache_read','output'):target[key]=target.get(key,0)+usage[key]
-
-
-def weighted(usage,weight):
-    return usage.get('input',0)+usage.get('output',0)+usage.get('cache_read',0)*weight
 
 
 def stream_metrics(event,result_bytes=0,seconds=0):

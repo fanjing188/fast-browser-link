@@ -20,7 +20,7 @@ v1包增加 `capabilities`、`flows`、可选 `schemas`、`experience_file`、`f
 
 - `command`：argv、超时、JSON/CSV输出、必需路径、部分成功退出码、停用文本/退出码。stdin为JSON，支持本轮工作目录的input_json/input_csv/keywords_file/output_csv/output_json/work_dir占位符。不经shell；数据不能成为命令选项或插入解释器代码。
 - `browser`：画像tool/page/link、`verified`、浏览器限制、页数上限、停用条件。只打开画像主机，用可见表格及字段映射取数；同报表路径继承地址中未被模板覆盖的筛选参数。不确认链接就不可用。可用 `plan_argv` 生成本机查询计划，但不提交RPC，也不将待核链接自动升级为有效。
-- `hermes`：需要显式oneshot设置的工具后备；轮数受限，仍走正常授权。ACP-only模式或模型预算用尽时不可用。受保护来源必须持有能力租约；Agent结果仅作未核实候选，不充当精确指标或权威SERP判档证据。
+- `hermes`：需要显式oneshot设置的工具后备；轮数受限，仍走正常授权。ACP-only模式时不可用。受保护来源必须持有能力租约；Agent结果仅作未核实候选，不充当精确指标或权威SERP判档证据。
 
 默认按priority升序，当前识别工具中可调用的绑定优先。缺项/失败可降级，已有优先精确字段不被覆盖。`serial_group` 文件锁覆盖工作流线程/进程及体检；同工具浏览器绑定必须同组。旧协作通用任务没有有效能力租约时，不能进入受保护来源。其他独立程序也须主动采用同一锁；协作不会修改它们或接管会话。
 

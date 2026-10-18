@@ -1,3 +1,4 @@
+import {mountControls,boardName,renderConnection} from '../../native-extension/copilot-controls.mjs';
 import {taskTableAdapter} from '../../native-extension/copilot-table-job.mjs';
 import {CopilotBackground} from '../../native-extension/copilot-background.mjs';
 import {CloudLink} from '../support/cloud-link-stub.mjs';
@@ -52,7 +53,7 @@ async function harness(initialStorage={},manifestVersion=packageVersion){
  }
  class TestWorkspaces{constructor(){this.manager={reconcile:async()=>{}};}async status(){return [];}}
  const event={addListener(){}};const storage=clone(initialStorage);const api={
-  runtime:{id:'test',getManifest:()=>({version:manifestVersion}),onMessage:{addListener:f=>dispatch=f},connectNative:()=>port,sendMessage:async()=>({})},
+  runtime:{id:'test',getURL:path=>'chrome-extension://test/'+path,getManifest:()=>({version:manifestVersion}),onMessage:{addListener:f=>dispatch=f},connectNative:()=>port,sendMessage:async()=>({})},
   storage:{session:{get:async()=>({instanceId:'test-instance'}),set:async()=>{}},local:{get:async()=>clone(storage),set:async v=>Object.assign(storage,v)}},
   notifications:{onClicked:event},
   alarms:{create(){},onAlarm:event},tabs:{onCreated:event,onRemoved:event,onUpdated:event,query:async()=>[{id:7,url:'https://example.test/work',title:'工作页'}],get:async()=>({id:7,url:'https://example.test/work'})},debugger:{onDetach:event}
@@ -64,7 +65,7 @@ async function harness(initialStorage={},manifestVersion=packageVersion){
  const send=m=>new Promise(resolve=>{popupCalls.push(clone(m));assert.equal(dispatch(m,sender,resolve),true);});
  const dom=new JSDOM(html,{url:sender.url,runScripts:'outside-only',pretendToBeVisual:true});
  dom.window.chrome={i18n:{getUILanguage:()=> 'zh-CN'},tabs:api.tabs,runtime:{getManifest:api.runtime.getManifest,sendMessage:send,onMessage:{addListener(){}}}};dom.window.setInterval=f=>{poll=f;return 1;};dom.window.clearInterval=()=>{};
- dom.window.eval(popup);await flush();
+ Object.assign(dom.window,{mountControls,boardName,renderConnection});dom.window.eval(popup.replace(/^import .*;\n/gm,''));await flush();
  const d=dom.window.document;
  const click=async selector=>{const b=d.querySelector(selector);assert.ok(b,selector);assert.equal(b.disabled,false,selector);b.click();await flush();};
  return {dom,d,click,send,flush,storage,api,poll:async()=>{await poll();await flush();},nativeCalls,popupCalls,dispatch,executor,queue:(nonce='nonce-real-routing')=>{queue=[{taskId:task.id,nonce,digest:'digest-real-routing',request:{action:'click',tabId:7,selector:'#save'}}];},reset:()=>{task={...seed(),generation:4};executor.tasks.clear();executor.leases.clear();}};
@@ -137,5 +138,12 @@ test('automatic popup audit rejection stops the exact task and releases overlays
   assert.equal(h.nativeCalls.filter(call=>call.method==='extension.popup_adopted').length,1);
   const stopped=h.nativeCalls.filter(call=>call.method==='extension.stop');assert.equal(stopped.length,1);
   assert.deepEqual(stopped[0].params,{taskId:task.id,generation:task.generation});
+ }finally{h.dom.window.close();}
+});
+
+test('侧栏仅有连接摘要只读入口，网页不能读取或借此调用模型/配对',async()=>{
+ const h=await harness();try{const count=h.nativeCalls.length;let result;
+ assert.equal(h.dispatch({type:'copilot.connections'},{id:'test',url:'chrome-extension://test/copilot-panel.html'},value=>{result=value;}),false);assert.ok(Object.hasOwn(result.result,'cloud'));assert.equal(h.nativeCalls.length,count);
+ for(const url of ['https://example.test/','chrome-extension://test/unrelated.html']){let called=false;assert.equal(h.dispatch({type:'copilot.connections'},{id:'test',url,tab:{id:9}},()=>{called=true;}),false);assert.equal(called,false);}assert.equal(h.nativeCalls.length,count);
  }finally{h.dom.window.close();}
 });

@@ -1,23 +1,23 @@
 export class TablePanel{
- constructor(doc,request){this.doc=doc;this.request=request;this.saved=new Map();this.columns=new Map();this.confirmed=new Set();this.limit=50;}
- async refresh(){try{this.state=await this.request('table_state');this.render();}catch{this.doc.getElementById('table-tools').textContent='表格连接未就绪，请刷新侧栏。';}}
+ constructor(doc,request){doc.addEventListener('keydown',event=>{if(event.key==='Escape'&&this.state?.confirmation)void request('confirm_table',{kind:'cancel',token:this.state.confirmation.token}).then(()=>this.refresh());});this.doc=doc;this.request=request;this.saved=new Map();this.columns=new Map();}
+ async refresh(){try{this.state=await this.request('table_state');if(this.state.saved){const {key,result}=this.state.saved;this.saved.set(key,result);}this.render();}catch{this.doc.getElementById('table-tools').textContent='表格连接未就绪，请刷新侧栏。';}}
  render(){
   const doc=this.doc,root=doc.getElementById('table-tools');root.replaceChildren();for(const job of doc.querySelectorAll('.table-job,.local-table-error'))job.remove();
   const node=(tag,text)=>{const el=doc.createElement(tag);el.textContent=text;return el;};
   const button=(label,work)=>{const el=node('button',label);el.type='button';el.onclick=async()=>{el.disabled=true;try{await work();}catch{doc.getElementById('notice').textContent='表格操作未完成，请检查本机桥、导出目录和工作页状态。';}finally{el.disabled=false;}};return el;};
   root.append(button('识别当前表格',async()=>{this.state=await this.request('recognize_tables');this.render();}));
+  const live=doc.getElementById('table-confirmation-live')||root;if(live!==root)live.replaceChildren();
+  const confirmation=this.state?.confirmation;
+  if(confirmation){const card=doc.createElement('section');card.className='confirmation-card';card.append(node('strong',confirmation.name),node('p',`${confirmation.headers.length} 列（${confirmation.headers.slice(0,4).join(' / ')}） · ${confirmation.rows} 行 · ${confirmation.pages||'?'} 页 · ${confirmation.format}`));if(confirmation.all)card.append(node('p',`将在后台打开同一页面收集 ${confirmation.pages||'?'} 页（最多200页）`));for(const [label,kind] of [['确认保存','confirm'],['取消','cancel'],['换一个表格','switch']])if(kind!=='switch'||confirmation.candidate_count>1)card.append(button(label,async()=>{const value=await this.request('confirm_table',{kind,token:confirmation.token});if(value.clipboard)await doc.defaultView.navigator.clipboard.writeText(value.clipboard);if(value.files){this.saved.set(confirmation.url+'|'+confirmation.id,value);doc.getElementById('notice').textContent='已保存：'+value.files.map(file=>file.path).join('；');}await this.refresh();}));live.append(card);}
   const capture=this.state?.capture;
   for(const table of capture?.tables||[]){
    const section=doc.createElement('section');section.className='table-strip';section.append(node('strong',table.name),node('p',`${table.headers.length} 列 · 已识别 ${table.rows.length} 行${table.incomplete?' · 可能不完整':''}`));
    const pager=table.pagination;section.append(node('p',`${pager.totalPages?'共 '+pager.totalPages+' 页':'页数未知'}${pager.totalRows?' · 约 '+pager.totalRows+' 行':''}`));
    const key=capture.url+'|'+table.id;
-   const save=async format=>{const result=await this.request('save_table',{id:table.id,format});this.saved.set(key,result);doc.getElementById('notice').textContent='已保存：'+result.files.map(file=>file.path).join('；');this.render();};
-   section.append(button('保存为 Excel',()=>save('xlsx')),button('保存为 CSV',()=>save('csv')),button('复制为表格',async()=>{const lines=[table.headers,...table.rows.map(row=>row.map(cell=>cell.text))];await navigator.clipboard.writeText(lines.map(row=>row.map(value=>value.replaceAll('\t',' ').replaceAll('\n',' ')).join('\t')).join('\n'));doc.getElementById('notice').textContent='已复制表格';}));
+   const save=async format=>{await this.request('save_table',{id:table.id,format});await this.refresh();};
+   section.append(button('保存为 Excel',()=>save('xlsx')),button('保存为 CSV',()=>save('csv')),button('复制为表格',async()=>{await this.request('copy_table',{id:table.id});await this.refresh();}));
    if(table.incomplete){const suggest=node('p',`保存全部${pager.totalPages?' '+pager.totalPages+' 页':''}为 Excel · ${pager.totalPages?'预计至少 '+Math.ceil(pager.totalPages*1.5)+' 秒':'耗时取决于页数和加载速度'}`);section.append(suggest,node('p','后台页面与当前页面筛选可能不同；仅保留地址中的筛选参数。'));
-    section.append(button(this.confirmed.has(key+'|'+pager.totalPages+'|'+this.limit)?'确认保存全部':'保存全部',async()=>{
-     const state=await this.request('configuration');this.limit=state.table_config?.max_pages||50;if((pager.totalPages||0)>(state.table_config?.max_pages||50)&&!this.confirmed.has(key+'|'+pager.totalPages+'|'+this.limit)){this.confirmed.add(key+'|'+pager.totalPages+'|'+this.limit);this.render();doc.getElementById('notice').textContent='超过页数上限，再次点击将确认收集（最多200页）';return;}
-     await this.request('collect_table',{id:table.id,confirmed:this.confirmed.has(key+'|'+pager.totalPages+'|'+this.limit),approved_limit:pager.totalPages||0});await this.refresh();
-    }),button('只存当前页',()=>save('xlsx')));
+    section.append(button('保存全部',async()=>{await this.request('collect_table',{id:table.id});await this.refresh();}),button('只存当前页',()=>save('xlsx')));
    }
    const saved=this.saved.get(key);
    if(saved){for(const file of saved.files){section.append(node('p',file.path),button('打开文件',()=>this.request('table_open',{id:file.id})),button('打开所在文件夹',()=>this.request('table_open',{id:file.id,folder:true})));}

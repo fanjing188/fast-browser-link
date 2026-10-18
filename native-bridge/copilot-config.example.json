@@ -1,4 +1,5 @@
 {
+  "board_name": "",
   "$comment": "先用 scripts/setup-copilot-profile.sh 分别新建 copilot 与 --profile copilot-exec；已有配置不自动覆盖。",
   "inference_profile": "copilot",
   "exec_profile": "copilot-exec",
@@ -11,12 +12,10 @@
   "min_interval": 5,
   "idle_pause_seconds": 180,
   "idle_close_seconds": 1800,
-  "daily_token_budget": 100000,
   "max_turns": 30,
   "exec_model": "",
   "timeout_seconds": 180,
   "show_ball": true,
-  "cache_weight": 0.1,
   "mode": "balanced",
   "turn_multiplier": 1,
   "exec_transport": "acp",

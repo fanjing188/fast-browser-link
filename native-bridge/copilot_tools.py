@@ -22,7 +22,7 @@ class ToolSupport:
         self.registry=Registry(self.packages,self.directory,private_write,validate,self._cap_browser,self._cap_hermes);self.workflow_runner=Workflows(self.registry);self.tool_health_running=False;self.tool_drafts={};self.resource_tasks={}
 
     def _tool_context(self,instance):
-        state=self._state(instance);context={**state.get('page_context',{}),'language':state['locale'],'hermes':self.config['exec_transport']=='oneshot' and self._budget_available(state),'instance':instance,'epoch':state['epoch']}
+        state=self._state(instance);context={**state.get('page_context',{}),'language':state['locale'],'hermes':self.config['exec_transport']=='oneshot','instance':instance,'epoch':state['epoch']}
         context['url']=context.get('url') or state['page'].get('url','');return context
 
     def _reload_tools(self):
@@ -71,8 +71,8 @@ class ToolSupport:
         return output
 
     def _cap_hermes(self,binding,inputs,work,stop,context):
-        if self.config['exec_transport']!='oneshot':raise ValueError('explicit oneshot fallback required')
-        if not self._budget_available(self._state(context['instance'])):raise ValueError('model budget unavailable')
+        selected=context.get('execution_config',self.config)
+        if selected['exec_transport']!='oneshot':raise ValueError('explicit oneshot fallback required')
         from copilot import private_write,parse_model_json
         from copilot_execution import execution_argv
         schema=self.registry.schemas[context['capability']]['output']
@@ -80,7 +80,7 @@ class ToolSupport:
         private_write(work/'query.txt',json.dumps(brief,ensure_ascii=False));template={'toolsets':['fast-browser-link','web','terminal','file'],'max_turns':binding.get('max_turns',3)}
         import uuid
         resource_id=uuid.uuid4().hex;self.browser_fetches[resource_id]={'instance':context['instance'],'epoch':context['epoch'],'resource':binding.get('serial_group'),'job_key':context['job_key']}
-        config={**self.config,'copilot_resource_token':resource_id,'turn_multiplier':1}
+        config={**selected,'copilot_resource_token':resource_id,'turn_multiplier':1}
         try:
             result,metrics=self.executions.run(context['job_key']+':fallback',execution_argv(config,template,'Fast-browser-link ·能力后备',work/'query.txt'),work/'result.json',env_extra={'FAST_BROWSER_COPILOT_RESOURCE_TOKEN':resource_id})
             with self.lock:self._account(context['instance'],metrics,self._state(context['instance'])['suggestions'].get(context.get('row_id')))
@@ -100,10 +100,10 @@ class ToolSupport:
             self.browser_fetches.pop(resource_id,None);self.resource_tasks={task:lease for task,lease in self.resource_tasks.items() if lease!=resource_id}
 
 
-    def _tool_model(self,instance,row,payload,stop):
+    def _tool_model(self,instance,row,payload,stop,execution_config=None):
         from copilot import private_write,parse_model_json,validate
         with self.lock:
-            if stop.is_set() or not self._budget_available(self._state(instance)) or not self._valid(instance,self._state(instance)['epoch']):raise ValueError('judgment unavailable')
+            if stop.is_set() or not self._valid(instance,self._state(instance)['epoch']):raise ValueError('judgment unavailable')
         schema=DECISION
         semantic=[{'key':record.get('keyword') or record.get('url') or record.get('domain'),**{field:value for field,value in record.items() if field in {'keyword','url','domain','title','intent_tool','excluded','host_duplicate'}}} for record in payload.get('records',[])]
         payload={**payload,'records':semantic}
@@ -111,8 +111,9 @@ class ToolSupport:
         if len(json.dumps(brief).encode())>131072:raise ValueError('judgment context too large')
         work=self.directory/'tasks'/(row['id']+'-judgment');work.mkdir(parents=True,exist_ok=True,mode=0o700)
         if self.acp_executions is None or self.acp_executions.closed:self.acp_executions=ACPExecutions(self.config,self.directory,lambda _:None)
+        self.journal.add(instance,'execute_step',task_id=row['id'],phase='judgment')
         try:
-            result,metrics=self.acp_executions.run(instance+':'+row['id']+':judgment',brief,work/'result.json',parse_model_json,private_write,selected_model=self.config['inference_model'] or self.runtime.active_model)
+            result,metrics=self.acp_executions.run(instance+':'+row['id']+':judgment',brief,work/'result.json',parse_model_json,private_write,selected_model=(execution_config or self.config)['inference_model'] or self.runtime.active_model)
         except RuntimeError as error:
             if getattr(error,'metrics',None):
                 with self.lock:self._account(instance,error.metrics,row)
@@ -174,7 +175,10 @@ class ToolSupport:
             pending=self.browser_fetches.get(params.get('id'))
             if not pending or pending['instance']!=instance or pending['epoch']!=state['epoch']:raise ValueError('stale progress')
             row=state['suggestions'].get(pending.get('row_id'))
-            if row and isinstance(params.get('text'),str) and len(params['text'])<=100:row['step']=row.get('workflow_step','')+' · '+params['text'];self._emit(instance,'update',suggestion=dict(row))
+            if row and isinstance(params.get('text'),str) and len(params['text'])<=100:
+                row['step']=row.get('workflow_step','')+' · '+params['text'];self._emit(instance,'update',suggestion=dict(row))
+                page=re.search(r'page (\d+)',params['text'])
+                if page:self.journal.add(instance,'execute_step',task_id=row['id'],phase='browser',page=int(page[1]))
             return {'accepted':True}
         if method=='capability_focus':state['capability_focus']=state.get('capability_focus',0)+1;self._emit(instance,'capabilities');return self.view(instance)
         if method=='capability_context':
@@ -237,7 +241,7 @@ class ToolSupport:
     def _draft_profile(self,instance,context):
         from copilot import private_write,parse_model_json,validate
         state=self._state(instance)
-        if not state['ready'] or not self._budget_available(state):raise ValueError('inference model not ready or budget exhausted')
+        if not state['ready']:raise ValueError('inference model not ready')
         work=self.directory/'tasks'/('tool-draft-'+hashlib.sha256(str(time.time()).encode()).hexdigest()[:12]);work.mkdir(parents=True,mode=0o700)
         brief={'action':'tool.draft','single_judgment':True,'language':state['locale'],'params':context,'prompt':('只依据host、路径、标题、列名起草只读工具画像。不编造可用链接；没有直接证据时links留空，不写凭据、脚本或写操作。必须由用户审阅后单独确认保存。' if state['locale']=='zh' else 'Draft a read-only profile from host/path/title/columns only. Do not invent routes; keep unknown links empty. No credentials, scripts or writes. User review and separate save are required.'),'result_schema':PROFILE}
         if self.acp_executions is None or self.acp_executions.closed:self.acp_executions=ACPExecutions(self.config,self.directory,lambda _:None)
@@ -254,16 +258,17 @@ class ToolSupport:
             if not isinstance(value,str) or urlsplit(value).hostname!=context['host'] or urlsplit(value).scheme not in {'http','https'} or urlsplit(value).username or urlsplit(value).password:raise ValueError('unsafe draft link')
         return result
 
-    def _execute_workflow(self,instance,row,epoch):
+    def _execute_workflow(self,instance,row,epoch,execution_config):
         from copilot import private_write
         from copilot_results import report
-        context={**self._tool_context(instance),**row.get('page_context',{}),'job_key':instance+':'+row['id'],'row_id':row['id']};work=self.directory/'tasks'/('workflow-'+row['id']+'-'+str(int(time.time()*1000)))
+        context={**self._tool_context(instance),**row.get('page_context',{}),'job_key':instance+':'+row['id'],'row_id':row['id'],'execution_config':execution_config,'hermes':execution_config['exec_transport']=='oneshot'};work=self.directory/'tasks'/('workflow-'+row['id']+'-'+str(int(time.time()*1000)))
         def progress(event):
             with self.lock:
                 if event.get('step'):row['step']=event['step'];row['workflow_step']=event['step']
                 elif event.get('provider'):row['step']=str(row.get('step',''))[:180]+' · '+event['provider']+((' · batch '+str(event['batch'])) if event.get('batch') else '')
                 self._state(instance)['last_work_activity']=self.clock();self._emit(instance,'update',suggestion=dict(row))
-        result,stopped=self.workflow_runner.run(context['job_key'],row['params']['flow'],row['params']['object'],context,work,lambda payload,stop:self._tool_model(instance,row,payload,stop),progress)
+                if event.get('provider'):self.journal.add(instance,'execute_step',task_id=row['id'],provider=event['provider'],capability=event.get('capability',''),phase=event.get('implementation','fetch'),batch=event.get('batch',0),steps=event.get('completed_steps',0))
+        result,stopped=self.workflow_runner.run(context['job_key'],row['params']['flow'],row['params']['object'],context,work,lambda payload,stop:self._tool_model(instance,row,payload,stop,execution_config),progress)
         if stopped or row['status']=='stopping' or not self._valid(instance,epoch):
             path=self._report_path(row['id']);private_write(path,report(result,row['title']))
             with self.lock:row.update(status='stopped',result=result,report=str(path),finished_at=time.time());self._emit(instance,'update',suggestion=dict(row))

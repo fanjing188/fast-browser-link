@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 from copilot_acp import ACP, ACPError
-from copilot_usage import counts,from_metrics,add,weighted
+from copilot_journal import Journal
+from copilot_health import health
+from copilot_usage import counts,from_metrics,add
 from copilot_exec_acp import ACPExecutions,compact_memory
 from copilot_fetch import Fetcher
 from copilot_tables import TableStore
@@ -30,9 +32,9 @@ import unicodedata
 from datetime import date, timedelta
 from urllib.parse import urlsplit
 
-DEFAULTS = {"inference_profile": "copilot", "exec_profile": "copilot-exec", "report_dir": "reports", "pool_command": [],
+DEFAULTS = {"board_name":"", "inference_profile": "copilot", "exec_profile": "copilot-exec", "report_dir": "reports", "pool_command": [],
             "max_parallel": 3, "enabled": False, "inference_model": "", "context_limit": 6000, "min_interval": 5,
-            "idle_pause_seconds": 180, "idle_close_seconds": 1800, "daily_token_budget": 100000, "cache_weight": 0.1,
+            "idle_pause_seconds": 180, "idle_close_seconds": 1800,
             "max_turns": 30, "exec_model": "", "mode":"balanced", "turn_multiplier":1, "settings_saved":False, "exec_transport":"acp", "fetch_commands":{}, "fetch_dir":"", "table_export_dir":str(Path.home()/'Downloads/fast-browser-link'), "table_max_pages":50,"table_delay_min":1.5,"table_delay_max":3,
             "timeout_seconds": 180, "show_ball": True, "selection_popup":True, "extension_dirs":[], "pool_lookup_command":[], "skill_roots":[]}
 SEO_ACTIONS = {"seo.keyword_check", "seo.competitor_keywords", "seo.longtail", "seo.serp_breakdown", "seo.save_pool", "seo.trends", "seo.ranking_sites", "seo.top_pages", "seo.domain_rating", "workflow.run"}
@@ -176,7 +178,7 @@ def parse_model_json(text):
 def model_json_prompt(runtime,prompt,on_usage=lambda _:None,should_continue=lambda:True):
     metrics=[]
     for attempt in range(2):
-        if not should_continue():raise ACPError('inference stopped or budget exhausted')
+        if not should_continue():raise ACPError('inference stopped')
         text,usage=runtime.prompt(prompt if attempt==0 else '上一条输出无法按约定解析。请按上一条要求重新返回完整且严格的JSON对象，不要代码块或额外文字。')
         on_usage(usage)
         metrics.append(usage)
@@ -205,11 +207,10 @@ class Copilot(ToolSupport):
         self.config = {**DEFAULTS, **(json.loads(path.read_text()) if path.exists() else {})}
         self.silent_token=uuid.uuid4().hex
         self.config['copilot_silent_token']=self.silent_token
+        for key in ('daily_token_budget','cache_weight'):self.config.pop(key,None)
         for key, lower, upper in [('max_turns',1,1000)]:
             if type(self.config[key]) is not int or not lower <= self.config[key] <= upper:
                 raise ValueError('invalid copilot config: '+key)
-        if not isinstance(self.config['cache_weight'],(int,float)) or not 0<=self.config['cache_weight']<=10:
-            raise ValueError('invalid cache_weight')
         validate_settings({key:self.config[key] for key in SETTING_KEYS})
         if not isinstance(self.config['fetch_commands'],dict) or not isinstance(self.config['fetch_dir'],str):raise ValueError('invalid fetch configuration')
         self.tables=TableStore(self.directory,self.config,private_write)
@@ -250,14 +251,16 @@ class Copilot(ToolSupport):
         if 'models' not in self.daily:self.daily['models']={'unknown':dict(self.daily['usage'])} if sum(self.daily['usage'].values()) else {}
         self.notifications = queue.Queue(maxsize=256)
         self.worker = threading.Thread(target=self._notify_loop,daemon=True)
-        self.worker.start()
         self.housekeeping = threading.Event()
         self.monitor = threading.Thread(target=self._monitor,daemon=True)
+        self.log_tasks={};self.log_connections={}
+        self.journal=Journal(self.directory,private_write,self._journal_batch)
+        self.worker.start()
         self.monitor.start()
 
     def _state(self, instance):
         if instance not in self.states:
-            self.states[instance] = {'enabled':False,'show_ball':self.config['show_ball'],'selection_popup':True,'locale':'zh','page_context':{},'selection_text':'','selected_object':'','tool_context':{},'focused_result':None,'ready':False,
+            self.states[instance] = {'enabled':False,'show_ball':self.config['show_ball'],'selection_popup':self.config['selection_popup'],'locale':'zh','page_context':{},'selection_text':'','selected_object':'','tool_context':{},'focused_result':None,'ready':False,
                 'trace':[],'page':{},'sent_tool_context':{},'sent_trace':[],'sent_page':{},'sent_status':{},'suggestions':{},'timer':None,
                 'running':False,'dirty':False,'last_refresh':None,'last_inference':float('-inf'),
                 'last_work_activity':None,'last_activity':self.clock(),'page_since':self.clock(),'dwell_sent':False,'idle_paused':False,
@@ -275,6 +278,47 @@ class Copilot(ToolSupport):
             except (OSError, KeyError, RuntimeError):
                 pass
 
+    def _journal_batch(self,instance,value):
+        with self.lock:
+            if instance is not None:self._emit(instance,'logs',log_revision=value['revision'],**{key:item for key,item in value.items() if key!='revision'})
+            else:
+                for identity in self.states:self._emit(identity,'logs',error='event_log_write_failed')
+
+    def _journal_event(self,instance,event,values):
+        if not hasattr(self,'journal'):return
+        if event=='configuration':self.journal.add(instance,'configuration',changes=values.get('changes',[]))
+        elif event=='ready':self.journal.add(instance,'connected')
+        elif event=='settings':
+            enabled=values.get('enabled',self._state(instance)['enabled'])
+            if self.log_connections.get(instance,False)!=enabled:
+                self.log_connections[instance]=enabled;self.journal.add(instance,'connecting' if enabled else 'disconnected')
+            if values.get('reason')=='idle_auto_close':self.journal.add(instance,'idle')
+        elif event=='idle':self.journal.add(instance,'idle')
+        elif event=='diagnostic':self.journal.add(instance,'error',error=True,reason=values.get('message','').split(';',1)[0])
+        elif event=='capabilities':
+            statuses=[row.get('status') for row in self.registry.health.values()]
+            self.journal.add(instance,'capabilities',available=statuses.count('available'),missing=sum(item!='available' for item in statuses))
+        elif event=='progress':
+            progress=values.get('progress',{});phase=progress.get('type')
+            self.journal.add(instance,'execute_step',task_id=values.get('id',''),provider=progress.get('name','') if phase=='fetch' else '',phase=phase if phase in {'tool_use','model','fetch','fetch_start','fetch_done'} else 'step')
+        elif event=='update' and values.get('suggestion'):
+            row=values['suggestion'];identity=(instance,row['id']);status=row['status'];signature=(status,row.get('step'))
+            previous=self.log_tasks.get(identity);self.log_tasks[identity]=signature
+            if len(self.log_tasks)>2000:self.log_tasks.pop(next(iter(self.log_tasks)))
+            if previous==signature:return
+            event_name={'executing':'execute_start','completed':'execute_complete','failed':'execute_failed','stopped':'execute_stop'}.get(status)
+            if previous and previous[0]==status:event_name='execute_step' if status=='executing' else None
+            if event_name:
+                terminal=status in {'completed','failed','stopped'};metrics={}
+                if status in {'completed','failed'} and row.get('model_source')!='local':self._state(instance)['last_call_succeeded']=status=='completed'
+                if terminal:
+                    metrics.update(tokens=row.get('tokens',0),estimated=bool(row.get('estimated_tokens')))
+                    if row.get('started_at'):metrics['duration_ms']=max(0,(row.get('finished_at',time.time())-row['started_at'])*1000)
+                result=row.get('result')
+                self.journal.add(instance,event_name,error=status=='failed',reason=row.get('error',''),task_id=row['id'],action=row['action'],
+                    missing=len(result.get('missing',[])) if isinstance(result,dict) else 0,phase='workflow' if row['action']=='workflow.run' else 'task',**metrics)
+
+
     def _display_row(self,row):
         if row.get('action')!='workflow.run' or not row.get('result'):return row
         result=row['result'];return {**row,'result_deferred':True,'result_token':hashlib.sha256(json.dumps(result,sort_keys=True,ensure_ascii=False).encode()).hexdigest()[:20],'result':{key:result[key] for key in ('verdict','level','metrics','missing') if key in result}}
@@ -282,6 +326,7 @@ class Copilot(ToolSupport):
     def _emit(self, instance, event_type, **values):
         state = self._state(instance)
         state['revision'] += 1
+        self._journal_event(instance,event_type,values)
         if values.get('suggestion'):values['suggestion']=self._display_row(values['suggestion'])
         try:
             self.notifications.put_nowait((instance,{'type':event_type,'revision':state['revision'],**values}))
@@ -291,8 +336,12 @@ class Copilot(ToolSupport):
     def view(self, instance):
         with self.lock:
             state = self._state(instance)
+            self._refresh_daily()
             keys = ('enabled','show_ball','selection_popup','locale','selection_text','focused_result','ready','running','last_refresh','revision','diagnostic','tokens','estimated_tokens','token_source','context_tokens','idle_paused','input_metrics','usage','model_usage','result_history','pool_words')
-            return json.loads(json.dumps({key:state[key] for key in keys} | {'suggestions':[self._display_row(row) for row in state['suggestions'].values()],'daily_tokens':self.daily['tokens'],'daily_usage':self.daily['usage'],'daily_spend':weighted(self.daily['usage'],self.config['cache_weight']),'cache_weight':self.config['cache_weight'],'daily_budget':self.config['daily_token_budget'],'daily_estimated_tokens':self.daily.get('estimated_tokens',0),'diagnostic':state['diagnostic'] or state.get('execution_diagnostic'),'result_history':[{key:item[key] for key in ('id','title','action','finished_at','status') if key in item}|{'result':{'verdict':item.get('result',{}).get('verdict','历史结果')}} for item in state['result_history']],'daily_model_usage':self.daily.get('models',{}),'capability_focus':state.get('capability_focus',0),'tool_context':state.get('tool_context',{}),'protected_hosts':list(self._resource_policy()),'config':{key:self.config[key] for key in SETTING_KEYS},'settings_saved':self.config['settings_saved'],'capabilities':{'domain_rating':bool(self.config['fetch_commands'].get('domain_rating')),'pool':bool(self.config['pool_command'])},'table_config':{'max_pages':self.config['table_max_pages'],'delay_min':self.config['table_delay_min'],'delay_max':self.config['table_delay_max']}}))
+            return json.loads(json.dumps({key:state[key] for key in keys} | {'suggestions':[self._display_row(row) for row in state['suggestions'].values()],'daily_tokens':self.daily['tokens'],'daily_usage':self.daily['usage'],'daily_estimated_tokens':self.daily.get('estimated_tokens',0),'diagnostic':state['diagnostic'] or state.get('execution_diagnostic'),'result_history':[{key:item[key] for key in ('id','title','action','finished_at','status') if key in item}|{'result':{'verdict':item.get('result',{}).get('verdict','历史结果')}} for item in state['result_history']],'daily_model_usage':self.daily.get('models',{}),'capability_focus':state.get('capability_focus',0),'tool_context':state.get('tool_context',{}),'protected_hosts':list(self._resource_policy()),'config':{key:self.config[key] for key in SETTING_KEYS},'settings_saved':self.config['settings_saved'],'capabilities':{'domain_rating':bool(self.config['fetch_commands'].get('domain_rating')),'pool':bool(self.config['pool_command'])},'board_name':self.config['board_name'],'hermes_health':health(self.config,state,self.runtime),'table_export_dir':self.config['table_export_dir'],'table_config':{'max_pages':self.config['table_max_pages'],'delay_min':self.config['table_delay_min'],'delay_max':self.config['table_delay_max']}}))
+
+    def _refresh_daily(self):
+        if self.daily['date']!=date.today().isoformat():self.daily={'date':date.today().isoformat(),'tokens':0,'usage':counts(),'models':{}}
 
     def _account(self, instance, metrics, task=None):
         state = self._state(instance)
@@ -319,16 +368,12 @@ class Copilot(ToolSupport):
             task['tokens']=sum(task['usage'].values())
             if metrics.get('estimated') or metrics['source'].startswith('estimated'):task['estimated_tokens']=task.get('estimated_tokens',0)+metrics['tokens']
         private_write(self.usage_path,json.dumps(self.daily))
-        if weighted(self.daily['usage'],self.config['cache_weight']) >= self.config['daily_token_budget']:
-            state['diagnostic'] = 'daily_token_budget_exhausted'
         self._emit(instance,'usage',tokens=state['tokens'],source=state['token_source'])
 
-    def _budget_available(self, state):
-        if self.daily['date'] != date.today().isoformat():
-            self.daily = {'date':date.today().isoformat(),'tokens':0,'usage':counts()}
-        available=weighted(self.daily['usage'],self.config['cache_weight']) < self.config['daily_token_budget']
-        if not available:state['diagnostic']='daily_token_budget_exhausted'
-        return available
+    def _save_configuration(self,values):
+        updated={**self.config,**values}
+        private_write(self.directory/'config.json',json.dumps({**{key:value for key,value in updated.items() if key!='copilot_silent_token'},**self.adapter_config},ensure_ascii=False,indent=2)+'\n')
+        self.config.update(values)
 
     def request(self, instance, method, params):
         if method=='models' and isinstance(params,dict) and not set(params)-{'refresh'} and type(params.get('refresh',False)) is bool:
@@ -343,6 +388,10 @@ class Copilot(ToolSupport):
             if self.closed:
                 raise ValueError('copilot closed')
             state = self._state(instance)
+            if method in {'logs_read','logs_clear','logs_export'} and not params:
+                return {'logs_read':self.journal.view,'logs_clear':self.journal.clear,'logs_export':self.journal.export}[method](instance)
+            if method=='log_client' and not set(params)-{'event','tables','rows'} and params.get('event') in {'disconnected','reconnected','table'}:
+                self.journal.add(instance,params['event'],phase='bridge',**{key:params[key] for key in ('tables','rows') if key in params});return {'accepted':True}
             if method.startswith('capability_') or method in {'tool_draft','tool_learn_context','tool_save'}:
                 return self._tool_request(instance,method,params)
             if method=='resource_check':return {'allowed':self.resource_allowed(instance,params['url'],task_id=params.get('taskId'))}
@@ -415,28 +464,37 @@ class Copilot(ToolSupport):
                 return self.view(instance)
             if method in {'batch','replenish','next_action'}:
                 return self._result_action(instance,method,params)
+            if method=='preferences' and params and not set(params)-{'board_name','table_export_dir','table_max_pages','table_delay_min','table_delay_max'}:
+                values=dict(params)
+                for key in ('board_name','table_export_dir'):
+                    if key in values and (not isinstance(values[key],str) or len(values[key])> (80 if key=='board_name' else 4096) or any(ord(c)<32 for c in values[key])):raise ValueError('invalid preference')
+                if 'board_name' in values:values['board_name']=values['board_name'].strip()
+                if 'table_max_pages' in values and (type(values['table_max_pages']) is not int or not 1<=values['table_max_pages']<=200):raise ValueError('invalid page limit')
+                for key in ('table_delay_min','table_delay_max'):
+                    if key in values and (type(values[key]) not in (int,float) or not 0.5<=values[key]<=60):raise ValueError('invalid delay')
+                if values.get('table_delay_min',self.config['table_delay_min'])>values.get('table_delay_max',self.config['table_delay_max']):raise ValueError('invalid delay range')
+                self._save_configuration(values);self._emit(instance,'configuration',changes=list(values));return self.view(instance)
             if method=='configure':
-                values={**validate_settings(params),'settings_saved':True}
-                updated={**self.config,**values}
-                private_write(self.directory/'config.json',json.dumps({**{k:v for k,v in updated.items() if k!='copilot_silent_token'},**self.adapter_config},ensure_ascii=False,indent=2)+'\n')
-                self.config.update(values)
-                self._emit(instance,'configuration')
+                try:values={**validate_settings(params),'settings_saved':True}
+                except ValueError:
+                    self.journal.add(instance,'error',error=True,reason='invalid_configuration');raise
+                self._save_configuration(values)
+                self._emit(instance,'configuration',changes=list(params))
                 return self.view(instance)
             if method=='retry_inference' and not params:
-                if state['enabled'] and state['ready'] and self._budget_available(state):
-                    if state['diagnostic']=='daily_token_budget_exhausted':state['diagnostic']=None
+                if state['enabled'] and state['ready']:
                     self._schedule(instance)
                 return self.view(instance)
             if method == 'state' and not params:
                 return self.view(instance)
             if method == 'settings' and params and not set(params)-{'enabled','show_ball','selection_popup'} and all(type(v) is bool for v in params.values()):
+                interface={key:value for key,value in params.items() if key in {'show_ball','selection_popup'}}
+                if interface:
+                    self._save_configuration(interface);self.journal.add(instance,'configuration',changes=list(interface))
                 if 'show_ball' in params:
                     state['show_ball'] = params['show_ball']
                 if 'selection_popup' in params:state['selection_popup']=params['selection_popup']
                 if params.get('enabled') is True and not state['enabled']:
-                    if not self._budget_available(state):
-                        self._emit(instance,'diagnostic',message=state['diagnostic'])
-                        return self.view(instance)
                     if self.active is not None:
                         raise ValueError('one collaboration session at a time')
                     self.silent_token=uuid.uuid4().hex;self.config['copilot_silent_token']=self.silent_token
@@ -648,18 +706,26 @@ class Copilot(ToolSupport):
         state = self._state(instance)
         return not self.closed and state['enabled'] and state['epoch']==epoch and self.active==instance
 
-    def _prompt_json(self,instance,epoch,prompt):
+    def _prompt_json(self,instance,epoch,prompt,phase='inference'):
         def permitted():
-            with self.lock:return self._valid(instance,epoch) and self._budget_available(self._state(instance))
+            with self.lock:return self._valid(instance,epoch)
         def account(usage):
             with self.lock:
                 if not self._valid(instance,epoch):raise ACPError('inference stopped')
                 self._account(instance,usage)
         runtime=self.runtime
         with runtime.turn_lock:
-            if not permitted():raise ACPError('inference stopped or budget exhausted')
+            if not permitted():raise ACPError('inference stopped')
             runtime.select_model(self.config['inference_model'])
-            return model_json_prompt(runtime,prompt,account,permitted)[0]
+            size=len(prompt.encode());self.journal.add(instance,'inference_send',phase=phase,increment_bytes=size,estimated_tokens=(size+3)//4)
+            try:result,metrics=model_json_prompt(runtime,prompt,account,permitted)
+            except Exception:
+                with self.lock:self._state(instance)['last_call_succeeded']=False
+                raise
+            with self.lock:self._state(instance)['last_call_succeeded']=True
+            with self.lock:self._state(instance)['last_prompt_metrics']=metrics
+            if phase!='inference':self.journal.add(instance,'inference_return',phase=phase,model=metrics.get('model',''),duration_ms=metrics.get('seconds',0)*1000,estimated=bool(metrics.get('estimated')),**from_metrics(metrics))
+            return result
 
     def _execution_failure(self,instance,epoch,reason):
         with self.lock:
@@ -682,7 +748,7 @@ class Copilot(ToolSupport):
                     if not self._valid(instance,epoch):return
                     self.acp_executions=ACPExecutions(self.config,self.directory,lambda reason:self._execution_failure(instance,epoch,reason))
                 self.acp_executions.start()
-            result=self._prompt_json(instance,epoch,inference_session_prompt(self.templates))
+            result=self._prompt_json(instance,epoch,inference_session_prompt(self.templates),phase='session')
             with self.lock:
                 if not self._valid(instance,epoch):
                     return
@@ -760,7 +826,11 @@ class Copilot(ToolSupport):
         if not new_page and not meaningful and not significant:
             return {'accepted':False,'reason':'local_prefilter'}
         state['last_activity'],state['idle_paused']=self.clock(),False
-        self._log({'trace':meaningful,'page':page if new_page else self._page_delta(previous,page)})
+        kinds=[]
+        for step in meaningful:
+            text=step['description'];kind='navigate' if text.startswith(('导航','打开页面')) else 'selection' if text.startswith('选中') else 'click' if text.startswith('点击') else 'dwell' if text.startswith('停留') else 'snapshot'
+            if kind not in kinds:kinds.append(kind)
+        self.journal.add(instance,'capture',kinds=kinds,steps=len(meaningful),snapshot_bytes=len(json.dumps(page,ensure_ascii=False).encode()),items=len(page.get('items',[])))
         self._schedule(instance)
         return {'accepted':True}
 
@@ -809,7 +879,7 @@ class Copilot(ToolSupport):
     def _schedule(self, instance):
         state=self._state(instance)
         state['dirty']=True
-        if state['running'] or not state['enabled'] or not state['ready'] or state['idle_paused'] or not self._budget_available(state):
+        if state['running'] or not state['enabled'] or not state['ready'] or state['idle_paused']:
             return
         if state['timer']:
             state['timer'].cancel()
@@ -823,7 +893,7 @@ class Copilot(ToolSupport):
             while True:
                 with self.lock:
                     state=self._state(instance)
-                    if not self._valid(instance,epoch) or state['running'] or not state['dirty'] or not state['ready'] or not self._budget_available(state) or state['idle_paused']:
+                    if not self._valid(instance,epoch) or state['running'] or not state['dirty'] or not state['ready'] or state['idle_paused']:
                         return
                     remaining=self.config['min_interval']-(self.clock()-state['last_inference'])
                     if remaining>0:
@@ -832,6 +902,7 @@ class Copilot(ToolSupport):
                     payload,statuses=self._increment(state)
                     snapshot_trace,snapshot_page=list(state['trace']),dict(state['page'])
                     snapshot_completed=list(state['completion_status']);snapshot_tool=copy.deepcopy(state.get('tool_context',{}))
+                    before_rows={key:json.dumps({field:row.get(field) for field in ('title','why','action','params','status')},sort_keys=True) for key,row in state['suggestions'].items()};inference_started=time.monotonic()
                     self._emit(instance,'inference',running=True)
                 try:
                     if self._roll_context(instance,epoch):
@@ -840,10 +911,12 @@ class Copilot(ToolSupport):
                     with self.lock:
                         if not self._valid(instance,epoch):return
                         self._replace(instance,output)
+                        after=state['suggestions'];metrics=state.get('last_prompt_metrics',{})
+                        self.journal.add(instance,'inference_return',added=len(after.keys()-before_rows.keys()),removed=len(before_rows.keys()-after.keys()),updated=sum(before_rows[key]!=json.dumps({field:after[key].get(field) for field in ('title','why','action','params','status')},sort_keys=True) for key in before_rows.keys()&after.keys()),duration_ms=(time.monotonic()-inference_started)*1000,model=metrics.get('model',''),estimated=bool(metrics.get('estimated')),**from_metrics(metrics))
                         state.update(sent_trace=snapshot_trace,sent_page=snapshot_page,sent_status=statuses,sent_completions=snapshot_completed,sent_tool_context=snapshot_tool,diagnostic=None)
-                        if not self._budget_available(state):state['diagnostic']='daily_token_budget_exhausted'
                 except (ACPError,ExecutionError,ValueError,OSError,KeyError,TypeError):
                     with self.lock:
+                        self.journal.add(instance,'inference_failed',error=True,duration_ms=(time.monotonic()-inference_started)*1000)
                         state['diagnostic']='inference_failed; previous suggestions retained'
                         self._emit(instance,'diagnostic',message=state['diagnostic'])
                 finally:
@@ -857,13 +930,15 @@ class Copilot(ToolSupport):
         state=self._state(instance)
         if state['context_tokens']<self.config['context_limit']:
             return
-        output=self._prompt_json(instance,epoch,'总结当前协作上下文，严格返回 {"summary":"不超过160字"}，不执行工具。')
+        self.journal.add(instance,'summary')
+        output=self._prompt_json(instance,epoch,'总结当前协作上下文，严格返回 {"summary":"不超过160字"}，不执行工具。',phase='summary')
         summary=output['summary']
         if not isinstance(summary,str) or len(summary)>500:
             raise ValueError('summary exceeds budget')
         self.runtime.new_session()
+        self.journal.add(instance,'session')
         statuses=[{key:row[key] for key in ('id','title','action','status')} for row in state['suggestions'].values()][-8:]
-        output=self._prompt_json(instance,epoch,inference_session_prompt(self.templates,{'summary':summary,'suggestions':statuses}))
+        output=self._prompt_json(instance,epoch,inference_session_prompt(self.templates,{'summary':summary,'suggestions':statuses}),phase='session')
         if output.get('ready') is not True:
             raise ValueError('resume failed')
         with self.lock:
@@ -977,6 +1052,7 @@ class Copilot(ToolSupport):
                 if sum(item['status'] in {'executing','stopping'} for item in state['suggestions'].values())>=self.config['max_parallel']:return
                 row['status']='executing'
                 execution_config=dict(self.config)
+                execution_config['inference_model']=self.config['inference_model'] or (getattr(self.runtime,'model_state',None) or {}).get('currentModelId','')
                 if row.get('single_judgment'):
                     execution_config.update(exec_model=self.config['inference_model'] or getattr(self.runtime,'active_model',''),turn_multiplier=1)
                     if not execution_config['exec_model']:raise ExecutionError('推理模型尚未回报，请先配置推理模型')
@@ -984,7 +1060,7 @@ class Copilot(ToolSupport):
                 row['started_at']=time.time()
                 self._emit(instance,'update',suggestion=dict(row))
             if row['action']=='workflow.run':
-                self._execute_workflow(instance,row,epoch);return
+                self._execute_workflow(instance,row,epoch,execution_config);return
             cached=self._cached(row)
             if cached:
                 self._complete(instance,row,cached,cache=True)
@@ -997,8 +1073,6 @@ class Copilot(ToolSupport):
                 result={"verdict":'本机词池回执已取得' if receipt else '词池未取得写入回执',"level":'info',"metrics":[],"missing":[] if receipt else [{'field':'written,skipped','reason':'命令未返回实际新增与跳过回执'}],"process":['本地执行，不调用模型'],"next":[],"written":receipt.get('written') if receipt else None,"skipped":receipt.get('skipped',[]) if receipt else []}
                 self._complete(instance,row,result)
                 return
-            with self.lock:
-                if not self._budget_available(state):raise ExecutionError('daily budget exhausted')
             template=self.templates.get(row['action'])
             if row.get('single_judgment'):template={**template,'toolsets':['none'],'max_turns':1}
             attempt=self.directory/'tasks'/uuid.uuid4().hex
@@ -1058,7 +1132,7 @@ class Copilot(ToolSupport):
                     brief['output']='不要调用工具；只返回符合 result_schema 的严格JSON，由宿主负责写文件。缺数据留空并注明。'
                 private_write(query,json.dumps(brief,ensure_ascii=False,indent=2))
             with self.lock:
-                if not self._valid(instance,epoch) or row['status']!='executing' or not self._budget_available(state):raise ExecutionError('execution stopped')
+                if not self._valid(instance,epoch) or row['status']!='executing':raise ExecutionError('execution stopped')
             transport='oneshot' if row.get('fallback') else execution_config['exec_transport']
             row['transport']=transport
             if row.get('single_judgment'):inline=True
@@ -1191,16 +1265,6 @@ class Copilot(ToolSupport):
         except (ValueError,TypeError,AttributeError):pass
         return None
 
-    def _log(self,observation):
-        today=date.today();logs=self.directory/'logs';path=logs/(today.isoformat()+'.jsonl')
-        if any(part.is_symlink() for part in (path,*path.parents)):raise ValueError('log path contains symlink')
-        logs.mkdir(parents=True,exist_ok=True,mode=0o700)
-        if path.exists() and path.stat().st_size>4*1024*1024:path.unlink()
-        fd=os.open(path,os.O_WRONLY|os.O_APPEND|os.O_CREAT|os.O_NOFOLLOW,0o600)
-        with os.fdopen(fd,'w') as handle:handle.write(json.dumps(observation,ensure_ascii=False)+'\n')
-        for old in logs.glob('????-??-??.jsonl'):
-            if old.name[:10]<=(today-timedelta(days=7)).isoformat() and not old.is_symlink():old.unlink()
-
     def tick(self):
         with self.lock:
             for instance,state in self.states.items():
@@ -1209,7 +1273,7 @@ class Copilot(ToolSupport):
                 work_recent=state.get('last_work_activity') is not None and self.clock()-state['last_work_activity']<self.config['idle_close_seconds']
                 if idle>=self.config['idle_close_seconds'] and not work_recent:
                     self._deactivate(instance);self._emit(instance,'settings',enabled=False,reason='idle_auto_close')
-                elif idle>=self.config['idle_pause_seconds']:
+                elif idle>=self.config['idle_pause_seconds'] and not state['idle_paused']:
                     state['idle_paused']=True
                     if state['timer']:state['timer'].cancel();state['timer']=None
                     self._emit(instance,'idle',paused=True)
@@ -1232,5 +1296,6 @@ class Copilot(ToolSupport):
                 for row in state['suggestions'].values():
                     if row['status']=='stopping':row['status']='stopped'
         if self.runtime:self.runtime.close()
+        self.journal.close()
         try:self.notifications.put_nowait(None)
         except queue.Full:pass

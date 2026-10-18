@@ -44,7 +44,7 @@ export async function start(){
  for(const type of ['click','change','selectionchange','copy'])document.addEventListener(type,handle,{capture:true,signal});
  window.addEventListener('scroll',()=>{clearTimeout(scrollTimer);scrollTimer=setTimeout(()=>{const max=document.documentElement.scrollHeight-window.innerHeight;schedule(`滚动到 页面 ${Math.round(max>0?window.scrollY/max*100:0)}%`);},500);},{passive:true,signal});
  let scrollTimer;
- const observer=new MutationObserver(records=>{if(records.some(r=>!host.contains(r.target)&&r.target!==host))schedule();});
+ const observer=new MutationObserver(records=>{if(records.some(r=>!host.contains(r.target)&&r.target!==host&&!r.target.closest?.('[data-fast-automation-overlay]')))schedule();});
  observer.observe(document.body,{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:['aria-expanded','aria-selected','hidden','class']});
  let dwellTimer;
  function dwellOnce(){clearTimeout(dwellTimer);dwellTimer=setTimeout(()=>{if(document.visibilityState==='visible')schedule('停留 3s');},3000);}

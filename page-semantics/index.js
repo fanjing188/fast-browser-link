@@ -223,7 +223,7 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
   }
   function interaction(node,metadata=inputMetadata(node)){
     const result={role:role(node),actions:[],editable:Boolean(node.isContentEditable||node.matches(editable)),disabled:disabled(node),readonly:Boolean(node.readOnly||node.getAttribute('aria-readonly')==='true')};
-    // 中文注释：密码、支付、验证码字段保留保护，只能经凭据工具或用户填写（饼哥 2026-10-11 定）。
+    // 中文注释：密码、支付、验证码字段保留保护，只能经凭据工具或用户填写。
     if(result.disabled||!node.isConnected||metadata.inputRequired||node.matches('input[type="file"],input[type="hidden"]'))return result;
     result.actions.push('click','press');
     const textInput=node.localName==='input'&&!['checkbox','radio','range','button','submit','reset','image','color'].includes(node.type);

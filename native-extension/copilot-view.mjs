@@ -3,7 +3,7 @@ import {actionNames,renderResult} from './copilot-result-view.mjs';
 export {actionNames};
 export const objectName=row=>row.params?.keyword||row.params?.url||row.params?.object||row.title;
 export function statePresentation(state){
- if(state.diagnostic==='daily_token_budget_exhausted')return {label:'预算用尽',tone:'warning',message:'今日加权用量已达预算，模型调用已暂停。明日会自动恢复额度。',action:'刷新用量'};
+ if(state.diagnostic==='bridge_disconnected')return {label:'出错',tone:'danger',message:'本地连接已断开，请重新连接。',action:'重新连接'};
  if(state.diagnostic?.startsWith('execution_acp'))return {label:'出错',tone:'danger',message:'执行会话连接失败，自动重连机会已用完。请检查执行 profile 后重新连接。',action:'重新连接'};
  if(state.diagnostic)return {label:'出错',tone:'danger',message:state.diagnostic.startsWith('acp_start')?'推理会话启动失败。请确认精简 profile 可用，然后重试。':state.diagnostic.startsWith('acp_transport')?'推理连接已断开，请重新开启协作。':'本次推理未完成，已保留原建议。继续浏览可重试。',action:'重试'};
  if(!state.enabled)return {label:'未开启',tone:'muted',message:'开启后只读跟随你的浏览操作。'};
@@ -17,16 +17,15 @@ function node(doc,tag,text,className){const element=doc.createElement(tag);if(te
 export function renderDashboard(doc,state,{command,clipboard=globalThis.navigator?.clipboard}={},now=Date.now()){
  const $=id=>doc.getElementById(id),status=statePresentation(state),active=doc.activeElement;
  const focused=active?.dataset?.action,focusedCard=active?.closest('article')?.dataset.id;
- $('enabled').checked=!!state.enabled;$('ball').checked=state.show_ball!==false;
- $('status').textContent=status.label;$('status').dataset.tone=status.tone;$('status-copy').textContent=status.message;
- $('refreshed').textContent=state.last_refresh?'更新于 '+new Date(state.last_refresh*1000).toLocaleTimeString('zh-CN',{hour12:false}):'尚未刷新';
+ $('enabled').checked=!!state.enabled;$('enabled').disabled=$('enabled').dataset.busy==='true'||state.diagnostic==='bridge_disconnected';$('ball').checked=state.show_ball!==false;
+ $('status').textContent=status.label;$('status').dataset.tone=status.tone;$('status').title=status.message;
  $('retry-session').textContent=status.action||'重试';
  $('error').hidden=!state.diagnostic;$('error-copy').textContent=status.message;$('error-code').textContent=state.diagnostic||'';
- const spend=state.daily_spend??state.daily_tokens??0,budget=state.daily_budget||1;
- $('usage-label').textContent=`今日 ${num(spend)} / ${num(budget)}${state.daily_estimated_tokens?' · 含估算':''}`;$('budget').max=budget;$('budget').value=Math.min(spend,budget);
- $('session-usage').textContent=`本次 ${num(state.tokens)} tokens${state.estimated_tokens?' · 含估算':''} · 输入 ${num(state.usage?.input)} / 缓存读 ${num(state.usage?.cache_read)} / 输出 ${num(state.usage?.output)}`;
+ const total=usage=>Object.values(usage||{}).reduce((sum,value)=>sum+Number(value||0),0),en=state.locale==='en';
+ const short=value=>!en&&value>=10000?(value/10000).toLocaleString('zh-CN',{maximumFractionDigits:1})+' 万':num(value);
+ $('usage-label').textContent=`${en?'Today':'今日'} ${state.daily_estimated_tokens?'≈':''}${short(total(state.daily_usage)||state.daily_tokens||0)} tokens`;
+ $('session-usage').textContent=`${en?'Session':'本次'} ${state.estimated_tokens?'≈':''}${num(total(state.usage)||state.tokens||0)}`;
  for(const key of ['input','cache_read','output'])$('usage-'+key).textContent=num(state.daily_usage?.[key]);
- $('cache-weight').textContent=`预算 = 输入 + 输出 + 缓存读 × ${state.cache_weight??.1}`;
  const byModel=$('model-usage');byModel.replaceChildren();
  for(const [caption,usage] of [['今日按模型',state.daily_model_usage],['本次按模型',state.model_usage]]){
   if(!usage||!Object.keys(usage).length)continue;
@@ -49,7 +48,7 @@ export function renderDashboard(doc,state,{command,clipboard=globalThis.navigato
  for(const article of doc.querySelectorAll('article[data-id]'))if(!alive.has(article.dataset.id)&&!article._removeTimer){article.classList.add('leaving');article.setAttribute('aria-hidden','true');article._removeTimer=setTimeout(()=>article.remove(),180);}
  for(const [group,rows] of Object.entries(groups)){
   const container=$(group),empty=container.querySelector('.empty');empty?.remove();
-  if(!rows.length&&(group!=='running'||!doc.querySelector('#running .table-job[data-active=true]')))container.append(node(doc,'p',group==='pending'?'继续浏览，协作会根据你的操作给出建议。':group==='running'?'执行中的任务与排队进度会显示在这里。':'执行完成后，可查看结论、关键词和报告。','empty'));
+  if(!rows.length&&(group!=='running'||!doc.querySelector('#running .table-job[data-active=true]')))container.append(node(doc,'p',group==='pending'?'暂无建议':group==='running'?'暂无进行中的任务':'暂无结果','empty'));
   let queueIndex=0,resultIndex=0;
   for(const row of rows){
    let article=[...doc.querySelectorAll('article[data-id]')].find(el=>el.dataset.id===row.id);
@@ -89,7 +88,7 @@ export function renderDashboard(doc,state,{command,clipboard=globalThis.navigato
     const label=row.model_source==='local'?'模型：本地处理，无模型调用':row.model?`模型：${row.model}${row.model_source==='acp'?' · ACP 会话':row.model_source==='hermes'?' · Hermes 启动回报':row.model_source==='cache'?' · 缓存来源':' · 已选择，待回报'}`:'模型：尚未回报';
     article.append(node(doc,'p',label,'model-label'));
    }
-   article.append(actions);if(attachedChildren)article.append(attachedChildren);
+   article.append(actions);if(group==='results'){const preview=node(doc,'details',undefined,'result-preview'),summary=node(doc,'summary',row.title);preview.append(summary,...article.childNodes);article.append(preview);}if(attachedChildren)article.append(attachedChildren);
    [...article.querySelectorAll('details')].forEach((detail,index)=>{detail.open=!!openDetails[index];});
   }
  }
@@ -104,4 +103,9 @@ export function stepName(value){
  if(/browser|page|snapshot/i.test(value))return '正在读取任务工作页…';
  if(/result/i.test(value))return '正在整理结果与报告…';
  return '正在处理任务…';
+}
+
+export class PanelViews{
+ constructor(doc,onShow=()=>{}){this.doc=doc;this.onShow=onShow;this.current='work';for(const el of doc.querySelectorAll('[data-back]'))el.onclick=()=>this.show('work');doc.addEventListener('keydown',event=>{if(event.key==='Escape'&&this.current!=='work'){event.preventDefault();this.show('work');}});}
+ show(name){if(!['work','settings','logs'].includes(name))return;const old=this.current;this.current=name;this.doc.getElementById('work-view').hidden=name!=='work';for(const page of ['settings','logs']){const el=this.doc.getElementById(page+'-view');el.dataset.active=String(name===page);el.inert=name!==page;el.toggleAttribute('inert',name!==page);el.setAttribute('aria-hidden',String(name!==page));}if(name==='work')this.doc.getElementById('open-'+old)?.focus();else this.doc.querySelector('#'+name+'-view [data-back]')?.focus();this.onShow(name);}
 }

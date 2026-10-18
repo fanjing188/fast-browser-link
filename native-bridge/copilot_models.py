@@ -6,7 +6,7 @@ import time
 from copilot_acp import ACP,ACPError
 
 MODES={'saving','balanced','quality','custom'}
-SETTING_KEYS={'inference_model','exec_model','max_parallel','daily_token_budget','context_limit','mode','turn_multiplier','exec_transport'}
+SETTING_KEYS={'inference_model','exec_model','max_parallel','context_limit','mode','turn_multiplier','exec_transport'}
 
 
 def model_id(value):
@@ -32,11 +32,11 @@ def parse_models(result):
 
 
 def settings(values):
-    if not isinstance(values,dict) or not values or set(values)-SETTING_KEYS:raise ValueError('invalid settings')
-    checked=dict(values)
+    if not isinstance(values,dict) or not values or set(values)-SETTING_KEYS-{'daily_token_budget','cache_weight'}:raise ValueError('invalid settings')
+    checked={key:value for key,value in values.items() if key in SETTING_KEYS}
     for key in ('inference_model','exec_model'):
         if key in checked:model_id(checked[key])
-    for key,lower,upper in [('max_parallel',1,3),('daily_token_budget',1,100000000),('context_limit',100,1000000),('turn_multiplier',1,2)]:
+    for key,lower,upper in [('max_parallel',1,3),('context_limit',100,1000000),('turn_multiplier',1,2)]:
         if key in checked and (type(checked[key]) is not int or not lower<=checked[key]<=upper):raise ValueError('invalid '+key)
     if 'mode' in checked and checked['mode'] not in MODES:raise ValueError('invalid mode')
     if 'exec_transport' in checked and checked['exec_transport'] not in {'acp','oneshot'}:raise ValueError('invalid transport')

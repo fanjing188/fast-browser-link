@@ -7,14 +7,14 @@ import {stableSnapshots} from '../../native-extension/copilot-observation.mjs';
 import {CopilotBackground} from '../../native-extension/copilot-background.mjs';
 const html=await readFile(new URL('../../native-extension/copilot-panel.html',import.meta.url),'utf8');
 test('all dashboard states have Chinese labels and actionable errors',()=>{
- const cases=[{enabled:false},{enabled:true},{enabled:true,ready:true},{enabled:true,ready:true,running:true},{enabled:true,ready:true,idle_paused:true},{diagnostic:'daily_token_budget_exhausted'},{diagnostic:'acp_start_blocked'}];
- assert.deepEqual(cases.map(state=>statePresentation(state).label),['未开启','启动中','跟随中','推理中','空闲已暂停','预算用尽','出错']);
+ const cases=[{enabled:false},{enabled:true},{enabled:true,ready:true},{enabled:true,ready:true,running:true},{enabled:true,ready:true,idle_paused:true},{diagnostic:'acp_start_blocked'}];
+ assert.deepEqual(cases.map(state=>statePresentation(state).label),['未开启','启动中','跟随中','推理中','空闲已暂停','出错']);
  assert.match(statePresentation({diagnostic:'execution_acp_restart_exhausted'}).message,/重新连接/);
  assert.match(statePresentation(cases.at(-1)).message,/重试/);assert.doesNotMatch(statePresentation(cases.at(-1)).message,/acp_start/);
 });
 test('result table, clipboard, report/save/followup requests and keyed updates',async()=>{
  const dom=new JSDOM(html),doc=dom.window.document,calls=[],copied=[];
- const state={enabled:true,ready:true,daily_budget:1000,daily_spend:100,daily_usage:{input:50,cache_read:400,output:10},cache_weight:.1,usage:{input:30,cache_read:100,output:3},suggestions:[{id:'a',scene:'seo',title:'关键词结果',action:'seo.keyword_check',params:{keyword:'sample'},status:'completed',tokens:500,report:'/synthetic/report.md',result:{summary:'有继续分析的价值',keywords:[{keyword:'sample one',vol:100,kd:12,group:'用途'},{keyword:'sample two',group:'问题'}]}}]};
+ const state={enabled:true,ready:true,daily_usage:{input:50,cache_read:400,output:10},usage:{input:30,cache_read:100,output:3},suggestions:[{id:'a',scene:'seo',title:'关键词结果',action:'seo.keyword_check',params:{keyword:'sample'},status:'completed',tokens:500,report:'/synthetic/report.md',result:{summary:'有继续分析的价值',keywords:[{keyword:'sample one',vol:100,kd:12,group:'用途'},{keyword:'sample two',group:'问题'}]}}]};
  const context={command:async(...args)=>calls.push(args),clipboard:{writeText:async value=>copied.push(value)}};
  renderDashboard(doc,state,context);const article=doc.querySelector('article');assert.match(article.textContent,/用途/);assert.equal(article.querySelectorAll('tbody tr').length,2);
  await article.querySelector('[data-action=copy]').onclick();assert.deepEqual(copied,['sample one\nsample two']);
@@ -43,21 +43,21 @@ test('work tabs are excluded using ownership and duplicate navigation/snapshots 
  for(const id of [7,8])await assert.rejects(()=>service.observation({...sender,tab:{id}},page,'点击 内容'));
 });
 
-test('preflight presets fill catalog models, settings save before start and manual values persist',async()=>{
+test('immediate settings preserve manual values; first enable uses balanced defaults',async()=>{
  const {SettingsForm,presetValues,readSettings}=await import('../../native-extension/copilot-settings.mjs');
  const dom=new JSDOM(html),doc=dom.window.document,calls=[];
  const rows=[{id:'openai-codex:gpt-5.6-luna',label:'openai-codex · gpt-5.6-luna',default:true},{id:'openai-codex:gpt-6.1-sol',label:'openai-codex · gpt-6.1-sol'}];
  const models={inference:{available:rows,current:rows[0].id},execution:{available:rows,current:rows[0].id}};
  assert.equal(presetValues('saving',models).exec_model,rows[0].id);assert.equal(presetValues('quality',models).turn_multiplier,2);assert.equal(presetValues('quality',{}).inference_model,'');
  let state={enabled:false,settings_saved:false,config:{...presetValues('balanced',{}),exec_transport:'acp'}};
- const form=new SettingsForm(doc,async(name,params)=>{calls.push([name,params]);if(name==='models')return models;if(name==='configure')return state={...state,config:params,settings_saved:true};if(name==='settings')return state={...state,...params};});
- form.update(state);await form.load();assert.equal(readSettings(doc).inference_model,rows[0].id);assert.equal(readSettings(doc).exec_model,'');
+ const form=new SettingsForm(doc,async(name,params)=>{calls.push([name,params]);if(name==='models')return models;if(name==='configure')return state={...state,config:{...state.config,...params},settings_saved:true};if(name==='settings')return state={...state,...params};});
+ form.update(state);await form.load();assert.equal(readSettings(doc).inference_model,'');assert.equal(readSettings(doc).exec_model,'');
  doc.getElementById('setting-exec_model').value='manual';doc.getElementById('exec_model-manual').value='custom:local:my-model';doc.getElementById('exec_model-manual').dispatchEvent(new dom.window.Event('input',{bubbles:true}));
  await form.load(true);assert.equal(readSettings(doc).exec_model,'custom:local:my-model');
- await form.submit(true);assert.deepEqual(calls.slice(-2).map(call=>call[0]),['configure','settings']);assert.equal(state.config.exec_model,'custom:local:my-model');assert.equal(state.config.exec_transport,'acp');assert.equal(doc.getElementById('preflight').open,false);
+ await form.saveField('exec_model');assert.equal(state.config.exec_model,'custom:local:my-model');await form.enable();assert.equal(calls.at(-1)[0],'settings');assert.equal(doc.querySelector('#preflight'),null);
  const before=readSettings(doc);form.update(state);assert.deepEqual(readSettings(doc),before);
  assert.match(doc.getElementById('setting-inference_model').textContent,/默认/);
- dom.window.close();
+ form.dispose();dom.window.close();
 });
 test('model discovery failure allows manual input and invalid IDs never start collaboration',async()=>{
  const {SettingsForm,presetValues}=await import('../../native-extension/copilot-settings.mjs');
@@ -65,8 +65,8 @@ test('model discovery failure allows manual input and invalid IDs never start co
  const form=new SettingsForm(doc,async(name)=>{calls.push(name);throw Error('fixture unavailable');});
  form.update({enabled:false,settings_saved:true,config:{...presetValues('balanced',{}),exec_transport:'oneshot'}});await form.load();assert.match(doc.getElementById('models-message').textContent,/手动/);
  doc.getElementById('setting-inference_model').value='manual';doc.getElementById('inference_model-manual').value='--provider evil';
- await form.submit(true);assert.deepEqual(calls,['models']);assert.equal(doc.getElementById('inference_model-manual').validity.valid,false);
- doc.getElementById('inference_model-manual').value='vendor:valid-model';await form.submit(true);assert.deepEqual(calls,['models','configure']);assert.match(doc.getElementById('notice').textContent,/设置未完成/);
+ await form.saveField('inference_model');assert.deepEqual(calls,['models']);assert.equal(doc.getElementById('inference_model-manual').validity.valid,false);
+ doc.getElementById('inference_model-manual').value='vendor:valid-model';await form.saveField('inference_model');assert.deepEqual(calls,['models','configure']);assert.match(doc.querySelector('[data-feedback=inference_model]').textContent,/保存失败/);
  dom.window.close();
 });
 test('execution cards show reported model and usage is separated by model',()=>{

@@ -49,6 +49,7 @@ NODE_TESTS = (
     'tests/copilot/selection.test.mjs',
     'tests/copilot/capabilities.test.mjs',
     'tests/copilot/popup-overlay-brand.test.mjs',
+    'tests/copilot/r20.test.mjs',
     'tests/copilot/sidebar-logs.test.mjs',
     'tests/copilot/controls-confirmation.test.mjs',
     'tests/v1.11.0/recovery.test.mjs',
@@ -168,7 +169,7 @@ PYTHON_SUITES = (
 )
 # Some directories contain explicitly unsafe runners: select files by fixed name.
 PYTHON_FILES = {
-    'tests/copilot': ('test_r18.py','test_r17.py','test_r16.py','test_r15.py','test_r14.py','test_inference_diagnostics.py','test_template_upgrade.py','test_copilot.py','test_copilot_exec.py','test_copilot_results.py','test_copilot_selection.py','test_copilot_capabilities.py','test_copilot_journal.py','test_copilot_health.py'),
+    'tests/copilot': ('test_r20.py','test_r19.py','test_r18.py','test_r17.py','test_r16.py','test_r15.py','test_r14.py','test_inference_diagnostics.py','test_template_upgrade.py','test_copilot.py','test_copilot_exec.py','test_copilot_results.py','test_copilot_selection.py','test_copilot_capabilities.py','test_copilot_journal.py','test_copilot_health.py'),
     'tests/agent-link': ('test_agent_link.py',),
     'cloud-link/tests': ('test_cloud.py', 'test_native.py', 'test_scheduler.py', 'test_service.py'),
     'tests/auto-update': ('test_update.py',),

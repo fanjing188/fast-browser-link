@@ -4,6 +4,7 @@ from fake_result import judgment
 import json
 import os
 import sys
+import time
 import uuid
 from pathlib import Path
 
@@ -33,6 +34,7 @@ for line in sys.stdin:
         if text=='/tools':output='Available tools (1): terminal' if '--has-tools' in sys.argv else 'No tools available.'
         elif data.get('action')=='general.task':output=json.dumps(judgment(data))
         elif data.get('type')=='infer':
+            if '--empty-inference-delay' in sys.argv:time.sleep(2.5)
             if '--crash-first-infer' in sys.argv and not Path('inference-crashed-once').exists():
                 Path('inference-crashed-once').touch();os._exit(4)
             page=data.get('page',data.get('page_delta',{}));title=page.get('title','first')

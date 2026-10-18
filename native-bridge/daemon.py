@@ -233,6 +233,7 @@ class BridgeDaemon:
         self.task_log_dir = self.data_dir / 'task-logs'
         self.task_log_lock = threading.Lock()
         self.task_log_pruned_at = None
+        self.overlay_operations = {}
         # 中文注释：结果缓存只在内存中保留，任务账本与防重放指纹独立保存。
         self.result_cache = OrderedDict()
         self.result_cache_bytes = 0
@@ -1390,6 +1391,10 @@ class BridgeDaemon:
                 "isolation": "incognito-profile" if incognito else "shared-profile",
             }
             self.tasks[task_id] = task
+            if silent and self.copilot and params.get('copilotResourceToken'):
+                resource=self.copilot.browser_fetches.get(params.get('copilotResourceToken'))
+                if resource and resource['instance']==instance_id:
+                    task['copilotRowId']=resource.get('row_id') or resource.get('job_key','').removeprefix(instance_id+':')
             if silent and params.get('copilotResourceToken'):self.copilot.resource_tasks[task_id]=params['copilotResourceToken']
             self.task_locks[task_id] = threading.RLock()
             self.cleanup_locks[task_id] = threading.Lock()
@@ -2909,13 +2914,20 @@ class BridgeDaemon:
         except OSError:
             pass
 
-    @staticmethod
-    def _send_extension(extension: Dict[str, Any], value: Dict[str, Any]) -> None:
+    def _send_extension(self, extension: Dict[str, Any], value: Dict[str, Any]) -> None:
         with extension["sendLock"]:
             if value.get("id") and str(value.get("method", "")).startswith("browser."):
                 extension["sendSequence"] = extension.get("sendSequence", 0) + 1
                 value = {**value, "sequence": extension["sendSequence"]}
-            extension["socket"].sendall(_encode_line(value))
+            for frame in _extension_frames(value):
+                if frame.get('method') == 'bridge.chunk' and frame['params']['index'] == 0:
+                    self._diagnostic('buffer_state', 'recovered', error_code='message_chunked')
+                    if self.copilot is not None:
+                        self.copilot.journal.add(extension['instanceId'], 'bridge_warning', snapshot_bytes=frame['params']['bytes'])
+                elif frame.get('error',{}).get('code')=='result_too_large':
+                    self._diagnostic('buffer_state','dropped',error_code='message_too_large')
+                    if self.copilot is not None:self.copilot.journal.add(extension['instanceId'],'bridge_rejected',error=True)
+                extension["socket"].sendall(_encode_line(frame))
 
     def _expire_approvals_locked(self):
         for key, pending in list(self.action_approvals.items()):
@@ -2982,7 +2994,7 @@ class BridgeDaemon:
                     # 中文注释：表格保存由可信侧栏明确点选；只发放新工作页范围，仍走标准授权/租约安装。
                     if not self.copilot.resource_allowed(instance_id,params['url'],fetch_id=params.get('resourceId')):raise ValueError('serialized tool requires capability lane')
                     token=self.copilot.silent_token
-                    result=self._create_task({'owner':'copilot-table-'+secrets.token_hex(12),'title':'Fast-browser-link ·后台数据','instanceId':instance_id,'allowedOrigins':[f'{parsed.scheme}://{parsed.netloc}'],'incognito':params.get('incognito',False),'copilotSilentToken':token},table_export=True)
+                    result=self._create_task({'owner':'copilot-table-'+secrets.token_hex(12),'title':'Fast-browser-link ·后台数据','instanceId':instance_id,'allowedOrigins':[f'{parsed.scheme}://{parsed.netloc}'],'incognito':params.get('incognito',False),'copilotSilentToken':token,'copilotResourceToken':params.get('resourceId')},table_export=True)
                     if params.get('resourceId'):self.copilot.resource_tasks[result['id']]=params['resourceId']
                     return result
                 return self.copilot.request(instance_id, method.removeprefix('extension.copilot.'), params)
@@ -3040,12 +3052,39 @@ class BridgeDaemon:
                 return rows
         if method == 'extension.task_log':
             if (set(params) != {'taskId', 'generation', 'limit'} or type(params['limit']) is not int
-                    or not 1 <= params['limit'] <= 5):
+                    or not 1 <= params['limit'] <= 100):
                 raise ProtocolError('invalid_params', 'invalid task log request')
             task = self.tasks.get(params['taskId'])
             if not task or task['instanceId'] != instance_id or task['generation'] != params['generation']:
                 raise ProtocolError('not_found', 'task log unavailable')
-            return self._read_task_log(task['id'], params['limit'])
+            rows = self._read_task_log(task['id'], params['limit'])
+            pending = self.overlay_operations.get(task['id'])
+            if pending and task['state'] in {'ready','running'}:
+                rows.append({'action': pending['action'], 'time': time.strftime('%Y-%m-%dT%H:%M:%S', time.gmtime(pending['startedAt']))+'Z', 'result': 'pending', 'target': '页面或任务'})
+            return rows[-params['limit']:]
+        if method == 'extension.task_step':
+            # 中文注释：扩展内取数器不经过 shared.run，只补显示日志，不修改动作账本或授予执行权限。
+            allowed = {'new_tab', 'navigate', 'semantic_snapshot', 'ref_click', 'scroll', 'table.read', 'page.parse'}
+            if (set(params)-{'taskId','generation','stepId','action','phase','durationMs','errorCode'}
+                    or not isinstance(params.get('action'),str) or params.get('action') not in allowed
+                    or not isinstance(params.get('phase'),str) or params.get('phase') not in {'start','succeeded','failed','unknown'}
+                    or not isinstance(params.get('stepId'),str) or not re.fullmatch(r'[a-f0-9-]{36}',params['stepId'])
+                    or type(params.get('durationMs',0)) not in (int,float) or not 0<=params.get('durationMs',0)<=86400000):
+                raise ProtocolError('invalid_params','invalid overlay step')
+            task = self.tasks.get(params.get('taskId'))
+            if not task or not task.get('silent') or task['instanceId']!=instance_id or task['generation']!=params.get('generation') or task['state'] not in {'ready','running'}:
+                raise ProtocolError('not_found','overlay task unavailable')
+            if params['phase']=='start':
+                self.overlay_operations[task['id']]={'id':params['stepId'],'action':params['action'],'startedAt':time.time()}
+            else:
+                operation=self.overlay_operations.get(task['id'])
+                if not operation or operation['id']!=params['stepId'] or operation['action']!=params['action']:
+                    raise ProtocolError('invalid_state','overlay step changed')
+                self.overlay_operations.pop(task['id'])
+                target={'table.read':('table','表格'),'ref_click':('button','分页按钮'),'scroll':('region','表格滚动区域')}.get(params['action'],('page','工作页'))
+                self._append_task_log(task['id'],{**operation,'state':params['phase'],'durationMs':params.get('durationMs',0),'errorCode':params.get('errorCode')},{'role':target[0],'name':target[1]})
+            self._notify_tasks_changed(instance_id)
+            return {'accepted':True}
         if method == 'extension.revoke_access' and params == {}:
             # 中文注释：只撤销发送方浏览器的任务，包含尚未装入扩展的待批准任务；其他实例不受影响。
             with self.state_lock:
@@ -3683,6 +3722,8 @@ class BridgeDaemon:
             if access_request_supported:
                 hello_result.update(instanceId=instance_id, connectionGeneration=connection_generation)
             self._send_extension(extension, {"id": request.get("id"), "result": hello_result})
+            if self.copilot is not None:
+                self.copilot.bridge_connection(instance_id, True)
             # 中文注释：hello 后只对最近终态且清理未确认的任务补收组，needs_sync 保留恢复组。
             self._start_lifecycle_worker(self._ungroup_terminal_tasks, instance_id, extension)
             while not self.stop_event.is_set():
@@ -3699,7 +3740,7 @@ class BridgeDaemon:
                         response = {"id": request_id, "result": result}
                     except ProtocolError as exc:
                         response = {"id": request_id, "error": {"code": exc.code, "message": exc.message}}
-                    extension["socket"].sendall(_encode_line(response))
+                    self._send_extension(extension, response)
                 method = request.get("method")
                 if method in {"extension.tab_event", "extension.popup_adopted"} or (
                     method in {"extension.approve", "extension.reject", "extension.stop", "extension.revoke_access"}
@@ -3714,8 +3755,10 @@ class BridgeDaemon:
                     current = self.extensions.get(instance_id)
                     if current is not None and current.get("socket") is conn:
                         del self.extensions[instance_id]
+                        for task in self.tasks.values():
+                            if task['instanceId']==instance_id:self.overlay_operations.pop(task['id'],None)
                         if self.copilot is not None:
-                            self.copilot.request(instance_id, 'settings', {'enabled': False})
+                            self.copilot.bridge_connection(instance_id, False)
                         self.cookie_mirror.disconnected(instance_id)
                         self._diagnostic("connection_state", "disconnected", error_code="DISCONNECTED")
                         for task in self.tasks.values():
@@ -3797,6 +3840,23 @@ def _encode_line(value: Dict[str, Any]) -> bytes:
     if len(data) > _MAX_LINE:
         raise ValueError("payload too large")
     return data + b"\n"
+
+
+def _extension_frames(value):
+    """中文注释：扩展出站独立分帧，不改变客户端协议及浏览器动作的去重语义。"""
+    text = json.dumps(value, separators=(',', ':'), ensure_ascii=False)
+    size = len(text.encode('utf-8'))
+    if size <= 512 * 1024:
+        yield value
+        return
+    if size > 16 * 1024 * 1024:
+        # 中文注释：超出重组预算只拒绝本次交付，不能关闭端口或截成可误执行的浏览器指令。
+        yield {'id': value.get('id'), 'error': {'code': 'result_too_large', 'message': 'Bridge message exceeds reassembly budget'}}
+        return
+    identity = uuid.uuid4().hex
+    chunks = [text[start:start + 48000] for start in range(0, len(text), 48000)]
+    for index, chunk in enumerate(chunks):
+        yield {'method': 'bridge.chunk', 'params': {'id': identity, 'index': index, 'total': len(chunks), 'bytes': size, 'text': chunk}}
 
 
 def _read_line(reader) -> Dict[str, Any]:

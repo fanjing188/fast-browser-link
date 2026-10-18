@@ -10,6 +10,11 @@ from copilot_diagnostics import redact
 from copilot_diagnostics import stderr_summary
 
 MESSAGES={
+ 'bridge_warning':('system','浏览器消息过大，已分页发送','Large browser message paginated'),
+ 'bridge_rejected':('system','浏览器消息超出预算，已拒绝本次交付','Browser message exceeds budget; delivery rejected'),
+ 'bridge_disconnect':('system','浏览器连接中断','Browser bridge disconnected'),
+ 'bridge_restored':('system','已自动恢复','Automatically restored'),
+ 'bridge_recovery_stopped':('system','连续三次连上即断，已停止自动恢复','Automatic recovery stopped after three short connections'),
  'batch_complete':('execution','批量执行回执','Batch receipt'),
  'capture':('capture','采集操作轨迹与页面摘要','Captured activity and page summary'),
  'table':('capture','识别页面表格','Recognized page tables'),
@@ -48,7 +53,9 @@ def safe_details(values):
     result={}
     if not isinstance(values,dict):return result
     for key,value in values.items():
-        if key=='completion_status' and isinstance(value,str) and value in {'completed','partial','failed'}:result[key]=value
+        if key=='bridge_error' and isinstance(value,str):result[key]=redact(value)[:300]
+        elif key=='disconnected_at' and type(value) in (int,float) and 0<=value<=10**15:result[key]=value
+        elif key=='completion_status' and isinstance(value,str) and value in {'completed','partial','failed'}:result[key]=value
         elif key=='exit_code' and type(value) is int and -65536<=value<=65536:result[key]=value
         elif key=='stderr_tail' and isinstance(value,list):result[key]=stderr_summary(value)
         elif key=='field' and isinstance(value,str) and value in {'json','suggestions','summary','params','result','ready'}:result[key]=value

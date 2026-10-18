@@ -15,6 +15,47 @@ from copilot_setup import setup as setup_templates
 from fbl_profiles import repair
 
 
+TASK_REASONS = {
+    'basket_active': 'Copilot basket 仍在排队或运行，请先结束任务',
+    'basket_unverified': 'Copilot basket 状态无法核实，请检查活动记录',
+    'records_unreadable': '任务记录无法安全读取（权限、格式或未合并日志），请先修复记录',
+    'browser_epoch_unavailable': '浏览器纪元无法确认：无法确认浏览器是否已重启，请稍后重试或先打开再关闭浏览器；仍失败时先打开浏览器再重试并检查 ps 权限',
+    'current_epoch_or_missing_times': '任务活动未能证明早于当前浏览器纪元（当前纪元或时间证据缺失），请先核实浏览器残留，再显式 tasks:ack',
+}
+
+
+def verified_browser_epoch(cli, env):
+    # 中文注释：浏览器退出/启动窗口或 ps 暂不可用时短暂重试；没有进程仍不能凭时间流逝证明重启。
+    deadline = time.monotonic() + 10
+    while True:
+        epoch = cli.browser_epoch(env)
+        if epoch is not None or time.monotonic() >= deadline:
+            return epoch
+        time.sleep(min(.5, max(0, deadline - time.monotonic())))
+
+
+def blocking_tasks(groups):
+    return [{**row, 'group': group} for group in ('active', 'needs_verification')
+            for row in groups[group] if not row.get('safe_to_settle')]
+
+
+class UpdateRefused(ValueError):
+    def __init__(self, groups, reason=None, message=None):
+        self.blocking = blocking_tasks(groups)
+        if reason:
+            self.reason = reason
+        elif groups['active']:
+            self.reason = 'active_tasks'
+        elif any(row.get('reason') == 'browser_epoch_unavailable' for row in self.blocking):
+            self.reason = 'browser_epoch_unavailable'
+        else:
+            self.reason = 'verification_required'
+        if not self.blocking:
+            self.blocking = [{**row, 'group': 'needs_verification', 'reason': self.reason,
+                              'message': message} for row in groups['needs_verification']]
+        super().__init__(message or task_message(groups))
+
+
 def verify_source(source):
     source=Path(source).resolve();expected=read(source/'SHA256SUMS.json')
     if not expected:raise ValueError('verified prebuilt release required; source builds are a separate developer step')
@@ -76,13 +117,14 @@ def task_status(ctx, cli):
             jobs=cli.load_basket_jobs(root)
             for identity, job in jobs.items():
                 group='active' if isinstance(job,dict) and job.get('state') in {'queued','running'} else 'needs_verification'
-                groups[group].append({'id': identity, 'title': job.get('title','Copilot basket') if isinstance(job,dict) else 'Copilot basket', 'runtime':str(root)})
+                code = 'basket_active' if group == 'active' else 'basket_unverified'
+                groups[group].append({'id': identity, 'title': job.get('title','Copilot basket') if isinstance(job,dict) else 'Copilot basket', 'runtime':str(root), 'reason': code, 'message': TASK_REASONS[code]})
         except (OSError, ValueError, TypeError, cli.InstallError):
-            groups['needs_verification'].append({'title': 'Copilot basket activity cannot be verified', 'runtime': str(root)})
+            groups['needs_verification'].append({'title': 'Copilot basket activity cannot be verified', 'runtime': str(root), 'reason': 'basket_unverified', 'message': TASK_REASONS['basket_unverified']})
         try:
             records = cli.load_task_records(root)
         except (OSError, ValueError, TypeError, cli.InstallError):
-            groups['needs_verification'].append({'title': '任务记录无法安全读取（权限、格式或未合并日志）', 'runtime': str(root)})
+            groups['needs_verification'].append({'title': '任务记录无法安全读取（权限、格式或未合并日志）', 'runtime': str(root), 'reason': 'records_unreadable', 'message': TASK_REASONS['records_unreadable']})
             continue
         for task in records['tasks']:
             reason = cli.task_block_reason(task)
@@ -92,15 +134,28 @@ def task_status(ctx, cli):
             row['runtime'] = str(root)
             if reason == 'active':
                 group = 'active'
+                details = []
+                if isinstance(task, dict):
+                    if task.get('state') not in cli.TERMINAL_TASK_STATES: details.append('任务未终结')
+                    if any(field in task for field in ('vaultPermit', 'gatewayPermit')): details.append('仍持有许可')
+                    if task.get('idlePendingHuman') or task.get('idleRecoveryState') in {'paused', 'pending_approval'}: details.append('等待人工输入/许可')
+                    if any(task.get(field, []) != [] for field in ('agentTabIds', 'adoptedPopupTabIds')): details.append('代理标签页/弹窗仍有残留或记录无效')
+                    if task.get('cleanupState') == 'pending': details.append('清理尚未完成')
+                    history = task.get('requestHistory', [])
+                    if isinstance(history, list) and any(isinstance(item, dict) and item.get('state') in {'awaiting_human', 'awaiting_approval'} for item in history): details.append('请求等待人工输入/许可')
+                row.update(reason='active_task', message='；'.join(details or ['操作仍未完成或任务/操作记录无效']) + '；请先结束任务并完成清理')
             elif reason == 'history':
                 group = 'after_daemon_stop'
             else:
                 group = 'needs_verification'
                 if not epoch_checked:
-                    epoch = cli.browser_epoch(dict(os.environ)); epoch_checked = True
+                    epoch = verified_browser_epoch(cli, dict(os.environ)); epoch_checked = True
                 row['safe_to_settle'] = cli.old_browser_task(task, epoch)
                 if row['safe_to_settle']:
                     eligible.setdefault(root, []).append(task['id'])
+                else:
+                    code = 'browser_epoch_unavailable' if epoch is None else 'current_epoch_or_missing_times'
+                    row.update(reason=code, message=TASK_REASONS[code])
             groups[group].append(row)
     return groups, eligible
 
@@ -119,8 +174,12 @@ def task_message(groups):
             try: stamp=datetime.fromtimestamp(stamp).astimezone().isoformat(timespec='seconds')
             except (TypeError, ValueError, OverflowError, OSError): stamp='unknown'
             identity=' '.join(str(row.get('id', 'unknown')).split())[:100]
-            lines.append(f"  - {title} [{identity}] 时间 {stamp}" + (' 可安全结清（需确认）' if row.get('safe_to_settle') else ''))
-    lines.append('下一步：先结束进行中的任务；fbl update --dry-run --source <包> 复查。旧纪元任务确认后运行 fbl update --source <包> --pause-hermes（--yes 自动确认）。其他未知任务核实后用 npm run tasks:ack -- <taskId> --stop-daemon。')
+            lines.append(f"  - {title} [{identity}] 时间 {stamp}" + (' 可安全结清（需确认）' if row.get('safe_to_settle') else ' ' + row.get('message', '')))
+    review = [row for row in groups['needs_verification'] if not row.get('safe_to_settle')]
+    if review:
+        causes = list(dict.fromkeys(row.get('message', '状态无法核实') for row in review))
+        lines.append(f'拒绝来源：需要核实中有 {len(review)} 条暂不能安全结清：' + '；'.join(causes))
+    lines.append('下一步：先结束进行中的任务。旧纪元任务确认后可升级（--yes 自动确认）；当前纪元任务核实后用 tasks:ack 显式结清，须指定该任务对应的 runtime。浏览器纪元无法确认时，先恢复纪元证据再重试。')
     return '\n'.join(lines)
 
 
@@ -138,15 +197,17 @@ def idle(ctx, cli, wait=0, *, allow_settle=False):
         if message != previous and wait:
             print(message, file=sys.stderr); previous = message
         if time.monotonic() >= deadline:
-            raise ValueError(message)
+            raise UpdateRefused(groups)
         time.sleep(min(.5, max(0, deadline-time.monotonic())))
 
 
 def preview(ctx, summary=None, cli=None):
     groups, eligible = task_status(ctx, cli or legacy_cli(ctx))
+    blocking = blocking_tasks(groups)
     return {**(summary or plan(ctx)), 'status': 'dry_run', 'task_check': task_summary(groups),
             'safe_to_settle': sum(map(len, eligible.values())),
-            'ready_after_confirmation': not groups['active'] and all(row.get('safe_to_settle') for row in groups['needs_verification']),
+            'ready_after_confirmation': not blocking, 'blocking': blocking,
+            'reason': UpdateRefused(groups).reason if blocking else None,
             'next_steps': task_message(groups)}
 
 
@@ -181,7 +242,7 @@ def update(ctx,source,*,dry_run=False,wait=0,pause_hermes=False,health=None,yes=
     if approved:
         print(task_message(groups), file=sys.stderr)
         if not yes and (confirm is None or not confirm(f'确认备份并结清上述 {sum(map(len, approved.values()))} 个旧浏览器纪元任务（保留原始操作结果）？[y/N] ')):
-            raise ValueError('旧纪元任务尚未确认；未停止 daemon、未修改任务。使用交互终端确认或 --yes。')
+            raise UpdateRefused(groups, 'confirmation_required', '旧纪元任务尚未确认；未停止 daemon、未修改任务。使用交互终端确认或 --yes。')
     roots,plugins=layouts(ctx);env={**os.environ,'PYTHONDONTWRITEBYTECODE':'1'}
     for root in roots:
         for path in manifests(ctx.user):
@@ -214,13 +275,14 @@ def update(ctx,source,*,dry_run=False,wait=0,pause_hermes=False,health=None,yes=
                 def settle(descriptor, root=root):
                     current_groups, candidates = task_status(ctx, cli)
                     if current_groups['active'] or any(not row.get('safe_to_settle') for row in current_groups['needs_verification']):
-                        raise ValueError(task_message(current_groups))
+                        raise UpdateRefused(current_groups)
                     ids = candidates.get(root, [])
                     if not set(ids).issubset(approved.get(root, [])):
-                        raise ValueError('旧纪元任务集合已变化；重新预览并确认。')
+                        raise UpdateRefused(current_groups, 'task_set_changed', '旧纪元任务集合已变化；重新预览并确认。')
                     if ids:
-                        epoch = cli.browser_epoch(env)
-                        if epoch is None: raise ValueError('browser epoch can no longer be verified')
+                        epoch = verified_browser_epoch(cli, env)
+                        if epoch is None:
+                            raise UpdateRefused(current_groups, 'browser_epoch_unavailable', TASK_REASONS['browser_epoch_unavailable'])
                         acknowledgements.append(cli.acknowledge_tasks(root, ids, '用户确认升级前结清旧浏览器纪元任务', env, descriptor, epoch=epoch))
                 stack.enter_context(cli.idle_bridge(root, env, settle=settle))
             prepared=[]

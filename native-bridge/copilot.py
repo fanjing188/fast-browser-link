@@ -380,7 +380,7 @@ class Copilot(ToolSupport):
             state = self._state(instance)
             self._refresh_daily()
             keys = ('enabled','show_ball','selection_popup','locale','selection_text','focused_result','ready','running','last_refresh','revision','diagnostic','tokens','estimated_tokens','token_source','context_tokens','idle_paused','input_metrics','usage','model_usage','result_history','pool_words')
-            return json.loads(json.dumps({key:state[key] for key in keys} | {'suggestions':[self._display_row(row) for row in state['suggestions'].values()],'daily_tokens':self.daily['tokens'],'daily_usage':self.daily['usage'],'daily_estimated_tokens':self.daily.get('estimated_tokens',0),'diagnostic':state['diagnostic'] or state.get('execution_diagnostic'),'result_history':[{key:item[key] for key in ('id','title','action','finished_at','status') if key in item}|{'result':{'verdict':item.get('result',{}).get('verdict','历史结果')}} for item in state['result_history']],'daily_model_usage':self.daily.get('models',{}),'capability_focus':state.get('capability_focus',0),'tool_context':state.get('tool_context',{}),'protected_hosts':list(self._resource_policy()),'config':{key:self.config[key] for key in SETTING_KEYS},'settings_saved':self.config['settings_saved'],'capabilities':{'domain_rating':bool(self.config['fetch_commands'].get('domain_rating')),'pool':bool(self.config['pool_command'])},'basket':self.basket.snapshot(),'page_annotations':self.config['page_annotations'],'annotation_density':self.config['annotation_density'],'auto_zero':self.config['auto_zero'],'board_name':self.config['board_name'],'startup_error':state.get('startup_error'),'inference_failure':state.get('inference_failure'),'inference_failures':state['inference_failures'],'recovering':state['recovering'],'discovery_changed':state.get('discovery_changed',False),'daemon_recovery':True,'execution_health':{'state':'connected' if self.acp_executions and self.acp_executions.runtime and not self.acp_executions.runtime.closed and not self.acp_executions.runtime.failure else 'disconnected'},'template_warning':len(self.templates.disabled),'hermes_health':health(self.config,{**state,'template_warning':len(self.templates.disabled)},self.runtime),'table_export_dir':self.config['table_export_dir'],'table_config':{'max_pages':self.config['table_max_pages'],'delay_min':self.config['table_delay_min'],'delay_max':self.config['table_delay_max']}}))
+            return json.loads(json.dumps({key:state[key] for key in keys} | {'suggestions':[self._display_row(row) for row in state['suggestions'].values()],'daily_tokens':self.daily['tokens'],'daily_usage':self.daily['usage'],'daily_estimated_tokens':self.daily.get('estimated_tokens',0),'diagnostic':state['diagnostic'] or state.get('execution_diagnostic'),'result_history':[{key:item[key] for key in ('id','title','action','finished_at','status') if key in item}|{'result':{'verdict':item.get('result',{}).get('verdict','历史结果')}} for item in state['result_history']],'daily_model_usage':self.daily.get('models',{}),'capability_focus':state.get('capability_focus',0),'tool_context':state.get('tool_context',{}),'protected_hosts':list(self._resource_policy()),'config':{key:self.config[key] for key in SETTING_KEYS},'settings_saved':self.config['settings_saved'],'capabilities':{'domain_rating':bool(self.config['fetch_commands'].get('domain_rating')),'pool':bool(self.config['pool_command'])},'basket':self.basket.snapshot(),'page_annotations':self.config['page_annotations'],'annotation_density':self.config['annotation_density'],'auto_zero':self.config['auto_zero'],'board_name':self.config['board_name'],'startup_error':state.get('startup_error'),'inference_failure':state.get('inference_failure'),'inference_failures':state['inference_failures'],'recovering':state['recovering'],'discovery_changed':state.get('discovery_changed',False),'daemon_recovery':True,'bridge_restored':state.get('bridge_restored',False),'bridge_recovery_blocked':state.get('bridge_recovery_blocked',False),'execution_health':{'state':'connected' if self.acp_executions and self.acp_executions.runtime and not self.acp_executions.runtime.closed and not self.acp_executions.runtime.failure else 'disconnected'},'template_warning':len(self.templates.disabled),'hermes_health':health(self.config,{**state,'template_warning':len(self.templates.disabled)},self.runtime),'table_export_dir':self.config['table_export_dir'],'table_config':{'max_pages':self.config['table_max_pages'],'delay_min':self.config['table_delay_min'],'delay_max':self.config['table_delay_max']}}))
 
     def _refresh_daily(self):
         if self.daily['date']!=date.today().isoformat():self.daily={'date':date.today().isoformat(),'tokens':0,'usage':counts(),'models':{}}
@@ -441,6 +441,11 @@ class Copilot(ToolSupport):
                 return {'logs_read':self.journal.view,'logs_clear':self.journal.clear,'logs_export':self.journal.export}[method](instance)
             if method=='log_client' and not set(params)-{'event','tables','rows'} and params.get('event') in {'disconnected','reconnected','table'}:
                 self.journal.add(instance,params['event'],phase='bridge',**{key:params[key] for key in ('tables','rows') if key in params});return {'accepted':True}
+            if method=='bridge_error' and set(params)=={'message','disconnected_at'} and isinstance(params['message'],str) and len(params['message'])<=2048 and type(params['disconnected_at']) in (int,float):
+                from copilot_diagnostics import redact
+                state['bridge_error']=redact(params['message'])[:300]
+                self.journal.add(instance,'bridge_disconnect',error=True,bridge_error=state['bridge_error'],disconnected_at=params['disconnected_at'])
+                return {'accepted':True}
             if method.startswith('capability_') or method in {'tool_draft','tool_learn_context','tool_save'}:
                 return self._tool_request(instance,method,params)
             if method=='resource_check':return {'allowed':self.resource_allowed(instance,params['url'],task_id=params.get('taskId'))}
@@ -559,12 +564,15 @@ class Copilot(ToolSupport):
                     if self.active is not None:
                         raise ValueError('one collaboration session at a time')
                     self.silent_token=uuid.uuid4().hex;self.config['copilot_silent_token']=self.silent_token
-                    state.update(enabled=True,selection_popup=params.get('selection_popup',True),ready=False,diagnostic=None,startup_error=None,inference_failure=None,inference_failures=0,inference_restarts=0,recovering=False,execution_diagnostic=None,execution_memory=[],last_activity=self.clock(),activated_at=time.time(),epoch=state['epoch']+1)
+                    state.update(bridge_lost=False,bridge_connected_at=self.clock(),bridge_restored=False,bridge_recovery_blocked=False,bridge_failures=0,enabled=True,selection_popup=params.get('selection_popup',True),ready=False,diagnostic=None,startup_error=None,inference_failure=None,inference_failures=0,inference_restarts=0,recovering=False,execution_diagnostic=None,execution_memory=[],last_activity=self.clock(),activated_at=time.time(),epoch=state['epoch']+1)
                     self.active = instance
                     threading.Thread(target=self._activate,args=(instance,state['epoch']),daemon=True).start()
+                elif params.get('enabled') is True and state.get('bridge_recovery_blocked'):
+                    state.update(bridge_recovery_blocked=False,bridge_failures=0)
+                    self.bridge_connection(instance,True)
                 elif params.get('enabled') is False:
                     self._deactivate(instance)
-                    state.update(diagnostic=None,startup_error=None,inference_failure=None,execution_diagnostic=None,last_call_succeeded=None)
+                    state.update(diagnostic=None,startup_error=None,inference_failure=None,execution_diagnostic=None,last_call_succeeded=None,bridge_lost=False,bridge_failures=0,bridge_recovery_blocked=False,bridge_restored=False)
                 self._emit(instance,'settings',enabled=state['enabled'],show_ball=state['show_ball'],selection_popup=state['selection_popup'],reason='user_closed' if params.get('enabled') is False else 'transport_error')
                 return self.view(instance)
             if method == 'observe' and set(params)=={'trace','page'}:
@@ -795,7 +803,7 @@ class Copilot(ToolSupport):
 
     def _valid(self, instance, epoch):
         state = self._state(instance)
-        return not self.closed and state['enabled'] and state['epoch']==epoch and self.active==instance
+        return not self.closed and state['enabled'] and not state.get('bridge_lost') and state['epoch']==epoch and self.active==instance
 
     def _prompt_json(self,instance,epoch,prompt,phase='inference'):
         def permitted():
@@ -825,7 +833,27 @@ class Copilot(ToolSupport):
             self._state(instance)['diagnostic']=reason
             self._emit(instance,'diagnostic',message=reason)
 
-    def _activate(self, instance, epoch, resume=False):
+    def bridge_connection(self, instance, connected):
+        """中文注释：桥断开只暂停会话；保留用户开关和摘要，禁止重放在途任务。"""
+        with self.lock:
+            state=self._state(instance)
+            if not state['enabled']:return
+            if not connected:
+                if state.get('bridge_lost'):return
+                short=self.clock()-state.get('bridge_connected_at',self.clock())<=15
+                failures=state.get('bridge_failures',0)+1 if short else 0
+                self._deactivate(instance)
+                state.update(enabled=True,bridge_lost=True,bridge_failures=failures,bridge_recovery_blocked=failures>=3,bridge_restored=False)
+                self.active=instance
+                self.journal.add(instance,'bridge_disconnect',phase='bridge')
+                if failures>=3:self.journal.add(instance,'bridge_recovery_stopped',error=True)
+            elif state.get('bridge_lost') and not state.get('bridge_recovery_blocked'):
+                state.update(bridge_lost=False,bridge_connected_at=self.clock(),recovering=True)
+                threading.Thread(target=self._activate,args=(instance,state['epoch']),kwargs={'resume':True,'restart_execution':True},daemon=True).start()
+            elif not state.get('bridge_lost'):
+                state['bridge_connected_at']=self.clock()
+
+    def _activate(self, instance, epoch, resume=False, restart_execution=False):
         runtime = ACP(self.config,self.directory,lambda update:self._update(instance,epoch,update,runtime))
         runtime.exit_observer=lambda detail:self.journal.add(instance,'process_exit',**detail)
         try:
@@ -836,7 +864,7 @@ class Copilot(ToolSupport):
                 self.runtime=runtime
                 self._state(instance)['context_tokens']=0
             runtime.start()
-            if self.config['exec_transport']=='acp' and not resume:
+            if self.config['exec_transport']=='acp' and (not resume or restart_execution):
                 with self.lock:
                     if not self._valid(instance,epoch):return
                     self.acp_executions=ACPExecutions(self.config,self.directory,lambda reason:self._execution_failure(instance,epoch,reason),lambda detail:self.journal.add(instance,'process_exit',error=True,**detail))
@@ -857,6 +885,9 @@ class Copilot(ToolSupport):
                     raise ModelOutputInvalid('ready','not_ready')
                 state=self._state(instance)
                 state.update(ready=True,recovering=False,diagnostic=None,inference_failure=None,inference_failures=0)
+                if restart_execution:
+                    state['bridge_restored']=True
+                    self.journal.add(instance,'bridge_restored')
                 if resume:state.update(sent_page={},sent_trace=[],sent_status={},sent_tool_context={},sent_completions=[])
                 self._emit(instance,'ready',ready=True)
                 if state['dirty']:

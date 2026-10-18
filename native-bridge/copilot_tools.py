@@ -275,10 +275,12 @@ class ToolSupport:
     def _execute_workflow(self,instance,row,epoch,execution_config):
         from copilot import private_write
         from copilot_results import report
+        row['workflow_total']=len(self.packages.flows[row['params']['flow']]['steps'])
         context={**self._tool_context(instance),**row.get('page_context',{}),'job_key':instance+':'+row['id'],'row_id':row['id'],'execution_config':execution_config,'secondary_confirmed':row.get('secondary_confirmed',False),'automatic':row.get('automatic',False),'hermes':execution_config['exec_transport']=='oneshot'};work=self.directory/'tasks'/('workflow-'+row['id']+'-'+str(int(time.time()*1000)))
         def progress(event):
             with self.lock:
                 if event.get('step_index'):row['workflow_index']=event['step_index']
+                if 'completed_steps' in event:row['workflow_completed']=event['completed_steps']
                 if event.get('step'):row['step']=event['step'];row['workflow_step']=event['step']
                 elif event.get('provider'):row['step']=str(row.get('step',''))[:180]+' · '+event['provider']+((' · batch '+str(event['batch'])) if event.get('batch') else '')
                 self._state(instance)['last_work_activity']=self.clock();self._emit(instance,'update',suggestion=dict(row))

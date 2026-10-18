@@ -55,20 +55,27 @@ export class TableJobs{
 }
 
 export function taskTableAdapter(api,executor,bridge,consent){
+ const recordStep=async(task,action,work)=>{
+  const current=bridge(),started=Date.now(),scope={taskId:task.id,generation:task.generation,stepId:crypto.randomUUID(),action};
+  const report=params=>current?.request('extension.task_step',{...scope,...params}).catch(()=>{});
+  await report({phase:'start'});
+  try{const value=await work();const unknown=value?.outcomeUnknown||['unobserved','unverified'].includes(value?.effect);const failed=value?.blocked||value?.error||value?.exceptionDetails;await report({phase:unknown?'unknown':failed?'failed':'succeeded',durationMs:Date.now()-started,...(unknown||failed?{errorCode:unknown?'operation_outcome_unknown':'execution_denied'}:{})});return value;}
+  catch(error){await report({phase:'failed',durationMs:Date.now()-started,errorCode:'execution_denied'});throw error;}
+ };
  const guard=async workspace=>{
   const task=executor.tasks.get(workspace.taskId),tab=await api.tabs.get(workspace.tabId);
   if(!task||task.revoked||!task.silent||!task.agentTabs.has(tab.id)||executor.leases.get(tab.id)!==task.id||tab.windowId!==workspace.windowId||tab.groupId!==workspace.groupId||new URL(tab.url).origin!==workspace.origin)throw Error('工作页归属或来源已变化');
   const window=await api.windows.get(tab.windowId);if(tab.active&&window.focused)throw Error('用户正在查看工作页，已暂停收集');
   return task;
  };
- const execute=async(workspace,func,args=[])=>{await guard(workspace);let timer;try{const result=await Promise.race([api.scripting.executeScript({target:{tabId:workspace.tabId},func,args}),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('后台页面响应超时，保存已收部分')),10000);})]);await guard(workspace);return result[0].result;}finally{clearTimeout(timer);}};
+ const execute=async(workspace,func,args=[])=>{const task=await guard(workspace);return recordStep(task,func===captureTables?'table.read':'page.parse',async()=>{let timer;try{const result=await Promise.race([api.scripting.executeScript({target:{tabId:workspace.tabId},func,args}),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('后台页面响应超时，保存已收部分')),10000);})]);await guard(workspace);return result[0].result;}finally{clearTimeout(timer);}});};
  return {
   open:async(url,{incognito=false,resourceId=null}={})=>{
    const current=bridge();if(!current)throw Error('本机桥未连接');
    const created=await current.request('extension.copilot.work_create',{url,incognito,...(resourceId?{resourceId}:{})});
    try{await consent.synchronize(current);
    const task=executor.tasks.get(created.id);if(!task||task.revoked||!task.silent)throw Error('后台工作页授权未完成');
-   const opened=await executor.perform(task,{action:'new_tab',taskId:task.id,generation:task.generation,url,requestId:crypto.randomUUID()});
+   const opened=await recordStep(task,'new_tab',()=>executor.perform(task,{action:'new_tab',taskId:task.id,generation:task.generation,url,requestId:crypto.randomUUID()}));
    const tab=await api.tabs.get(opened.tabId);return {taskId:task.id,tabId:tab.id,windowId:tab.windowId,groupId:tab.groupId,origin:new URL(url).origin};
    }catch(error){const local=executor.tasks.get(created.id);let cleanup;try{if(local)cleanup=await executor.release({taskId:local.id,generation:local.generation,closeAgentTabs:true});await current.request('extension.stop',{taskId:created.id,generation:created.generation,...(cleanup?{cleanup}:{})});}catch{}throw error;}
   },
@@ -95,19 +102,19 @@ export function taskTableAdapter(api,executor,bridge,consent){
    const task=await guard(workspace),base={taskId:task.id,generation:task.generation,tabId:workspace.tabId};
    if(plan.control==='scroll'){
     const expression='(()=>{const box=document.querySelector('+JSON.stringify(plan.root)+');if(!box)return {blocked:true};box.scrollBy({top:Math.max(1,box.clientHeight*.8),behavior:"instant"});return {scrolled:true};})()';
-    const result=await executor.perform(task,{...base,action:'cdp.send',method:'Runtime.evaluate',params:{expression,returnByValue:true,userGesture:false,timeout:1500}});
+    const result=await recordStep(task,'scroll',()=>executor.perform(task,{...base,action:'cdp.send',method:'Runtime.evaluate',params:{expression,returnByValue:true,userGesture:false,timeout:1500}}));
     if(result.exceptionDetails||result.result?.value?.blocked)return {blocked:'滚动容器已变化，保存已收部分'};
     return {advanced:true};
    }
    const options={mode:'interactive',root:plan.root,query:plan.name,roles:['button','link'],budget:2000};
-   const snapshot=await executor.perform(task,{...base,action:'semantic_snapshot',options});
+   const snapshot=await recordStep(task,'semantic_snapshot',()=>executor.perform(task,{...base,action:'semantic_snapshot',options}));
    const candidates=(snapshot.items||[]).filter(item=>item.name.trim().toLowerCase()===plan.name.toLowerCase());
    if(candidates.length!==1)return {blocked:'无法唯一核实分页或滚动目标，已停止'};
-   const result=await executor.perform(task,{...base,action:'ref_click',direction:'down',binding:snapshot.binding,snapshotId:snapshot.snapshotId,ref:candidates[0].ref});
+   const result=await recordStep(task,'ref_click',()=>executor.perform(task,{...base,action:'ref_click',direction:'down',binding:snapshot.binding,snapshotId:snapshot.snapshotId,ref:candidates[0].ref}));
    if(result.outcomeUnknown||['unobserved','unverified'].includes(result.effect)||result.dialogOpened)return {blocked:'分页动作结果待核实，未重复派发'};
    return {advanced:true};
   },
-  navigate:async(workspace,url)=>{const task=await guard(workspace);return executor.perform(task,{action:'navigate',taskId:task.id,generation:task.generation,tabId:workspace.tabId,url});},
+  navigate:async(workspace,url)=>{const task=await guard(workspace);return recordStep(task,'navigate',()=>executor.perform(task,{action:'navigate',taskId:task.id,generation:task.generation,tabId:workspace.tabId,url}));},
   close:async workspace=>{const task=executor.tasks.get(workspace.taskId);if(task){const cleanup=await executor.release({taskId:task.id,generation:task.generation,closeAgentTabs:true});await bridge().request('extension.stop',{taskId:task.id,generation:task.generation,cleanup});if(cleanup?.cleanupState!=='succeeded')throw Error('清理待核实');}}
  };
 }

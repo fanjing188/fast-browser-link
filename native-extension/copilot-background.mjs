@@ -73,7 +73,7 @@ export class CopilotBackground {
   this.workspaceWindows=new Set(windows);
   this.workspaceTabs=new Set((saved['fast.backgroundWorkspaces.v1']?.tasks||[]).flatMap(([,task])=>(task.requests||[]).map(([,request])=>request.tabId)).filter(Number.isInteger));
  }
- async synchronize(){const state=await this.request('state',{});this.trace=(await this.api.storage.session.get('copilotTrace')).copilotTrace||[];this.rows=new Map(state.suggestions.map(row=>[row.id,row]));await this.settings(state);return state;}
+ async synchronize(){let state=await this.request('state',{});const saved=await this.api.storage.session.get('copilotBridgeEnabled');if(saved.copilotBridgeEnabled&&!state.enabled&&!state.startup_error&&!state.bridge_recovery_blocked)state=await this.request('settings',{enabled:true});await this.api.storage.session.set({copilotBridgeEnabled:false});this.trace=(await this.api.storage.session.get('copilotTrace')).copilotTrace||[];this.rows=new Map(state.suggestions.map(row=>[row.id,row]));await this.settings(state);return state;}
  async settings(state){
   this.locale=state.locale;this.boardName=state.board_name;this.hermesHealth=state.hermes_health||(state.startup_error?{state:'error',reason:state.startup_error.reason,reason_en:state.startup_error.reason_en}:this.hermesHealth);
   const started=!this.enabled&&state.enabled;this.protectedHosts=state.protected_hosts||this.protectedHosts||[];
@@ -137,6 +137,7 @@ export class CopilotBackground {
   if(event.type==='browser_fetch'){const enabled=this.enabled;const collect=['capability','capability_probe'].includes(event.kind)?(adapter,event,permitted)=>collectToolReport(adapter,event,permitted,params=>this.request('capability_progress',params)):collectBrowserData;void collect(this.dataAdapter,event,async()=>enabled&&this.enabled&&(await this.request('browser_fetch_status',{id:event.id})).allowed).then(data=>this.browserResult(event.id,data),()=>this.browserResult(event.id,{error:'background_data_unavailable'})).catch(()=>{});return;}
 
   if(event.type==='add'||event.type==='update'){const previous=this.rows.get(event.suggestion.id);this.rows.set(event.suggestion.id,event.suggestion);if(!this.panelPorts.size){if(event.type==='add'&&event.suggestion.status==='pending')this.suggestionsUnread.add(event.suggestion.id);if(event.suggestion.status==='completed'&&previous?.status!=='completed')this.unread.add(event.suggestion.id);}}
+  if(event.suggestion?.action==='workflow.run')void this.onActivity?.(event.suggestion);
   if(event.type==='remove'){this.rows.delete(event.id);this.unread.delete(event.id);this.suggestionsUnread.delete(event.id);}
   if(event.type==='ready'&&!this.sessionRetry.recovery||event.type==='inference'&&event.succeeded===true)this.sessionRetry.reset();
   if(event.type==='settings'&&event.enabled===false){if(event.startup_error)event.startup_error.recovery_exhausted===true?this.sessionRetry.reset():this.sessionRetry.failed();else this.sessionRetry.reset();}

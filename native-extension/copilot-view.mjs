@@ -81,6 +81,7 @@ export function renderDashboard(doc,state,{command,clipboard=globalThis.navigato
     const step=row.status==='queued'?`排队中（第 ${++queueIndex} 个）`:row.status==='stopping'?'停止中，正在回收执行进程…':row.action==='workflow.run'?(row.step||'正在准备工作流…'):stepName(row.step);
     if(typeof row.candidate_count==='number')article.append(node(doc,'p',`已取到 ${row.candidate_count} 个候选，正在${row.action==='seo.longtail'?'分组':'判读'}…`,'candidate-progress'));
     article.append(node(doc,'p',step,'step'),node(doc,'p',`已用 ${seconds} 秒 · ${num(row.tokens)} tokens`,'small'));
+    if(row.workflow_total){const progress=doc.createElement('progress');progress.max=row.workflow_total;progress.value=row.workflow_completed||0;progress.setAttribute('aria-label',en?'Task progress':'任务进度');article.append(progress);}
     const stop=button(row.status==='stopping'?'停止中…':'停止','stop',row);stop.disabled=row.status==='stopping';actions.append(stop);
    }
    if(group==='results'){

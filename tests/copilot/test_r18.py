@@ -77,7 +77,7 @@ class R18(unittest.TestCase):
                        {'requestHistory': [{'state': 'awaiting_human'}]},
                        {'requestHistory': [{'state': 'awaiting_approval'}]},
                        {'agentTabIds': [7]}, {'adoptedPopupTabIds': [8]}, {'agentTabIds': None},
-                       {'cleanupState': 'pending'}, {'cleanupState': 'unknown'},
+                       {'cleanupState': 'pending'},
                        {'currentOperation': {'state': 'running'}}, {'operationTimeline': [{'state': 'running'}]}):
             with self.subTest(change=change):
                 row = {**base, **change}; self.rows = [row]; self.persist(); before = self.path.read_bytes()

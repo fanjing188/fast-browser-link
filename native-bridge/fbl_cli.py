@@ -8,6 +8,7 @@ import re
 import os
 from pathlib import Path
 import shutil
+import shlex
 import subprocess
 import sys
 import tarfile
@@ -314,6 +315,12 @@ def parser():
     return p
 
 
+def confirm_update(prompt):
+    if not sys.stdin.isatty(): return False
+    print(prompt, end='', file=sys.stderr, flush=True)
+    return input().strip().lower() in {'y', 'yes'}
+
+
 def main(argv=None):
     args=parser().parse_args(argv)
     try:
@@ -328,8 +335,8 @@ def main(argv=None):
                     result=preview(ctx)
                 else:
                     from fbl_update import fetch_update
-                    result=fetch_update(ctx,wait=args.wait,pause_hermes=args.pause_hermes,yes=args.yes,confirm=lambda prompt: sys.stdin.isatty() and input(prompt).strip().lower() in {'y','yes'})
-            else:result=update(ctx,args.source,dry_run=args.dry_run,wait=args.wait,pause_hermes=args.pause_hermes,yes=args.yes,confirm=lambda prompt: sys.stdin.isatty() and input(prompt).strip().lower() in {'y','yes'})
+                    result=fetch_update(ctx,wait=args.wait,pause_hermes=args.pause_hermes,yes=args.yes,confirm=confirm_update)
+            else:result=update(ctx,args.source,dry_run=args.dry_run,wait=args.wait,pause_hermes=args.pause_hermes,yes=args.yes,confirm=confirm_update)
         elif args.command=='doctor':result=doctor(ctx,fix=args.fix,deep=True,start=args.fix)
         elif args.command=='logs':result=logs(ctx,follow=args.follow,kind=args.type,errors=args.errors,bundle=args.bundle)
         elif args.command=='packs':
@@ -344,8 +351,36 @@ def main(argv=None):
             from fbl_browser import browser_call
             result=browser_call(ctx,args.operation,json.loads(args.params),args.session)
         print(json.dumps(result,ensure_ascii=False,indent=2,default=str));return 0
-    except (ValueError,OSError,RuntimeError,subprocess.SubprocessError) as error:
+    except Exception as error:
+        if args.command != 'update' and not isinstance(error, (ValueError,OSError,RuntimeError,subprocess.SubprocessError)):
+            raise
         from copilot_diagnostics import redact
+        if args.command == 'update':
+            # 中文注释：任一升级拒绝都给机器可读结果；逐字段脱敏，避免整段 JSON 被截断或丢失换行。
+            def cleaned(value, field=None):
+                if field in {'status', 'reason', 'group'}: return value
+                if isinstance(value, str): return '\n'.join(redact(line) for line in value.splitlines())
+                if isinstance(value, list): return [cleaned(item) for item in value]
+                if isinstance(value, dict): return {key: cleaned(item, key) for key, item in value.items()}
+                return value
+            detail = str(error) + ('\n' + error.fix if getattr(error, 'fix', None) else '')
+            result = cleaned({'status': 'refused', 'reason': getattr(error, 'reason', 'validation_failed' if isinstance(error, ValueError) else 'update_failed'),
+                              'blocking': getattr(error, 'blocking', [{'title': '升级前置条件或事务验证', 'group': 'update', 'reason': type(error).__name__, 'message': detail}]),
+                              'message': detail, 'backup': getattr(error, 'backup', None), 'rolled_back': getattr(error, 'rolled_back', False), 'warnings': getattr(error, 'notes', [])})
+            # 中文注释：恢复命令只拼接本 CLI 与调用方已给出的路径/选项，不使用任务标题等不可信文本。
+            retry = [sys.executable, '-B', str(Path(__file__).resolve()), 'update']
+            for key in ('user_home', 'hermes_home', 'runtime', 'source'):
+                value = getattr(args, key)
+                if value is not None: retry.extend(['--' + key.replace('_', '-'), str(value.expanduser().resolve())])
+            if args.wait: retry.extend(['--wait', str(args.wait)])
+            if args.pause_hermes: retry.append('--pause-hermes')
+            if args.yes or result['reason'] == 'confirmation_required': retry.append('--yes')
+            result['retry_command'] = shlex.join(retry)
+            result['preview_command'] = shlex.join([*retry, '--dry-run'])
+            print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+            print(result['message'], file=sys.stderr)
+            print('复查命令：' + result['preview_command'], file=sys.stderr)
+            return 1
         if str(error).startswith('active or unsettled'):
             print('\n'.join(redact(line) for line in str(error).splitlines()),file=sys.stderr);return 1
         print(json.dumps({'error':type(error).__name__,'message':redact(str(error)),'backup':getattr(error,'backup',None),'rolled_back':getattr(error,'rolled_back',False),'warnings':getattr(error,'notes',[])},ensure_ascii=False),file=sys.stderr);return 1

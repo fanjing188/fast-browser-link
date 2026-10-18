@@ -1,3 +1,4 @@
+import {refreshOverlaySteps as refreshSteps,updateWorkflowActivity} from '../../native-extension/overlay-logs.mjs';
 import {taskTableAdapter} from '../../native-extension/copilot-table-job.mjs';
 import {CopilotBackground} from '../../native-extension/copilot-background.mjs';
 import {CloudLink} from '../support/cloud-link-stub.mjs';
@@ -56,7 +57,7 @@ function harness({hostState='cancelled',stopFails=false,resumeState='ready',resu
  class FakeWorkspace{constructor(){this.manager={reconcile:async()=>{}};}async status(){return [];}}
  // 中文注释：合成后台提供通知事件 API，不访问系统通知中心。
  const chrome={notifications:{onClicked:{addListener(){}},clear:async()=>true},runtime:{getManifest:()=>({version:packageVersion}),id:'extension',getURL:p=>`chrome-extension://extension/${p}`,connectNative:()=>port,onMessage:{addListener:f=>listeners.message=f},sendMessage:async()=>{}},storage:{local:{get:async()=>({browserInstanceId:instance}),set:async()=>{}},session:{get:async()=>({instanceId:instance}),set:async()=>{}}},alarms:{create(){},onAlarm:{addListener(){}}},tabs:{get:async()=>({...tab}),query:async()=>[],onCreated:{addListener(){}},onRemoved:{addListener(){}},onUpdated:{addListener(){}}},debugger:{onDetach:{addListener(){}}}};
- vm.runInNewContext(background.replace(/^import .*;\n/gm,''),{taskTableAdapter,CopilotBackground,CloudLink,CookieMirror,reloadForInstalledBuild:async()=>false,BUILD_ID:'',registerWorkspaceStartup:()=>{},NativeWorkspaces:FakeWorkspace,Executor:FakeExecutor,Bridge,BrowserConsent,isUiSender,createApprovalNotifier:()=>null,origin:u=>new URL(u).origin,chrome,crypto:globalThis.crypto,navigator:{userAgent:'Node'},console,setTimeout,clearTimeout});
+ vm.runInNewContext(background.replace(/^import .*;\n/gm,''),{refreshSteps,updateWorkflowActivity,taskTableAdapter,CopilotBackground,CloudLink,CookieMirror,reloadForInstalledBuild:async()=>false,BUILD_ID:'',registerWorkspaceStartup:()=>{},NativeWorkspaces:FakeWorkspace,Executor:FakeExecutor,Bridge,BrowserConsent,isUiSender,createApprovalNotifier:()=>null,origin:u=>new URL(u).origin,chrome,crypto:globalThis.crypto,navigator:{userAgent:'Node'},console,setTimeout,clearTimeout});
  return {calls,tick,command:p=>executor.onOverlayCommand(p),local:()=>executor.tasks.get('task-1'),lease:owner=>executor.leases.set(7,owner),host:x=>host={...host,...x},tab:x=>tab={...tab,...x},disconnect:()=>disconnect?.()};
 }
 const scope={taskId:'task-1',generation:3,tabId:7,origin:'https://example.test',kind:'stop'};

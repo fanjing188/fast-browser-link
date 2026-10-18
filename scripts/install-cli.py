@@ -548,11 +548,12 @@ def task_block_reason(task, *, daemon_stopped=False):
     timeline = task.get('operationTimeline', [])
     # 中文注释：仅维护空闲判定可把无残留的终态 unknown 转入核实；运行时和原始操作结果不变。
     operations = [operation, *timeline] if isinstance(timeline, list) else [operation]
-    if (not verified and task.get('cleanupState') == 'succeeded' and isinstance(timeline, list)
+    if (not verified and task.get('cleanupState') in {'succeeded', 'unknown', 'failed'} and isinstance(timeline, list)
             and all(isinstance(row, dict) and row.get('state') in {'succeeded', 'failed', 'unknown'} for row in operations)
             and any(row['state'] == 'unknown' for row in operations)):
         return 'history' if isinstance(task.get('userVerified'), dict) else 'verification'
-    if not isinstance(operation, dict) or (operation.get('state') not in {'succeeded', 'failed'} and not verified):
+    if (not isinstance(timeline, list) or not isinstance(operation, dict)
+            or (not verified and any(not isinstance(row, dict) or row.get('state') not in {'succeeded', 'failed'} for row in operations))):
         return 'active'
     if task.get('cleanupState') == 'pending':
         return 'active'
@@ -580,7 +581,7 @@ def assert_tasks_idle(home, *, daemon_stopped=False):
 def browser_epoch(env):
     # 中文注释：使用同用户浏览器主进程的启动时间；重连时间、持久 instanceId 不能证明浏览器重启。
     try:
-        result = command(['ps', '-U', str(os.getuid()), '-o', 'lstart=,comm='], {**env, 'LC_ALL': 'C'})
+        result = command(['ps', '-U', str(os.getuid()), '-o', 'lstart=,comm='], {**env, 'LC_ALL': 'C'}, timeout=1)
     except InstallError:
         return None
     if result.returncode:

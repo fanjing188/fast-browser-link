@@ -1982,6 +1982,7 @@ export class Executor {
     // 中文注释：解析回执沿用动作令牌核验，迟到的矩形不能覆盖新步骤。
     if(op==='parsed')return state.active&&state.overlay.showParsedElements(scope.rects);
     if(op==='log'){state.overlay.setRecentSteps(scope.steps);return true;}
+    if(op==='activity'){state.overlay.setActivity(scope.activity);return true;}
     if(op==='reblock'){state.overlay.reblock();return true;}
     if(op==='scope'||op==='scope-running'){if(scope.taskId!==state.taskId||scope.generation!==state.generation||scope.documentId!==state.documentId||!state.active&&scope.modeGeneration<=state.modeGeneration)return false;state.modeGeneration=scope.modeGeneration;state.active=true;if(op==='scope-running')state.overlay.update(scope.update);return true;}
     if(op==='revoke'){state.active=false;if(binding.operationToken){state.highlight?.clear(binding);state.operationToken=null;state.paintedToken=null;}state.overlay.reblock?.();return true;}

@@ -8,7 +8,7 @@ import subprocess
 import unittest
 from unittest.mock import patch
 import test_r15 as fixtures
-from fbl_update import update, legacy_cli, task_status, task_message
+from fbl_update import update, legacy_cli, task_status, task_message, UpdateRefused
 from fbl_runtime import doctor
 from fbl_profiles import repair
 from copilot import private_write
@@ -130,7 +130,7 @@ class R17(unittest.TestCase):
     def test_eligible_requires_completed_operation_no_permit_finite_dates(self):
         cli=self.prepare();base=self.rows[-1]
         for change in ({'state':'ready'},{'vaultPermit':{}},{'gatewayPermit':{}},{'idlePendingHuman':True},
-                       {'currentOperation':{'state':'unknown'}},{'cleanupState':'pending'},
+                       {'currentOperation':{'state':'running'}},{'cleanupState':'pending'},
                        {'updatedAt':float('nan')},{'updatedAt':None},{'updatedAt':200},
                        {'requestHistory':None},{'requestHistory':[{'time':300}]},
                        {'currentOperation':{'state':'running'},'userVerified':{'at':110}}):
@@ -147,12 +147,14 @@ class R17(unittest.TestCase):
     def test_cli_refusal_preserves_grouped_lines_after_redaction(self):
         import fbl_cli
         cli=self.prepare(ready=True);groups,_=task_status(self.ctx,cli)
-        output=io.StringIO()
-        with patch.object(fbl_cli.Context,'locate',return_value=self.ctx),patch.object(fbl_cli,'update',side_effect=ValueError(task_message(groups))),contextlib.redirect_stderr(output):
+        output=io.StringIO();stdout=io.StringIO()
+        with patch.object(fbl_cli.Context,'locate',return_value=self.ctx),patch.object(fbl_cli,'update',side_effect=UpdateRefused(groups)),contextlib.redirect_stderr(output),contextlib.redirect_stdout(stdout):
             code=fbl_cli.main(['update','--source',str(self.release),'--yes'])
         self.assertEqual(code,1);self.assertIn('\n真正进行中：1\n',output.getvalue())
         self.assertIn('\n停 daemon 后可通过：1120\n',output.getvalue())
         self.assertIn('\n需要核实：3\n',output.getvalue())
+        result=json.loads(stdout.getvalue());self.assertEqual(result['status'],'refused')
+        self.assertEqual(result['blocking'][0]['title'],'Current ready task')
 
     def test_browser_epoch_uses_main_process_earliest_start_not_reconnect(self):
         cli=legacy_cli(self.ctx)

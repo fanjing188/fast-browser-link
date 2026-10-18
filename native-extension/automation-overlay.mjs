@@ -1,6 +1,7 @@
 import {createOverlayView} from './overlay-view.mjs';
 const interactionLabels={click:'准备点击',input:'正在输入',select:'正在选择',drag:'正在拖动'};
 export const stepLabels=Object.freeze({
+ 'table.read':'读取表格',
  tabs:'读取标签页',new_tab:'打开新标签页',navigate:'打开网页',back:'返回上一页',
  snapshot:'扫描页面',semantic_snapshot:'扫描页面','page.parse':'扫描页面','page.observe':'查看页面结构',frame_catalog:'查看页面框架',
  click:'点击页面',ref_click:'点击页面',fill:'输入内容',ref_fill:'输入内容',press:'按下按键',ref_press:'按下按键',
@@ -67,9 +68,9 @@ export function createAutomationOverlay({document:doc=globalThis.document,taskId
  Object.assign(ripple.style,{position:'fixed',display:'none',width:'26px',height:'26px',border:'2px solid #ff8a00',borderRadius:'50%',pointerEvents:'none',zIndex:'2',opacity:'0',transition:'opacity 180ms cubic-bezier(.23,1,.32,1),transform 180ms cubic-bezier(.23,1,.32,1)'});
  const view=createOverlayView(doc,{title,startedAt,language,preferences,onPreference});
  const {bar,actions}=view;
- let waitingTextTimer=null,confirmStopTimer=null,confirmUntil=0;
+ let waitingTextTimer=null,confirmStopTimer=null,confirmUntil=0,activityStep='';
  const zh=language.startsWith('zh'),tr=(a,b)=>zh?a:b;
- const englishSteps={"tabs": "Read tabs", "new_tab": "Open new tab", "navigate": "Open page", "back": "Go back", "snapshot": "Scan page", "semantic_snapshot": "Scan page", "page.parse": "Scan page", "page.observe": "Inspect page structure", "frame_catalog": "Inspect frames", "click": "Click element", "ref_click": "Click element", "fill": "Fill field", "ref_fill": "Fill field", "press": "Press key", "ref_press": "Press key", "ref_set_checked": "Set checkbox", "ref_select_option": "Select option", "scroll": "Scroll page", "screenshot": "Capture page", "interaction.capture": "Capture page", "interaction.bounds": "Inspect element position", "interaction.click": "Click element", "interaction.drag_coordinates": "Drag element", "interaction.drag_elements": "Drag element", "official.ready_state": "Check readiness", "official.goto_url": "Open page", "official.new_tab": "Open new tab", "files.upload": "Choose upload file", "js.evaluate": "Run page operation", "cdp.send": "Run browser operation", "cdp.events": "Inspect browser events", "cdp.input": "Operate page", "network.inspect": "Inspect network", "api_request": "Request site data", "images": "Inspect images", "console": "Inspect page console", "dialog": "Handle page dialog", "popup_catalog": "Inspect popup windows", "popup_adopt": "Adopt popup", "gateway.authorize": "Authorize connection", "vault.authorize": "Authorize sensitive input", "vault.fill": "Fill sensitive field", "use_tab": "Switch tab"};
+ const englishSteps={"table.read":"Read table","tabs": "Read tabs", "new_tab": "Open new tab", "navigate": "Open page", "back": "Go back", "snapshot": "Scan page", "semantic_snapshot": "Scan page", "page.parse": "Scan page", "page.observe": "Inspect page structure", "frame_catalog": "Inspect frames", "click": "Click element", "ref_click": "Click element", "fill": "Fill field", "ref_fill": "Fill field", "press": "Press key", "ref_press": "Press key", "ref_set_checked": "Set checkbox", "ref_select_option": "Select option", "scroll": "Scroll page", "screenshot": "Capture page", "interaction.capture": "Capture page", "interaction.bounds": "Inspect element position", "interaction.click": "Click element", "interaction.drag_coordinates": "Drag element", "interaction.drag_elements": "Drag element", "official.ready_state": "Check readiness", "official.goto_url": "Open page", "official.new_tab": "Open new tab", "files.upload": "Choose upload file", "js.evaluate": "Run page operation", "cdp.send": "Run browser operation", "cdp.events": "Inspect browser events", "cdp.input": "Operate page", "network.inspect": "Inspect network", "api_request": "Request site data", "images": "Inspect images", "console": "Inspect page console", "dialog": "Handle page dialog", "popup_catalog": "Inspect popup windows", "popup_adopt": "Adopt popup", "gateway.authorize": "Authorize connection", "vault.authorize": "Authorize sensitive input", "vault.fill": "Fill sensitive field", "use_tab": "Switch tab"};
  const actionLabel=action=>zh?(Object.hasOwn(stepLabels,action)?stepLabels[action]:'处理页面'):(Object.hasOwn(englishSteps,action)?englishSteps[action]:'Process page');
  const roleLabels={button:'按钮',textbox:'输入框',searchbox:'搜索框',link:'链接',checkbox:'复选框',combobox:'下拉框',listbox:'下拉框',option:'选项',tab:'标签',menuitem:'菜单项',menuitemcheckbox:'菜单复选框',menuitemradio:'菜单单选项',radio:'单选框',switch:'开关',slider:'滑块',spinbutton:'数字输入框',treeitem:'树形项目'};
  function describeStep(row){
@@ -315,24 +316,26 @@ export function createAutomationOverlay({document:doc=globalThis.document,taskId
   setRecentSteps(steps){
    // 中文注释：只接收守护进程的脱敏步骤字段，错误码映射为固定说明。
    if(removed||!Array.isArray(steps))return;
-   const explanations={task_paused:'用户已接管页面',element_timeout:'目标未在期限内出现',target_occluded:'目标被其他元素遮挡',
+   if(steps.length)view.state(currentState,activityStep||actionLabel(steps.at(-1).action));
+   const explanations={operation_outcome_unknown:'执行结果尚未确认，请先核对页面',task_paused:'用户已接管页面',element_timeout:'目标未在期限内出现',target_occluded:'目标被其他元素遮挡',
     scroll_timeout:'滚动结果尚未确认',stale_ref:'页面引用已失效',document_changed:'文档已变化',
     stale_reference:'页面引用已失效，请重新解析并核对当前状态',select_option_missing:'未找到指定选项，请重新读取选项列表',
     invalid_target_state:'控件状态无法核验，请核对实际状态，不要直接重试',
     execution_denied:'安全检查未通过，请核对目标和授权',
     origin_denied:'目标网站不在任务授权范围',permission_denied:'浏览器权限不足',instance_unavailable:'浏览器已断开'};
-   const englishReasons={task_paused:'User took over',element_timeout:'Target did not appear',target_occluded:'Target is covered',scroll_timeout:'Scroll result unconfirmed',stale_ref:'Page reference expired',document_changed:'Document changed',stale_reference:'Page reference expired; inspect the current page',select_option_missing:'Option not found; read the available choices',invalid_target_state:'Control state unconfirmed; inspect before retrying',execution_denied:'Security check denied; verify target and authorization',origin_denied:'Site is outside task scope',permission_denied:'Browser permission missing',instance_unavailable:'Browser disconnected'};
+   const englishReasons={operation_outcome_unknown:'Operation outcome unconfirmed; inspect the page',task_paused:'User took over',element_timeout:'Target did not appear',target_occluded:'Target is covered',scroll_timeout:'Scroll result unconfirmed',stale_ref:'Page reference expired',document_changed:'Document changed',stale_reference:'Page reference expired; inspect the current page',select_option_missing:'Option not found; read the available choices',invalid_target_state:'Control state unconfirmed; inspect before retrying',execution_denied:'Security check denied; verify target and authorization',origin_denied:'Site is outside task scope',permission_denied:'Browser permission missing',instance_unavailable:'Browser disconnected'};
    view.setRows(steps.slice(-100).map(row=>{
     const result=typeof row.result==='string'?row.result:'unknown';
     const rawCode=['failed','unknown'].includes(result)?row.errorCode:result;
     const code=typeof rawCode==='string'&&/^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(rawCode)?rawCode:'';
     const failed=!['succeeded','pending','paused'].includes(result),reasons=zh?explanations:englishReasons;
     const targetLabel=typeof row.target==='string'&&!/敏感字段|sensitive|名称未提供|页面或任务/i.test(row.target)?row.target.slice(0,80).replace(/^[a-z_]+ · /,''):'';
-    return {description:zh?describeStep(row):actionLabel(row.action),targetLabel:zh?'':targetLabel,
+    return {description:zh?describeStep(row):actionLabel(row.action),targetLabel:!Object.hasOwn(stepLabels,row.action)||zh&&['click','ref_click','interaction.click','fill','ref_fill','ref_set_checked','ref_select_option'].includes(row.action)?'':targetLabel,
      result:['succeeded','pending','unknown','paused'].includes(result)?result:'failed',time:row.time,durationMs:row.durationMs,errorCode:failed?code:'',
      reason:failed?(Object.hasOwn(reasons,code)?reasons[code]:tr('请核对页面状态','Check the current page state')):''};
    }));
   },
+  setActivity({step='',completed=0,total=0}={}){if(removed)return;activityStep=String(step).slice(0,180);view.activity(completed,total);view.state(currentState,activityStep);},
   update({state,step='',targetRect,holdMs,scrollDirection}={}){
    if(removed)return;
    if(state==='stopped'){remove();return;}
@@ -342,7 +345,7 @@ export function createAutomationOverlay({document:doc=globalThis.document,taskId
    for(const node of [release,retry])setStyles(node,{display:recovery?'inline-block':'none'});
    if(retry.disabled!==!lastCommand)retry.disabled=!lastCommand;
    setStyles(stop,{display:recovery?'none':'inline-block'});
-   const displayStep=step?actionLabel(step):'';
+   const displayStep=activityStep||(step?actionLabel(step):'');
    view.state(state,displayStep);
    // 中文注释：遮罩一直拦截用户点击和键盘，直到用户点“接管页面”；普通模式只在页面动作派发时放行，
    // 原始 CDP 只在输入派发的短窗口内放行，窗口到期由页面内计时器自行恢复拦截。

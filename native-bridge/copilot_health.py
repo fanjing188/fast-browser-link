@@ -15,15 +15,19 @@ def health(config, state, runtime):
     process=getattr(runtime,'process',None)
     diagnostic=state.get('diagnostic') or state.get('execution_diagnostic') or (state.get('enabled') and (getattr(runtime,'failure',None) or (process is not None and not getattr(runtime,'closed',False) and process.poll() is not None)))
     reason='';english=''
-    if state.get('recovering'):
+    if state.get('bridge_lost'):
+        status='error' if state.get('bridge_recovery_blocked') else 'connecting';reason='浏览器与本地服务连接中断，连续三次连上即断，已停止自动恢复' if state.get('bridge_recovery_blocked') else '浏览器与本地服务连接中断，正在重连';english='Browser bridge repeatedly disconnected; automatic recovery stopped' if state.get('bridge_recovery_blocked') else 'Browser connection interrupted; reconnecting'
+    elif state.get('recovering'):
         status='connecting';reason=(state.get('inference_failure') or {}).get('message','Hermes 推理进程已退出，正在重连');english=failure_message(state.get('inference_failure') or {},'en')
     elif diagnostic or last_success is False and state.get('inference_failures',3)>=3:
         status='error';reason=(state.get('startup_error') or {}).get('reason') or (state.get('inference_failure') or {}).get('message') or '最近调用或会话失败';last_success=False;english=(state.get('startup_error') or {}).get('reason_en') or failure_message(state.get('inference_failure') or {},'en')
+    elif ready:status='connected'
     elif not profile_exists or not executable:
         status='disconnected';reason='Hermes 命令不可用' if not executable else '执行 profile 不存在';english='Hermes command unavailable' if not executable else 'Execution profile missing'
-    elif ready:status='connected'
     elif state.get('enabled'):status='connecting'
     else:status='disconnected'
+    if state.get('bridge_lost') and state.get('bridge_error'):
+        reason+=' · '+state['bridge_error'];english+=' · '+state['bridge_error']
     if status=='connected' and state.get('template_warning'):
         reason=f"模板版本过旧，已跳过 {state['template_warning']} 个模板";english=f"Outdated templates: skipped {state['template_warning']} templates"
     return {'state':status,'reason':reason,'reason_en':english,'acp_ready':ready,'execution_profile_exists':bool(profile_exists),'execution_startable':bool(profile_exists and executable),'execution_check':'structural_only','last_call_succeeded':last_success}

@@ -177,6 +177,7 @@ export function compactSemanticSource(source){
 }
 const serializedFunction=fn=>fn.toString().replace(/^function [^(]+/,'function');
 export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
+ const blocked='TARGET_NOT_ACTIONABLE',badSelect='INVALID_SELECT_OPTIONS';
  const createPageTextRedactor=${serializedFunction(createPageTextRedactor)};
  const createPageSemantics=${serializedFunction(createPageSemantics).replace(/^\s*\/\/[^\n]*\n/gm,'')};
  const createPageParser=${serializedFunction(createPageParser).replace(/^\s*\/\/[^\n]*\n/gm,'')};
@@ -215,7 +216,7 @@ export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
  };
  const actionable=(e,preferredPoint=null)=>{
   if(p.recoveryRound>=2)return;
-  if(!e?.isConnected)throw Error('TARGET_NOT_ACTIONABLE');
+  if(!e?.isConnected)throw Error(blocked);
   const first=e.getBoundingClientRect();let point=preferredPoint||{x:first.left+first.width/2,y:first.top+first.height/2};
   let current=e;
   while(current){
@@ -250,7 +251,7 @@ export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
    if(sensitive(current)||sensitive(hit))throw Error('SENSITIVE_TARGET');
    if(root.host){current=root.host;continue;}
    if(doc===document)break;
-   const frame=view.frameElement;if(!frame?.isConnected)throw Error('TARGET_NOT_ACTIONABLE');
+   const frame=view.frameElement;if(!frame?.isConnected)throw Error(blocked);
    // 中文注释：跨同源 frame 时逐层换算 CSS 视口坐标；旋转/倾斜 frame 暂时显式拒绝。
    point=framePoint(frame,point,'TARGET_NOT_ACTIONABLE');
    current=frame;
@@ -392,8 +393,8 @@ export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
  if(op==='assess_ref_fill'||op==='assess_ref_press'){
   if(sensitive(node))return {targetAssessment:'sensitive',fieldKind:fieldKind(node)};
   // 中文注释：预审只判字段类别；视口和遮挡留给批准后的 prepare 阶段滚动并重查。
-  if(op==='assess_ref_fill'&&(!fillable()||node.disabled))throw Error('TARGET_NOT_ACTIONABLE');
-  if(op==='assess_ref_press'&&(typeof node.focus!=='function'||!interaction().actions.includes('press')))throw Error('TARGET_NOT_ACTIONABLE');
+  if(op==='assess_ref_fill'&&(!fillable()||node.disabled))throw Error(blocked);
+  if(op==='assess_ref_press'&&(typeof node.focus!=='function'||!interaction().actions.includes('press')))throw Error(blocked);
   return {targetAssessment:'ordinary'};
  }
  const rectOf=()=>{const r=node.getBoundingClientRect();return [r.left,r.top,r.width,r.height];};
@@ -458,7 +459,7 @@ export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
  if(op==='prepare_ref_select_option')return prepareHighlight('click',node);
  if(op==='prepare_ref_press')return prepareHighlight('input',node);
  if(op==='prepare_ref_fill'){
-  if(!fillable())throw Error('TARGET_NOT_ACTIONABLE');
+  if(!fillable())throw Error(blocked);
   return prepareHighlight('input',node);
  }
  if(op==='verify_ref_click'||op==='verify_ref_fill'||op==='verify_ref_press'||op==='verify_ref_set_checked'||op==='verify_ref_select_option')return verifyHighlight(op==='verify_ref_set_checked'?controlVisual(node):node);
@@ -498,9 +499,9 @@ export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
   const native=node.tagName==='INPUT'&&['checkbox','radio'].includes(node.type);
   const descriptor=interaction(),role=descriptor.role;
   const aria=!native&&['checkbox','switch','radio','menuitemcheckbox','menuitemradio'].includes(role);
-  if(!native&&!aria)throw Error('TARGET_NOT_ACTIONABLE');
+  if(!native&&!aria)throw Error(blocked);
   if(descriptor.disabled)throw Error('TARGET_DISABLED');
-  if(descriptor.readonly)throw Error('TARGET_NOT_ACTIONABLE');
+  if(descriptor.readonly)throw Error(blocked);
   const read=()=>native?(node.type==='checkbox'&&node.indeterminate?'mixed':node.checked):attr('aria-checked');
   const before=read();
   if(aria&&!['true','false','mixed'].includes(before))throw Error('TARGET_STATE_UNKNOWN');
@@ -522,19 +523,19 @@ export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
   return {checked:before===true||before==='true',changed:true,verified,kind:'trusted-input',...(verified?{}:{outcomeUnknown:true})};
  }
  if(planSelect||reading||applySelect||syntheticSelect){
-  if(!interaction().actions.includes('select_option'))throw Error('TARGET_NOT_ACTIONABLE');
+  if(!interaction().actions.includes('select_option'))throw Error(blocked);
   // 中文注释：原生控件按 value、去首尾空白的 Unicode 标签或零基 index 精确定位，校验全部选项后才写入。
   if(!Array.isArray(p.values)||p.values.length>100||!['value','label','index'].includes(p.by)||
-   p.values.some(value=>p.by==='index'?!Number.isSafeInteger(value)||value<0:typeof value!=='string'||value.length>1000))throw Error('INVALID_SELECT_OPTIONS');
+   p.values.some(value=>p.by==='index'?!Number.isSafeInteger(value)||value<0:typeof value!=='string'||value.length>1000))throw Error(badSelect);
   if(node.tagName==='SELECT'){
-   if(node.disabled)throw Error('TARGET_NOT_ACTIONABLE');
-   if(!node.multiple&&p.values.length!==1)throw Error('INVALID_SELECT_OPTIONS');
+   if(node.disabled)throw Error(blocked);
+   if(!node.multiple&&p.values.length!==1)throw Error(badSelect);
    const options=[...node.options],selected=p.values.map(value=>{
     const option=uniqueOption(options.filter((option,index)=>p.by==='index'?index===value:p.by==='label'?normalizeOption(option.label)===normalizeOption(value):option.value===value));
     if(option.disabled||option.parentElement?.disabled)throw Error('SELECT_OPTION_DISABLED');
     return option;
    });
-   if(new Set(selected).size!==selected.length)throw Error('INVALID_SELECT_OPTIONS');
+   if(new Set(selected).size!==selected.length)throw Error(badSelect);
    const wanted=new Set(selected),changed=options.some(option=>option.selected!==wanted.has(option));
    if(planSelect)return {kind:'native',needsChange:changed};
    if(applySelect){
@@ -547,11 +548,11 @@ export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
     const verified=node.isConnected&&node.options.length===options.length&&options.every((option,index)=>node.options[index]===option&&option.selected===wanted.has(option));
     return {changed,verified,selectedCount:selectedOptions.length,selectedOptions,kind:'native-select',...(verified?{}:{outcomeUnknown:true})};
    }
-   throw Error('INVALID_SELECT_OPTIONS');
+   throw Error(badSelect);
   }
-  if(applySelect)throw Error('INVALID_SELECT_OPTIONS');
+  if(applySelect)throw Error(badSelect);
   // 中文注释：自定义 listbox/combobox 仍只支持单选，并由宿主派发可信指针点击。
-  if(p.by==='index'||p.values.length!==1)throw Error('INVALID_SELECT_OPTIONS');
+  if(p.by==='index'||p.values.length!==1)throw Error(badSelect);
   const list=ariaList(ariaIds());
   const needsOpen=interaction().role==='combobox'&&attr('aria-expanded')!=='true';
   if(syntheticSelect&&p.openOnly){node.click();return;}
@@ -574,7 +575,7 @@ export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
   return {changed:true,verified,selectedCount:selected?1:0,kind:'trusted-input',delivery:verified?'confirmed':'unconfirmed',...(verified?{}:{outcomeUnknown:true})};
  }
  if(op==='ref_fill'){
-  if(!fillable())throw Error('TARGET_NOT_ACTIONABLE');
+  if(!fillable())throw Error(blocked);
   if(editable())return {kind:'contenteditable-input'};
   else{
    const proto=node.tagName==='INPUT'?HTMLInputElement.prototype:HTMLTextAreaElement.prototype;

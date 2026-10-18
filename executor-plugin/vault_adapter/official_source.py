@@ -3,6 +3,7 @@
 Construction/import does not load a vault, prompt, or register tools. Methods are
 called only after a host invokes the adapter with a trusted session identity.
 """
+
 from __future__ import annotations
 
 from typing import Any, Dict, Optional
@@ -31,6 +32,7 @@ class OfficialVaultSource:
             from agent.vault_store import get_vault_store
             from agent.redact import register_vault_redaction_value
             from tools.approval_prompt import request_elicitation_consent
+
             self._dependencies = {
                 "backend_for_handle": backend_for_handle,
                 "enabled_backends": enabled_backends,
@@ -49,12 +51,15 @@ class OfficialVaultSource:
         items, locked, errors = [], [], []
         for backend in deps["enabled_backends"]():
             if backend.needs_unlock and not backend.is_unlocked():
-                locked.append({
-                    "backend": backend.name,
-                    "display_name": backend.display_name,
-                    "unlock": "browser_vault_unlock" if deps["can_prompt_here"]()
-                              else "unavailable_in_this_session",
-                })
+                locked.append(
+                    {
+                        "backend": backend.name,
+                        "display_name": backend.display_name,
+                        "unlock": "browser_vault_unlock"
+                        if deps["can_prompt_here"]()
+                        else "unavailable_in_this_session",
+                    }
+                )
                 continue
             try:
                 metas = backend.list_items()
@@ -76,7 +81,8 @@ class OfficialVaultSource:
                     item["allowed_origins"] = allowed
                 if row.get("has_otp") or backend.needs_unlock:
                     item["two_factor"] = (
-                        "automatic" if row.get("has_otp")
+                        "automatic"
+                        if row.get("has_otp")
                         else "automatic if the manager stores a TOTP seed, otherwise user prompted"
                     )
                 if row.get("identifier") is not None:
@@ -92,8 +98,14 @@ class OfficialVaultSource:
 
     def unlock(self, backend_name: str) -> dict:
         deps = self._deps()
-        backend = next((item for item in deps["enabled_backends"]()
-                        if item.name == backend_name and item.needs_unlock), None)
+        backend = next(
+            (
+                item
+                for item in deps["enabled_backends"]()
+                if item.name == backend_name and item.needs_unlock
+            ),
+            None,
+        )
         if backend is None:
             return {"success": False, "error_type": "unlock_failed"}
         if backend.is_unlocked():
@@ -171,11 +183,14 @@ class OfficialVaultSource:
         return answer if isinstance(answer, dict) else None
 
     def save(self, origin: str, label: str, identifier: str, password: str) -> str:
-        id_type = "email" if "@" in identifier else (
-            "phone" if identifier.lstrip("+").isdigit() else "username"
+        id_type = (
+            "email"
+            if "@" in identifier
+            else ("phone" if identifier.lstrip("+").isdigit() else "username")
         )
         meta = self._deps()["get_vault_store"]().add_item(
-            "login", label,
+            "login",
+            label,
             {"identifier_type": id_type, "identifier": identifier, "password": password},
             origin=origin,
         )
@@ -186,7 +201,8 @@ class OfficialVaultSource:
             "Fill payment card '%s' on %s" % (label, origin),
             "The agent wants to enter your saved card details into this checkout page. "
             "The card number and CVC never enter the conversation. Approve only if you intend to pay here.",
-            surface="vault-payment", title="Confirm payment card fill?",
+            surface="vault-payment",
+            title="Confirm payment card fill?",
         )
         return consent == "accept"
 
@@ -205,8 +221,15 @@ def _meta_dict(meta: Any) -> dict:
         raw = {
             key: getattr(meta, key)
             for key in (
-                "id", "kind", "label", "origin", "created_at", "identifier",
-                "identifier_type", "has_otp", "allowed_origins",
+                "id",
+                "kind",
+                "label",
+                "origin",
+                "created_at",
+                "identifier",
+                "identifier_type",
+                "has_otp",
+                "allowed_origins",
             )
             if hasattr(meta, key)
         }

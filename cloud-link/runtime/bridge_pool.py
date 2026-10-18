@@ -1,4 +1,5 @@
 """复用原 BridgeClient，每个云端执行线程独立连接；不启动本地服务。"""
+
 import threading
 from .capabilities import NATIVE_BRIDGE, native_tools
 
@@ -6,7 +7,9 @@ from .capabilities import NATIVE_BRIDGE, native_tools
 class BridgePool:
     def __init__(self, home):
         self.home = home
-        self.module = native_tools._runtime.load_module(NATIVE_BRIDGE / 'client.py', 'cloud_bridge_client_')
+        self.module = native_tools._runtime.load_module(
+            NATIVE_BRIDGE / "client.py", "cloud_bridge_client_"
+        )
         self.clients = {}
         self.guard = threading.Lock()
         self.closed = False
@@ -14,7 +17,7 @@ class BridgePool:
     def call(self, method, params):
         with self.guard:
             if self.closed:
-                raise RuntimeError('cloud_bridge_closed')
+                raise RuntimeError("cloud_bridge_closed")
             thread = threading.current_thread()
             client = self.clients.get(thread)
             if client is None:

@@ -1,4 +1,5 @@
 """Independent authorization-request regressions; no browser or profile startup."""
+
 from __future__ import annotations
 
 import importlib

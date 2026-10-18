@@ -24,7 +24,11 @@ def call(home: Path, operation: str, params: dict) -> dict:
         raise RuntimeError("Vault private authentication unavailable") from None
     try:
         info = os.fstat(fd)
-        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) != 0o600:
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or info.st_uid != os.getuid()
+            or stat.S_IMODE(info.st_mode) != 0o600
+        ):
             raise RuntimeError("Vault private authentication unavailable")
         with os.fdopen(fd, "r", encoding="ascii") as handle:
             fd = -1
@@ -44,13 +48,22 @@ def call(home: Path, operation: str, params: dict) -> dict:
         conn.settimeout(20)
         conn.connect(str(data_dir / "vault.sock"))
         with conn.makefile("rb") as reader:
-            conn.sendall(json.dumps({"role": "vault-client", "token": token}, separators=(",", ":")).encode("ascii") + b"\n")
+            conn.sendall(
+                json.dumps({"role": "vault-client", "token": token}, separators=(",", ":")).encode(
+                    "ascii"
+                )
+                + b"\n"
+            )
             conn.sendall(payload)
             line = reader.readline(MAX_FRAME + 1)
     if not line or len(line) > MAX_FRAME or not line.endswith(b"\n"):
         raise RuntimeError("Vault private outcome unknown")
     response = json.loads(line)
-    if not isinstance(response, dict) or response.get("id") != request_id or set(response) - {"id", "result", "error"}:
+    if (
+        not isinstance(response, dict)
+        or response.get("id") != request_id
+        or set(response) - {"id", "result", "error"}
+    ):
         raise RuntimeError("Vault private outcome unknown")
     if "error" in response:
         raise RuntimeError("Vault private operation denied")

@@ -22,8 +22,8 @@ def base_event(**overrides):
         "status": "running",
         "duration_ms": 12.5,
         "error_code": None,
-                "action": None,
-                "stage": None,
+        "action": None,
+        "stage": None,
     }
     values.update(overrides)
     return values
@@ -100,9 +100,19 @@ class SchemaTests(unittest.TestCase):
 
     # 中文注释：非字符串必须按契约拒绝，不能泄露集合查询的 TypeError。
     def test_error_codes_accept_lowercase_and_reject_non_string_or_payload(self):
-        for value in ('target_occluded', 'execution_denied', 'a' * 64):
-            self.assertEqual(make_event(**base_event(error_code=value))['error_code'], value)
-        for value in (False, 1, [], ['target_occluded'], {}, {'code': 'execution_denied'}, 'a' * 65, 'target_occluded\n', 'bad?token=secret'):
+        for value in ("target_occluded", "execution_denied", "a" * 64):
+            self.assertEqual(make_event(**base_event(error_code=value))["error_code"], value)
+        for value in (
+            False,
+            1,
+            [],
+            ["target_occluded"],
+            {},
+            {"code": "execution_denied"},
+            "a" * 65,
+            "target_occluded\n",
+            "bad?token=secret",
+        ):
             with self.subTest(value=value), self.assertRaises(UnsafeDiagnosticField):
                 make_event(**base_event(error_code=value))
 

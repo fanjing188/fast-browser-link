@@ -1,34 +1,50 @@
 // 中文注释：真实 Chrome/Edge 临时 profile 验收的公共启动流程；矩阵脚本复用它，不接触个人浏览器配置。
 import assert from 'node:assert/strict';
-import {createHash, randomBytes} from 'node:crypto';
-import {spawn, execFile} from 'node:child_process';
-import {promisify} from 'node:util';
-import {copyFile, mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
+import { createHash, randomBytes } from 'node:crypto';
+import { spawn, execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import {tmpdir} from 'node:os';
-import {realpathSync} from 'node:fs';
-import {CdpClient, waitFor, fetchJson, waitForExtensionPage, activateTestExtensionTab} from './cdp-client.mjs';
-import {configureOAuthFixture} from './oauth-fixture.mjs';
+import { tmpdir } from 'node:os';
+import { realpathSync } from 'node:fs';
+import {
+  CdpClient,
+  waitFor,
+  fetchJson,
+  waitForExtensionPage,
+  activateTestExtensionTab,
+} from './cdp-client.mjs';
+import { configureOAuthFixture } from './oauth-fixture.mjs';
 
 const exec = promisify(execFile);
 export const root = path.resolve(import.meta.dirname, '../..');
-const python = process.env.HERMES_PYTHON || path.join(process.env.HOME, '.hermes/hermes-agent/venv/bin/python');
+const python =
+  process.env.HERMES_PYTHON || path.join(process.env.HOME, '.hermes/hermes-agent/venv/bin/python');
 const helper = path.join(import.meta.dirname, 'real-helper.py');
 // 中文注释：默认保留旧短临时根目录；compactScratch 只使用指定 TMPDIR，延迟解析以免触及 /tmp。
-const scratchRoot = compactScratch => {
-  if (compactScratch && !process.env.TMPDIR) throw Error('compactScratch requires an explicit TMPDIR');
-  return realpathSync(compactScratch ? process.env.TMPDIR : process.platform === 'darwin' ? '/tmp' : tmpdir());
+const scratchRoot = (compactScratch) => {
+  if (compactScratch && !process.env.TMPDIR)
+    throw Error('compactScratch requires an explicit TMPDIR');
+  return realpathSync(
+    compactScratch ? process.env.TMPDIR : process.platform === 'darwin' ? '/tmp' : tmpdir(),
+  );
 };
 
 async function createCompactHome(scratch) {
   // 中文注释：四位随机名直接位于 scratch 下，独占创建；真实绝对 socket 路径按字节检查。
   for (let attempt = 0; attempt < 100; attempt++) {
     const home = path.join(scratch, randomBytes(2).toString('hex'));
-    if (Buffer.byteLength(path.join(home, 'plugin-data/fast-browser-link-native/bridge.sock')) > 103) {
+    if (
+      Buffer.byteLength(path.join(home, 'plugin-data/fast-browser-link-native/bridge.sock')) > 103
+    ) {
       throw Error('TMPDIR is too long for a compact fixture bridge socket');
     }
-    try { await mkdir(home, {mode: 0o700}); return home; }
-    catch (error) { if (error.code !== 'EEXIST') throw error; }
+    try {
+      await mkdir(home, { mode: 0o700 });
+      return home;
+    } catch (error) {
+      if (error.code !== 'EEXIST') throw error;
+    }
   }
   throw Error('could not allocate a private compact fixture home');
 }
@@ -36,268 +52,627 @@ export const browserPaths = {
   chrome: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
   edge: '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
 };
-export const sha256 = data => createHash('sha256').update(data).digest('hex');
+export const sha256 = (data) => createHash('sha256').update(data).digest('hex');
 
 export async function helperCall(...args) {
-  const {stdout} = await exec(python, [helper, ...args], {
+  const { stdout } = await exec(python, [helper, ...args], {
     cwd: root,
-    env: {...process.env, PYTHONDONTWRITEBYTECODE: '1', HERMES_SOURCE: process.env.HERMES_SOURCE || path.join(process.env.HOME, '.hermes/hermes-agent')},
-    timeout: 240000, maxBuffer: 8 * 1024 * 1024,
+    env: {
+      ...process.env,
+      PYTHONDONTWRITEBYTECODE: '1',
+      HERMES_SOURCE:
+        process.env.HERMES_SOURCE || path.join(process.env.HOME, '.hermes/hermes-agent'),
+    },
+    timeout: 240000,
+    maxBuffer: 8 * 1024 * 1024,
   });
   return JSON.parse(stdout.trim().split('\n').filter(Boolean).at(-1) || '{}');
 }
 
 // 中文注释：离线 staging 与真实启动共用布局，dispose() 只删除本次独占创建的目录。
-export async function stageRealSession({browser, packageMode = false, label = 'm', compactScratch = false, sharedWith = null, oauthProviders = null}) {
+export async function stageRealSession({
+  browser,
+  packageMode = false,
+  label = 'm',
+  compactScratch = false,
+  sharedWith = null,
+  oauthProviders = null,
+}) {
   const scratch = scratchRoot(compactScratch);
-  if (compactScratch && path.basename(label) !== label) throw Error('compactScratch label must not contain a path');
+  if (compactScratch && path.basename(label) !== label)
+    throw Error('compactScratch label must not contain a path');
   const work = await mkdtemp(path.join(scratch, `${label}${browser[0]}-`));
   let compactHome;
   const dispose = async () => {
-    await rm(work, {recursive: true, force: true, maxRetries: 5, retryDelay: 200});
-    if (compactHome) await rm(compactHome, {recursive: true, force: true, maxRetries: 5, retryDelay: 200});
+    await rm(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+    if (compactHome)
+      await rm(compactHome, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   };
   try {
     if (compactScratch && !sharedWith) compactHome = await createCompactHome(scratch);
     const packageRoot = path.join(work, 'package');
-    const extensionRoot = packageMode ? path.join(packageRoot, 'native-extension') : path.join(work, 'dist-native');
-    if (packageMode) await exec(process.execPath, [path.join(root, 'scripts/package-executor.mjs'), '--source', root, '--output', packageRoot], {cwd: root, timeout: 120000});
-    else await exec(process.execPath, [path.join(root, 'native-extension/build.mjs'), extensionRoot], {cwd: root});
-    const oauthFixture=oauthProviders?await configureOAuthFixture(extensionRoot,oauthProviders):null;
+    const extensionRoot = packageMode
+      ? path.join(packageRoot, 'native-extension')
+      : path.join(work, 'dist-native');
+    if (packageMode)
+      await exec(
+        process.execPath,
+        [
+          path.join(root, 'scripts/package-executor.mjs'),
+          '--source',
+          root,
+          '--output',
+          packageRoot,
+        ],
+        { cwd: root, timeout: 120000 },
+      );
+    else
+      await exec(process.execPath, [path.join(root, 'native-extension/build.mjs'), extensionRoot], {
+        cwd: root,
+      });
+    const oauthFixture = oauthProviders
+      ? await configureOAuthFixture(extensionRoot, oauthProviders)
+      : null;
     const profile = path.join(work, 'profile');
     const downloadsDir = path.join(work, 'downloads');
     const temp = path.join(work, 'tmp');
-    await mkdir(path.join(profile, 'Default'), {recursive: true});
-    await mkdir(downloadsDir, {recursive: true}); await mkdir(temp, {recursive: true});
-    await writeFile(path.join(profile, 'Default', 'Preferences'), JSON.stringify({download: {default_directory: downloadsDir, prompt_for_download: false, directory_upgrade: true}}));
+    await mkdir(path.join(profile, 'Default'), { recursive: true });
+    await mkdir(downloadsDir, { recursive: true });
+    await mkdir(temp, { recursive: true });
+    await writeFile(
+      path.join(profile, 'Default', 'Preferences'),
+      JSON.stringify({
+        download: {
+          default_directory: downloadsDir,
+          prompt_for_download: false,
+          directory_upgrade: true,
+        },
+      }),
+    );
     // 中文注释：1.4.0 起扩展 ID 由 manifest key 固定；无 key 时才按加载路径推算。
-    const manifestKey = JSON.parse(await readFile(path.join(extensionRoot, 'manifest.json'), 'utf8')).key;
-    const expectedExtensionId = [...(manifestKey ? createHash('sha256').update(Buffer.from(manifestKey, 'base64')).digest('hex') : sha256(path.resolve(extensionRoot))).slice(0, 32)]
-      .map(digit => String.fromCharCode(97 + Number.parseInt(digit, 16))).join('');
+    const manifestKey = JSON.parse(
+      await readFile(path.join(extensionRoot, 'manifest.json'), 'utf8'),
+    ).key;
+    const expectedExtensionId = [
+      ...(manifestKey
+        ? createHash('sha256').update(Buffer.from(manifestKey, 'base64')).digest('hex')
+        : sha256(path.resolve(extensionRoot))
+      ).slice(0, 32),
+    ]
+      .map((digit) => String.fromCharCode(97 + Number.parseInt(digit, 16)))
+      .join('');
     const origins = JSON.stringify([`chrome-extension://${expectedExtensionId}/`]);
     const homeArgs = compactHome ? [compactHome] : [];
     // 中文注释：共享 fixture 不拥有源 Hermes home，关闭时不能删除它。
-    const staged = sharedWith ? sharedWith.staged : packageMode ? await helperCall('stage_package', work, packageRoot, origins, ...homeArgs) : await helperCall('stage', work, origins, ...homeArgs);
+    const staged = sharedWith
+      ? sharedWith.staged
+      : packageMode
+        ? await helperCall('stage_package', work, packageRoot, origins, ...homeArgs)
+        : await helperCall('stage', work, origins, ...homeArgs);
     const profileManifest = path.join(profile, 'NativeMessagingHosts/com.fast.browser_link.json');
-    await mkdir(path.dirname(profileManifest), {recursive: true});
+    await mkdir(path.dirname(profileManifest), { recursive: true });
     await copyFile(staged.manifests[browser === 'chrome' ? 0 : 1], profileManifest);
-    return {work, profile, downloadsDir, temp, compactHome, staged, extensionRoot, expectedExtensionId, oauthFixture, dispose};
-  } catch (error) { await dispose(); throw error; }
+    return {
+      work,
+      profile,
+      downloadsDir,
+      temp,
+      compactHome,
+      staged,
+      extensionRoot,
+      expectedExtensionId,
+      oauthFixture,
+      dispose,
+    };
+  } catch (error) {
+    await dispose();
+    throw error;
+  }
 }
 
 // 中文注释：启动临时 profile；compactScratch=true 可把所有 fixture 产物限制在指定 TMPDIR 内。
-export async function openRealSession({browser, packageMode = false, hostRules = '', label = 'm', headed = false, workWindowMode, idleCloseSeconds, taskIdleTimeoutSeconds, allowPopups = false, sharedWith = null, compactScratch = false, oauthProviders = null}) {
-  const fixture = await stageRealSession({browser, packageMode, label, sharedWith, compactScratch, oauthProviders});
-  const {work, profile, downloadsDir, temp, compactHome, staged, extensionRoot, expectedExtensionId} = fixture;
+export async function openRealSession({
+  browser,
+  packageMode = false,
+  hostRules = '',
+  label = 'm',
+  headed = false,
+  workWindowMode,
+  idleCloseSeconds,
+  taskIdleTimeoutSeconds,
+  allowPopups = false,
+  sharedWith = null,
+  compactScratch = false,
+  oauthProviders = null,
+}) {
+  const fixture = await stageRealSession({
+    browser,
+    packageMode,
+    label,
+    sharedWith,
+    compactScratch,
+    oauthProviders,
+  });
+  const {
+    work,
+    profile,
+    downloadsDir,
+    temp,
+    compactHome,
+    staged,
+    extensionRoot,
+    expectedExtensionId,
+  } = fixture;
   // 中文注释：浏览器必须继承真实 HOME（见 tests/v1-launch-safety），只把 HERMES_HOME/TMPDIR 指到临时目录。
   const browserEnv = {
-    HOME: process.env.HOME, HERMES_HOME: staged.hermesHome, TMPDIR: temp,
-    PATH: process.env.PATH || '/usr/bin:/bin:/usr/sbin:/sbin', LANG: process.env.LANG || 'en_US.UTF-8',
+    HOME: process.env.HOME,
+    HERMES_HOME: staged.hermesHome,
+    TMPDIR: temp,
+    PATH: process.env.PATH || '/usr/bin:/bin:/usr/sbin:/sbin',
+    LANG: process.env.LANG || 'en_US.UTF-8',
   };
   // 中文注释：生命周期验收仅在本次临时 profile 的 host/daemon 中缩短计时，不修改用户 .env。
-  if(workWindowMode!==undefined)browserEnv.FAST_BROWSER_WORK_WINDOW=workWindowMode;
-  if(idleCloseSeconds!==undefined)browserEnv.FAST_BROWSER_IDLE_CLOSE_SECONDS=String(idleCloseSeconds);
-  if(taskIdleTimeoutSeconds!==undefined)browserEnv.FAST_BROWSER_TASK_IDLE_TIMEOUT_SECONDS=String(taskIdleTimeoutSeconds);
-  const session = {work, profile, downloadsDir, compactHome, staged, browser, extensionId: expectedExtensionId, oauthFixture:fixture.oauthFixture, logs: ''};
+  if (workWindowMode !== undefined) browserEnv.FAST_BROWSER_WORK_WINDOW = workWindowMode;
+  if (idleCloseSeconds !== undefined)
+    browserEnv.FAST_BROWSER_IDLE_CLOSE_SECONDS = String(idleCloseSeconds);
+  if (taskIdleTimeoutSeconds !== undefined)
+    browserEnv.FAST_BROWSER_TASK_IDLE_TIMEOUT_SECONDS = String(taskIdleTimeoutSeconds);
+  const session = {
+    work,
+    profile,
+    downloadsDir,
+    compactHome,
+    staged,
+    browser,
+    extensionId: expectedExtensionId,
+    oauthFixture: fixture.oauthFixture,
+    logs: '',
+  };
   let proc, cdp, ui, popupTarget, base;
 
-  const activateExtensionTab = (client, targetId) => activateTestExtensionTab(client,targetId,cdp);
+  const activateExtensionTab = (client, targetId) =>
+    activateTestExtensionTab(client, targetId, cdp);
   const trustedClick = async (client, targetId, selector) => {
     await activateExtensionTab(client, targetId);
-    const point = await client.evaluate(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(!e)throw Error('missing '+${JSON.stringify(selector)});e.scrollIntoView({block:'center'});const r=e.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()`);
-    await client.call('Input.dispatchMouseEvent', {type: 'mousePressed', button: 'left', clickCount: 1, ...point});
-    await client.call('Input.dispatchMouseEvent', {type: 'mouseReleased', button: 'left', clickCount: 1, ...point});
+    const point = await client.evaluate(
+      `(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(!e)throw Error('missing '+${JSON.stringify(selector)});e.scrollIntoView({block:'center'});const r=e.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()`,
+    );
+    await client.call('Input.dispatchMouseEvent', {
+      type: 'mousePressed',
+      button: 'left',
+      clickCount: 1,
+      ...point,
+    });
+    await client.call('Input.dispatchMouseEvent', {
+      type: 'mouseReleased',
+      button: 'left',
+      clickCount: 1,
+      ...point,
+    });
   };
   session.trustedClick = trustedClick;
 
   async function launch() {
-    proc = spawn(browserPaths[browser], [
-      // 中文注释：有界面验收显式跳过 headless，仍使用本次临时 profile 和随机调试端口。
-      ...(headed ? [] : ['--headless=new']), ...(allowPopups ? ['--disable-popup-blocking'] : []), '--use-mock-keychain', '--password-store=basic', '--disable-background-networking', '--disable-sync', '--no-proxy-server',
-      '--site-per-process', ...(hostRules ? [`--host-resolver-rules=${hostRules}`] : []),
-      `--user-data-dir=${profile}`, '--remote-debugging-address=127.0.0.1', '--remote-debugging-port=0',
-      '--enable-unsafe-extension-debugging', '--no-first-run', '--no-default-browser-check', 'about:blank',
-    ], {stdio: ['ignore', 'ignore', 'pipe'], detached: true, cwd: work, env: browserEnv});
-    proc.stderr.on('data', chunk => { session.logs += String(chunk); });
-    await rm(path.join(profile, 'DevToolsActivePort'), {force: true}).catch(() => {});
+    proc = spawn(
+      browserPaths[browser],
+      [
+        // 中文注释：有界面验收显式跳过 headless，仍使用本次临时 profile 和随机调试端口。
+        ...(headed ? [] : ['--headless=new']),
+        ...(allowPopups ? ['--disable-popup-blocking'] : []),
+        '--use-mock-keychain',
+        '--password-store=basic',
+        '--disable-background-networking',
+        '--disable-sync',
+        '--no-proxy-server',
+        '--site-per-process',
+        ...(hostRules ? [`--host-resolver-rules=${hostRules}`] : []),
+        `--user-data-dir=${profile}`,
+        '--remote-debugging-address=127.0.0.1',
+        '--remote-debugging-port=0',
+        '--enable-unsafe-extension-debugging',
+        '--no-first-run',
+        '--no-default-browser-check',
+        'about:blank',
+      ],
+      { stdio: ['ignore', 'ignore', 'pipe'], detached: true, cwd: work, env: browserEnv },
+    );
+    proc.stderr.on('data', (chunk) => {
+      session.logs += String(chunk);
+    });
+    await rm(path.join(profile, 'DevToolsActivePort'), { force: true }).catch(() => {});
     const port = await waitFor(async () => {
-      try { return (await readFile(path.join(profile, 'DevToolsActivePort'), 'utf8')).split('\n')[0]; } catch { return null; }
+      try {
+        return (await readFile(path.join(profile, 'DevToolsActivePort'), 'utf8')).split('\n')[0];
+      } catch {
+        return null;
+      }
     }, 30000);
     base = `http://127.0.0.1:${port}`;
     session.version = await fetchJson(`${base}/json/version`);
-    cdp = new CdpClient(session.version.webSocketDebuggerUrl); await cdp.connect();
-    const {id} = await cdp.call('Extensions.loadUnpacked', {path: extensionRoot});
+    cdp = new CdpClient(session.version.webSocketDebuggerUrl);
+    await cdp.connect();
+    const { id } = await cdp.call('Extensions.loadUnpacked', { path: extensionRoot });
     assert.equal(id, expectedExtensionId, 'unpacked extension ID changed after host registration');
-    await cdp.call('Target.createTarget', {url: `chrome-extension://${id}/popup.html`});
-    popupTarget = await waitFor(async () => (await fetchJson(`${base}/json/list`)).find(item => item.url === `chrome-extension://${id}/popup.html`));
-    ui = new CdpClient(popupTarget.webSocketDebuggerUrl); await ui.connect();
-    session.ui = ui; session.cdp = cdp; session.base = base;
-    await waitForExtensionPage(ui,{extensionId:expectedExtensionId,url:`chrome-extension://${expectedExtensionId}/popup.html`});
+    await cdp.call('Target.createTarget', { url: `chrome-extension://${id}/popup.html` });
+    popupTarget = await waitFor(async () =>
+      (await fetchJson(`${base}/json/list`)).find(
+        (item) => item.url === `chrome-extension://${id}/popup.html`,
+      ),
+    );
+    ui = new CdpClient(popupTarget.webSocketDebuggerUrl);
+    await ui.connect();
+    session.ui = ui;
+    session.cdp = cdp;
+    session.base = base;
+    await waitForExtensionPage(ui, {
+      extensionId: expectedExtensionId,
+      url: `chrome-extension://${expectedExtensionId}/popup.html`,
+    });
     await waitFor(() => ui.evaluate(`document.querySelector('#connection-label')!==null`));
-    if (!await ui.evaluate(`document.querySelector('#connection-label').textContent==='已连接'`)) await trustedClick(ui, popupTarget.id, '#connect');
-    await waitFor(() => ui.evaluate(`document.querySelector('#connection-label').textContent==='已连接'`), 35000);
+    if (!(await ui.evaluate(`document.querySelector('#connection-label').textContent==='已连接'`)))
+      await trustedClick(ui, popupTarget.id, '#connect');
+    await waitFor(
+      () => ui.evaluate(`document.querySelector('#connection-label').textContent==='已连接'`),
+      35000,
+    );
   }
   async function stopBrowser() {
-    ui?.close(); cdp?.close();
-    try { process.kill(-proc.pid, 'SIGTERM'); } catch {}
-    await new Promise(resolve => setTimeout(resolve, 800));
-    try { process.kill(-proc.pid, 'SIGKILL'); } catch {}
-    await new Promise(resolve => setTimeout(resolve, 300));
+    ui?.close();
+    cdp?.close();
+    try {
+      process.kill(-proc.pid, 'SIGTERM');
+    } catch {}
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    try {
+      process.kill(-proc.pid, 'SIGKILL');
+    } catch {}
+    await new Promise((resolve) => setTimeout(resolve, 300));
   }
-  session.clickPopup = selector => trustedClick(ui, popupTarget.id, selector);
+  session.clickPopup = (selector) => trustedClick(ui, popupTarget.id, selector);
   // 中文注释：只最小化当前临时 profile 的普通窗口，复现源浏览器处于后台。
-  session.background = () => ui.evaluate(`chrome.windows.getAll({windowTypes:['normal']}).then(windows=>Promise.all(windows.map(win=>chrome.windows.update(win.id,{state:'minimized'})))).then(()=>true)`);
+  session.background = () =>
+    ui.evaluate(
+      `chrome.windows.getAll({windowTypes:['normal']}).then(windows=>Promise.all(windows.map(win=>chrome.windows.update(win.id,{state:'minimized'})))).then(()=>true)`,
+    );
   session.enableFullAccess = async () => {
     // 中文注释：保留 runner 共用入口；连接授权已包含直接访问，不再模拟第二次授权。
-    await waitFor(() => ui.evaluate(`chrome.runtime.sendMessage({type:'popup_status'}).then(r=>r.result?.connected===true&&r.result?.browserFullConsentStatus==='enabled')`));
+    await waitFor(() =>
+      ui.evaluate(
+        `chrome.runtime.sendMessage({type:'popup_status'}).then(r=>r.result?.connected===true&&r.result?.browserFullConsentStatus==='enabled')`,
+      ),
+    );
   };
-  session.rpc = (owner, suffix, args = {}) => helperCall('rpc', sharedWith?.work || work, owner, suffix, JSON.stringify(args));
+  session.rpc = (owner, suffix, args = {}) =>
+    helperCall('rpc', sharedWith?.work || work, owner, suffix, JSON.stringify(args));
   session.instance = async () => {
     const found = await waitFor(async () => {
       const rows = await session.rpc('session-a', 'browsers');
-      return Array.isArray(rows) && rows.some(item => item.browser === browser && item.connected !== false) ? rows : null;
+      return Array.isArray(rows) &&
+        rows.some((item) => item.browser === browser && item.connected !== false)
+        ? rows
+        : null;
     }, 30000);
     // 中文注释：同浏览器多 profile 必须使用当前扩展实例，不能按 browser 名称取第一条。
-    const instanceId=await ui.evaluate(`chrome.runtime.sendMessage({type:'popup_status'}).then(r=>r.result.instanceId)`);
-    return found.find(item => item.instanceId === instanceId);
+    const instanceId = await ui.evaluate(
+      `chrome.runtime.sendMessage({type:'popup_status'}).then(r=>r.result.instanceId)`,
+    );
+    return found.find((item) => item.instanceId === instanceId);
   };
   // 中文注释：页面回读通过扩展自身的 chrome.debugger 进行，只用于测试断言，不经过被测动作链路。
-  session.readPage = (tabId, expression) => ui.evaluate(`chrome.debugger.sendCommand({tabId:${tabId}},'Runtime.evaluate',{expression:${JSON.stringify(expression)},returnByValue:true,awaitPromise:true}).then(r=>r.result.value)`);
+  session.readPage = (tabId, expression) =>
+    ui.evaluate(
+      `chrome.debugger.sendCommand({tabId:${tabId}},'Runtime.evaluate',{expression:${JSON.stringify(expression)},returnByValue:true,awaitPromise:true}).then(r=>r.result.value)`,
+    );
   // 中文注释：按网址找到页面自己的调试端点只读回读，不依赖扩展当前是否附加到该标签页。
   session.readUrl = async (urlPart, expression) => {
-    const target = await waitFor(async () => (await fetchJson(`${base}/json/list`)).find(item => item.type === 'page' && (typeof urlPart === 'function' ? urlPart(item.url) : item.url.includes(urlPart))), 15000);
-    const client = new CdpClient(target.webSocketDebuggerUrl); await client.connect();
-    try { return await client.evaluate(expression); } finally { client.close(); }
+    const target = await waitFor(
+      async () =>
+        (await fetchJson(`${base}/json/list`)).find(
+          (item) =>
+            item.type === 'page' &&
+            (typeof urlPart === 'function' ? urlPart(item.url) : item.url.includes(urlPart)),
+        ),
+      15000,
+    );
+    const client = new CdpClient(target.webSocketDebuggerUrl);
+    await client.connect();
+    try {
+      return await client.evaluate(expression);
+    } finally {
+      client.close();
+    }
   };
   session.approvalPanelTargets = async () => ({
     expectedUrl: `chrome-extension://${expectedExtensionId}/approval-panel.html`,
-    targets: (await fetchJson(`${base}/json/list`)).map(({id,type,url,title}) => ({id,type,url,title})),
+    targets: (await fetchJson(`${base}/json/list`)).map(({ id, type, url, title }) => ({
+      id,
+      type,
+      url,
+      title,
+    })),
   });
   session.approvePanel = async (decision = 'approve', textIncludes = null) => {
     let panel;
     try {
-      const panelTarget = await waitFor(async () => (await fetchJson(`${base}/json/list`)).find(item => item.url === `chrome-extension://${expectedExtensionId}/approval-panel.html`), 20000, {label: '审批面板目标出现'});
-      panel = new CdpClient(panelTarget.webSocketDebuggerUrl); await panel.connect();
-      await waitFor(() => panel.evaluate(`Boolean(document.querySelector('button[data-decision="${decision}"]'))`));
-      if (textIncludes){const body=await panel.evaluate('document.body.innerText');assert.ok(body.includes(textIncludes),JSON.stringify({expected:textIncludes,body}));}
+      const panelTarget = await waitFor(
+        async () =>
+          (await fetchJson(`${base}/json/list`)).find(
+            (item) => item.url === `chrome-extension://${expectedExtensionId}/approval-panel.html`,
+          ),
+        20000,
+        { label: '审批面板目标出现' },
+      );
+      panel = new CdpClient(panelTarget.webSocketDebuggerUrl);
+      await panel.connect();
+      await waitFor(() =>
+        panel.evaluate(`Boolean(document.querySelector('button[data-decision="${decision}"]'))`),
+      );
+      if (textIncludes) {
+        const body = await panel.evaluate('document.body.innerText');
+        assert.ok(body.includes(textIncludes), JSON.stringify({ expected: textIncludes, body }));
+      }
       await activateExtensionTab(panel, panelTarget.id);
-      const point = await panel.evaluate(`(()=>{const e=document.querySelector('button[data-decision="${decision}"]');e.scrollIntoView({block:'center'});const r=e.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()`);
-      await panel.call('Input.dispatchMouseEvent', {type: 'mousePressed', button: 'left', clickCount: 1, ...point});
-      await panel.call('Input.dispatchMouseEvent', {type: 'mouseReleased', button: 'left', clickCount: 1, ...point});
+      const point = await panel.evaluate(
+        `(()=>{const e=document.querySelector('button[data-decision="${decision}"]');e.scrollIntoView({block:'center'});const r=e.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()`,
+      );
+      await panel.call('Input.dispatchMouseEvent', {
+        type: 'mousePressed',
+        button: 'left',
+        clickCount: 1,
+        ...point,
+      });
+      await panel.call('Input.dispatchMouseEvent', {
+        type: 'mouseReleased',
+        button: 'left',
+        clickCount: 1,
+        ...point,
+      });
       // 中文注释：等待本次审批窗口关闭，避免紧接着的新请求误命中上一个弹窗。
-      await waitFor(async()=>!(await fetchJson(`${base}/json/list`)).some(item=>item.id===panelTarget.id),10000);
-    } catch(error) {
-      try { error.approvalPanelTargets = await session.approvalPanelTargets(); }
-      catch(failure) { error.approvalPanelTargets = {error:failure.message}; }
+      await waitFor(
+        async () =>
+          !(await fetchJson(`${base}/json/list`)).some((item) => item.id === panelTarget.id),
+        10000,
+      );
+    } catch (error) {
+      try {
+        error.approvalPanelTargets = await session.approvalPanelTargets();
+      } catch (failure) {
+        error.approvalPanelTargets = { error: failure.message };
+      }
       throw error;
-    } finally { panel?.close(); }
+    } finally {
+      panel?.close();
+    }
   };
   // 中文注释：重载只作用于本 fixture 扩展；刷新共享 ui 引用，后续工具不再使用已关闭的 popup 端点。
   // 中文注释：重载只作用于本 fixture 扩展；用 chrome://extensions 页自身的重新加载（与用户点"重新加载"相同），
   // 不用 chrome.runtime.reload()——后者会让经 CDP 加载的解压扩展变成"已屏蔽"。完成后刷新共享 ui 引用。
   session.reloadExtension = async () => {
     ui.close();
-    const {targetId} = await cdp.call('Target.createTarget', {url: 'chrome://extensions/'});
-    const page = await waitFor(async () => (await fetchJson(`${base}/json/list`)).find(item => item.id === targetId && item.webSocketDebuggerUrl));
-    const manager = new CdpClient(page.webSocketDebuggerUrl); await manager.connect();
+    const { targetId } = await cdp.call('Target.createTarget', { url: 'chrome://extensions/' });
+    const page = await waitFor(async () =>
+      (await fetchJson(`${base}/json/list`)).find(
+        (item) => item.id === targetId && item.webSocketDebuggerUrl,
+      ),
+    );
+    const manager = new CdpClient(page.webSocketDebuggerUrl);
+    await manager.connect();
     try {
-      await waitFor(() => manager.evaluate(`typeof chrome?.developerPrivate?.reload === 'function'`), 15000, {label: '扩展管理页可用'});
+      await waitFor(
+        () => manager.evaluate(`typeof chrome?.developerPrivate?.reload === 'function'`),
+        15000,
+        { label: '扩展管理页可用' },
+      );
       // 中文注释：临时 profile 默认未开开发者模式，重载会把解压扩展判为 unsupportedDeveloperExtension 并停用；先开启，与真实用户环境一致。
-      await manager.evaluate(`new Promise(resolve => chrome.developerPrivate.updateProfileConfiguration({inDeveloperMode: true}, () => resolve(true)))`);
-      await manager.evaluate(`new Promise((resolve, reject) => chrome.developerPrivate.reload(${JSON.stringify(expectedExtensionId)}, {failQuietly: true}, () => chrome.runtime.lastError ? reject(Error(chrome.runtime.lastError.message)) : resolve(true)))`);
-    } finally { manager.close(); await cdp.call('Target.closeTarget', {targetId}).catch(() => {}); }
+      await manager.evaluate(
+        `new Promise(resolve => chrome.developerPrivate.updateProfileConfiguration({inDeveloperMode: true}, () => resolve(true)))`,
+      );
+      await manager.evaluate(
+        `new Promise((resolve, reject) => chrome.developerPrivate.reload(${JSON.stringify(expectedExtensionId)}, {failQuietly: true}, () => chrome.runtime.lastError ? reject(Error(chrome.runtime.lastError.message)) : resolve(true)))`,
+      );
+    } finally {
+      manager.close();
+      await cdp.call('Target.closeTarget', { targetId }).catch(() => {});
+    }
     const popupUrl = `chrome-extension://${expectedExtensionId}/popup.html`;
-    popupTarget = await waitFor(async () => {
-      for (const item of (await fetchJson(`${base}/json/list`)).filter(item => item.url === popupUrl)) await cdp.call('Target.closeTarget', {targetId: item.id}).catch(() => {});
-      await cdp.call('Target.createTarget', {url: popupUrl});
-      await new Promise(resolve => setTimeout(resolve, 800));
-      const target = (await fetchJson(`${base}/json/list`)).find(item => item.url === popupUrl);
-      if (!target) return null;
-      const probe = new CdpClient(target.webSocketDebuggerUrl); await probe.connect();
-      try { return await probe.evaluate(`Boolean(document.querySelector('#connection-label'))`) ? target : null; }
-      catch { return null; } finally { probe.close(); }
-    }, 20000, {label: '扩展重载后弹窗可打开'});
-    ui = new CdpClient(popupTarget.webSocketDebuggerUrl); await ui.connect(); session.ui = ui;
-    await waitFor(() => ui.evaluate(`document.querySelector('#connection-label')?.textContent==='已连接'`), 35000);
+    popupTarget = await waitFor(
+      async () => {
+        for (const item of (await fetchJson(`${base}/json/list`)).filter(
+          (item) => item.url === popupUrl,
+        ))
+          await cdp.call('Target.closeTarget', { targetId: item.id }).catch(() => {});
+        await cdp.call('Target.createTarget', { url: popupUrl });
+        await new Promise((resolve) => setTimeout(resolve, 800));
+        const target = (await fetchJson(`${base}/json/list`)).find((item) => item.url === popupUrl);
+        if (!target) return null;
+        const probe = new CdpClient(target.webSocketDebuggerUrl);
+        await probe.connect();
+        try {
+          return (await probe.evaluate(`Boolean(document.querySelector('#connection-label'))`))
+            ? target
+            : null;
+        } catch {
+          return null;
+        } finally {
+          probe.close();
+        }
+      },
+      20000,
+      { label: '扩展重载后弹窗可打开' },
+    );
+    ui = new CdpClient(popupTarget.webSocketDebuggerUrl);
+    await ui.connect();
+    session.ui = ui;
+    await waitFor(
+      () => ui.evaluate(`document.querySelector('#connection-label')?.textContent==='已连接'`),
+      35000,
+    );
   };
   session.enableIncognito = async () => {
-    const {targetId}=await cdp.call('Target.createTarget',{url:'chrome://extensions/'});
-    const target=await waitFor(async()=>(await fetchJson(`${base}/json/list`)).find(row=>row.id===targetId));
-    const manager=new CdpClient(target.webSocketDebuggerUrl);await manager.connect();
-    try{
-      await waitFor(()=>manager.evaluate('typeof chrome.developerPrivate?.updateExtensionConfiguration === "function"'));
-      await manager.evaluate(`new Promise((resolve,reject)=>chrome.developerPrivate.updateExtensionConfiguration({extensionId:${JSON.stringify(expectedExtensionId)},incognitoAccess:true},()=>chrome.runtime.lastError?reject(Error(chrome.runtime.lastError.message)):resolve(true)))`);
-    }finally{manager.close();await cdp.call('Target.closeTarget',{targetId}).catch(()=>{});}
-    await session.reloadExtension();await session.enableFullAccess();
-    assert.equal(await session.ui.evaluate('chrome.extension.isAllowedIncognitoAccess()'),true);
+    const { targetId } = await cdp.call('Target.createTarget', { url: 'chrome://extensions/' });
+    const target = await waitFor(async () =>
+      (await fetchJson(`${base}/json/list`)).find((row) => row.id === targetId),
+    );
+    const manager = new CdpClient(target.webSocketDebuggerUrl);
+    await manager.connect();
+    try {
+      await waitFor(() =>
+        manager.evaluate(
+          'typeof chrome.developerPrivate?.updateExtensionConfiguration === "function"',
+        ),
+      );
+      await manager.evaluate(
+        `new Promise((resolve,reject)=>chrome.developerPrivate.updateExtensionConfiguration({extensionId:${JSON.stringify(expectedExtensionId)},incognitoAccess:true},()=>chrome.runtime.lastError?reject(Error(chrome.runtime.lastError.message)):resolve(true)))`,
+      );
+    } finally {
+      manager.close();
+      await cdp.call('Target.closeTarget', { targetId }).catch(() => {});
+    }
+    await session.reloadExtension();
+    await session.enableFullAccess();
+    assert.equal(await session.ui.evaluate('chrome.extension.isAllowedIncognitoAccess()'), true);
   };
-  session.restartBrowser = async () => { await stopBrowser(); await launch(); };
+  session.restartBrowser = async () => {
+    await stopBrowser();
+    await launch();
+  };
   session.killBrowser = stopBrowser;
   session.launch = launch;
   session.close = async () => {
-    const cleanupError = sharedWith ? null : await helperCall('cleanup', work).then(() => null, error => error);
+    const cleanupError = sharedWith
+      ? null
+      : await helperCall('cleanup', work).then(
+          () => null,
+          (error) => error,
+        );
     await stopBrowser();
-    if (process.env.KEEP_NATIVE_V2_SCRATCH === '1') console.error('retained fixture:', work, compactHome || '');
+    if (process.env.KEEP_NATIVE_V2_SCRATCH === '1')
+      console.error('retained fixture:', work, compactHome || '');
     else await fixture.dispose();
     if (cleanupError) throw cleanupError;
   };
-  try { await launch(); } catch (error) { await session.close().catch(() => {}); throw error; }
+  try {
+    await launch();
+  } catch (error) {
+    await session.close().catch(() => {});
+    throw error;
+  }
   return session;
 }
 
 // 中文注释：为一个会话创建任务与任务自有工作页，返回按任务绑定的 run/readback 帮助函数。
 // 中文注释：创建与引用准备阶段也传递公共工具的原始错误码，供机械基准记录。
-function requireBridgeResult(value){
-  if(value?.error)throw Object.assign(Error(value.error),{code:value.code,bridgeCode:value.bridgeCode,_diagnostic:value._diagnostic});
+function requireBridgeResult(value) {
+  if (value?.error)
+    throw Object.assign(Error(value.error), {
+      code: value.code,
+      bridgeCode: value.bridgeCode,
+      _diagnostic: value._diagnostic,
+    });
   return value;
 }
 
-export async function openTask(session, {owner = 'session-a', origins, url, title = 'matrix', incognito = false}) {
+export async function openTask(
+  session,
+  { owner = 'session-a', origins, url, title = 'matrix', incognito = false },
+) {
   const instance = await session.instance();
-  const task = requireBridgeResult(await session.rpc(owner, 'create', {title, instance_id: instance.instanceId, allowed_origins: origins, incognito}));
-  await waitFor(async () => { const current = await session.rpc(owner, 'get', {task_id: task.id}); return current.state === 'ready' && current.activeMode === 'full'; }, 30000);
-  const opened = await session.rpc(owner, 'run', {task_id: task.id, request_id: `open-${task.id}`, action: 'new_tab', url});
+  const task = requireBridgeResult(
+    await session.rpc(owner, 'create', {
+      title,
+      instance_id: instance.instanceId,
+      allowed_origins: origins,
+      incognito,
+    }),
+  );
+  await waitFor(async () => {
+    const current = await session.rpc(owner, 'get', { task_id: task.id });
+    return current.state === 'ready' && current.activeMode === 'full';
+  }, 30000);
+  const opened = await session.rpc(owner, 'run', {
+    task_id: task.id,
+    request_id: `open-${task.id}`,
+    action: 'new_tab',
+    url,
+  });
   // 中文注释：基准准备失败也保留桥接码和诊断码，避免被断言异常覆盖。
-  if(!Number.isInteger(opened.tabId))throw Object.assign(Error(opened.error||'new_tab failed'),{code:opened.code,bridgeCode:opened.bridgeCode,_diagnostic:opened._diagnostic});
+  if (!Number.isInteger(opened.tabId))
+    throw Object.assign(Error(opened.error || 'new_tab failed'), {
+      code: opened.code,
+      bridgeCode: opened.bridgeCode,
+      _diagnostic: opened._diagnostic,
+    });
   await session.ui.evaluate(`chrome.tabs.update(${opened.tabId},{active:true}).then(()=>true)`);
   let sequence = 0;
-  const handle = {task, owner, tabId: opened.tabId, instance, opened};
+  const handle = { task, owner, tabId: opened.tabId, instance, opened };
   handle.nextId = () => `${task.id.slice(0, 8)}-${++sequence}`;
   // 中文注释：tabs/new_tab 属于任务级动作，公共协议不允许携带 tab_id；其他动作仍显式绑定当前工作页。
-  handle.run = (action, extra = {}, requestId = handle.nextId()) => session.rpc(owner, 'run', {
-    task_id: task.id, request_id: requestId, action,
-    ...(action === 'tabs' || action === 'new_tab' ? {} : {tab_id: handle.tabId}), ...extra,
-  });
-  handle.read = expression => session.readPage(handle.tabId, expression);
+  handle.run = (action, extra = {}, requestId = handle.nextId()) =>
+    session.rpc(owner, 'run', {
+      task_id: task.id,
+      request_id: requestId,
+      action,
+      ...(action === 'tabs' || action === 'new_tab' ? {} : { tab_id: handle.tabId }),
+      ...extra,
+    });
+  handle.read = (expression) => session.readPage(handle.tabId, expression);
   handle.ref = async (query, roles, extra = {}) => {
-    const snap = await handle.run('semantic_snapshot', {options: {mode: 'interactive', query, ...(roles ? {roles} : {}), budget: 3000, ...extra}});
+    const snap = await handle.run('semantic_snapshot', {
+      options: { mode: 'interactive', query, ...(roles ? { roles } : {}), budget: 3000, ...extra },
+    });
     requireBridgeResult(snap);
     assert.ok(Array.isArray(snap.items), JSON.stringify(snap));
-    assert.equal(snap.items.length, 1, `${query}: ${JSON.stringify(snap.items?.map(item => item.name))}`);
-    return {binding: snap.binding, snapshot_id: snap.snapshotId, ref: snap.items[0].ref, item: snap.items[0]};
+    assert.equal(
+      snap.items.length,
+      1,
+      `${query}: ${JSON.stringify(snap.items?.map((item) => item.name))}`,
+    );
+    return {
+      binding: snap.binding,
+      snapshot_id: snap.snapshotId,
+      ref: snap.items[0].ref,
+      item: snap.items[0],
+    };
   };
   handle.act = async (action, target, extra = {}) => {
-    const {item: _, ...token} = target;
-    return handle.run(action, {...token, ...extra});
+    const { item: _, ...token } = target;
+    return handle.run(action, { ...token, ...extra });
   };
   return handle;
 }
 
 // 中文注释：直接运行本文件时执行最小真实会话验收；被其他矩阵导入时只提供公共助手。
-if(process.argv[1]===import.meta.filename){
- const {createServer}=await import('node:http');
- const server=createServer((_req,res)=>{res.setHeader('Content-Type','text/html');res.end('<button id="apply">Apply</button>')});
- await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
- const origin=`http://127.0.0.1:${server.address().port}`;let session;
- try{
-  session=await openRealSession({browser:process.argv.includes('--edge')?'edge':'chrome',headed:process.argv.includes('--headed'),label:'session160'});
-  await session.enableFullAccess();
-  const tab=await openTask(session,{owner:'session160',origins:[origin],url:origin,title:'会话验收'});
-  // 中文注释：处理器通过 DOM API 绑定，避免 HTML 属性中混入字符串转义。
-  await tab.read(`document.querySelector('#apply').onclick=e=>e.target.textContent='Applied'`);
-  const result=await tab.act('ref_click',await tab.ref('Apply',['button']));
-  assert.equal(result.error,undefined,JSON.stringify(result));assert.equal(result.effect,'observed');
-  assert.equal(await tab.read(`document.querySelector('#apply').textContent`),'Applied');
-  console.log('PASS 临时 profile 会话、授权、真实点击、效果及关闭');
- }finally{await session?.close();await new Promise(resolve=>server.close(resolve));}
+if (process.argv[1] === import.meta.filename) {
+  const { createServer } = await import('node:http');
+  const server = createServer((_req, res) => {
+    res.setHeader('Content-Type', 'text/html');
+    res.end('<button id="apply">Apply</button>');
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const origin = `http://127.0.0.1:${server.address().port}`;
+  let session;
+  try {
+    session = await openRealSession({
+      browser: process.argv.includes('--edge') ? 'edge' : 'chrome',
+      headed: process.argv.includes('--headed'),
+      label: 'session160',
+    });
+    await session.enableFullAccess();
+    const tab = await openTask(session, {
+      owner: 'session160',
+      origins: [origin],
+      url: origin,
+      title: '会话验收',
+    });
+    // 中文注释：处理器通过 DOM API 绑定，避免 HTML 属性中混入字符串转义。
+    await tab.read(`document.querySelector('#apply').onclick=e=>e.target.textContent='Applied'`);
+    const result = await tab.act('ref_click', await tab.ref('Apply', ['button']));
+    assert.equal(result.error, undefined, JSON.stringify(result));
+    assert.equal(result.effect, 'observed');
+    assert.equal(await tab.read(`document.querySelector('#apply').textContent`), 'Applied');
+    console.log('PASS 临时 profile 会话、授权、真实点击、效果及关闭');
+  } finally {
+    await session?.close();
+    await new Promise((resolve) => server.close(resolve));
+  }
 }

@@ -47,7 +47,9 @@ class SinkTests(unittest.TestCase):
 
             self.assertEqual(stat.S_IMODE(root.stat().st_mode), 0o700)
             self.assertEqual(stat.S_IMODE((root / "events.jsonl").stat().st_mode), 0o600)
-            self.assertEqual(stat.S_IMODE((root / ".browser-diagnostics.lock").stat().st_mode), 0o600)
+            self.assertEqual(
+                stat.S_IMODE((root / ".browser-diagnostics.lock").stat().st_mode), 0o600
+            )
 
     def test_sink_refuses_a_symlink_root_or_symlink_log(self):
         with tempfile.TemporaryDirectory() as parent:
@@ -89,7 +91,11 @@ class SinkTests(unittest.TestCase):
 
             sink = JsonlDiagnosticSink(root, max_bytes=2_000_000, max_files=5)
             threads = [
-                threading.Thread(target=lambda start=start: [sink.write(event_for(i)) for i in range(start, start + 40)])
+                threading.Thread(
+                    target=lambda start=start: [
+                        sink.write(event_for(i)) for i in range(start, start + 40)
+                    ]
+                )
                 for start in (300, 400, 500)
             ]
             for thread in threads:

@@ -4,7 +4,14 @@ import { mkdir, cp, rm } from 'node:fs/promises';
 await rm('dist', { recursive: true, force: true });
 await mkdir('dist/server', { recursive: true });
 await mkdir('dist/.openai', { recursive: true });
-await build({ entryPoints: ['worker/index.js'], outfile: 'dist/server/index.js', bundle: true,
-  format: 'esm', platform: 'browser', conditions: ['workerd', 'browser'], target: 'es2022' });
+await build({
+  entryPoints: ['worker/index.js'],
+  outfile: 'dist/server/index.js',
+  bundle: true,
+  format: 'esm',
+  platform: 'browser',
+  conditions: ['workerd', 'browser'],
+  target: 'es2022',
+});
 await cp('.openai/hosting.json', 'dist/.openai/hosting.json');
 await cp('drizzle', 'dist/drizzle', { recursive: true });

@@ -31,6 +31,7 @@ import time
 import uuid
 import sys
 
+
 # 中文注释：只在浏览器调用期间释放任务锁，异常也先重新加锁再记录结果。
 @contextmanager
 def _outside_task_lock(lock):
@@ -77,28 +78,78 @@ from cookie_mirror import CookieMirrorService, MirrorDenied
 from client import safe_summary
 from api_client import ApiClient, ApiDenied
 from artifacts import ArtifactStore, ArtifactError, LOCAL_PATH_ORIGIN
-from downloads import DownloadRegistry, DownloadError, new_download_key, public_record as public_download
+from downloads import (
+    DownloadRegistry,
+    DownloadError,
+    new_download_key,
+    public_record as public_download,
+)
 from cdp_gateway import CdpGateway, GatewayDenied
 from vault_private import VaultPrivateService, remove_stale_socket
 
-V1_ACTIONS = frozenset({
-    'popup_catalog', 'popup_adopt',
-    'navigate', 'snapshot', 'click', 'fill', 'press', 'screenshot', 'tabs', 'new_tab',
-    'page.observe', 'page.parse', 'semantic_snapshot', 'frame_catalog', 'ref_click', 'ref_fill', 'ref_press', 'ref_set_checked', 'ref_select_option', 'api_request',
-    'interaction.capture', 'interaction.bounds', 'interaction.click',
-    'interaction.drag_coordinates', 'interaction.drag_elements',
-    'files.upload',
-    'official.ready_state', 'official.goto_url', 'official.new_tab',
-    'scroll', 'back',
-    # 中文注释：页面执行（JavaScript / CDP）；复用既有浏览器完整访问。
-    'js.evaluate', 'cdp.send', 'cdp.events', 'network.inspect', 'gateway.authorize', 'vault.authorize',
-    'images', 'console', 'dialog',
-})
-SCRIPT_ACTIONS = frozenset({'js.evaluate', 'cdp.send', 'cdp.events', 'network.inspect'})
+V1_ACTIONS = frozenset(
+    {
+        "popup_catalog",
+        "popup_adopt",
+        "navigate",
+        "snapshot",
+        "click",
+        "fill",
+        "press",
+        "screenshot",
+        "tabs",
+        "new_tab",
+        "page.observe",
+        "page.parse",
+        "semantic_snapshot",
+        "frame_catalog",
+        "ref_click",
+        "ref_fill",
+        "ref_press",
+        "ref_set_checked",
+        "ref_select_option",
+        "api_request",
+        "interaction.capture",
+        "interaction.bounds",
+        "interaction.click",
+        "interaction.drag_coordinates",
+        "interaction.drag_elements",
+        "files.upload",
+        "official.ready_state",
+        "official.goto_url",
+        "official.new_tab",
+        "scroll",
+        "back",
+        # 中文注释：页面执行（JavaScript / CDP）；复用既有浏览器完整访问。
+        "js.evaluate",
+        "cdp.send",
+        "cdp.events",
+        "network.inspect",
+        "gateway.authorize",
+        "vault.authorize",
+        "images",
+        "console",
+        "dialog",
+    }
+)
+SCRIPT_ACTIONS = frozenset({"js.evaluate", "cdp.send", "cdp.events", "network.inspect"})
 # 中文注释：这些动作可能返回当前任务页内容；tabs 只列任务租约页，单独保留直接读取。
-SITE_READ_ACTIONS = frozenset({'snapshot', 'screenshot', 'page.observe', 'page.parse', 'semantic_snapshot', 'frame_catalog',
-                               'interaction.capture', 'interaction.bounds', 'official.ready_state', 'images', 'console'})
-SITE_NAV_ACTIONS = frozenset({'navigate', 'new_tab', 'official.goto_url', 'official.new_tab'})
+SITE_READ_ACTIONS = frozenset(
+    {
+        "snapshot",
+        "screenshot",
+        "page.observe",
+        "page.parse",
+        "semantic_snapshot",
+        "frame_catalog",
+        "interaction.capture",
+        "interaction.bounds",
+        "official.ready_state",
+        "images",
+        "console",
+    }
+)
+SITE_NAV_ACTIONS = frozenset({"navigate", "new_tab", "official.goto_url", "official.new_tab"})
 _TOOL_RESULT_LIMIT = 900 * 1024
 
 _MAX_LINE = 1024 * 1024
@@ -111,81 +162,139 @@ _MAX_DIAGNOSTIC_CURSOR = 10**20 - 1
 class ProtocolError(Exception):
     def __init__(self, code: str, message: str, data: Any = None):
         # 中文注释：Cookie 专用错误只含固定文本与计数，不复用页面摘要字符串。
-        if code == 'cookie_mirror_denied':
-            message = 'Cookie 镜像请求不可用，请在扩展中核实。'
+        if code == "cookie_mirror_denied":
+            message = "Cookie 镜像请求不可用，请在扩展中核实。"
         super().__init__(message)
         self.code = code
         self.message = message
-        self.data = safe_summary(data) if code == 'cookie_mirror_denied' else _safe_error_data(data)
+        self.data = safe_summary(data) if code == "cookie_mirror_denied" else _safe_error_data(data)
 
 
-_SCOPE_HINT = '同站用 goto_url，新站用 fast_browser_open。'
+_SCOPE_HINT = "同站用 goto_url，新站用 fast_browser_open。"
 
 
 def _safe_error_data(data: Any) -> dict:
     if not isinstance(data, dict):
         return {}
-    safe = {key: data[key] for key in ("outcomeUnknown", "retryable") if type(data.get(key)) is bool}
-    if isinstance(data.get('fields'), list):
-        safe['fields'] = sorted(field for field in data['fields'] if isinstance(field, str) and field in {'sections', 'maxScan', 'schema'})
+    safe = {
+        key: data[key] for key in ("outcomeUnknown", "retryable") if type(data.get(key)) is bool
+    }
+    if isinstance(data.get("fields"), list):
+        safe["fields"] = sorted(
+            field
+            for field in data["fields"]
+            if isinstance(field, str) and field in {"sections", "maxScan", "schema"}
+        )
     # 中文注释：错误摘要只保留已脱敏的角色、名称和关闭按钮引用。
-    rows = data.get('candidates')
+    rows = data.get("candidates")
     if isinstance(rows, list):
-        safe['candidates'] = [{'role': row['role'][:40], 'name': row['name'][:80]}
-                              for row in rows[:5] if isinstance(row, dict)
-                              and isinstance(row.get('role'), str) and isinstance(row.get('name'), str)]
-    obstruction = data.get('obstruction')
-    if isinstance(obstruction, dict) and isinstance(obstruction.get('role'), str) and isinstance(obstruction.get('name'), str):
-        safe['obstruction'] = {'role': obstruction['role'][:40], 'name': obstruction['name'][:80]}
-        button = obstruction.get('closeButton')
-        binding = button.get('binding') if isinstance(button, dict) else None
-        if (isinstance(binding, dict) and all(isinstance(binding.get(key), str) for key in ('taskId', 'documentId', 'leaseId'))
-                and all(isinstance(button.get(key), str) for key in ('snapshotId', 'ref', 'name'))):
-            safe['obstruction']['closeButton'] = {
-                'binding': {key: binding[key] for key in ('taskId', 'documentId', 'leaseId')},
-                'snapshotId': button['snapshotId'], 'ref': button['ref'], 'role': 'button', 'name': button['name'][:80]}
+        safe["candidates"] = [
+            {"role": row["role"][:40], "name": row["name"][:80]}
+            for row in rows[:5]
+            if isinstance(row, dict)
+            and isinstance(row.get("role"), str)
+            and isinstance(row.get("name"), str)
+        ]
+    obstruction = data.get("obstruction")
+    if (
+        isinstance(obstruction, dict)
+        and isinstance(obstruction.get("role"), str)
+        and isinstance(obstruction.get("name"), str)
+    ):
+        safe["obstruction"] = {"role": obstruction["role"][:40], "name": obstruction["name"][:80]}
+        button = obstruction.get("closeButton")
+        binding = button.get("binding") if isinstance(button, dict) else None
+        if (
+            isinstance(binding, dict)
+            and all(
+                isinstance(binding.get(key), str) for key in ("taskId", "documentId", "leaseId")
+            )
+            and all(isinstance(button.get(key), str) for key in ("snapshotId", "ref", "name"))
+        ):
+            safe["obstruction"]["closeButton"] = {
+                "binding": {key: binding[key] for key in ("taskId", "documentId", "leaseId")},
+                "snapshotId": button["snapshotId"],
+                "ref": button["ref"],
+                "role": "button",
+                "name": button["name"][:80],
+            }
     # 中文注释：跨站错误只允许完整来源；路径、查询、凭据与片段均不进入协议数据。
-    for key in ('finalOrigin', 'currentOrigin'):
+    for key in ("finalOrigin", "currentOrigin"):
         value = data.get(key)
         if isinstance(value, str):
             try:
                 parsed = urlsplit(value)
-                if (parsed.scheme in {'http', 'https'} and parsed.hostname and not parsed.username and not parsed.password
-                        and not parsed.path and not parsed.query and not parsed.fragment
-                        and value == f'{parsed.scheme}://{parsed.netloc}'):
+                if (
+                    parsed.scheme in {"http", "https"}
+                    and parsed.hostname
+                    and not parsed.username
+                    and not parsed.password
+                    and not parsed.path
+                    and not parsed.query
+                    and not parsed.fragment
+                    and value == f"{parsed.scheme}://{parsed.netloc}"
+                ):
                     safe[key] = value
             except ValueError:
                 pass
     # 中文注释：恢复提示只放行固定文案；阶段与原因码只放行短的小写标识符。
-    if data.get('scopeHint') == _SCOPE_HINT:
-        safe['scopeHint'] = _SCOPE_HINT
-    for key in ('stage', 'reasonCode'):
+    if data.get("scopeHint") == _SCOPE_HINT:
+        safe["scopeHint"] = _SCOPE_HINT
+    for key in ("stage", "reasonCode"):
         value = data.get(key)
-        if isinstance(value, str) and re.fullmatch(r'[a-z][a-z0-9_]{0,47}', value):
+        if isinstance(value, str) and re.fullmatch(r"[a-z][a-z0-9_]{0,47}", value):
             safe[key] = value
     # 中文注释：框架诊断只含来源和有限几何，不传地址参数、正文或任意异常。
-    frame = data.get('skippedFrame')
+    frame = data.get("skippedFrame")
     if isinstance(frame, dict):
         try:
-            url = urlsplit(frame.get('origin', ''))
-            site = f'{url.scheme}://{url.netloc}'
-            if (frame.get('origin') == 'opaque' or (url.scheme in {'http', 'https'} and url.hostname
-                    and not url.username and not url.password and frame['origin'] == site)):
-                if all(type(frame.get(k)) in {int, float} and math.isfinite(frame[k]) for k in ('x', 'y', 'width', 'height')):
-                    safe['skippedFrame'] = {k: frame[k] for k in ('origin', 'x', 'y', 'width', 'height')}
+            url = urlsplit(frame.get("origin", ""))
+            site = f"{url.scheme}://{url.netloc}"
+            if frame.get("origin") == "opaque" or (
+                url.scheme in {"http", "https"}
+                and url.hostname
+                and not url.username
+                and not url.password
+                and frame["origin"] == site
+            ):
+                if all(
+                    type(frame.get(k)) in {int, float} and math.isfinite(frame[k])
+                    for k in ("x", "y", "width", "height")
+                ):
+                    safe["skippedFrame"] = {
+                        k: frame[k] for k in ("origin", "x", "y", "width", "height")
+                    }
         except (ValueError, TypeError):
             pass
     # 中文注释：Cookie 错误仅放行计数和固定失败类别，载荷不会进入通用错误结果。
     # 中文注释：效果错误仅允许固定提示及枚举，不放行任意页面字符串。
-    if data.get('effect') in {'observed', 'unobserved'}:
-        safe['effect'] = data['effect']
-    if data.get('suggestion') == '输入已派发但未观察到效果；请读取目标页核对，检查按钮状态或改用页面支持的操作，不要反复重试。':
-        safe['suggestion'] = data['suggestion']
-    recovery = data.get('recovery')
+    if data.get("effect") in {"observed", "unobserved"}:
+        safe["effect"] = data["effect"]
+    if (
+        data.get("suggestion")
+        == "输入已派发但未观察到效果；请读取目标页核对，检查按钮状态或改用页面支持的操作，不要反复重试。"
+    ):
+        safe["suggestion"] = data["suggestion"]
+    recovery = data.get("recovery")
     if isinstance(recovery, dict) and len(json.dumps(recovery)) <= 24 * 1024 * 1024:
-        safe['recovery'] = {key: recovery[key] for key in (
-            'triggered', 'rounds', 'locator', 'clickMethod', 'strategies', 'selected',
-            'otherCandidates', 'candidates', 'observation', 'screenshot', 'screenshotError', 'screenshotPath') if key in recovery}
+        safe["recovery"] = {
+            key: recovery[key]
+            for key in (
+                "triggered",
+                "rounds",
+                "locator",
+                "clickMethod",
+                "strategies",
+                "selected",
+                "otherCandidates",
+                "candidates",
+                "observation",
+                "screenshot",
+                "screenshotError",
+                "screenshotPath",
+            )
+            if key in recovery
+        }
     safe.update(safe_summary(data))
     return safe
 
@@ -195,12 +304,20 @@ _DAEMON_IDLE_GRACE_SECONDS = 30.0
 
 class BridgeDaemon:
     def __init__(self, home: Path, request_history_limit: int = _DEFAULT_REQUEST_HISTORY_LIMIT):
-        if not isinstance(request_history_limit, int) or isinstance(request_history_limit, bool) or request_history_limit < 1:
+        if (
+            not isinstance(request_history_limit, int)
+            or isinstance(request_history_limit, bool)
+            or request_history_limit < 1
+        ):
             raise ValueError("request_history_limit must be a positive integer")
         self.home = home.resolve()
         self.data_dir = self.home / "plugin-data" / "fast-browser-link-native"
-        try:self.runtime_version=json.loads((Path(__file__).parent/'runtime-version.json').read_text()).get('version')
-        except (OSError,ValueError):self.runtime_version=None
+        try:
+            self.runtime_version = json.loads(
+                (Path(__file__).parent / "runtime-version.json").read_text()
+            ).get("version")
+        except (OSError, ValueError):
+            self.runtime_version = None
         self.socket_path = self.data_dir / "bridge.sock"
         self.token_path = self.data_dir / "token"
         self.tasks_path = self.data_dir / "tasks.json"
@@ -228,9 +345,9 @@ class BridgeDaemon:
         self.persist_dirty = False
         self.persist_error = None
         self.pending_journal = []
-        self.journal_path = self.data_dir / 'requests.jsonl'
-        self.primary_path = self.data_dir / 'primary-browser.json'
-        self.task_log_dir = self.data_dir / 'task-logs'
+        self.journal_path = self.data_dir / "requests.jsonl"
+        self.primary_path = self.data_dir / "primary-browser.json"
+        self.task_log_dir = self.data_dir / "task-logs"
         self.task_log_lock = threading.Lock()
         self.task_log_pruned_at = None
         self.overlay_operations = {}
@@ -254,24 +371,28 @@ class BridgeDaemon:
         self.diagnostic_projection = None
         self.diagnostic_connection = uuid.uuid4().hex
         self.download_registry = DownloadRegistry(self.home)
-        self.cdp_gateway = CdpGateway(self._gateway_call, self._gateway_validate, self._gateway_create_tab)
+        self.cdp_gateway = CdpGateway(
+            self._gateway_call, self._gateway_validate, self._gateway_create_tab
+        )
         # 中文注释：凭据填写只经独立套接字进入 daemon，不开放普通客户端 RPC。
         self.vault_private = VaultPrivateService(self)
         # 中文注释：计时归常驻 daemon 管理；非负秒数可为小数，便于临时 profile 验收。
-        self.idle_close_seconds = self._idle_seconds('FAST_BROWSER_IDLE_CLOSE_SECONDS', 0)
-        self.task_idle_timeout_seconds = self._idle_seconds('FAST_BROWSER_TASK_IDLE_TIMEOUT_SECONDS', 1200)
+        self.idle_close_seconds = self._idle_seconds("FAST_BROWSER_IDLE_CLOSE_SECONDS", 0)
+        self.task_idle_timeout_seconds = self._idle_seconds(
+            "FAST_BROWSER_TASK_IDLE_TIMEOUT_SECONDS", 1200
+        )
 
         # 中文注释：配置从可信 daemon 环境下发，模型参数不能选择工作窗口。
-        self.work_window_mode = os.environ.get('FAST_BROWSER_WORK_WINDOW', 'separate')
-        if self.work_window_mode not in {'separate', 'current'}:
-            raise ValueError('FAST_BROWSER_WORK_WINDOW must be separate or current')
+        self.work_window_mode = os.environ.get("FAST_BROWSER_WORK_WINDOW", "separate")
+        if self.work_window_mode not in {"separate", "current"}:
+            raise ValueError("FAST_BROWSER_WORK_WINDOW must be separate or current")
         self.needs_sync_sweep_at = 0.0
 
     @staticmethod
     def _idle_seconds(name, default):
         value = float(os.environ.get(name, default))
         if not math.isfinite(value) or value < 0:
-            raise ValueError(f'{name} must be a finite non-negative number')
+            raise ValueError(f"{name} must be a finite non-negative number")
         return value
 
     def _session_activity(self, owner, task_id=None):
@@ -280,95 +401,152 @@ class BridgeDaemon:
             now = time.time()
             cancelled = False
             for task in self.tasks.values():
-                if task['owner'] != owner or task['state'] in {'closed', 'cancelled'}:
+                if task["owner"] != owner or task["state"] in {"closed", "cancelled"}:
                     continue
-                cancelled = cancelled or 'idleCloseAt' in task
-                task.pop('idleCloseAt', None)
-                if task_id is None or task['id'] == task_id:
-                    task['lastActivityAt'] = now
+                cancelled = cancelled or "idleCloseAt" in task
+                task.pop("idleCloseAt", None)
+                if task_id is None or task["id"] == task_id:
+                    task["lastActivityAt"] = now
                 self._persist_tasks()
             return cancelled
 
     def _session_end(self, params):
-        if set(params) != {'owner'}:
-            raise ProtocolError('invalid_params', 'invalid session end')
-        owner = self._required_string(params, 'owner')
+        if set(params) != {"owner"}:
+            raise ProtocolError("invalid_params", "invalid session end")
+        owner = self._required_string(params, "owner")
         with self.state_lock:
             deadline = time.time() + self.idle_close_seconds
             for task in self.tasks.values():
-                if task['owner'] == owner and task['state'] not in {'closed', 'cancelled'}:
+                if task["owner"] == owner and task["state"] not in {"closed", "cancelled"}:
                     # 中文注释：重复完成信号不能延长已启动的宽限；再调用会先移除截止时间。
-                    task.setdefault('idleCloseAt', deadline)
+                    task.setdefault("idleCloseAt", deadline)
             self._persist_tasks()
         self._sweep_idle_tasks()
-        return {'accepted': True}
+        return {"accepted": True}
 
     def _pending_human(self, task):
         # 中文注释：暂停状态和仍有效的人工批准/敏感填写请求均不能被空闲扫描关闭。
-        return task['state'] == 'paused' or task.get('idleRecoveryState') == 'paused' or any(
-            key[0] == task['id'] and entry.get('generation') == task['generation']
-            and entry.get('status') in {'user_input_required', 'approval_required'}
-            and entry.get('expiresAt', 0) > time.time()
-            for key, entry in self.action_approvals.items())
+        return (
+            task["state"] == "paused"
+            or task.get("idleRecoveryState") == "paused"
+            or any(
+                key[0] == task["id"]
+                and entry.get("generation") == task["generation"]
+                and entry.get("status") in {"user_input_required", "approval_required"}
+                and entry.get("expiresAt", 0) > time.time()
+                for key, entry in self.action_approvals.items()
+            )
+        )
 
     def _idle_due(self, task, now):
-        eligible = task['state'] == 'ready' or (task['state'] == 'needs_sync' and task.get('idleRecoveryState') == 'ready')
-        if task['state'] in {'closed', 'cancelled', 'running'} or self._pending_human(task):
+        eligible = task["state"] == "ready" or (
+            task["state"] == "needs_sync" and task.get("idleRecoveryState") == "ready"
+        )
+        if task["state"] in {"closed", "cancelled", "running"} or self._pending_human(task):
             return False
-        return (task.get('idleCloseAt', math.inf) <= now or (eligible and
-                task.get('lastActivityAt', task.get('createdAt', now)) + self.task_idle_timeout_seconds <= now))
+        return task.get("idleCloseAt", math.inf) <= now or (
+            eligible
+            and task.get("lastActivityAt", task.get("createdAt", now))
+            + self.task_idle_timeout_seconds
+            <= now
+        )
 
     def _sweep_idle_tasks(self):
         # 中文注释：候选快照只用于排队；释放前在状态锁内再次验证活动时间、代次和暂停状态。
         with self.state_lock:
-            candidates = [(t['id'], t['owner'], t['generation'], t.get('idleCloseAt'), t.get('lastActivityAt'))
-                          for t in self.tasks.values() if self._idle_due(t, time.time())]
+            candidates = [
+                (
+                    t["id"],
+                    t["owner"],
+                    t["generation"],
+                    t.get("idleCloseAt"),
+                    t.get("lastActivityAt"),
+                )
+                for t in self.tasks.values()
+                if self._idle_due(t, time.time())
+            ]
         for task_id, owner, generation, deadline, activity in candidates:
             try:
-                self._release_task({'owner': owner, 'taskId': task_id}, 'closed', True,
-                                   handoff_if_pending=True, idle_check=(generation, deadline, activity))
+                self._release_task(
+                    {"owner": owner, "taskId": task_id},
+                    "closed",
+                    True,
+                    handoff_if_pending=True,
+                    idle_check=(generation, deadline, activity),
+                )
                 self._flush_tasks()
             except (ProtocolError, OSError):
-                logging.getLogger('fast-browser-link').warning('空闲任务关闭结果未确认，请核对清理状态。')
+                logging.getLogger("fast-browser-link").warning(
+                    "空闲任务关闭结果未确认，请核对清理状态。"
+                )
 
     def _sweep_empty_needs_sync(self):
         # 中文注释：启动及每小时只核对旧 needs_sync，不关闭页面；未知页面证据、暂停和人工等待都保留。
         now = time.time()
+
         def eligible(task):
-            return (task.get('state') == 'needs_sync' and task.get('idleRecoveryState') not in {'paused', 'pending_approval'}
-                    and not task.get('idlePendingHuman') and not self._pending_human(task)
-                    and task.get('lastActivityAt', task.get('createdAt', now)) <= now - 86400
-                    and not task.get('tabIds') and not task.get('agentTabIds') and not task.get('spawnedTabIds')
-                    and not any(row.get('action') in {'new_tab', 'official.new_tab'} and row.get('state') in {'dispatched', 'unknown'}
-                                for row in task.get('requestHistory', [])))
+            return (
+                task.get("state") == "needs_sync"
+                and task.get("idleRecoveryState") not in {"paused", "pending_approval"}
+                and not task.get("idlePendingHuman")
+                and not self._pending_human(task)
+                and task.get("lastActivityAt", task.get("createdAt", now)) <= now - 86400
+                and not task.get("tabIds")
+                and not task.get("agentTabIds")
+                and not task.get("spawnedTabIds")
+                and not any(
+                    row.get("action") in {"new_tab", "official.new_tab"}
+                    and row.get("state") in {"dispatched", "unknown"}
+                    for row in task.get("requestHistory", [])
+                )
+            )
+
         with self.state_lock:
             if now < self.needs_sync_sweep_at:
                 return
             self.needs_sync_sweep_at = now + 3600
-            candidates = [(t['id'], t['generation'], bool(t.get('workTabs')), self.extensions.get(t['instanceId']))
-                          for t in self.tasks.values() if eligible(t)]
+            candidates = [
+                (
+                    t["id"],
+                    t["generation"],
+                    bool(t.get("workTabs")),
+                    self.extensions.get(t["instanceId"]),
+                )
+                for t in self.tasks.values()
+                if eligible(t)
+            ]
         for task_id, generation, has_records, extension in candidates:
             if has_records:
                 if extension is None:
                     continue
                 try:
-                    proof = self._extension_call(extension, 'browser.cleanup_status',
-                                                 {'taskId': task_id, 'generation': generation}, timeout=2)
+                    proof = self._extension_call(
+                        extension,
+                        "browser.cleanup_status",
+                        {"taskId": task_id, "generation": generation},
+                        timeout=2,
+                    )
                 except (ProtocolError, OSError):
                     continue
-                if (not isinstance(proof, dict) or proof.get('cleanupState') != 'succeeded'
-                        or any(proof.get(key) != [] for key in ('remainingTabIds', 'preservedTabIds', 'unknownTabIds'))):
+                if (
+                    not isinstance(proof, dict)
+                    or proof.get("cleanupState") != "succeeded"
+                    or any(
+                        proof.get(key) != []
+                        for key in ("remainingTabIds", "preservedTabIds", "unknownTabIds")
+                    )
+                ):
                     continue
             with self.state_lock:
                 task = self.tasks.get(task_id)
-                if task is None or task['generation'] != generation or not eligible(task):
+                if task is None or task["generation"] != generation or not eligible(task):
                     continue
-                if has_records and self.extensions.get(task['instanceId']) is not extension:
+                if has_records and self.extensions.get(task["instanceId"]) is not extension:
                     continue
-                self._revoke_task_locked(task, 'closed')
-                task['workTabs'] = []
-                task['cleanupState'] = 'succeeded'
-                task['cleanupReason'] = 'verified_complete'
+                self._revoke_task_locked(task, "closed")
+                task["workTabs"] = []
+                task["cleanupState"] = "succeeded"
+                task["cleanupReason"] = "verified_complete"
                 self._persist_tasks()
 
     def _accept_connection(self, server):
@@ -394,7 +572,7 @@ class BridgeDaemon:
     def _lifecycle_activity(self):
         with self.state_lock:
             if self.stop_event.is_set():
-                raise ProtocolError('service_stopping', 'bridge service is stopping')
+                raise ProtocolError("service_stopping", "bridge service is stopping")
             self.lifecycle_operations += 1
             self.idle_exit_since = None
         try:
@@ -408,12 +586,18 @@ class BridgeDaemon:
         # 中文注释：排队前占用活动票据，线程尚未运行时也不能误判为空闲。
         activity = self._lifecycle_activity()
         activity.__enter__()
+
         def work():
             try:
                 target(*args)
             finally:
                 activity.__exit__(None, None, None)
-        worker = threading.Thread(target=work, daemon=True) if delay is None else threading.Timer(delay, work)
+
+        worker = (
+            threading.Thread(target=work, daemon=True)
+            if delay is None
+            else threading.Timer(delay, work)
+        )
         worker.daemon = True
         try:
             worker.start()
@@ -424,40 +608,65 @@ class BridgeDaemon:
 
     @staticmethod
     def _task_quiescent(task, operation_states, request_states):
-        if (not isinstance(task, dict) or task.get('state') not in {'closed', 'cancelled', 'failed'}
-                or task.get('cleanupState') != 'succeeded' or task.get('idlePendingHuman')
-                or task.get('idleRecoveryState') in {'paused', 'pending_approval'}
-                or 'vaultPermit' in task or 'gatewayPermit' in task):
+        if (
+            not isinstance(task, dict)
+            or task.get("state") not in {"closed", "cancelled", "failed"}
+            or task.get("cleanupState") != "succeeded"
+            or task.get("idlePendingHuman")
+            or task.get("idleRecoveryState") in {"paused", "pending_approval"}
+            or "vaultPermit" in task
+            or "gatewayPermit" in task
+        ):
             return False
-        operation = task.get('currentOperation', {'state': 'succeeded'})
-        if not isinstance(operation, dict) or operation.get('state') not in operation_states:
+        operation = task.get("currentOperation", {"state": "succeeded"})
+        if not isinstance(operation, dict) or operation.get("state") not in operation_states:
             return False
-        for field, settled in (('requestHistory', request_states), ('operationTimeline', operation_states)):
-            rows = task.get(field, [] if field == 'operationTimeline' else None)
-            if not isinstance(rows, list) or any(not isinstance(row, dict) or row.get('state') not in settled for row in rows):
+        for field, settled in (
+            ("requestHistory", request_states),
+            ("operationTimeline", operation_states),
+        ):
+            rows = task.get(field, [] if field == "operationTimeline" else None)
+            if not isinstance(rows, list) or any(
+                not isinstance(row, dict) or row.get("state") not in settled for row in rows
+            ):
                 return False
         return True
 
     @staticmethod
     def _task_safe_for_idle_exit(task):
-        return BridgeDaemon._task_quiescent(task, {'succeeded', 'failed'}, {'confirmed', 'rejected'})
+        return BridgeDaemon._task_quiescent(
+            task, {"succeeded", "failed"}, {"confirmed", "rejected"}
+        )
 
     @staticmethod
     def _task_safe_for_reload(task):
         if BridgeDaemon._task_safe_for_idle_exit(task):
             return True
-        if not BridgeDaemon._task_quiescent(task, {'succeeded', 'failed', 'confirmed', 'unknown'}, {'confirmed', 'rejected', 'unknown'}):
+        if not BridgeDaemon._task_quiescent(
+            task,
+            {"succeeded", "failed", "confirmed", "unknown"},
+            {"confirmed", "rejected", "unknown"},
+        ):
             return False
-        proof = task.get('userVerified')
-        if not isinstance(proof, dict) or not isinstance(proof.get('reason'), str) or not proof['reason'].strip():
+        proof = task.get("userVerified")
+        if (
+            not isinstance(proof, dict)
+            or not isinstance(proof.get("reason"), str)
+            or not proof["reason"].strip()
+        ):
             return False
         # 中文注释：只采用已有人工核实，且确认后任务没有再次变化；不改写原始未知日志。
         from datetime import datetime
+
         try:
-            verified = datetime.fromisoformat(proof['at'])
-            updated = task['updatedAt']
-            return (verified.tzinfo is not None and isinstance(updated, (int, float)) and not isinstance(updated, bool)
-                    and 0 < updated <= verified.timestamp() <= time.time() + 5)
+            verified = datetime.fromisoformat(proof["at"])
+            updated = task["updatedAt"]
+            return (
+                verified.tzinfo is not None
+                and isinstance(updated, (int, float))
+                and not isinstance(updated, bool)
+                and 0 < updated <= verified.timestamp() <= time.time() + 5
+            )
         except (KeyError, TypeError, ValueError, OverflowError):
             return False
 
@@ -468,14 +677,33 @@ class BridgeDaemon:
                 self.idle_exit_since = None
             return False
         try:
-            with self.state_lock, self.vault_private._lock, self.cookie_mirror.lock, self.cookie_mirror.relay.lock:
-                blocked = (self.lifecycle_connections or self.lifecycle_operations
-                           or self.extensions or self.tab_leases or self.inflight_requests or self.preparing_requests
-                           or self.action_approvals or self.api_credentials or self.api_connections
-                           or self.persist_dirty or self.persist_timer is not None or self.persist_error is not None
-                           or self.pending_journal or self.vault_private._nonces
-                           or self.cookie_mirror.operations or self.cookie_mirror.relay.chunks)
-                if blocked or not all(self._task_safe_for_idle_exit(task) for task in self.tasks.values()):
+            with (
+                self.state_lock,
+                self.vault_private._lock,
+                self.cookie_mirror.lock,
+                self.cookie_mirror.relay.lock,
+            ):
+                blocked = (
+                    self.lifecycle_connections
+                    or self.lifecycle_operations
+                    or self.extensions
+                    or self.tab_leases
+                    or self.inflight_requests
+                    or self.preparing_requests
+                    or self.action_approvals
+                    or self.api_credentials
+                    or self.api_connections
+                    or self.persist_dirty
+                    or self.persist_timer is not None
+                    or self.persist_error is not None
+                    or self.pending_journal
+                    or self.vault_private._nonces
+                    or self.cookie_mirror.operations
+                    or self.cookie_mirror.relay.chunks
+                )
+                if blocked or not all(
+                    self._task_safe_for_idle_exit(task) for task in self.tasks.values()
+                ):
                     self.idle_exit_since = None
                     return False
                 now = time.monotonic()
@@ -501,71 +729,103 @@ class BridgeDaemon:
     def _primary_browser(self):
         # 中文注释：所有 profile 读取同一 daemon 数据目录；配置只保留实例 ID 与浏览器类型。
         try:
-            value = json.loads(_read_private_regular(self.primary_path).decode('utf-8'))
+            value = json.loads(_read_private_regular(self.primary_path).decode("utf-8"))
         except FileNotFoundError:
             return None
-        if (not isinstance(value, dict) or set(value) != {'instanceId', 'browser'}
-                or not isinstance(value['instanceId'], str) or not value['instanceId']
-                or value['browser'] not in {'chrome', 'edge'}):
-            raise ProtocolError('invalid_state', '主要链接配置无效')
+        if (
+            not isinstance(value, dict)
+            or set(value) != {"instanceId", "browser"}
+            or not isinstance(value["instanceId"], str)
+            or not value["instanceId"]
+            or value["browser"] not in {"chrome", "edge"}
+        ):
+            raise ProtocolError("invalid_state", "主要链接配置无效")
         return value
 
     def _set_primary_browser(self, instance_id):
         with self.state_lock:
             extension = self.extensions.get(instance_id)
             if extension is None:
-                raise ProtocolError('instance_unavailable', '浏览器未连接')
-            value = {'instanceId': instance_id, 'browser': extension['browser']}
+                raise ProtocolError("instance_unavailable", "浏览器未连接")
+            value = {"instanceId": instance_id, "browser": extension["browser"]}
             self.data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-            _atomic_write_private(self.primary_path, (json.dumps(value) + '\n').encode('utf-8'))
+            _atomic_write_private(self.primary_path, (json.dumps(value) + "\n").encode("utf-8"))
             instances = list(self.extensions)
         for current in instances:
             self._notify_tasks_changed(current)
         return value
 
     def _task_log_path(self, task_id):
-        return self.task_log_dir / (_sha256(task_id) + '.jsonl')
+        return self.task_log_dir / (_sha256(task_id) + ".jsonl")
 
     def _append_task_log(self, task_id, operation, target_summary=None):
         # 中文注释：日志只写固定动作和结构性目标，不读取选择器、输入值或页面正文。
-        action = operation['action']
-        target = ('textbox · 名称未提供' if action in {'fill', 'ref_fill'} else
-                  'button · 名称未提供' if action in {'click', 'ref_click'} else
-                  '敏感字段' if action == 'vault.fill' else '页面或任务')
-        if (isinstance(target_summary, dict) and isinstance(target_summary.get('role'), str)
-                and isinstance(target_summary.get('name'), str)):
-            role = target_summary['role'][:32]
-            name = target_summary['name'][:48]
-            target = '敏感字段' if name == '敏感字段' else f'{role} · {name or "名称未提供"}'
+        action = operation["action"]
+        target = (
+            "textbox · 名称未提供"
+            if action in {"fill", "ref_fill"}
+            else "button · 名称未提供"
+            if action in {"click", "ref_click"}
+            else "敏感字段"
+            if action == "vault.fill"
+            else "页面或任务"
+        )
+        if (
+            isinstance(target_summary, dict)
+            and isinstance(target_summary.get("role"), str)
+            and isinstance(target_summary.get("name"), str)
+        ):
+            role = target_summary["role"][:32]
+            name = target_summary["name"][:48]
+            target = "敏感字段" if name == "敏感字段" else f"{role} · {name or '名称未提供'}"
         # 中文注释：错误码与结果状态分别保存；未知结果不能丢失原因，也不能保存任意异常正文。
-        error_code = operation.get('errorCode')
-        if not isinstance(error_code, str) or not re.fullmatch(r'[A-Za-z][A-Za-z0-9_]{0,63}', error_code):
+        error_code = operation.get("errorCode")
+        if not isinstance(error_code, str) or not re.fullmatch(
+            r"[A-Za-z][A-Za-z0-9_]{0,63}", error_code
+        ):
             error_code = None
-        if operation['state'] in {'failed', 'unknown'} and error_code is None:
-            error_code = 'operation_outcome_unknown' if operation['state'] == 'unknown' else 'operation_failed'
-        row = {'time': time.strftime('%Y-%m-%dT%H:%M:%S', time.gmtime(operation['startedAt'])) + 'Z',
-               'action': action, 'target': target, 'durationMs': operation.get('durationMs', 0),
-               'result': operation['state'] if operation['state'] != 'failed' else error_code or 'error'}
-        if operation['state'] in {'failed', 'unknown'} and error_code:
-            row['errorCode'] = error_code
-        encoded = (json.dumps(row, ensure_ascii=False, separators=(',', ':')) + '\n').encode('utf-8')
+        if operation["state"] in {"failed", "unknown"} and error_code is None:
+            error_code = (
+                "operation_outcome_unknown"
+                if operation["state"] == "unknown"
+                else "operation_failed"
+            )
+        row = {
+            "time": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(operation["startedAt"])) + "Z",
+            "action": action,
+            "target": target,
+            "durationMs": operation.get("durationMs", 0),
+            "result": operation["state"]
+            if operation["state"] != "failed"
+            else error_code or "error",
+        }
+        if operation["state"] in {"failed", "unknown"} and error_code:
+            row["errorCode"] = error_code
+        encoded = (json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n").encode(
+            "utf-8"
+        )
         with self.task_log_lock:
             if self.task_log_dir.is_symlink():
-                raise ProtocolError('invalid_state', 'task log directory is a symlink')
+                raise ProtocolError("invalid_state", "task log directory is a symlink")
             self.task_log_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-            fd = _open_private_regular(self._task_log_path(task_id), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
-            with os.fdopen(fd, 'ab') as stream:
+            fd = _open_private_regular(
+                self._task_log_path(task_id), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600
+            )
+            with os.fdopen(fd, "ab") as stream:
                 stream.write(encoded)
             # 中文注释：上千个日志文件时整目录扫描约 20ms；每分钟最多清理一次，不在每个动作上付出这笔开销。
             now = time.monotonic()
-            if self.task_log_pruned_at is None or now - self.task_log_pruned_at >= _TASK_LOG_PRUNE_INTERVAL_SECONDS:
+            if (
+                self.task_log_pruned_at is None
+                or now - self.task_log_pruned_at >= _TASK_LOG_PRUNE_INTERVAL_SECONDS
+            ):
                 self.task_log_pruned_at = now
                 self._prune_task_logs()
 
     def _prune_task_logs(self):
         # 中文注释：保留最近七天且总量不超过 10 MiB；优先删除最旧任务文件。每个文件只 stat 一次。
         files = []
-        for path in self.task_log_dir.glob('*.jsonl'):
+        for path in self.task_log_dir.glob("*.jsonl"):
             try:
                 info = path.lstat()
             except FileNotFoundError:
@@ -582,11 +842,11 @@ class BridgeDaemon:
 
     def _read_task_log(self, task_id, limit):
         if type(limit) is not int or not 1 <= limit <= 100:
-            raise ProtocolError('invalid_params', 'invalid task log limit')
+            raise ProtocolError("invalid_params", "invalid task log limit")
         try:
             with self.task_log_lock:
                 if self.task_log_dir.is_symlink():
-                    raise ProtocolError('invalid_state', 'task log directory is a symlink')
+                    raise ProtocolError("invalid_state", "task log directory is a symlink")
                 lines = _read_private_regular(self._task_log_path(task_id)).splitlines()
         except FileNotFoundError:
             return []
@@ -596,27 +856,44 @@ class BridgeDaemon:
         if JsonlDiagnosticSink is None:
             return None, None
         if self.diagnostics is None:
-            self.diagnostics = JsonlDiagnosticSink(self.data_dir / "diagnostics", max_bytes=1048576, max_files=5)
+            self.diagnostics = JsonlDiagnosticSink(
+                self.data_dir / "diagnostics", max_bytes=1048576, max_files=5
+            )
         if self.diagnostic_projection is None and TaskDiagnosticProjection is not None:
             self.diagnostic_projection = TaskDiagnosticProjection(self.diagnostics)
         return self.diagnostics, self.diagnostic_projection
 
-    def _diagnostic(self, event_type, status, request_id=None, duration_ms=None, error_code=None, action=None):
+    def _diagnostic(
+        self, event_type, status, request_id=None, duration_ms=None, error_code=None, action=None
+    ):
         # No caller payload, IDs, URLs, exceptions or metadata enter this seam.
         try:
             sink, _projection = self._diagnostic_writer()
             if sink is None or make_event is None:
                 return
-            sink.write(make_event(component="native_bridge", event_type=event_type,
-                status=status, request_id=request_id, connection_id=self.diagnostic_connection,
-                duration_ms=duration_ms, error_code=error_code, action=action))
+            sink.write(
+                make_event(
+                    component="native_bridge",
+                    event_type=event_type,
+                    status=status,
+                    request_id=request_id,
+                    connection_id=self.diagnostic_connection,
+                    duration_ms=duration_ms,
+                    error_code=error_code,
+                    action=action,
+                )
+            )
         except Exception:
             pass
 
     @staticmethod
     def _diagnostic_error_code(error: Exception) -> str:
         if isinstance(error, ProtocolError):
-            return error.code if re.fullmatch(r'[a-z][a-z0-9_]{0,63}', error.code) else 'PROTOCOL_ERROR'
+            return (
+                error.code
+                if re.fullmatch(r"[a-z][a-z0-9_]{0,63}", error.code)
+                else "PROTOCOL_ERROR"
+            )
         if isinstance(error, TimeoutError):
             return "TIMEOUT"
         if isinstance(error, PermissionError):
@@ -638,7 +915,9 @@ class BridgeDaemon:
             if not isinstance(request_id, str) or not request_id.strip():
                 return
             try:
-                task = self._owned_task({"owner": params.get("owner"), "taskId": params.get("taskId")})
+                task = self._owned_task(
+                    {"owner": params.get("owner"), "taskId": params.get("taskId")}
+                )
             except ProtocolError:
                 return
 
@@ -664,7 +943,9 @@ class BridgeDaemon:
                 ):
                     return
                 snapshot = dict(current)
-                snapshot["requestHistory"] = [dict(entry) for entry in history if isinstance(entry, dict)]
+                snapshot["requestHistory"] = [
+                    dict(entry) for entry in history if isinstance(entry, dict)
+                ]
                 owner = current["owner"]
                 generation = current.get("generation")
 
@@ -684,7 +965,7 @@ class BridgeDaemon:
                 generation=str(generation) if type(generation) is int and generation >= 0 else None,
                 duration_ms=duration_ms,
                 error_code=error_code,
-                action=params.get('action') if params.get('action') in V1_ACTIONS else None,
+                action=params.get("action") if params.get("action") in V1_ACTIONS else None,
             )
         except Exception:
             # Diagnostics are best-effort and never change the browser result.
@@ -701,7 +982,11 @@ class BridgeDaemon:
                 return
             snapshot = dict(task)
             history = task.get("requestHistory", [])
-            snapshot["requestHistory"] = [dict(entry) for entry in history if isinstance(entry, dict)] if isinstance(history, list) else []
+            snapshot["requestHistory"] = (
+                [dict(entry) for entry in history if isinstance(entry, dict)]
+                if isinstance(history, list)
+                else []
+            )
             _sink, projection = self._diagnostic_writer()
             if projection is None:
                 return
@@ -722,29 +1007,44 @@ class BridgeDaemon:
 
     def _diagnostic_projection_for_read(self):
         """Build a projection over existing files without sink initialization."""
-        if (JsonlDiagnosticSink is None or TaskDiagnosticProjection is None
-                or _diagnostic_thread_lock_for is None):
+        if (
+            JsonlDiagnosticSink is None
+            or TaskDiagnosticProjection is None
+            or _diagnostic_thread_lock_for is None
+        ):
             raise ProtocolError("diagnostics_unavailable", "diagnostics are not provided")
         root = self.data_dir / "diagnostics"
         try:
             info = os.lstat(root)
-            if (stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode)
-                    or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) & 0o077):
+            if (
+                stat.S_ISLNK(info.st_mode)
+                or not stat.S_ISDIR(info.st_mode)
+                or info.st_uid != os.getuid()
+                or stat.S_IMODE(info.st_mode) & 0o077
+            ):
                 raise ProtocolError("diagnostics_unavailable", "diagnostics are not provided")
             names = os.listdir(root)
         except FileNotFoundError:
             raise ProtocolError("diagnostics_unavailable", "diagnostics are not provided") from None
         except OSError:
             raise ProtocolError("diagnostics_unavailable", "diagnostics are not provided") from None
-        log_names = [name for name in names if name == "events.jsonl" or _DIAGNOSTIC_ROTATED_RE.fullmatch(name)]
+        log_names = [
+            name
+            for name in names
+            if name == "events.jsonl" or _DIAGNOSTIC_ROTATED_RE.fullmatch(name)
+        ]
         if not log_names:
             raise ProtocolError("diagnostics_unavailable", "diagnostics are not provided")
         has_event_bytes = False
         try:
             for name in log_names:
                 event_info = os.lstat(root / name)
-                if (stat.S_ISLNK(event_info.st_mode) or not stat.S_ISREG(event_info.st_mode)
-                        or event_info.st_uid != os.getuid() or stat.S_IMODE(event_info.st_mode) & 0o077):
+                if (
+                    stat.S_ISLNK(event_info.st_mode)
+                    or not stat.S_ISREG(event_info.st_mode)
+                    or event_info.st_uid != os.getuid()
+                    or stat.S_IMODE(event_info.st_mode) & 0o077
+                ):
                     raise ProtocolError("diagnostics_unavailable", "diagnostics are not provided")
                 has_event_bytes = has_event_bytes or event_info.st_size > 0
         except OSError:
@@ -769,7 +1069,21 @@ class BridgeDaemon:
         allowed = required | {"requestIdHash"}
         if set(params) - allowed or required - set(params):
             raise ProtocolError("invalid_params", "invalid diagnostics query")
-        if silent and not table_export and isinstance(params.get('allowedOrigins'),list) and any(isinstance(url,str) and not self.copilot.resource_allowed(params.get('instanceId'),url,fetch_id=params.get('copilotResourceToken')) for url in params['allowedOrigins']):raise ProtocolError('copilot_resource_denied','Serialized tool requires a capability workflow')
+        if (
+            silent
+            and not table_export
+            and isinstance(params.get("allowedOrigins"), list)
+            and any(
+                isinstance(url, str)
+                and not self.copilot.resource_allowed(
+                    params.get("instanceId"), url, fetch_id=params.get("copilotResourceToken")
+                )
+                for url in params["allowedOrigins"]
+            )
+        ):
+            raise ProtocolError(
+                "copilot_resource_denied", "Serialized tool requires a capability workflow"
+            )
         owner = self._required_string(params, "owner")
         task_id = self._required_string(params, "taskId")
         request_hash = params.get("requestIdHash")
@@ -791,18 +1105,27 @@ class BridgeDaemon:
                 raise ProtocolError("forbidden", "task belongs to another owner")
             snapshot = dict(current)
             history = current.get("requestHistory", [])
-            snapshot["requestHistory"] = [dict(entry) for entry in history if isinstance(entry, dict)] if isinstance(history, list) else []
+            snapshot["requestHistory"] = (
+                [dict(entry) for entry in history if isinstance(entry, dict)]
+                if isinstance(history, list)
+                else []
+            )
         try:
             projection = self._diagnostic_projection_for_read()
-            return projection.query(snapshot, snapshot["owner"], snapshot["id"], request_hash,
-                                    limit=limit, cursor=cursor)
+            return projection.query(
+                snapshot,
+                snapshot["owner"],
+                snapshot["id"],
+                request_hash,
+                limit=limit,
+                cursor=cursor,
+            )
         except PermissionError:
             raise ProtocolError("not_found", "task diagnostics unavailable") from None
         except ValueError:
             raise ProtocolError("invalid_params", "invalid diagnostics query") from None
         except OSError:
             raise ProtocolError("diagnostics_unavailable", "diagnostics are not provided") from None
-
 
     def run(self) -> int:
         self._prepare_data_dir()
@@ -837,7 +1160,9 @@ class BridgeDaemon:
                 conn = self._accept_connection(server)
                 if conn is None:
                     continue
-                threading.Thread(target=self._serve_connection, args=(conn, token), daemon=True).start()
+                threading.Thread(
+                    target=self._serve_connection, args=(conn, token), daemon=True
+                ).start()
         finally:
             self.vault_private.close()
             self._flush_tasks()
@@ -901,52 +1226,66 @@ class BridgeDaemon:
         except FileNotFoundError:
             raw_bytes = b'{"version":1,"tasks":[]}'
         raw = json.loads(raw_bytes.decode("utf-8"))
-        if not isinstance(raw, dict) or raw.get("version") != 1 or not isinstance(raw.get("tasks"), list):
+        if (
+            not isinstance(raw, dict)
+            or raw.get("version") != 1
+            or not isinstance(raw.get("tasks"), list)
+        ):
             raise RuntimeError("invalid tasks persistence file")
         # 中文注释：派发日志先于浏览器副作用落盘；快照未合并时也能恢复请求指纹。
         try:
             journal = _read_private_regular(self.journal_path)
         except FileNotFoundError:
-            journal = b''
+            journal = b""
         # 中文注释：崩溃留下的半行必须截断，避免后续追加与半行拼接；完整坏行仍拒绝启动。
-        if journal and not journal.endswith(b'\n'):
-            journal = journal[:journal.rfind(b'\n') + 1]
+        if journal and not journal.endswith(b"\n"):
+            journal = journal[: journal.rfind(b"\n") + 1]
             _atomic_write_private(self.journal_path, journal)
-        tasks = {task['id']: task for task in raw['tasks']}
+        tasks = {task["id"]: task for task in raw["tasks"]}
         for line in journal.splitlines(keepends=True):
-            if not line.endswith(b'\n'):
+            if not line.endswith(b"\n"):
                 # 中文注释：未完成的最后一行不可能通过派发前 fsync，不视为已派发记录。
                 break
             record = json.loads(line)
-            task_id, entry = record['task']['id'], record['entry']
-            if not _is_sha256(entry.get('requestIdHash')) or not _is_sha256(entry.get('payloadHash')):
-                raise RuntimeError('invalid request journal')
-            task = tasks.setdefault(task_id, record['task'])
-            history = task.setdefault('requestHistory', [])
-            previous = next((row for row in history if row.get('requestIdHash') == entry['requestIdHash']), None)
-            if previous is not None and previous.get('payloadHash') != entry['payloadHash']:
-                raise RuntimeError('request journal fingerprint conflict')
+            task_id, entry = record["task"]["id"], record["entry"]
+            if not _is_sha256(entry.get("requestIdHash")) or not _is_sha256(
+                entry.get("payloadHash")
+            ):
+                raise RuntimeError("invalid request journal")
+            task = tasks.setdefault(task_id, record["task"])
+            history = task.setdefault("requestHistory", [])
+            previous = next(
+                (row for row in history if row.get("requestIdHash") == entry["requestIdHash"]), None
+            )
+            if previous is not None and previous.get("payloadHash") != entry["payloadHash"]:
+                raise RuntimeError("request journal fingerprint conflict")
             if previous is None:
                 history.append(entry)
             else:
                 previous.update(entry)
-        raw['tasks'] = list(tasks.values())
+        raw["tasks"] = list(tasks.values())
         changed = False
         for item in raw["tasks"]:
-            if not isinstance(item, dict) or not isinstance(item.get("id"), str) or not isinstance(item.get("owner"), str):
+            if (
+                not isinstance(item, dict)
+                or not isinstance(item.get("id"), str)
+                or not isinstance(item.get("owner"), str)
+            ):
                 raise RuntimeError("invalid persisted task")
             task = dict(item)
             # 中文注释：重启会撤销执行授权，但保留原空闲时刻和 ready/暂停区别供启动扫描使用。
-            task.setdefault('lastActivityAt', task.get('updatedAt', task.get('createdAt', time.time())))
-            if task.pop('idlePendingHuman', False):
-                task['idleRecoveryState'] = 'paused'
-            elif task.get('state') in {'ready', 'paused', 'pending_approval'}:
-                task['idleRecoveryState'] = task['state']
+            task.setdefault(
+                "lastActivityAt", task.get("updatedAt", task.get("createdAt", time.time()))
+            )
+            if task.pop("idlePendingHuman", False):
+                task["idleRecoveryState"] = "paused"
+            elif task.get("state") in {"ready", "paused", "pending_approval"}:
+                task["idleRecoveryState"] = task["state"]
             if task.get("currentOperation", {}).get("state") == "running":
                 task["currentOperation"]["state"] = "unknown"
-            task['activeMode'] = 'smart'
-            task['modeGeneration'] = task.get('modeGeneration', 1) + 1
-            task['readOrigins'] = []
+            task["activeMode"] = "smart"
+            task["modeGeneration"] = task.get("modeGeneration", 1) + 1
+            task["readOrigins"] = []
             history = task.get("requestHistory", [])
             if not isinstance(history, list) or len(history) > self.request_history_limit:
                 raise RuntimeError("invalid persisted request history")
@@ -964,18 +1303,27 @@ class BridgeDaemon:
                 task["state"] = "needs_sync"
                 task["tabIds"] = []
                 task["agentTabIds"] = []
-                task['adoptedPopupTabIds'] = []
-                task.pop('popupSources', None)
-                task.pop('popupReturns', None)
-                task.pop('popupClosed', None)
+                task["adoptedPopupTabIds"] = []
+                task.pop("popupSources", None)
+                task.pop("popupReturns", None)
+                task.pop("popupClosed", None)
                 task["updatedAt"] = time.time()
                 changed = True
             task.setdefault("agentTabIds", [])
-            if task.get("state") in {"cancelled", "closed"} and task.get("cleanupState") not in {"succeeded", "pending", "unknown", "failed"}:
+            if task.get("state") in {"cancelled", "closed"} and task.get("cleanupState") not in {
+                "succeeded",
+                "pending",
+                "unknown",
+                "failed",
+            }:
                 task["cleanupState"] = "unknown"
                 task["cleanupReason"] = "legacy_unverified"
                 changed = True
-            task["workspaceState"] = "unknown" if task.get("state") == "needs_sync" else task.get("workspaceState", "ready")
+            task["workspaceState"] = (
+                "unknown"
+                if task.get("state") == "needs_sync"
+                else task.get("workspaceState", "ready")
+            )
             self.tasks[task["id"]] = task
             self.task_locks[task["id"]] = threading.RLock()
             self.cleanup_locks[task["id"]] = threading.Lock()
@@ -985,16 +1333,25 @@ class BridgeDaemon:
 
     def _ledger_record(self, task, entry):
         # 中文注释：仅保存原有任务元数据和哈希账本，不记录动作参数或页面结果。
-        return {'task': copy.deepcopy({k: v for k, v in task.items() if k not in {'activeMode', 'requestHistory'}}),
-                'entry': dict(entry)}
+        return {
+            "task": copy.deepcopy(
+                {k: v for k, v in task.items() if k not in {"activeMode", "requestHistory"}}
+            ),
+            "entry": dict(entry),
+        }
 
     def _append_journal(self, records):
         if not records:
             return
-        encoded = b''.join((json.dumps(row, sort_keys=True, separators=(',', ':'), ensure_ascii=False) + '\n').encode('utf-8') for row in records)
+        encoded = b"".join(
+            (
+                json.dumps(row, sort_keys=True, separators=(",", ":"), ensure_ascii=False) + "\n"
+            ).encode("utf-8")
+            for row in records
+        )
         existed = self.journal_path.exists()
         fd = _open_private_regular(self.journal_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
-        with os.fdopen(fd, 'ab') as handle:
+        with os.fdopen(fd, "ab") as handle:
             handle.write(encoded)
             handle.flush()
             os.fsync(handle.fileno())
@@ -1011,7 +1368,7 @@ class BridgeDaemon:
         # 中文注释：IO 不持全局状态锁；fsync 返回后才允许调用扩展。
         with self.persist_lock:
             if self.persist_error is not None:
-                raise RuntimeError('task persistence unavailable')
+                raise RuntimeError("task persistence unavailable")
             self._append_journal([record])
 
     def _persist_tasks(self) -> None:
@@ -1030,24 +1387,48 @@ class BridgeDaemon:
                 timer, self.persist_timer = self.persist_timer, None
                 if timer is not None:
                     timer.cancel()
-                payload = copy.deepcopy({'version': 1, 'tasks': [{k: v for k, v in task.items() if k != 'activeMode'} for task in self.tasks.values()]})
+                payload = copy.deepcopy(
+                    {
+                        "version": 1,
+                        "tasks": [
+                            {k: v for k, v in task.items() if k != "activeMode"}
+                            for task in self.tasks.values()
+                        ],
+                    }
+                )
                 # 中文注释：人工请求本身不持久化；只保存暂停保护标记，重启后需显式恢复，不自动关闭 CAPTCHA 页。
-                for row in payload['tasks']:
-                    if row['state'] not in {'closed', 'cancelled'} and self._pending_human(self.tasks[row['id']]):
-                        row['idlePendingHuman'] = True
+                for row in payload["tasks"]:
+                    if row["state"] not in {"closed", "cancelled"} and self._pending_human(
+                        self.tasks[row["id"]]
+                    ):
+                        row["idlePendingHuman"] = True
                 records, self.pending_journal = self.pending_journal, []
                 self.persist_dirty = False
             try:
                 self._append_journal(records)
-                encoded = json.dumps(payload, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode('utf-8')
+                encoded = json.dumps(
+                    payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+                ).encode("utf-8")
                 _atomic_write_private(self.tasks_path, encoded)
                 # 中文注释：普通派发指纹已合并快照；活动任务的自动接管审计保留到任务终态。
                 # 从本次快照重建，避免重复追加或从旧日志复活已关闭任务。
                 if self.journal_path.exists():
-                    audit = [self._ledger_record(task, entry) for task in payload['tasks']
-                             if task['state'] not in {'closed', 'cancelled', 'failed'}
-                             for entry in task.get('requestHistory', []) if entry.get('automatic') is True]
-                    encoded_audit = b''.join((json.dumps(row, sort_keys=True, separators=(',', ':'), ensure_ascii=False) + '\n').encode('utf-8') for row in audit)
+                    audit = [
+                        self._ledger_record(task, entry)
+                        for task in payload["tasks"]
+                        if task["state"] not in {"closed", "cancelled", "failed"}
+                        for entry in task.get("requestHistory", [])
+                        if entry.get("automatic") is True
+                    ]
+                    encoded_audit = b"".join(
+                        (
+                            json.dumps(
+                                row, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+                            )
+                            + "\n"
+                        ).encode("utf-8")
+                        for row in audit
+                    )
                     _atomic_write_private(self.journal_path, encoded_audit)
             except Exception as exc:
                 self.persist_error = exc
@@ -1059,8 +1440,11 @@ class BridgeDaemon:
             hello = _read_line(reader)
             role = hello.get("role")
             presented = hello.get("token")
-            if (not isinstance(presented, str) or not hmac.compare_digest(presented.encode("utf-8"), token.encode("utf-8"))
-                    or role not in {"client", "extension"}):
+            if (
+                not isinstance(presented, str)
+                or not hmac.compare_digest(presented.encode("utf-8"), token.encode("utf-8"))
+                or role not in {"client", "extension"}
+            ):
                 return
             if role == "extension":
                 self._serve_extension(conn, reader, str(hello.get("origin", "")))
@@ -1081,83 +1465,131 @@ class BridgeDaemon:
                 result = self._dispatch_client(request.get("method"), request.get("params"))
                 response = {"id": request_id, "result": result}
             except ProtocolError as exc:
-                response = {"id": request_id, "error": {"code": exc.code, "message": exc.message,
-                            "data": exc.data}}
+                response = {
+                    "id": request_id,
+                    "error": {"code": exc.code, "message": exc.message, "data": exc.data},
+                }
             conn.sendall(_encode_line(response))
 
     def _dispatch_client(self, method: Any, params: Any) -> Any:
         with self._lifecycle_activity():
             # 中文注释：直接共享 RPC（含官方适配器）也计入活动；清理查询和生命周期信号不延长任务寿命。
-            if (isinstance(method, str) and method.startswith('shared.') and isinstance(params, dict)
-                    and method not in {'shared.activity', 'shared.session_end', 'shared.cleanup_status', 'shared.cleanup_retry', 'shared.sweep_ungroup', 'shared.sweep_close'}):
-                owner = self._required_string(params, 'owner')
-                if 'taskId' in params:
+            if (
+                isinstance(method, str)
+                and method.startswith("shared.")
+                and isinstance(params, dict)
+                and method
+                not in {
+                    "shared.activity",
+                    "shared.session_end",
+                    "shared.cleanup_status",
+                    "shared.cleanup_retry",
+                    "shared.sweep_ungroup",
+                    "shared.sweep_close",
+                }
+            ):
+                owner = self._required_string(params, "owner")
+                if "taskId" in params:
                     self._owned_task(params)
-                if self._session_activity(owner, params.get('taskId')):
+                if self._session_activity(owner, params.get("taskId")):
                     self._flush_tasks()
             result = self._dispatch_client_impl(method, params)
             # 中文注释：创建、撤销与清理回执必须在返回前持久化；动作路径仍合并快照。
-            if method in {'shared.create', 'shared.cancel', 'shared.close', 'shared.handoff', 'shared.resume', 'shared.cleanup_retry', 'shared.session_end', 'shared.sweep_ungroup', 'shared.sweep_close'}:
+            if method in {
+                "shared.create",
+                "shared.cancel",
+                "shared.close",
+                "shared.handoff",
+                "shared.resume",
+                "shared.cleanup_retry",
+                "shared.session_end",
+                "shared.sweep_ungroup",
+                "shared.sweep_close",
+            }:
                 self._flush_tasks()
             return result
 
     def _dispatch_client_impl(self, method: Any, params: Any) -> Any:
         if not isinstance(params, dict):
             raise ProtocolError("invalid_params", "params must be an object")
-        if method == 'shared.activity':
-            if (set(params) - {'owner', 'taskId'} or 'owner' not in params
-                    or 'taskId' in params and (not isinstance(params['taskId'], str) or not params['taskId'].strip())):
-                raise ProtocolError('invalid_params', 'invalid activity')
-            if self._session_activity(self._required_string(params, 'owner'), params.get('taskId')):
+        if method == "shared.activity":
+            if (
+                set(params) - {"owner", "taskId"}
+                or "owner" not in params
+                or "taskId" in params
+                and (not isinstance(params["taskId"], str) or not params["taskId"].strip())
+            ):
+                raise ProtocolError("invalid_params", "invalid activity")
+            if self._session_activity(self._required_string(params, "owner"), params.get("taskId")):
                 # 中文注释：仅取消持久宽限时立即落盘；普通活动沿用合并快照，避免每次点击多一次 fsync。
                 self._flush_tasks()
-            return {'accepted': True}
-        if method == 'shared.session_end':
+            return {"accepted": True}
+        if method == "shared.session_end":
             return self._session_end(params)
-        if method == 'shared.sweep_close':
+        if method == "shared.sweep_close":
             # 中文注释：一次性清理必须提交读到的代次与活动时刻；快照之后有新活动或暂停就拒绝关闭。
-            if (set(params) != {'owner', 'taskId', 'generation', 'lastActivityAt', 'idleSeconds'}
-                    or type(params['generation']) is not int
-                    or type(params['lastActivityAt']) not in {float, int}
-                    or type(params['idleSeconds']) not in {float, int}
-                    or not math.isfinite(params['lastActivityAt']) or not math.isfinite(params['idleSeconds'])
-                    or params['idleSeconds'] < 0):
-                raise ProtocolError('invalid_params', 'invalid stale sweep')
-            return self._release_task(params, 'closed', True, handoff_if_pending=True,
-                                      stale_check=(params['generation'], params['lastActivityAt'], params['idleSeconds']))
-        if method == 'shared.sweep_ungroup':
+            if (
+                set(params) != {"owner", "taskId", "generation", "lastActivityAt", "idleSeconds"}
+                or type(params["generation"]) is not int
+                or type(params["lastActivityAt"]) not in {float, int}
+                or type(params["idleSeconds"]) not in {float, int}
+                or not math.isfinite(params["lastActivityAt"])
+                or not math.isfinite(params["idleSeconds"])
+                or params["idleSeconds"] < 0
+            ):
+                raise ProtocolError("invalid_params", "invalid stale sweep")
+            return self._release_task(
+                params,
+                "closed",
+                True,
+                handoff_if_pending=True,
+                stale_check=(params["generation"], params["lastActivityAt"], params["idleSeconds"]),
+            )
+        if method == "shared.sweep_ungroup":
             # 中文注释：一次性脚本只能收指定终态任务的组；始终复核扩展私有创建日志，不授予删页权。
             task = self._owned_task(params)
-            if set(params) != {'owner', 'taskId', 'generation'} or type(params['generation']) is not int:
-                raise ProtocolError('invalid_params', 'invalid ungroup sweep')
-            if task['generation'] != params['generation']:
-                raise ProtocolError('task_busy', 'stale sweep generation changed')
-            if task['state'] not in {'closed', 'cancelled'}:
-                raise ProtocolError('invalid_state', 'terminal task required')
-            extension = self.extensions.get(task['instanceId'])
+            if (
+                set(params) != {"owner", "taskId", "generation"}
+                or type(params["generation"]) is not int
+            ):
+                raise ProtocolError("invalid_params", "invalid ungroup sweep")
+            if task["generation"] != params["generation"]:
+                raise ProtocolError("task_busy", "stale sweep generation changed")
+            if task["state"] not in {"closed", "cancelled"}:
+                raise ProtocolError("invalid_state", "terminal task required")
+            extension = self.extensions.get(task["instanceId"])
             if extension is None:
-                raise ProtocolError('instance_unavailable', 'browser instance is not connected')
-            self._ungroup_terminal_tasks(task['instanceId'], extension, task['id'], force=True)
+                raise ProtocolError("instance_unavailable", "browser instance is not connected")
+            self._ungroup_terminal_tasks(task["instanceId"], extension, task["id"], force=True)
             return self._public_task(task)
-        if method == 'browser.cookie_mirror':
+        if method == "browser.cookie_mirror":
             try:
-                owner = self._required_string(params, 'owner')
+                owner = self._required_string(params, "owner")
                 return self.cookie_mirror.dispatch(params, owner)
             except (MirrorDenied, TypeError):
-                raise ProtocolError('cookie_mirror_denied', 'Cookie 镜像请求不可用，请在扩展中核实。') from None
-        if method=='fbl.version' and params=={}:return {'version':self.runtime_version}
+                raise ProtocolError(
+                    "cookie_mirror_denied", "Cookie 镜像请求不可用，请在扩展中核实。"
+                ) from None
+        if method == "fbl.version" and params == {}:
+            return {"version": self.runtime_version}
         if method == "health" and params == {}:
             return {"ok": True, "protocolVersion": 1}
-        if method == 'ui.set_primary':
-            if set(params) != {'instanceId'} or not isinstance(params['instanceId'], str):
-                raise ProtocolError('invalid_params', 'invalid primary browser')
-            return self._set_primary_browser(params['instanceId'])
-        if method == 'fbl.tabs':
-            if set(params)!={'instanceId','confirm'} or params.get('confirm') is not True or not isinstance(params.get('instanceId'),str):
-                raise ProtocolError('invalid_params','explicit tab inventory consent required')
-            with self.state_lock:extension=self.extensions.get(params['instanceId'])
-            if not extension:raise ProtocolError('browser_unavailable','browser unavailable')
-            return self._extension_call(extension,'fbl.tabs',{},timeout=5.0)
+        if method == "ui.set_primary":
+            if set(params) != {"instanceId"} or not isinstance(params["instanceId"], str):
+                raise ProtocolError("invalid_params", "invalid primary browser")
+            return self._set_primary_browser(params["instanceId"])
+        if method == "fbl.tabs":
+            if (
+                set(params) != {"instanceId", "confirm"}
+                or params.get("confirm") is not True
+                or not isinstance(params.get("instanceId"), str)
+            ):
+                raise ProtocolError("invalid_params", "explicit tab inventory consent required")
+            with self.state_lock:
+                extension = self.extensions.get(params["instanceId"])
+            if not extension:
+                raise ProtocolError("browser_unavailable", "browser unavailable")
+            return self._extension_call(extension, "fbl.tabs", {}, timeout=5.0)
         if method == "browser.list" and params == {}:
             with self.state_lock:
                 extensions = list(self.extensions.values())
@@ -1168,52 +1600,82 @@ class BridgeDaemon:
                 supports_status = item.get("consentStatusSupported") is True
                 if supports_status:
                     try:
-                        response = self._extension_call(item, "extension.consent_status", {}, timeout=5.0)
+                        response = self._extension_call(
+                            item, "extension.consent_status", {}, timeout=5.0
+                        )
                         with self.state_lock:
                             current = self.extensions.get(item["instanceId"]) is item
-                        if (current and isinstance(response, dict)
-                                and response.get("consentStatus") in {"enabled", "disabled"}
-                                and set(response) == {"consentStatus"}):
+                        if (
+                            current
+                            and isinstance(response, dict)
+                            and response.get("consentStatus") in {"enabled", "disabled"}
+                            and set(response) == {"consentStatus"}
+                        ):
                             status = response["consentStatus"]
                             pending = item.get("accessRequest")
-                            if (isinstance(pending, dict)
-                                    and pending.get("initialConsentStatus") in {"enabled", "disabled"}
-                                    and status != pending.get("initialConsentStatus")):
+                            if (
+                                isinstance(pending, dict)
+                                and pending.get("initialConsentStatus") in {"enabled", "disabled"}
+                                and status != pending.get("initialConsentStatus")
+                            ):
                                 item["accessRequest"] = None
                             item["lastConsentStatus"] = status
                     except Exception:
                         # A missing, stale, malformed or disconnected read is not
                         # evidence that consent is disabled.
                         pass
-                result.append({
-                    "instanceId": item["instanceId"],
-                    "browser": item["browser"],
-                    "version": item["version"],
-                    "features": item.get("features", []),
-                    "connected": True,
-                    "primary": primary is not None and item['instanceId'] == primary['instanceId'] and item['browser'] == primary['browser'],
-                    "consentStatus": status,
-                    "accessRequestSupported": item.get("accessRequestSupported") is True,
-                })
-            if primary and not any(item['primary'] for item in result):
-                result.append({'instanceId': primary['instanceId'], 'browser': primary['browser'],
-                               'version': '', 'features': [], 'connected': False, 'consentStatus': 'unknown',
-                               'accessRequestSupported': False, 'primary': True})
+                result.append(
+                    {
+                        "instanceId": item["instanceId"],
+                        "browser": item["browser"],
+                        "version": item["version"],
+                        "features": item.get("features", []),
+                        "connected": True,
+                        "primary": primary is not None
+                        and item["instanceId"] == primary["instanceId"]
+                        and item["browser"] == primary["browser"],
+                        "consentStatus": status,
+                        "accessRequestSupported": item.get("accessRequestSupported") is True,
+                    }
+                )
+            if primary and not any(item["primary"] for item in result):
+                result.append(
+                    {
+                        "instanceId": primary["instanceId"],
+                        "browser": primary["browser"],
+                        "version": "",
+                        "features": [],
+                        "connected": False,
+                        "consentStatus": "unknown",
+                        "accessRequestSupported": False,
+                        "primary": True,
+                    }
+                )
             return sorted(result, key=lambda item: item["instanceId"])
         if method == "browser.access_request":
             return self._browser_access_request(params)
         if method == "shared.create":
-            if 'copilotTableExport' in params:raise ProtocolError('invalid_params','internal table flag denied')
+            if "copilotTableExport" in params:
+                raise ProtocolError("invalid_params", "internal table flag denied")
             return self._create_task(params)
         if method == "shared.get":
             task = self._owned_task(params)
             result = self._public_task(task)
-            if params.get('includeLog') is True:
-                result['recentLog'] = self._read_task_log(task['id'], params.get('logLimit', 20))
+            if params.get("includeLog") is True:
+                result["recentLog"] = self._read_task_log(task["id"], params.get("logLimit", 20))
             extension = self.extensions.get(task["instanceId"])
-            if extension and extension.get("statusProjection") and task["state"] not in {"closed", "cancelled"}:
+            if (
+                extension
+                and extension.get("statusProjection")
+                and task["state"] not in {"closed", "cancelled"}
+            ):
                 try:
-                    observed = self._extension_call(extension, "browser.status", {"taskId": task["id"], "generation": task["generation"]}, timeout=2)
+                    observed = self._extension_call(
+                        extension,
+                        "browser.status",
+                        {"taskId": task["id"], "generation": task["generation"]},
+                        timeout=2,
+                    )
                     result["pageStatus"] = observed
                 except (ProtocolError, OSError):
                     result["pageStatus"] = {"status": "unknown", "pages": []}
@@ -1240,16 +1702,20 @@ class BridgeDaemon:
             return self._open_cdp_gateway(params)
         if method == "shared.cdp_gateway_close":
             task = self._owned_task(params)
-            if set(params) != {'owner', 'taskId'}:
-                raise ProtocolError('invalid_params', 'invalid gateway close request')
-            self.cdp_gateway.revoke(task['id'])
-            return {'closed': True}
+            if set(params) != {"owner", "taskId"}:
+                raise ProtocolError("invalid_params", "invalid gateway close request")
+            self.cdp_gateway.revoke(task["id"])
+            return {"closed": True}
         if method == "shared.diagnostics":
             return self._shared_diagnostics(params)
         if method == "shared.list":
             owner = self._required_string(params, "owner")
             with self.state_lock:
-                return [self._public_task(task) for task in self.tasks.values() if task["owner"] == owner]
+                return [
+                    self._public_task(task)
+                    for task in self.tasks.values()
+                    if task["owner"] == owner
+                ]
         if method == "shared.run":
             return self._run_task(params)
         if method == "shared.cancel":
@@ -1275,14 +1741,21 @@ class BridgeDaemon:
             if extension is None:
                 raise ProtocolError("instance_unavailable", "browser instance is not connected")
             if extension.get("accessRequestSupported") is not True:
-                raise ProtocolError("access_request_unsupported", "browser extension does not support access requests")
+                raise ProtocolError(
+                    "access_request_unsupported",
+                    "browser extension does not support access requests",
+                )
             previous = extension.get("accessRequest")
             if isinstance(previous, dict):
-                expired = (previous.get("status") in {"confirmation_requested", "unknown"}
-                           and isinstance(previous.get("expiresAt"), (int, float))
-                           and previous["expiresAt"] <= time.monotonic())
+                expired = (
+                    previous.get("status") in {"confirmation_requested", "unknown"}
+                    and isinstance(previous.get("expiresAt"), (int, float))
+                    and previous["expiresAt"] <= time.monotonic()
+                )
                 if not expired:
-                    status = "unknown" if previous.get("status") == "unknown" else "already_requested"
+                    status = (
+                        "unknown" if previous.get("status") == "unknown" else "already_requested"
+                    )
                     return {"requestId": previous["requestId"], "status": status}
                 # The old prompt's window has ended. This call is a new explicit
                 # user request, so it opens a fresh prompt under a new requestId;
@@ -1302,11 +1775,16 @@ class BridgeDaemon:
 
         response = None
         try:
-            response = self._extension_call(extension, "extension.access_request", {
-                "requestId": request_id,
-                "instanceId": instance_id,
-                "connectionGeneration": connection_generation,
-            }, timeout=10.0)
+            response = self._extension_call(
+                extension,
+                "extension.access_request",
+                {
+                    "requestId": request_id,
+                    "instanceId": instance_id,
+                    "connectionGeneration": connection_generation,
+                },
+                timeout=10.0,
+            )
         except Exception:
             # Opening a UI is a side effect; on lost response, never issue it
             # again for this connection. The request outcome stays unknown.
@@ -1323,7 +1801,11 @@ class BridgeDaemon:
         with self.state_lock:
             current = self.extensions.get(instance_id) is extension
             request = extension.get("accessRequest")
-            if not current or not isinstance(request, dict) or request.get("requestId") != request_id:
+            if (
+                not current
+                or not isinstance(request, dict)
+                or request.get("requestId") != request_id
+            ):
                 return {"requestId": request_id, "status": "unknown"}
             request["status"] = "confirmation_requested" if opened else "unknown"
             if opened and request.get("closed") is True:
@@ -1340,7 +1822,9 @@ class BridgeDaemon:
         waiting for the expiry window.
         """
         if set(params) != {"requestId", "connectionGeneration"}:
-            raise ProtocolError("invalid_params", "access request close accepts requestId and connectionGeneration")
+            raise ProtocolError(
+                "invalid_params", "access request close accepts requestId and connectionGeneration"
+            )
         request_id = self._required_string(params, "requestId")
         generation = self._required_string(params, "connectionGeneration")
         with self.state_lock:
@@ -1357,9 +1841,17 @@ class BridgeDaemon:
             return {"closed": True}
 
     def _create_task(self, params: Dict[str, Any], *, table_export=False) -> Dict[str, Any]:
-        token=params.get('copilotSilentToken')
-        silent=token is not None
-        if silent and (self.copilot is None or not (self.copilot.valid_silent_token(token) or table_export and token==self.copilot.silent_token)):raise ProtocolError('copilot_silent_denied','协作后台会话已失效')
+        token = params.get("copilotSilentToken")
+        silent = token is not None
+        if silent and (
+            self.copilot is None
+            or not (
+                self.copilot.valid_silent_token(token)
+                or table_export
+                and token == self.copilot.silent_token
+            )
+        ):
+            raise ProtocolError("copilot_silent_denied", "协作后台会话已失效")
         owner = self._required_string(params, "owner")
         title = self._required_string(params, "title")
         instance_id = self._required_string(params, "instanceId")
@@ -1371,25 +1863,36 @@ class BridgeDaemon:
             with self.state_lock:
                 checked_extension = self.extensions.get(instance_id)
             if checked_extension is None:
-                raise ProtocolError('instance_unavailable', 'browser instance is not connected')
-            access = self._extension_call(checked_extension, 'extension.incognito_status', {}, timeout=5.0)
-            if not isinstance(access, dict) or access.get('allowed') is not True:
-                raise ProtocolError('incognito_access_required', '请在浏览器扩展设置中开启允许无痕模式访问', {'outcomeUnknown': False})
+                raise ProtocolError("instance_unavailable", "browser instance is not connected")
+            access = self._extension_call(
+                checked_extension, "extension.incognito_status", {}, timeout=5.0
+            )
+            if not isinstance(access, dict) or access.get("allowed") is not True:
+                raise ProtocolError(
+                    "incognito_access_required",
+                    "请在浏览器扩展设置中开启允许无痕模式访问",
+                    {"outcomeUnknown": False},
+                )
         # 中文注释：页面请求只受任务来源与浏览器模式控制，不预登记单独的 URL 清单。
-        if 'apiUrls' in params:
-            raise ProtocolError('invalid_params', 'separate API URL scope is not supported')
+        if "apiUrls" in params:
+            raise ProtocolError("invalid_params", "separate API URL scope is not supported")
         with self.state_lock:
             extension = self.extensions.get(instance_id)
             if extension is None:
                 raise ProtocolError("instance_unavailable", "browser instance is not connected")
             if incognito and extension is not checked_extension:
-                raise ProtocolError('instance_unavailable', 'browser connection changed')
+                raise ProtocolError("instance_unavailable", "browser connection changed")
             now = time.time()
             task_id = secrets.token_urlsafe(18)
             task = {
                 "id": task_id,
                 "owner": owner,
-                "title": ("Fast-browser-link ·"+title.removeprefix("Fast-browser-link ·").removeprefix("Hermes 协作·")) if silent else title,
+                "title": (
+                    "Fast-browser-link ·"
+                    + title.removeprefix("Fast-browser-link ·").removeprefix("Hermes 协作·")
+                )
+                if silent
+                else title,
                 "silent": silent,
                 "instanceId": instance_id,
                 "browser": extension["browser"],
@@ -1413,11 +1916,14 @@ class BridgeDaemon:
                 "isolation": "incognito-profile" if incognito else "shared-profile",
             }
             self.tasks[task_id] = task
-            if silent and self.copilot and params.get('copilotResourceToken'):
-                resource=self.copilot.browser_fetches.get(params.get('copilotResourceToken'))
-                if resource and resource['instance']==instance_id:
-                    task['copilotRowId']=resource.get('row_id') or resource.get('job_key','').removeprefix(instance_id+':')
-            if silent and params.get('copilotResourceToken'):self.copilot.resource_tasks[task_id]=params['copilotResourceToken']
+            if silent and self.copilot and params.get("copilotResourceToken"):
+                resource = self.copilot.browser_fetches.get(params.get("copilotResourceToken"))
+                if resource and resource["instance"] == instance_id:
+                    task["copilotRowId"] = resource.get("row_id") or resource.get(
+                        "job_key", ""
+                    ).removeprefix(instance_id + ":")
+            if silent and params.get("copilotResourceToken"):
+                self.copilot.resource_tasks[task_id] = params["copilotResourceToken"]
             self.task_locks[task_id] = threading.RLock()
             self.cleanup_locks[task_id] = threading.Lock()
             self.dedupe[task_id] = {}
@@ -1425,122 +1931,242 @@ class BridgeDaemon:
         self._notify_tasks_changed(instance_id)
         return self._public_task(task)
 
-    def _pending_action(self, task, params, request_hash, payload_hash, pending_notifications, read_origin=None, popup_scope=None):
-        key = (task['id'], request_hash)
+    def _pending_action(
+        self,
+        task,
+        params,
+        request_hash,
+        payload_hash,
+        pending_notifications,
+        read_origin=None,
+        popup_scope=None,
+    ):
+        key = (task["id"], request_hash)
         pending = self.action_approvals.get(key)
         if pending is not None:
-            if pending['digest'] != payload_hash:
-                raise ProtocolError('request_id_conflict', 'requestId is already bound to another payload')
-            if pending.get('readOrigin') != read_origin:
-                raise ProtocolError('approval_revoked', 'the site changed before approval', {'outcomeUnknown': False})
+            if pending["digest"] != payload_hash:
+                raise ProtocolError(
+                    "request_id_conflict", "requestId is already bound to another payload"
+                )
+            if pending.get("readOrigin") != read_origin:
+                raise ProtocolError(
+                    "approval_revoked",
+                    "the site changed before approval",
+                    {"outcomeUnknown": False},
+                )
         else:
             if len(self.action_approvals) >= 256:
-                raise ProtocolError('approval_capacity', 'too many pending approvals')
-            pending = {'nonce': secrets.token_urlsafe(32), 'digest': payload_hash,
-                       'params': json.loads(json.dumps(params)), 'expiresAt': time.time() + self.approval_ttl,
-                       'generation': task['generation'], 'modeGeneration': task.get('modeGeneration', 1),
-                       'status': 'approval_required', **({'readOrigin': read_origin} if read_origin else {})}
+                raise ProtocolError("approval_capacity", "too many pending approvals")
+            pending = {
+                "nonce": secrets.token_urlsafe(32),
+                "digest": payload_hash,
+                "params": json.loads(json.dumps(params)),
+                "expiresAt": time.time() + self.approval_ttl,
+                "generation": task["generation"],
+                "modeGeneration": task.get("modeGeneration", 1),
+                "status": "approval_required",
+                **({"readOrigin": read_origin} if read_origin else {}),
+            }
             self.action_approvals[key] = pending
             if popup_scope is not None:
-                pending['popupScope'] = json.loads(json.dumps(popup_scope))
-            task.setdefault("requestHistory", []).append({"requestIdHash": request_hash, "payloadHash": payload_hash,
-                "state": "awaiting_approval", "dispatched": False, "generation": task["generation"],
-                "modeGeneration": task.get('modeGeneration', 1)})
+                pending["popupScope"] = json.loads(json.dumps(popup_scope))
+            task.setdefault("requestHistory", []).append(
+                {
+                    "requestIdHash": request_hash,
+                    "payloadHash": payload_hash,
+                    "state": "awaiting_approval",
+                    "dispatched": False,
+                    "generation": task["generation"],
+                    "modeGeneration": task.get("modeGeneration", 1),
+                }
+            )
             self._persist_tasks()
             # Deliver only after _run_task_impl releases both task and state locks.
-            pending_notifications.append(task['instanceId'])
-        return self._pending_view(pending, params['requestId'])
+            pending_notifications.append(task["instanceId"])
+        return self._pending_view(pending, params["requestId"])
 
     @staticmethod
     def _pending_view(pending, request_id):
-        if pending.get('kind') == 'manual_input':
-            return {'status': pending['status'], 'requestId': request_id, 'digest': pending['digest'],
-                    'expiresAt': pending['expiresAt'], 'fieldKind': pending['fieldKind'],
-                    'message': '这是敏感字段，已请用户在浏览器中亲自填写；本工具不会填写或读取其内容。'
-                               '用户完成后，用相同请求编号和参数查询结果。'}
-        return {'status': pending['status'], 'requestId': request_id, 'digest': pending['digest'],
-                'expiresAt': pending['expiresAt'],
-                'message': ('请先确认本任务读取该网站；写入和调试命令仍需逐项批准。批准后用相同请求编号和参数查询结果。'
-                            if pending.get('readOrigin') else
-                            '请在浏览器扩展中确认这一次操作；确认后用相同请求编号和参数查询结果，不会重新执行。')}
+        if pending.get("kind") == "manual_input":
+            return {
+                "status": pending["status"],
+                "requestId": request_id,
+                "digest": pending["digest"],
+                "expiresAt": pending["expiresAt"],
+                "fieldKind": pending["fieldKind"],
+                "message": "这是敏感字段，已请用户在浏览器中亲自填写；本工具不会填写或读取其内容。"
+                "用户完成后，用相同请求编号和参数查询结果。",
+            }
+        return {
+            "status": pending["status"],
+            "requestId": request_id,
+            "digest": pending["digest"],
+            "expiresAt": pending["expiresAt"],
+            "message": (
+                "请先确认本任务读取该网站；写入和调试命令仍需逐项批准。批准后用相同请求编号和参数查询结果。"
+                if pending.get("readOrigin")
+                else "请在浏览器扩展中确认这一次操作；确认后用相同请求编号和参数查询结果，不会重新执行。"
+            ),
+        }
 
-    def _manual_input_action(self, task, params, request_hash, payload_hash, pending_notifications, field_kind):
-        key = (task['id'], request_hash)
+    def _manual_input_action(
+        self, task, params, request_hash, payload_hash, pending_notifications, field_kind
+    ):
+        key = (task["id"], request_hash)
         if key in self.action_approvals:
-            return self._pending_action(task, params, request_hash, payload_hash, pending_notifications)
+            return self._pending_action(
+                task, params, request_hash, payload_hash, pending_notifications
+            )
         if len(self.action_approvals) >= 256:
-            raise ProtocolError('approval_capacity', 'too many pending approvals')
-        pending = {'nonce': secrets.token_urlsafe(32), 'digest': payload_hash,
-                   'params': json.loads(json.dumps(params)), 'expiresAt': time.time() + self.manual_input_ttl,
-                   'generation': task['generation'], 'modeGeneration': task.get('modeGeneration', 1),
-                   'status': 'user_input_required', 'kind': 'manual_input',
-                   'fieldKind': field_kind if field_kind in {'password', 'payment', 'otp'} else 'sensitive'}
+            raise ProtocolError("approval_capacity", "too many pending approvals")
+        pending = {
+            "nonce": secrets.token_urlsafe(32),
+            "digest": payload_hash,
+            "params": json.loads(json.dumps(params)),
+            "expiresAt": time.time() + self.manual_input_ttl,
+            "generation": task["generation"],
+            "modeGeneration": task.get("modeGeneration", 1),
+            "status": "user_input_required",
+            "kind": "manual_input",
+            "fieldKind": field_kind
+            if field_kind in {"password", "payment", "otp"}
+            else "sensitive",
+        }
         self.action_approvals[key] = pending
-        task.setdefault("requestHistory", []).append({"requestIdHash": request_hash, "payloadHash": payload_hash,
-            "state": "awaiting_human", "dispatched": False, "generation": task["generation"]})
+        task.setdefault("requestHistory", []).append(
+            {
+                "requestIdHash": request_hash,
+                "payloadHash": payload_hash,
+                "state": "awaiting_human",
+                "dispatched": False,
+                "generation": task["generation"],
+            }
+        )
         self._persist_tasks()
-        pending_notifications.append(task['instanceId'])
-        return self._pending_view(pending, params['requestId'])
+        pending_notifications.append(task["instanceId"])
+        return self._pending_view(pending, params["requestId"])
 
     def _run_task(self, params: Dict[str, Any], _approval=None, _gateway=False) -> Any:
         popup_closed = None
-        if params.get('action') in SITE_READ_ACTIONS:
-            self._validate_run_params(params['action'], params)
+        if params.get("action") in SITE_READ_ACTIONS:
+            self._validate_run_params(params["action"], params)
             task = self._owned_task(params)
             with self.state_lock:
-                source_id = task.get('popupReturns', {}).get(str(params.get('tabId')))
-                if (type(source_id) is int and task['state'] in {'ready', 'running'}
-                        and params.get('tabId') not in task['tabIds']
-                        and self.tab_leases.get((task['instanceId'], source_id)) == task['id']):
-                    params = {**params, 'tabId': source_id}
-                    popup_closed = {'returnedTo': source_id}
+                source_id = task.get("popupReturns", {}).get(str(params.get("tabId")))
+                if (
+                    type(source_id) is int
+                    and task["state"] in {"ready", "running"}
+                    and params.get("tabId") not in task["tabIds"]
+                    and self.tab_leases.get((task["instanceId"], source_id)) == task["id"]
+                ):
+                    params = {**params, "tabId": source_id}
+                    popup_closed = {"returnedTo": source_id}
         correlation = uuid.uuid4().hex
         started = time.monotonic()
-        self._diagnostic("request_state", "running", correlation, action=params.get('action') if params.get('action') in V1_ACTIONS else None)
+        self._diagnostic(
+            "request_state",
+            "running",
+            correlation,
+            action=params.get("action") if params.get("action") in V1_ACTIONS else None,
+        )
         pending_notifications = []
         try:
             result = self._run_task_impl(params, _approval, pending_notifications, _gateway)
         except Exception as exc:
             unknown = not isinstance(exc, ProtocolError) or (
-                exc.data.get("outcomeUnknown") if "outcomeUnknown" in exc.data else
-                exc.code in {"extension_timeout", "extension_disconnected", "request_outcome_unavailable", "needs_sync", "workspace_unknown"})
+                exc.data.get("outcomeUnknown")
+                if "outcomeUnknown" in exc.data
+                else exc.code
+                in {
+                    "extension_timeout",
+                    "extension_disconnected",
+                    "request_outcome_unavailable",
+                    "needs_sync",
+                    "workspace_unknown",
+                }
+            )
             code = self._diagnostic_error_code(exc)
             duration_ms = (time.monotonic() - started) * 1000
-            self._diagnostic("request_state", "unknown" if unknown else "failed", correlation, duration_ms, code,
-                             action=params.get('action') if params.get('action') in V1_ACTIONS else None)
+            self._diagnostic(
+                "request_state",
+                "unknown" if unknown else "failed",
+                correlation,
+                duration_ms,
+                code,
+                action=params.get("action") if params.get("action") in V1_ACTIONS else None,
+            )
             self._record_task_request_diagnostic(
-                params, "unknown" if unknown else "failed", duration_ms,
+                params,
+                "unknown" if unknown else "failed",
+                duration_ms,
                 self._diagnostic_error_code(exc),
             )
             # 中文注释：重复在途查询不是原动作失败，不能覆盖原动作的运行状态。
             if not (isinstance(exc, ProtocolError) and exc.data.get("inFlight") is True):
-                self._finish_ui_operation(params, "unknown" if unknown else "failed", duration_ms, self._diagnostic_error_code(exc))
+                self._finish_ui_operation(
+                    params,
+                    "unknown" if unknown else "failed",
+                    duration_ms,
+                    self._diagnostic_error_code(exc),
+                )
             raise
         finally:
             for instance_id in pending_notifications:
                 self._notify_tasks_changed(instance_id)
-        status = "pending" if isinstance(result, dict) and result.get("status") in {"approval_required", "approved", "executing"} else "succeeded"
+        status = (
+            "pending"
+            if isinstance(result, dict)
+            and result.get("status") in {"approval_required", "approved", "executing"}
+            else "succeeded"
+        )
         # 中文注释：部分送达回执不能按 RPC 返回值误记成功；原始业务 JSON 不参与状态解释。
-        uncertain_result = (params.get('action') not in {'js.evaluate', 'api_request', 'cdp.send'}
-                            and isinstance(result, dict) and result.get('outcomeUnknown') is True)
-        result_code = 'operation_outcome_unknown' if uncertain_result else None
+        uncertain_result = (
+            params.get("action") not in {"js.evaluate", "api_request", "cdp.send"}
+            and isinstance(result, dict)
+            and result.get("outcomeUnknown") is True
+        )
+        result_code = "operation_outcome_unknown" if uncertain_result else None
         if uncertain_result:
-            status = 'unknown'
+            status = "unknown"
         duration_ms = (time.monotonic() - started) * 1000
-        target_summary = result.pop('_targetSummary', None) if isinstance(result, dict) else None
-        self._diagnostic("request_state", status, correlation, duration_ms, result_code,
-                         action=params.get('action') if params.get('action') in V1_ACTIONS else None)
+        target_summary = result.pop("_targetSummary", None) if isinstance(result, dict) else None
+        self._diagnostic(
+            "request_state",
+            status,
+            correlation,
+            duration_ms,
+            result_code,
+            action=params.get("action") if params.get("action") in V1_ACTIONS else None,
+        )
         self._record_task_request_diagnostic(params, status, duration_ms, result_code)
-        self._finish_ui_operation(params, status, duration_ms, result_code, target_summary=target_summary)
-        if params.get("action") == "page.parse" and isinstance(result, dict) and result.get("schemaVersion") == 1:
+        self._finish_ui_operation(
+            params, status, duration_ms, result_code, target_summary=target_summary
+        )
+        if (
+            params.get("action") == "page.parse"
+            and isinstance(result, dict)
+            and result.get("schemaVersion") == 1
+        ):
             with self.state_lock:
                 task = self.tasks.get(params.get("taskId"))
-                if task and task.get("owner") == params.get("owner") and task.get("state") == "ready":
-                    self.page_results[task["id"]] = {"generation": task["generation"], "receivedAt": time.time(), "result": result}
+                if (
+                    task
+                    and task.get("owner") == params.get("owner")
+                    and task.get("state") == "ready"
+                ):
+                    self.page_results[task["id"]] = {
+                        "generation": task["generation"],
+                        "receivedAt": time.time(),
+                        "result": result,
+                    }
                     self.page_results.move_to_end(task["id"])
                     while len(self.page_results) > 16:
                         self.page_results.popitem(last=False)
-        return {**result, 'popupClosed': popup_closed} if popup_closed and isinstance(result, dict) else result
+        return (
+            {**result, "popupClosed": popup_closed}
+            if popup_closed and isinstance(result, dict)
+            else result
+        )
 
     def _finish_ui_operation(self, params, status, duration, code=None, target_summary=None):
         """中文注释：仅更新已派发且身份一致的操作，重复查询不追加假步骤。"""
@@ -1552,16 +2178,22 @@ class BridgeDaemon:
             if not task or task.get("owner") != params.get("owner"):
                 return
             operation = task.get("currentOperation")
-            if not operation or operation.get("requestIdHash") != _sha256(params["requestId"]) or operation.get("state") != "running":
+            if (
+                not operation
+                or operation.get("requestIdHash") != _sha256(params["requestId"])
+                or operation.get("state") != "running"
+            ):
                 return
             operation.update(state=status, durationMs=round(duration), completedAt=time.time())
             if code:
                 operation["errorCode"] = code
-            task["operationTimeline"] = (task.get("operationTimeline", []) + [dict(operation)])[-32:]
-            log_entry = (task['id'], dict(operation), target_summary)
+            task["operationTimeline"] = (task.get("operationTimeline", []) + [dict(operation)])[
+                -32:
+            ]
+            log_entry = (task["id"], dict(operation), target_summary)
             task["lastActivityAt"] = time.time()
             self._persist_tasks()
-            instance_id = task['instanceId']
+            instance_id = task["instanceId"]
         # 中文注释：日志文件 IO 不持全局状态锁，避免一个动作收尾阻塞其他任务和客户端。
         try:
             self._append_task_log(*log_entry)
@@ -1571,10 +2203,12 @@ class BridgeDaemon:
         if instance_id:
             self._notify_tasks_changed(instance_id)
 
-    def _run_task_impl(self, params: Dict[str, Any], _approval, pending_notifications, _gateway=False) -> Any:
+    def _run_task_impl(
+        self, params: Dict[str, Any], _approval, pending_notifications, _gateway=False
+    ) -> Any:
         task = self._owned_task(params)
         task_id = task["id"]
-        control_epoch = task.get('controlEpoch', 0)
+        control_epoch = task.get("controlEpoch", 0)
         action = self._required_string(params, "action")
         self._validate_run_params(action, params)  # Before cached responses or approval lookup.
         request_id = self._required_string(params, "requestId")
@@ -1591,36 +2225,84 @@ class BridgeDaemon:
             with self.state_lock:
                 self._expire_approvals_locked()
                 # 中文注释：撤权后连缓存结果也不再返回，旧任务不会因重新开启访问而复活。
-                if task.get('accessRevoked'):
-                    raise ProtocolError('browser_access_revoked', '浏览器访问已撤销；重新开启后请创建新任务', {'outcomeUnknown': False})
-            inflight = self.inflight_requests.get((task_id, request_hash)) or self.preparing_requests.get((task_id, request_hash))
+                if task.get("accessRevoked"):
+                    raise ProtocolError(
+                        "browser_access_revoked",
+                        "浏览器访问已撤销；重新开启后请创建新任务",
+                        {"outcomeUnknown": False},
+                    )
+            inflight = self.inflight_requests.get(
+                (task_id, request_hash)
+            ) or self.preparing_requests.get((task_id, request_hash))
             if inflight is not None:
                 if inflight != payload_hash:
-                    raise ProtocolError('request_id_conflict', 'requestId is already bound to another payload')
-                raise ProtocolError('request_outcome_unavailable', 'request is in flight; it will not be replayed', {'outcomeUnknown': True, 'inFlight': True})
-            if task['state'] in {'closed', 'cancelled'}:
-                raise ProtocolError('task_closed', '任务已结束；请重新 fast_browser_open', {'outcomeUnknown': False})
-            if task['state'] == 'paused' or task.get('controlEpoch', 0) != control_epoch:
-                raise ProtocolError('task_paused', '用户已接管，任务已暂停，请等待用户继续', {'outcomeUnknown': False, 'retryable': False})
+                    raise ProtocolError(
+                        "request_id_conflict", "requestId is already bound to another payload"
+                    )
+                raise ProtocolError(
+                    "request_outcome_unavailable",
+                    "request is in flight; it will not be replayed",
+                    {"outcomeUnknown": True, "inFlight": True},
+                )
+            if task["state"] in {"closed", "cancelled"}:
+                raise ProtocolError(
+                    "task_closed", "任务已结束；请重新 fast_browser_open", {"outcomeUnknown": False}
+                )
+            if task["state"] == "paused" or task.get("controlEpoch", 0) != control_epoch:
+                raise ProtocolError(
+                    "task_paused",
+                    "用户已接管，任务已暂停，请等待用户继续",
+                    {"outcomeUnknown": False, "retryable": False},
+                )
             # 中文注释：新任务授权由扩展异步安装；未就绪时明确告知查询状态，不能把它当成已派发动作。
-            if task['state'] in {'pending_approval', 'authorizing'}:
-                raise ProtocolError('task_preparing', '任务授权尚未就绪；请查询任务状态，ready 后重新调用',
-                                    {'outcomeUnknown': False, 'retryable': True})
+            if task["state"] in {"pending_approval", "authorizing"}:
+                raise ProtocolError(
+                    "task_preparing",
+                    "任务授权尚未就绪；请查询任务状态，ready 后重新调用",
+                    {"outcomeUnknown": False, "retryable": True},
+                )
             cached = self.dedupe[task_id].get(request_hash)
             if cached is not None:
                 if cached[0] != payload_hash:
-                    raise ProtocolError("request_id_conflict", "requestId is already bound to another payload")
-                if task.get('activeMode') == 'smart' and action in SITE_READ_ACTIONS and cached[1] == 'result':
-                    prior = next((row for row in task.get('requestHistory', []) if row.get('requestIdHash') == request_hash), None)
-                    if prior is None or prior.get('modeGeneration') != task.get('modeGeneration', 1):
-                        raise ProtocolError('approval_revoked', 'site read approval changed; use a new requestId',
-                                            {'outcomeUnknown': False})
+                    raise ProtocolError(
+                        "request_id_conflict", "requestId is already bound to another payload"
+                    )
+                if (
+                    task.get("activeMode") == "smart"
+                    and action in SITE_READ_ACTIONS
+                    and cached[1] == "result"
+                ):
+                    prior = next(
+                        (
+                            row
+                            for row in task.get("requestHistory", [])
+                            if row.get("requestIdHash") == request_hash
+                        ),
+                        None,
+                    )
+                    if prior is None or prior.get("modeGeneration") != task.get(
+                        "modeGeneration", 1
+                    ):
+                        raise ProtocolError(
+                            "approval_revoked",
+                            "site read approval changed; use a new requestId",
+                            {"outcomeUnknown": False},
+                        )
                 # 中文注释：私有写入或脚本网关批准已消费后，同一请求不得误报仍可执行。
-                if action in {'vault.authorize', 'gateway.authorize'} and task.get('activeMode') == 'smart' and cached[1] == 'result':
-                    permit = task.get('vaultPermit' if action == 'vault.authorize' else 'gatewayPermit')
-                    if permit is None or permit.get('requestIdHash') != request_hash:
-                        raise ProtocolError('approval_consumed', 'approval was already used; use a new requestId',
-                                            {'outcomeUnknown': False})
+                if (
+                    action in {"vault.authorize", "gateway.authorize"}
+                    and task.get("activeMode") == "smart"
+                    and cached[1] == "result"
+                ):
+                    permit = task.get(
+                        "vaultPermit" if action == "vault.authorize" else "gatewayPermit"
+                    )
+                    if permit is None or permit.get("requestIdHash") != request_hash:
+                        raise ProtocolError(
+                            "approval_consumed",
+                            "approval was already used; use a new requestId",
+                            {"outcomeUnknown": False},
+                        )
                 if cached[1] is None:
                     raise ProtocolError(
                         "request_outcome_unavailable",
@@ -1629,293 +2311,578 @@ class BridgeDaemon:
                 if cached[1] == "error":
                     error = cached[2]
                     raise ProtocolError(error["code"], error["message"], error.get("data"))
-                if action in {'popup_catalog', 'popup_adopt'} and cached[1] == 'result':
+                if action in {"popup_catalog", "popup_adopt"} and cached[1] == "result":
                     # 中文注释：宿主缓存无法证明扩展当前屏蔽设置和两端租约；只交付首次回执，绝不重发接管来复核。
-                    raise ProtocolError('request_outcome_unavailable',
-                                        'popup receipt is one-shot; query operation status or use a new catalog requestId',
-                                        {'outcomeUnknown': False, 'retryable': False})
+                    raise ProtocolError(
+                        "request_outcome_unavailable",
+                        "popup receipt is one-shot; query operation status or use a new catalog requestId",
+                        {"outcomeUnknown": False, "retryable": False},
+                    )
                 return cached[2]
-            if len(task.get("requestHistory", [])) >= self.request_history_limit and (task_id, request_hash) not in self.action_approvals:
+            if (
+                len(task.get("requestHistory", [])) >= self.request_history_limit
+                and (task_id, request_hash) not in self.action_approvals
+            ):
                 raise ProtocolError(
                     "request_history_full",
                     "task requestId history is full; close this task and create a new one",
                 )
             self.preparing_requests[(task_id, request_hash)] = payload_hash
             read_origin = None
-            popup_scope = (_approval or self.action_approvals.get((task_id, request_hash), {})).get('popupScope')
+            popup_scope = (_approval or self.action_approvals.get((task_id, request_hash), {})).get(
+                "popupScope"
+            )
             try:
                 with _outside_task_lock(lock):
-                    if action == 'popup_adopt' and popup_scope is None:
+                    if action == "popup_adopt" and popup_scope is None:
                         with self.state_lock:
-                            extension = self.extensions.get(task['instanceId'])
-                            if (task['state'] not in {'ready', 'running'} or extension is None
-                                    or self.tab_leases.get((task['instanceId'], params['tabId'])) != task_id):
-                                raise ProtocolError('foreign_tab', 'popup source is not leased', {'outcomeUnknown': False})
-                            scope_params = {k:v for k,v in params.items() if k != 'owner'}
-                            scope_params.update(generation=task['generation'], modeGeneration=task.get('modeGeneration', 1))
-                        popup_scope = self._extension_call(extension, 'browser.popup_prepare', scope_params)
+                            extension = self.extensions.get(task["instanceId"])
+                            if (
+                                task["state"] not in {"ready", "running"}
+                                or extension is None
+                                or self.tab_leases.get((task["instanceId"], params["tabId"]))
+                                != task_id
+                            ):
+                                raise ProtocolError(
+                                    "foreign_tab",
+                                    "popup source is not leased",
+                                    {"outcomeUnknown": False},
+                                )
+                            scope_params = {k: v for k, v in params.items() if k != "owner"}
+                            scope_params.update(
+                                generation=task["generation"],
+                                modeGeneration=task.get("modeGeneration", 1),
+                            )
+                        popup_scope = self._extension_call(
+                            extension, "browser.popup_prepare", scope_params
+                        )
                         self._validate_popup_scope(popup_scope, params, task)
-                    if action in SITE_READ_ACTIONS and task.get('activeMode') == 'smart':
+                    if action in SITE_READ_ACTIONS and task.get("activeMode") == "smart":
                         with self.state_lock:
-                            extension = self.extensions.get(task['instanceId'])
-                            if (task['state'] not in {'ready', 'running'} or extension is None
-                                    or self.tab_leases.get((task['instanceId'], params.get('tabId'))) != task_id):
-                                raise ProtocolError('foreign_tab', 'read tab is not leased to this task', {'outcomeUnknown': False})
-                            scope = {'taskId': task_id, 'generation': task['generation'],
-                                     'modeGeneration': task.get('modeGeneration', 1), 'tabId': params['tabId']}
+                            extension = self.extensions.get(task["instanceId"])
+                            if (
+                                task["state"] not in {"ready", "running"}
+                                or extension is None
+                                or self.tab_leases.get((task["instanceId"], params.get("tabId")))
+                                != task_id
+                            ):
+                                raise ProtocolError(
+                                    "foreign_tab",
+                                    "read tab is not leased to this task",
+                                    {"outcomeUnknown": False},
+                                )
+                            scope = {
+                                "taskId": task_id,
+                                "generation": task["generation"],
+                                "modeGeneration": task.get("modeGeneration", 1),
+                                "tabId": params["tabId"],
+                            }
                         # 中文注释：只取浏览器当前顶层来源，审批前不读取标题、DOM 或截图。
-                        observed = self._extension_call(extension, 'browser.read_origin', scope)
-                        read_origin = observed.get('origin') if isinstance(observed, dict) else None
-                        if isinstance(read_origin, str) and read_origin not in task['allowedOrigins']:
+                        observed = self._extension_call(extension, "browser.read_origin", scope)
+                        read_origin = observed.get("origin") if isinstance(observed, dict) else None
+                        if (
+                            isinstance(read_origin, str)
+                            and read_origin not in task["allowedOrigins"]
+                        ):
                             with self.state_lock:
-                                task['allowedOrigins'].append(read_origin)
+                                task["allowedOrigins"].append(read_origin)
                     artifact_payload = None
                     if action == "files.upload":
                         with self.state_lock:
                             # 中文注释：读取本地路径前先核对工作页租约，避免无效标签请求也复制用户文件。
-                            if task["state"] not in {"ready", "running"} or self.tab_leases.get((task["instanceId"], params.get("tabId"))) != task_id:
-                                raise ProtocolError("foreign_tab", "tab is not leased to this task", {"outcomeUnknown": False})
+                            if (
+                                task["state"] not in {"ready", "running"}
+                                or self.tab_leases.get((task["instanceId"], params.get("tabId")))
+                                != task_id
+                            ):
+                                raise ProtocolError(
+                                    "foreign_tab",
+                                    "tab is not leased to this task",
+                                    {"outcomeUnknown": False},
+                                )
                         try:
                             store = ArtifactStore(self.home)
                             # 中文注释：对话中给出的本地路径先复制进任务私有区，再与用户登记的文件走同一条选择链路。
-                            registered = [store.register_path(task=task, owner=task["owner"], path=item)
-                                          for item in params.get("paths", [])]
-                            available = {row["id"]: row for row in store.list(task=task, owner=task["owner"])}
-                            selected = [available[item] for item in params.get("artifactIds") or [row["id"] for row in registered]]
+                            registered = [
+                                store.register_path(task=task, owner=task["owner"], path=item)
+                                for item in params.get("paths", [])
+                            ]
+                            available = {
+                                row["id"]: row for row in store.list(task=task, owner=task["owner"])
+                            }
+                            selected = [
+                                available[item]
+                                for item in params.get("artifactIds")
+                                or [row["id"] for row in registered]
+                            ]
                             origins = {item["origin"] for item in selected}
                             if len(origins) != 1:
                                 raise ArtifactError("ARTIFACT_SCOPE_DENIED")
                             selected_origin = next(iter(origins))
-                            paths = [str(store.resolve(task=task, owner=task["owner"], origin=selected_origin,
-                                                       artifact_id=item["id"])[1]) for item in selected]
+                            paths = [
+                                str(
+                                    store.resolve(
+                                        task=task,
+                                        owner=task["owner"],
+                                        origin=selected_origin,
+                                        artifact_id=item["id"],
+                                    )[1]
+                                )
+                                for item in selected
+                            ]
                             # 中文注释：路径来自当前任务私有登记并重验摘要，绝不从模型参数取得。
-                            artifact_payload = {"filePaths": paths,
-                                                "artifactOrigin": None if selected_origin == LOCAL_PATH_ORIGIN else selected_origin}
+                            artifact_payload = {
+                                "filePaths": paths,
+                                "artifactOrigin": None
+                                if selected_origin == LOCAL_PATH_ORIGIN
+                                else selected_origin,
+                            }
                         except (ArtifactError, KeyError) as exc:
-                            if isinstance(exc, ArtifactError) and str(exc) in {"PATH_DENIED", "PATH_UNAVAILABLE", "SIZE_LIMIT", "ARTIFACT_LIMIT"}:
-                                raise ProtocolError("file_path_unavailable", "local file is missing, not a regular file or too large",
-                                                    {"outcomeUnknown": False}) from None
-                            raise ProtocolError("artifact_unavailable", "approved task file is unavailable",
-                                                {"outcomeUnknown": False}) from None
+                            if isinstance(exc, ArtifactError) and str(exc) in {
+                                "PATH_DENIED",
+                                "PATH_UNAVAILABLE",
+                                "SIZE_LIMIT",
+                                "ARTIFACT_LIMIT",
+                            }:
+                                raise ProtocolError(
+                                    "file_path_unavailable",
+                                    "local file is missing, not a regular file or too large",
+                                    {"outcomeUnknown": False},
+                                ) from None
+                            raise ProtocolError(
+                                "artifact_unavailable",
+                                "approved task file is unavailable",
+                                {"outcomeUnknown": False},
+                            ) from None
 
                     # 中文注释：预审只读，浏览器往返时释放任务锁和全局锁。
-                    if action in {'fill', 'press', 'ref_fill', 'ref_press'} and _approval is None and (task_id, request_hash) not in self.action_approvals:
+                    if (
+                        action in {"fill", "press", "ref_fill", "ref_press"}
+                        and _approval is None
+                        and (task_id, request_hash) not in self.action_approvals
+                    ):
                         with self.state_lock:
-                            ext = self.extensions.get(task['instanceId'])
-                            if task['state'] == 'paused':
-                                raise ProtocolError('task_paused', '用户正在接管页面，退出接管后再继续', {'outcomeUnknown': False, 'retryable': False})
-                            if task['state'] not in {'ready', 'running'} or ext is None:
-                                raise ProtocolError('invalid_state', 'task is not ready')
-                            if self.tab_leases.get((task['instanceId'], params.get('tabId'))) != task_id:
-                                raise ProtocolError('foreign_tab', 'tab is not leased to this task')
-                            assessment_params = {k:v for k,v in params.items() if k not in {'owner', 'text'}}
-                            assessment_params.update(generation=task['generation'], modeGeneration=task.get('modeGeneration', 1), allowedOrigins=list(task['allowedOrigins']))
-                        assessed = self._extension_call(ext, 'browser.assess', assessment_params)
+                            ext = self.extensions.get(task["instanceId"])
+                            if task["state"] == "paused":
+                                raise ProtocolError(
+                                    "task_paused",
+                                    "用户正在接管页面，退出接管后再继续",
+                                    {"outcomeUnknown": False, "retryable": False},
+                                )
+                            if task["state"] not in {"ready", "running"} or ext is None:
+                                raise ProtocolError("invalid_state", "task is not ready")
+                            if (
+                                self.tab_leases.get((task["instanceId"], params.get("tabId")))
+                                != task_id
+                            ):
+                                raise ProtocolError("foreign_tab", "tab is not leased to this task")
+                            assessment_params = {
+                                k: v for k, v in params.items() if k not in {"owner", "text"}
+                            }
+                            assessment_params.update(
+                                generation=task["generation"],
+                                modeGeneration=task.get("modeGeneration", 1),
+                                allowedOrigins=list(task["allowedOrigins"]),
+                            )
+                        assessed = self._extension_call(ext, "browser.assess", assessment_params)
                         with self.state_lock:
-                            if (task['state'] not in {'ready', 'running'} or task['generation'] != assessment_params['generation']
-                                    or task.get('accessRevoked') or task.get('controlEpoch', 0) != control_epoch
-                                    or task.get('modeGeneration', 1) != assessment_params['modeGeneration']
-                                    or self.tab_leases.get((task['instanceId'], params.get('tabId'))) != task_id):
-                                raise ProtocolError('invalid_state', 'task changed during assessment', {'outcomeUnknown': False})
-                            target = assessed.get('targetAssessment') if isinstance(assessed, dict) else None
-                            if target == 'sensitive':
+                            if (
+                                task["state"] not in {"ready", "running"}
+                                or task["generation"] != assessment_params["generation"]
+                                or task.get("accessRevoked")
+                                or task.get("controlEpoch", 0) != control_epoch
+                                or task.get("modeGeneration", 1)
+                                != assessment_params["modeGeneration"]
+                                or self.tab_leases.get((task["instanceId"], params.get("tabId")))
+                                != task_id
+                            ):
+                                raise ProtocolError(
+                                    "invalid_state",
+                                    "task changed during assessment",
+                                    {"outcomeUnknown": False},
+                                )
+                            target = (
+                                assessed.get("targetAssessment")
+                                if isinstance(assessed, dict)
+                                else None
+                            )
+                            if target == "sensitive":
                                 # 中文注释：核对作用域与登记人工填写在同一锁内完成，不向页面派发输入。
-                                return self._manual_input_action(task, params, request_hash, payload_hash,
-                                                                 pending_notifications, assessed.get('fieldKind'))
-                            if target != 'ordinary':
-                                raise ProtocolError('execution_denied', 'safe field assessment required')
+                                return self._manual_input_action(
+                                    task,
+                                    params,
+                                    request_hash,
+                                    payload_hash,
+                                    pending_notifications,
+                                    assessed.get("fieldKind"),
+                                )
+                            if target != "ordinary":
+                                raise ProtocolError(
+                                    "execution_denied", "safe field assessment required"
+                                )
             finally:
                 self.preparing_requests.pop((task_id, request_hash), None)
             with self.state_lock:
                 # 中文注释：准备期间任务锁已释放，派发登记前再次检查账本容量。
-                if len(task.get('requestHistory', [])) >= self.request_history_limit and (task_id, request_hash) not in self.action_approvals:
-                    raise ProtocolError('request_history_full', 'task requestId history is full')
+                if (
+                    len(task.get("requestHistory", [])) >= self.request_history_limit
+                    and (task_id, request_hash) not in self.action_approvals
+                ):
+                    raise ProtocolError("request_history_full", "task requestId history is full")
                 if task["state"] == "paused" or task.get("controlEpoch", 0) != control_epoch:
-                    raise ProtocolError("task_paused", "用户已接管，任务已暂停，请等待用户继续", {"outcomeUnknown": False, "retryable": False})
-                if task.get('accessRevoked'):
-                    raise ProtocolError('browser_access_revoked', '浏览器访问已撤销；请创建新任务', {'outcomeUnknown': False})
+                    raise ProtocolError(
+                        "task_paused",
+                        "用户已接管，任务已暂停，请等待用户继续",
+                        {"outcomeUnknown": False, "retryable": False},
+                    )
+                if task.get("accessRevoked"):
+                    raise ProtocolError(
+                        "browser_access_revoked",
+                        "浏览器访问已撤销；请创建新任务",
+                        {"outcomeUnknown": False},
+                    )
                 # 中文注释：动作准备期间授权状态仍可变化；此处再次检查以免返回含糊的状态错误。
-                if task['state'] in {'pending_approval', 'authorizing'}:
-                    raise ProtocolError('task_preparing', '任务授权尚未就绪；请查询任务状态，ready 后重新调用',
-                                        {'outcomeUnknown': False, 'retryable': True})
+                if task["state"] in {"pending_approval", "authorizing"}:
+                    raise ProtocolError(
+                        "task_preparing",
+                        "任务授权尚未就绪；请查询任务状态，ready 后重新调用",
+                        {"outcomeUnknown": False, "retryable": True},
+                    )
                 if task["state"] not in {"ready", "running"}:
-                    raise ProtocolError("task_closed" if task["state"] in {"closed", "cancelled"} else "invalid_state",
-                                        "task is not ready", {"outcomeUnknown": False})
+                    raise ProtocolError(
+                        "task_closed"
+                        if task["state"] in {"closed", "cancelled"}
+                        else "invalid_state",
+                        "task is not ready",
+                        {"outcomeUnknown": False},
+                    )
                 extension = self.extensions.get(task["instanceId"])
                 if extension is None:
                     raise ProtocolError("instance_unavailable", "browser instance is not connected")
                 tab_id = params.get("tabId")
                 if action not in {"tabs", "new_tab", "official.new_tab", "gateway.authorize"}:
                     if not isinstance(tab_id, int) or isinstance(tab_id, bool):
-                        raise ProtocolError("tab_required", "this action requires an explicit tabId")
+                        raise ProtocolError(
+                            "tab_required", "this action requires an explicit tabId"
+                        )
                     if self.tab_leases.get((task["instanceId"], tab_id)) != task_id:
                         raise ProtocolError("foreign_tab", "tab is not leased to this task")
                 if action in SCRIPT_ACTIONS:
                     # 中文注释：脚本和调试命令在智能审批模式走本次动作审批；凭据同页互斥仍独立生效。
-                    if tab_id in task.get('credentialTabs', []):
-                        raise ProtocolError('credential_mode_conflict', 'credential page cannot run scripts', {'outcomeUnknown': False})
-                    touched = task.setdefault('scriptedTabs', [])
+                    if tab_id in task.get("credentialTabs", []):
+                        raise ProtocolError(
+                            "credential_mode_conflict",
+                            "credential page cannot run scripts",
+                            {"outcomeUnknown": False},
+                        )
+                    touched = task.setdefault("scriptedTabs", [])
                     if tab_id not in touched:
                         touched.append(tab_id)
-                if action == 'vault.authorize' and tab_id in task.get('scriptedTabs', []):
-                    raise ProtocolError('credential_mode_conflict', 'scripted page cannot receive credentials', {'outcomeUnknown': False})
+                if action == "vault.authorize" and tab_id in task.get("scriptedTabs", []):
+                    raise ProtocolError(
+                        "credential_mode_conflict",
+                        "scripted page cannot receive credentials",
+                        {"outcomeUnknown": False},
+                    )
                 if action in {"navigate", "new_tab", "official.goto_url", "official.new_tab"}:
-                    if action != 'official.new_tab' or params.get('url') != 'about:blank':
+                    if action != "official.new_tab" or params.get("url") != "about:blank":
                         try:
                             self._validate_action_url(params.get("url"), task["allowedOrigins"])
                         except ProtocolError as exc:
                             # 中文注释：仅拒绝时回读当前来源，成功导航不增加往返；不读取正文或扩大授权。
-                            if exc.code == 'origin_denied':
-                                exc.data['scopeHint'] = '同站用 goto_url，新站用 fast_browser_open。'
-                            if exc.code == 'origin_denied' and type(params.get('tabId')) is int:
-                                scope = {'taskId': task_id, 'generation': task['generation'],
-                                         'modeGeneration': task.get('modeGeneration', 1), 'tabId': params['tabId']}
+                            if exc.code == "origin_denied":
+                                exc.data["scopeHint"] = (
+                                    "同站用 goto_url，新站用 fast_browser_open。"
+                                )
+                            if exc.code == "origin_denied" and type(params.get("tabId")) is int:
+                                scope = {
+                                    "taskId": task_id,
+                                    "generation": task["generation"],
+                                    "modeGeneration": task.get("modeGeneration", 1),
+                                    "tabId": params["tabId"],
+                                }
                                 try:
-                                    observed = self._extension_call(self.extensions[task['instanceId']], 'browser.read_origin', scope, timeout=1.0)
-                                    current = observed.get('origin') if isinstance(observed, dict) else None
+                                    observed = self._extension_call(
+                                        self.extensions[task["instanceId"]],
+                                        "browser.read_origin",
+                                        scope,
+                                        timeout=1.0,
+                                    )
+                                    current = (
+                                        observed.get("origin")
+                                        if isinstance(observed, dict)
+                                        else None
+                                    )
                                 except Exception as origin_error:
                                     # 中文注释：诊断回读失败不能替换原来的跨站拒绝。
-                                    data = getattr(origin_error, 'data', {})
-                                    current = data.get('currentOrigin') if isinstance(data, dict) else None
+                                    data = getattr(origin_error, "data", {})
+                                    current = (
+                                        data.get("currentOrigin")
+                                        if isinstance(data, dict)
+                                        else None
+                                    )
                                 try:
                                     parsed = urlsplit(current) if isinstance(current, str) else None
                                     if parsed:
                                         parsed.port
                                 except ValueError:
                                     parsed = None
-                                if parsed and parsed.scheme in {'http', 'https'} and parsed.hostname and not parsed.username and not parsed.password:
-                                    exc.data['currentOrigin'] = f'{parsed.scheme}://{parsed.netloc}'
+                                if (
+                                    parsed
+                                    and parsed.scheme in {"http", "https"}
+                                    and parsed.hostname
+                                    and not parsed.username
+                                    and not parsed.password
+                                ):
+                                    exc.data["currentOrigin"] = f"{parsed.scheme}://{parsed.netloc}"
                             raise
-                if action == 'api_request':
-                    if set(params) - {'owner', 'taskId', 'requestId', 'action', 'tabId', 'url', 'httpMethod', 'fields'}:
-                        raise ProtocolError('invalid_params', 'unknown API arguments')
+                if action == "api_request":
+                    if set(params) - {
+                        "owner",
+                        "taskId",
+                        "requestId",
+                        "action",
+                        "tabId",
+                        "url",
+                        "httpMethod",
+                        "fields",
+                    }:
+                        raise ProtocolError("invalid_params", "unknown API arguments")
                     # 中文注释：页面请求沿用当前任务来源与两档模式，不再要求独立 API 授权。
-                    self._validate_action_url(params.get('url'), task['allowedOrigins'])
-                    if params.get('httpMethod', 'GET') not in {'GET', 'HEAD'}:
-                        raise ProtocolError('invalid_params', 'read methods only')
-                site_origin = None if read_origin == 'about:blank' else read_origin
-                if task.get('activeMode') == 'smart' and action in SITE_NAV_ACTIONS and params.get('url') != 'about:blank':
-                    parsed = urlsplit(params['url'])
-                    site_origin = f'{parsed.scheme}://{parsed.netloc}'
-                grant_origin = (site_origin if task.get('activeMode') == 'smart' and site_origin
-                                and site_origin not in task.setdefault('readOrigins', []) else None)
+                    self._validate_action_url(params.get("url"), task["allowedOrigins"])
+                    if params.get("httpMethod", "GET") not in {"GET", "HEAD"}:
+                        raise ProtocolError("invalid_params", "read methods only")
+                site_origin = None if read_origin == "about:blank" else read_origin
+                if (
+                    task.get("activeMode") == "smart"
+                    and action in SITE_NAV_ACTIONS
+                    and params.get("url") != "about:blank"
+                ):
+                    parsed = urlsplit(params["url"])
+                    site_origin = f"{parsed.scheme}://{parsed.netloc}"
+                grant_origin = (
+                    site_origin
+                    if task.get("activeMode") == "smart"
+                    and site_origin
+                    and site_origin not in task.setdefault("readOrigins", [])
+                    else None
+                )
                 pending = self.action_approvals.get((task_id, request_hash))
-                if action == 'popup_adopt':
+                if action == "popup_adopt":
                     self._validate_popup_scope(popup_scope, params, task)
-                    if self.tab_leases.get((task['instanceId'], popup_scope['candidate']['tabId'])) is not None:
-                        raise ProtocolError('popup_stale', 'popup target is already leased', {'outcomeUnknown': False})
+                    if (
+                        self.tab_leases.get((task["instanceId"], popup_scope["candidate"]["tabId"]))
+                        is not None
+                    ):
+                        raise ProtocolError(
+                            "popup_stale",
+                            "popup target is already leased",
+                            {"outcomeUnknown": False},
+                        )
                 if pending is not None and _approval is not pending:
-                    return self._pending_action(task, params, request_hash, payload_hash, pending_notifications,
-                                                pending.get('readOrigin') if pending.get('readOrigin') == site_origin else grant_origin)
+                    return self._pending_action(
+                        task,
+                        params,
+                        request_hash,
+                        payload_hash,
+                        pending_notifications,
+                        pending.get("readOrigin")
+                        if pending.get("readOrigin") == site_origin
+                        else grant_origin,
+                    )
                 if _approval is not None:
-                    if (pending is None or _approval is not pending or pending['status'] != 'approved'
-                            or pending['digest'] != payload_hash or pending['generation'] != task['generation']
-                            or pending['modeGeneration'] != task.get('modeGeneration', 1)
-                            or pending['expiresAt'] <= time.time()
-                            or pending.get('readOrigin') not in {None, site_origin}):
-                        raise ProtocolError('approval_revoked', 'approval expired or revoked')
-                    pending['status'] = 'executing'
-                if _approval is not None and pending.get('readOrigin'):
-                    approved = task.setdefault('readOrigins', [])
-                    if pending['readOrigin'] not in approved:
-                        approved.append(pending['readOrigin'])
+                    if (
+                        pending is None
+                        or _approval is not pending
+                        or pending["status"] != "approved"
+                        or pending["digest"] != payload_hash
+                        or pending["generation"] != task["generation"]
+                        or pending["modeGeneration"] != task.get("modeGeneration", 1)
+                        or pending["expiresAt"] <= time.time()
+                        or pending.get("readOrigin") not in {None, site_origin}
+                    ):
+                        raise ProtocolError("approval_revoked", "approval expired or revoked")
+                    pending["status"] = "executing"
+                if _approval is not None and pending.get("readOrigin"):
+                    approved = task.setdefault("readOrigins", [])
+                    if pending["readOrigin"] not in approved:
+                        approved.append(pending["readOrigin"])
                 task["state"] = "running"
                 task["updatedAt"] = time.time()
                 # 中文注释：只记录固定动作与时间，不把参数/输入/页面正文混入状态日志。
-                task["currentOperation"] = {"action": action, "state": "running", "startedAt": time.time(), "requestIdHash": request_hash, "tabId": tab_id}
+                task["currentOperation"] = {
+                    "action": action,
+                    "state": "running",
+                    "startedAt": time.time(),
+                    "requestIdHash": request_hash,
+                    "tabId": tab_id,
+                }
                 generation = task["generation"]
                 mode_generation = task.get("modeGeneration", 1)
                 # 中文注释：派发前先持久化最小账本；响应丢失时只能核实，不能重放写动作。
-                entry = next((row for row in task.setdefault("requestHistory", [])
-                              if row.get("requestIdHash") == request_hash), None)
+                entry = next(
+                    (
+                        row
+                        for row in task.setdefault("requestHistory", [])
+                        if row.get("requestIdHash") == request_hash
+                    ),
+                    None,
+                )
                 if entry is None:
-                    entry = {"requestIdHash": request_hash, "payloadHash": payload_hash,
-                             "modeGeneration": task.get('modeGeneration', 1)}
+                    entry = {
+                        "requestIdHash": request_hash,
+                        "payloadHash": payload_hash,
+                        "modeGeneration": task.get("modeGeneration", 1),
+                    }
                     task["requestHistory"].append(entry)
-                entry.update(state="dispatched", dispatched=True, generation=generation, action=action)
-                if action == 'popup_adopt':
+                entry.update(
+                    state="dispatched", dispatched=True, generation=generation, action=action
+                )
+                if action == "popup_adopt":
                     # 中文注释：在途关闭只绑定已批准的精确目标，不持久化候选内容或扩大清理权限。
-                    entry['popupTargetTabId'] = popup_scope['candidate']['tabId']
+                    entry["popupTargetTabId"] = popup_scope["candidate"]["tabId"]
                 self._persist_tasks()
                 self.inflight_requests[(task_id, request_hash)] = payload_hash
 
             command_params = {
-                key: value
-                for key, value in params.items()
-                if key not in {"owner", "paths"}
+                key: value for key, value in params.items() if key not in {"owner", "paths"}
             }
             # 中文注释：扩展只接收已核对的任务私有文件路径，不接收对话里的原始本地路径。
             command_params["taskId"] = task_id
             command_params["generation"] = generation
             command_params["modeGeneration"] = mode_generation
             if _approval is not None:
-                command_params["approval"] = {"nonce": _approval["nonce"], "digest": _approval["digest"]}
-            if action == 'popup_adopt':
-                command_params['popupScope'] = popup_scope
+                command_params["approval"] = {
+                    "nonce": _approval["nonce"],
+                    "digest": _approval["digest"],
+                }
+            if action == "popup_adopt":
+                command_params["popupScope"] = popup_scope
             command_params["allowedOrigins"] = list(task["allowedOrigins"])
             if artifact_payload is not None:
                 command_params.update(artifact_payload)
             try:
                 with _outside_task_lock(lock):
                     self._persist_dispatched(task, entry)
-                    if action in {'gateway.authorize', 'vault.authorize'}:
+                    if action in {"gateway.authorize", "vault.authorize"}:
                         # 中文注释：批准 browser_exec 或 Vault 私有写入后只签发一次资格，不派发页面动作。
-                        result = {'authorized': True}
-                    elif action == 'api_request':
+                        result = {"authorized": True}
+                    elif action == "api_request":
                         result = self._api_request(task, extension, command_params)
                     else:
-                        if action.startswith("interaction.") or action in {"js.evaluate", "cdp.send"}:
+                        if action.startswith("interaction.") or action in {
+                            "js.evaluate",
+                            "cdp.send",
+                        }:
                             # 中文注释：浏览器端先执行 CDP 截止时间，daemon 再给结果传播留 5 秒；超时仍按未知写入处理。
-                            timeout = (params.get("timeoutMs", 30000) / 1000 + 5.0) if action == "cdp.send" else (
-                                75.0 if action == "js.evaluate" else 30.0)
-                            result = self._extension_call(extension, "browser.execute", command_params,
-                                                          timeout=timeout)
+                            timeout = (
+                                (params.get("timeoutMs", 30000) / 1000 + 5.0)
+                                if action == "cdp.send"
+                                else (75.0 if action == "js.evaluate" else 30.0)
+                            )
+                            result = self._extension_call(
+                                extension, "browser.execute", command_params, timeout=timeout
+                            )
                         else:
-                            timeout = 60.0 if action in {'click', 'fill', 'press', 'ref_click', 'ref_fill', 'ref_press', 'ref_set_checked', 'ref_select_option'} else 15.0
-                            result = self._extension_call(extension, "browser.execute", command_params, timeout=timeout)
+                            timeout = (
+                                60.0
+                                if action
+                                in {
+                                    "click",
+                                    "fill",
+                                    "press",
+                                    "ref_click",
+                                    "ref_fill",
+                                    "ref_press",
+                                    "ref_set_checked",
+                                    "ref_select_option",
+                                }
+                                else 15.0
+                            )
+                            result = self._extension_call(
+                                extension, "browser.execute", command_params, timeout=timeout
+                            )
                         if isinstance(result, dict) and "__fastChunked" in result:
                             # 中文注释：工具通道单行上限 1MB；超限结果已执行但不回传正文，改用网关或更小的请求。
-                            size = result["__fastChunked"].get("size") if isinstance(result["__fastChunked"], dict) else None
-                            result = {"executed": True, "resultTooLarge": True,
-                                      "size": size if type(size) is int else None}
+                            size = (
+                                result["__fastChunked"].get("size")
+                                if isinstance(result["__fastChunked"], dict)
+                                else None
+                            )
+                            result = {
+                                "executed": True,
+                                "resultTooLarge": True,
+                                "size": size if type(size) is int else None,
+                            }
             except ProtocolError as exc:
-                recovery = exc.data.get('recovery', {})
-                shot = recovery.pop('screenshot', None)
-                if isinstance(shot, dict) and isinstance(shot.get('data'), str):
+                recovery = exc.data.get("recovery", {})
+                shot = recovery.pop("screenshot", None)
+                if isinstance(shot, dict) and isinstance(shot.get("data"), str):
                     try:
-                        image = base64.b64decode(shot['data'], validate=True)
-                        if not image.startswith(b'\x89PNG\r\n\x1a\n'):
-                            raise ValueError('invalid_png')
+                        image = base64.b64decode(shot["data"], validate=True)
+                        if not image.startswith(b"\x89PNG\r\n\x1a\n"):
+                            raise ValueError("invalid_png")
                         # 中文注释：失败截图使用系统临时目录的独占文件，不覆盖已有文件。
-                        with tempfile.NamedTemporaryFile(prefix='fast-recovery-', suffix='.png', delete=False) as artifact:
+                        with tempfile.NamedTemporaryFile(
+                            prefix="fast-recovery-", suffix=".png", delete=False
+                        ) as artifact:
                             artifact.write(image)
-                            recovery['screenshotPath'] = artifact.name
+                            recovery["screenshotPath"] = artifact.name
                     except (OSError, ValueError):
-                        recovery['screenshotError'] = 'artifact_unavailable'
+                        recovery["screenshotError"] = "artifact_unavailable"
                 cleanup = False
                 # 中文注释：滚动已派发后的超时仍有副作用不确定性。
-                read_only = action in {"popup_catalog", "tabs", "snapshot", "screenshot", "page.observe", "page.parse", "semantic_snapshot", "frame_catalog", "interaction.capture", "interaction.bounds", "official.ready_state", "cdp.events", "network.inspect", "images", "console"}
-                uncertain_official_write = (action in {'official.new_tab','official.goto_url'}
-                                            and exc.data.get('outcomeUnknown') is True)
-                uncertain_popup_adoption = (action == 'popup_adopt' and (
-                    exc.data.get('outcomeUnknown') is True
-                    or exc.code in {'extension_timeout', 'extension_disconnected', 'workspace_unknown'}))
+                read_only = action in {
+                    "popup_catalog",
+                    "tabs",
+                    "snapshot",
+                    "screenshot",
+                    "page.observe",
+                    "page.parse",
+                    "semantic_snapshot",
+                    "frame_catalog",
+                    "interaction.capture",
+                    "interaction.bounds",
+                    "official.ready_state",
+                    "cdp.events",
+                    "network.inspect",
+                    "images",
+                    "console",
+                }
+                uncertain_official_write = (
+                    action in {"official.new_tab", "official.goto_url"}
+                    and exc.data.get("outcomeUnknown") is True
+                )
+                uncertain_popup_adoption = action == "popup_adopt" and (
+                    exc.data.get("outcomeUnknown") is True
+                    or exc.code
+                    in {"extension_timeout", "extension_disconnected", "workspace_unknown"}
+                )
                 if uncertain_popup_adoption:
-                    exc.data = {**exc.data, 'outcomeUnknown': True, 'retryable': False}
+                    exc.data = {**exc.data, "outcomeUnknown": True, "retryable": False}
                 if read_only and exc.code in {"extension_timeout", "extension_disconnected"}:
                     exc.data = {"outcomeUnknown": False, "retryable": False}
                 with self.state_lock:
                     if uncertain_popup_adoption:
                         # 中文注释：接管可能已发布扩展租约；未知墓碑先落盘，再释放原代资格且保留所有原页。
                         self._record_request_locked(task, request_hash, payload_hash, None, None)
-                        if task['generation'] == generation and task['state'] in {'ready', 'running', 'paused'}:
-                            self._revoke_task_locked(task, 'needs_sync')
+                        if task["generation"] == generation and task["state"] in {
+                            "ready",
+                            "running",
+                            "paused",
+                        }:
+                            self._revoke_task_locked(task, "needs_sync")
                         self._persist_tasks()
                         cleanup = True
                     elif task["state"] == "running" and task["generation"] == generation:
                         # 中文注释：单次扩展超时不证明任务代次或标签归属变化；只冻结该请求的重放。
-                        if exc.code in {"extension_disconnected", "workspace_unknown"} or uncertain_official_write:
-                            self._record_request_locked(task, request_hash, payload_hash, None, None)
+                        if (
+                            exc.code in {"extension_disconnected", "workspace_unknown"}
+                            or uncertain_official_write
+                        ):
+                            self._record_request_locked(
+                                task, request_hash, payload_hash, None, None
+                            )
                             self._revoke_task_locked(task, "needs_sync")
                             cleanup = True
                         else:
@@ -1926,19 +2893,32 @@ class BridgeDaemon:
                                 {"code": exc.code, "message": exc.message, "data": exc.data},
                                 "error",
                             )
-                            task["state"] = "running" if any(key[0] == task_id and key[1] != request_hash for key in self.inflight_requests) else "ready"
+                            task["state"] = (
+                                "running"
+                                if any(
+                                    key[0] == task_id and key[1] != request_hash
+                                    for key in self.inflight_requests
+                                )
+                                else "ready"
+                            )
                             task["updatedAt"] = time.time()
                         self._persist_tasks()
                     elif task["generation"] == generation:
                         self._record_request_locked(task, request_hash, payload_hash, None, None)
                         self._persist_tasks()
-                        cleanup = exc.code in {"extension_disconnected", "workspace_unknown"} or uncertain_official_write
+                        cleanup = (
+                            exc.code in {"extension_disconnected", "workspace_unknown"}
+                            or uncertain_official_write
+                        )
                 if cleanup:
                     self._best_effort_release(extension, task_id, generation, False)
                 # 中文注释：在途动作已撤权时仍保留副作用不确定性，不把扩展的迟到拒绝误报为一般执行失败。
-                if task.get('accessRevoked'):
-                    raise ProtocolError('browser_access_revoked', '浏览器访问已撤销；动作不会重放',
-                                        {'outcomeUnknown': not read_only, 'retryable': False}) from None
+                if task.get("accessRevoked"):
+                    raise ProtocolError(
+                        "browser_access_revoked",
+                        "浏览器访问已撤销；动作不会重放",
+                        {"outcomeUnknown": not read_only, "retryable": False},
+                    ) from None
                 raise
             except Exception:
                 # A dispatched full-mode operation is also uncertain on an unexpected
@@ -1946,8 +2926,11 @@ class BridgeDaemon:
                 with self.state_lock:
                     self._record_request_locked(task, request_hash, payload_hash, None, None)
                     # 中文注释：未知接管同代暂停/继续也须撤权；其他动作仍仅收尾 running，保留新代与终态。
-                    if task['generation'] == generation and (task['state'] == 'running'
-                            or action == 'popup_adopt' and task['state'] in {'ready', 'paused'}):
+                    if task["generation"] == generation and (
+                        task["state"] == "running"
+                        or action == "popup_adopt"
+                        and task["state"] in {"ready", "paused"}
+                    ):
                         self._revoke_task_locked(task, "needs_sync")
                     self._persist_tasks()
                 try:
@@ -1969,83 +2952,148 @@ class BridgeDaemon:
                 and result.get("clicked") is False
                 and result.get("unsupported") is not True
             )
-            if action == 'official.new_tab' and (not isinstance(result, dict)
-                    or not isinstance(result.get('targetId'), str) or not result['targetId']
-                    or type(result.get('tabId')) is not int):
+            if action == "official.new_tab" and (
+                not isinstance(result, dict)
+                or not isinstance(result.get("targetId"), str)
+                or not result["targetId"]
+                or type(result.get("tabId")) is not int
+            ):
                 with self.state_lock:
                     self._record_request_locked(task, request_hash, payload_hash, None, None)
                     # 中文注释：无效旧回执仍报告未知，但不能撤销已重新批准的新代次。
-                    if task['generation'] == generation and task['state'] == 'running':
-                        self._revoke_task_locked(task, 'needs_sync')
+                    if task["generation"] == generation and task["state"] == "running":
+                        self._revoke_task_locked(task, "needs_sync")
                     self._persist_tasks()
                 self._best_effort_release(extension, task_id, generation, False)
-                raise ProtocolError('invalid_extension_result', 'real targetId readback required',
-                                    {'outcomeUnknown': True})
+                raise ProtocolError(
+                    "invalid_extension_result",
+                    "real targetId readback required",
+                    {"outcomeUnknown": True},
+                )
             with self.state_lock:
                 # 中文注释：标签集合可以随同任务建页变化，真正的授权边界是代次、模式及控制状态。
-                if (task["state"] not in {"ready", "running"} or task["generation"] != generation
-                        or task.get("modeGeneration", 1) != mode_generation
-                        or task.get("controlEpoch", 0) != control_epoch or task.get("accessRevoked")):
+                if (
+                    task["state"] not in {"ready", "running"}
+                    or task["generation"] != generation
+                    or task.get("modeGeneration", 1) != mode_generation
+                    or task.get("controlEpoch", 0) != control_epoch
+                    or task.get("accessRevoked")
+                ):
                     changed_state = task["state"]
                     self._record_request_locked(task, request_hash, payload_hash, None, None)
                     if task["generation"] == generation and task["state"] in {"ready", "running"}:
-                        task["state"] = "running" if any(key[0] == task_id for key in self.inflight_requests) else "ready"
-                    if action == 'popup_adopt' and task['generation'] == generation and task['state'] in {'ready', 'running', 'paused'}:
+                        task["state"] = (
+                            "running"
+                            if any(key[0] == task_id for key in self.inflight_requests)
+                            else "ready"
+                        )
+                    if (
+                        action == "popup_adopt"
+                        and task["generation"] == generation
+                        and task["state"] in {"ready", "running", "paused"}
+                    ):
                         # 中文注释：拒绝迟到接管回执也必须撤销原代资格；新代次仍由其独立授权控制。
-                        self._revoke_task_locked(task, 'needs_sync')
-                        changed_state = task['state']
-                    race_cleanup = action == 'popup_adopt' or (
+                        self._revoke_task_locked(task, "needs_sync")
+                        changed_state = task["state"]
+                    race_cleanup = action == "popup_adopt" or (
                         opened_task_tab
-                        and (task["generation"] != generation or task["state"] in {"cancelled", "closed", "needs_sync"})
+                        and (
+                            task["generation"] != generation
+                            or task["state"] in {"cancelled", "closed", "needs_sync"}
+                        )
                         and isinstance(result, dict)
                         and isinstance(result.get("tabId"), int)
                         and not isinstance(result.get("tabId"), bool)
                     )
                     self._persist_tasks()
                 else:
-                    if action == 'popup_adopt':
-                        expected = {'adopted': True, **popup_scope['candidate'], 'sourceTabId': params['tabId'], 'cleanupOwned': False}
-                        target_id = popup_scope['candidate']['tabId']
-                        retired = task.get('retiredPopupTabs', {}).get(str(generation), [])
-                        if (result != expected or target_id in retired
-                                or self.tab_leases.get((task['instanceId'], params['tabId'])) != task_id
-                                or self.tab_leases.get((task['instanceId'], target_id)) is not None):
-                            self._record_request_locked(task, request_hash, payload_hash, None, None)
-                            self._revoke_task_locked(task, 'needs_sync')
-                            self._persist_tasks()
-                            post_error = ProtocolError('invalid_extension_result', 'popup adoption result is unverified', {'outcomeUnknown': True})
-                        else:
-                            self.tab_leases[(task['instanceId'], target_id)] = task_id
-                            task['tabIds'].append(target_id)
-                            task.setdefault('adoptedPopupTabIds', []).append(target_id)
-                            task.setdefault('popupSources', {})[str(target_id)] = params['tabId']
-                            if result['origin'] not in task['allowedOrigins']:
-                                task['allowedOrigins'].append(result['origin'])
-                    if opened_task_tab:
-                        if not isinstance(result, dict) or not isinstance(result.get("tabId"), int) or isinstance(result.get("tabId"), bool):
-                            self._record_request_locked(task, request_hash, payload_hash, None, None)
+                    if action == "popup_adopt":
+                        expected = {
+                            "adopted": True,
+                            **popup_scope["candidate"],
+                            "sourceTabId": params["tabId"],
+                            "cleanupOwned": False,
+                        }
+                        target_id = popup_scope["candidate"]["tabId"]
+                        retired = task.get("retiredPopupTabs", {}).get(str(generation), [])
+                        if (
+                            result != expected
+                            or target_id in retired
+                            or self.tab_leases.get((task["instanceId"], params["tabId"])) != task_id
+                            or self.tab_leases.get((task["instanceId"], target_id)) is not None
+                        ):
+                            self._record_request_locked(
+                                task, request_hash, payload_hash, None, None
+                            )
                             self._revoke_task_locked(task, "needs_sync")
                             self._persist_tasks()
-                            post_error = ProtocolError("invalid_extension_result", "new_tab did not return a tabId")
+                            post_error = ProtocolError(
+                                "invalid_extension_result",
+                                "popup adoption result is unverified",
+                                {"outcomeUnknown": True},
+                            )
+                        else:
+                            self.tab_leases[(task["instanceId"], target_id)] = task_id
+                            task["tabIds"].append(target_id)
+                            task.setdefault("adoptedPopupTabIds", []).append(target_id)
+                            task.setdefault("popupSources", {})[str(target_id)] = params["tabId"]
+                            if result["origin"] not in task["allowedOrigins"]:
+                                task["allowedOrigins"].append(result["origin"])
+                    if opened_task_tab:
+                        if (
+                            not isinstance(result, dict)
+                            or not isinstance(result.get("tabId"), int)
+                            or isinstance(result.get("tabId"), bool)
+                        ):
+                            self._record_request_locked(
+                                task, request_hash, payload_hash, None, None
+                            )
+                            self._revoke_task_locked(task, "needs_sync")
+                            self._persist_tasks()
+                            post_error = ProtocolError(
+                                "invalid_extension_result", "new_tab did not return a tabId"
+                            )
                         else:
                             new_tab_id = result["tabId"]
                             holder = self.tab_leases.get((task["instanceId"], new_tab_id))
                             if holder is not None and holder != task_id:
                                 # 中文注释：并发新建页冲突只拒绝本次回执，其他入口维持原清理契约。
                                 if action == "new_tab":
-                                    post_error = ProtocolError("task_busy", "new tab collides with another task lease",
-                                                               {"outcomeUnknown": True, "retryable": False})
-                                    self._record_request_locked(task, request_hash, payload_hash,
-                                        {"code": post_error.code, "message": post_error.message, "data": post_error.data}, "error")
-                                    task["state"] = "running" if any(key[0] == task_id for key in self.inflight_requests) else "ready"
+                                    post_error = ProtocolError(
+                                        "task_busy",
+                                        "new tab collides with another task lease",
+                                        {"outcomeUnknown": True, "retryable": False},
+                                    )
+                                    self._record_request_locked(
+                                        task,
+                                        request_hash,
+                                        payload_hash,
+                                        {
+                                            "code": post_error.code,
+                                            "message": post_error.message,
+                                            "data": post_error.data,
+                                        },
+                                        "error",
+                                    )
+                                    task["state"] = (
+                                        "running"
+                                        if any(key[0] == task_id for key in self.inflight_requests)
+                                        else "ready"
+                                    )
                                 else:
-                                    self._record_request_locked(task, request_hash, payload_hash, None, None)
+                                    self._record_request_locked(
+                                        task, request_hash, payload_hash, None, None
+                                    )
                                     self._revoke_task_locked(task, "needs_sync")
-                                    post_error = ProtocolError("lease_conflict", "new tab collides with another task lease")
+                                    post_error = ProtocolError(
+                                        "lease_conflict", "new tab collides with another task lease"
+                                    )
                                 self._persist_tasks()
                             else:
                                 # 中文注释：同代次回收墓碑阻止乱序回执重新登记已关闭的标签。
-                                retired = task.setdefault("retiredAgentTabs", {}).setdefault(str(generation), [])
+                                retired = task.setdefault("retiredAgentTabs", {}).setdefault(
+                                    str(generation), []
+                                )
                                 closed = result.get("closedTabs", [])
                                 if isinstance(closed, list):
                                     for old_id in closed:
@@ -2059,31 +3107,63 @@ class BridgeDaemon:
                                         task["tabIds"].append(new_tab_id)
                                     if new_tab_id not in task["agentTabIds"]:
                                         task["agentTabIds"].append(new_tab_id)
-                                    if action == 'official.new_tab' and params.get('url') == 'about:blank':
+                                    if (
+                                        action == "official.new_tab"
+                                        and params.get("url") == "about:blank"
+                                    ):
                                         task.setdefault("officialBlankTabs", []).append(new_tab_id)
-                                    if all(type(result.get(k)) is int and result[k] >= 0 for k in ("groupId", "windowId")):
-                                        task.setdefault("workTabs", []).append({k: result[k] for k in ("tabId", "groupId", "windowId")})
+                                    if all(
+                                        type(result.get(k)) is int and result[k] >= 0
+                                        for k in ("groupId", "windowId")
+                                    ):
+                                        task.setdefault("workTabs", []).append(
+                                            {k: result[k] for k in ("tabId", "groupId", "windowId")}
+                                        )
                                         task["workspaceState"] = "ready"
                     if post_error is None:
                         if opened_task_tab and isinstance(result, dict):
-                            result['open_tabs'] = self._public_task(task)['open_tabs']
-                            if result['open_tabs'] > 6:
-                                result['tab_hint'] = '不再用的网站先 fast_browser_close'
-                        if action in {'new_tab', 'navigate'} and isinstance(result, dict) and isinstance(result.get('url'), str):
-                            redirected = self._www_redirect_origin(params.get('url', ''), result['url'])
-                            if redirected and redirected not in task['allowedOrigins']:
+                            result["open_tabs"] = self._public_task(task)["open_tabs"]
+                            if result["open_tabs"] > 6:
+                                result["tab_hint"] = "不再用的网站先 fast_browser_close"
+                        if (
+                            action in {"new_tab", "navigate"}
+                            and isinstance(result, dict)
+                            and isinstance(result.get("url"), str)
+                        ):
+                            redirected = self._www_redirect_origin(
+                                params.get("url", ""), result["url"]
+                            )
+                            if redirected and redirected not in task["allowedOrigins"]:
                                 # 中文注释：扩展已完成来源核验后，守护进程同步任务范围供后续动作使用。
-                                task['allowedOrigins'].append(redirected)
-                        if action == 'gateway.authorize' and task['activeMode'] == 'smart':
-                            task['gatewayPermit'] = {'requestIdHash': request_hash, 'codeDigest': params['codeDigest'],
-                                                     'modeGeneration': task.get('modeGeneration', 1), 'expiresAt': time.time() + 120}
-                        if action == 'vault.authorize' and task['activeMode'] == 'smart':
-                            task['vaultPermit'] = {'requestIdHash': request_hash, 'handleDigest': params['handleDigest'],
-                                                   'vaultAction': params['vaultAction'], 'tabId': params['tabId'],
-                                                   'modeGeneration': task.get('modeGeneration', 1), 'expiresAt': time.time() + 120}
-                        task["state"] = "running" if any(key[0] == task_id and key[1] != request_hash for key in self.inflight_requests) else "ready"
+                                task["allowedOrigins"].append(redirected)
+                        if action == "gateway.authorize" and task["activeMode"] == "smart":
+                            task["gatewayPermit"] = {
+                                "requestIdHash": request_hash,
+                                "codeDigest": params["codeDigest"],
+                                "modeGeneration": task.get("modeGeneration", 1),
+                                "expiresAt": time.time() + 120,
+                            }
+                        if action == "vault.authorize" and task["activeMode"] == "smart":
+                            task["vaultPermit"] = {
+                                "requestIdHash": request_hash,
+                                "handleDigest": params["handleDigest"],
+                                "vaultAction": params["vaultAction"],
+                                "tabId": params["tabId"],
+                                "modeGeneration": task.get("modeGeneration", 1),
+                                "expiresAt": time.time() + 120,
+                            }
+                        task["state"] = (
+                            "running"
+                            if any(
+                                key[0] == task_id and key[1] != request_hash
+                                for key in self.inflight_requests
+                            )
+                            else "ready"
+                        )
                         task["updatedAt"] = time.time()
-                        self._record_request_locked(task, request_hash, payload_hash, result, "result")
+                        self._record_request_locked(
+                            task, request_hash, payload_hash, result, "result"
+                        )
                         self._persist_tasks()
             if post_error is not None:
                 if post_error.code != "task_busy":
@@ -2096,24 +3176,62 @@ class BridgeDaemon:
                     with self.state_lock:
                         if task["state"] == changed_state and task["generation"] == generation:
                             task.update(cleanupState="unknown", cleanupReason="late_result")
-                            for field in ("cleanupRemainingCount", "cleanupPreservedCount", "cleanupUnknownCount", "cleanupError"):
+                            for field in (
+                                "cleanupRemainingCount",
+                                "cleanupPreservedCount",
+                                "cleanupUnknownCount",
+                                "cleanupError",
+                            ):
                                 task.pop(field, None)
                             self.cleanup_proofs.pop(task_id, None)
                             self._persist_tasks()
                 # 中文注释：授权或控制变化只拒绝迟到请求，原有撤权和终态清理仍保留。
-                code = ("cancelled" if changed_state in {"cancelled", "closed"} else
-                        "needs_sync" if changed_state == "needs_sync" else
-                        "task_paused" if changed_state == "paused" else "task_busy")
-                if task.get('accessRevoked'):
-                    raise ProtocolError('browser_access_revoked', '浏览器访问已撤销；动作不会重放',
-                                        {'outcomeUnknown': action not in {"tabs", "snapshot", "screenshot", "page.observe", "page.parse", "semantic_snapshot", "frame_catalog", "interaction.capture", "interaction.bounds", "official.ready_state", "cdp.events", "network.inspect", "images", "console"}})
-                raise ProtocolError(code, "task authority changed while action was running",
-                                    {"outcomeUnknown": True, "retryable": False})
+                code = (
+                    "cancelled"
+                    if changed_state in {"cancelled", "closed"}
+                    else "needs_sync"
+                    if changed_state == "needs_sync"
+                    else "task_paused"
+                    if changed_state == "paused"
+                    else "task_busy"
+                )
+                if task.get("accessRevoked"):
+                    raise ProtocolError(
+                        "browser_access_revoked",
+                        "浏览器访问已撤销；动作不会重放",
+                        {
+                            "outcomeUnknown": action
+                            not in {
+                                "tabs",
+                                "snapshot",
+                                "screenshot",
+                                "page.observe",
+                                "page.parse",
+                                "semantic_snapshot",
+                                "frame_catalog",
+                                "interaction.capture",
+                                "interaction.bounds",
+                                "official.ready_state",
+                                "cdp.events",
+                                "network.inspect",
+                                "images",
+                                "console",
+                            }
+                        },
+                    )
+                raise ProtocolError(
+                    code,
+                    "task authority changed while action was running",
+                    {"outcomeUnknown": True, "retryable": False},
+                )
             return result
 
     def _forget_agent_tab_locked(self, task, tab_id):
         """中文注释：回收只移除本任务模型页，绝不删除其他任务或用户页的租约。"""
-        if tab_id not in task["agentTabIds"] or self.tab_leases.get((task["instanceId"], tab_id)) != task["id"]:
+        if (
+            tab_id not in task["agentTabIds"]
+            or self.tab_leases.get((task["instanceId"], tab_id)) != task["id"]
+        ):
             return
         task["agentTabIds"].remove(tab_id)
         if tab_id in task["tabIds"]:
@@ -2146,17 +3264,36 @@ class BridgeDaemon:
             old = self.dedupe.get(old_task, {}).get(old_request)
             if old:
                 self.dedupe[old_task][old_request] = (old[0], None, None)
-        entry = next((row for row in task.setdefault("requestHistory", [])
-                      if row.get("requestIdHash") == request_hash), None)
+        entry = next(
+            (
+                row
+                for row in task.setdefault("requestHistory", [])
+                if row.get("requestIdHash") == request_hash
+            ),
+            None,
+        )
         if entry is None:
             entry = {"requestIdHash": request_hash, "payloadHash": payload_hash}
             task["requestHistory"].append(entry)
         uncertain_result = isinstance(result, dict) and (
-            outcome_kind == 'result' and entry.get('action') not in {'js.evaluate', 'api_request', 'cdp.send'} and result.get('outcomeUnknown') is True
-            or outcome_kind == 'error' and isinstance(result.get('data'), dict) and result['data'].get('outcomeUnknown') is True)
-        entry.update(state="unknown" if uncertain_result else "confirmed" if outcome_kind == "result" else "rejected" if outcome_kind == "error" else "unknown",
-                     dispatched=entry.get("dispatched") is True or outcome_kind in {"result", None},
-                     generation=task["generation"])
+            outcome_kind == "result"
+            and entry.get("action") not in {"js.evaluate", "api_request", "cdp.send"}
+            and result.get("outcomeUnknown") is True
+            or outcome_kind == "error"
+            and isinstance(result.get("data"), dict)
+            and result["data"].get("outcomeUnknown") is True
+        )
+        entry.update(
+            state="unknown"
+            if uncertain_result
+            else "confirmed"
+            if outcome_kind == "result"
+            else "rejected"
+            if outcome_kind == "error"
+            else "unknown",
+            dispatched=entry.get("dispatched") is True or outcome_kind in {"result", None},
+            generation=task["generation"],
+        )
         self.pending_journal.append(self._ledger_record(task, entry))
 
     def _operation_status(self, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -2166,24 +3303,42 @@ class BridgeDaemon:
             raise ProtocolError("invalid_params", "invalid operation status request")
         request_hash = _sha256(request_id)
         with self.state_lock:
-            entry = next((row for row in task.get("requestHistory", [])
-                          if row.get("requestIdHash") == request_hash), None)
+            entry = next(
+                (
+                    row
+                    for row in task.get("requestHistory", [])
+                    if row.get("requestIdHash") == request_hash
+                ),
+                None,
+            )
             if entry is None:
-                raise ProtocolError("request_not_found", "operation has no ledger entry", {"outcomeUnknown": False})
+                raise ProtocolError(
+                    "request_not_found", "operation has no ledger entry", {"outcomeUnknown": False}
+                )
             state = entry.get("state")
-            if state not in {"awaiting_approval", "awaiting_human", "dispatched", "confirmed", "rejected", "unknown"}:
+            if state not in {
+                "awaiting_approval",
+                "awaiting_human",
+                "dispatched",
+                "confirmed",
+                "rejected",
+                "unknown",
+            }:
                 state = "unknown"
             generation = entry.get("generation")
-            return {"requestIdHash": request_hash, "state": state,
-                    "dispatched": entry.get("dispatched") is not False,
-                    "generation": generation if type(generation) is int and generation >= 1 else None}
+            return {
+                "requestIdHash": request_hash,
+                "state": state,
+                "dispatched": entry.get("dispatched") is not False,
+                "generation": generation if type(generation) is int and generation >= 1 else None,
+            }
 
     def _revoke_task_locked(self, task: Dict[str, Any], state: str) -> None:
         self._revoke_api_locked(task)
-        task.pop('gatewayPermit', None)
-        task.pop('vaultPermit', None)
-        task['readOrigins'] = []
-        self.cdp_gateway.revoke(task['id'])
+        task.pop("gatewayPermit", None)
+        task.pop("vaultPermit", None)
+        task["readOrigins"] = []
+        self.cdp_gateway.revoke(task["id"])
         task["activeMode"] = "smart"
         task["modeGeneration"] = task.get("modeGeneration", 1) + 1
         for key in list(self.action_approvals):
@@ -2193,63 +3348,90 @@ class BridgeDaemon:
             if self.tab_leases.get((task["instanceId"], tab_id)) == task["id"]:
                 del self.tab_leases[(task["instanceId"], tab_id)]
         task["state"] = state
-        if state in {'closed', 'cancelled'}:
+        if state in {"closed", "cancelled"}:
             # 中文注释：终态撤销未到期的宽限，不向外展示已经失效的关闭截止时间。
-            task.pop('idleCloseAt', None)
+            task.pop("idleCloseAt", None)
         task["workspaceState"] = "unknown" if state == "needs_sync" else "cancelled"
         self._diagnostic("task_state", "unknown" if state == "needs_sync" else "cancelled")
-        self._record_task_state_diagnostic(task, "unknown" if state == "needs_sync" else "cancelled")
+        self._record_task_state_diagnostic(
+            task, "unknown" if state == "needs_sync" else "cancelled"
+        )
         task["tabIds"] = []
         task["agentTabIds"] = []
-        task['adoptedPopupTabIds'] = []
-        task.pop('popupSources', None)
-        task.pop('popupReturns', None)
-        task.pop('popupClosed', None)
+        task["adoptedPopupTabIds"] = []
+        task.pop("popupSources", None)
+        task.pop("popupReturns", None)
+        task.pop("popupClosed", None)
         task["updatedAt"] = time.time()
 
     def _revoke_api_locked(self, task):
-        self.api_credentials.pop(task['id'], None)
-        conn = self.api_connections.pop(task['id'], None)
+        self.api_credentials.pop(task["id"], None)
+        conn = self.api_connections.pop(task["id"], None)
         if conn is not None:
-            if hasattr(conn, '_api_abort'):
+            if hasattr(conn, "_api_abort"):
                 conn._api_abort()
                 return
             try:
-                if conn.sock: conn.sock.shutdown(socket.SHUT_RDWR)
+                if conn.sock:
+                    conn.sock.shutdown(socket.SHUT_RDWR)
             except OSError:
                 pass
             conn.close()
 
     def _api_request(self, task, extension, p):
-        task_id, generation = task['id'], task['generation']
+        task_id, generation = task["id"], task["generation"]
+
         def valid():
             with self.state_lock:
-                return (task['state'] == 'running' and task['generation'] == generation
-                        and self.extensions.get(task['instanceId']) is extension
-                        and self.tab_leases.get((task['instanceId'], p['tabId'])) == task_id)
+                return (
+                    task["state"] == "running"
+                    and task["generation"] == generation
+                    and self.extensions.get(task["instanceId"]) is extension
+                    and self.tab_leases.get((task["instanceId"], p["tabId"])) == task_id
+                )
+
         def track(conn):
             with self.state_lock:
                 if not valid():
                     conn.close()
-                    raise ApiDenied('API authority revoked')
+                    raise ApiDenied("API authority revoked")
                 self.api_connections[task_id] = conn
+
         credentials = None
         try:
-            credentials = self._extension_call(extension, 'browser.credentials', {
-                'taskId': task_id, 'generation': generation, 'tabId': p['tabId'], 'url': p['url']})
+            credentials = self._extension_call(
+                extension,
+                "browser.credentials",
+                {"taskId": task_id, "generation": generation, "tabId": p["tabId"], "url": p["url"]},
+            )
             with self.state_lock:
-                if not valid(): raise ApiDenied('API authority revoked')
-                if not isinstance(credentials, dict) or set(credentials) != {'cookies'}:
-                    raise ApiDenied('invalid credentials response')
-                self.api_credentials[task_id] = (generation, task['instanceId'], p['tabId'], p['url'], credentials)
-            return self.api_client.request(p['url'], p.get('httpMethod', 'GET'), p.get('fields'), credentials['cookies'], valid, track)
+                if not valid():
+                    raise ApiDenied("API authority revoked")
+                if not isinstance(credentials, dict) or set(credentials) != {"cookies"}:
+                    raise ApiDenied("invalid credentials response")
+                self.api_credentials[task_id] = (
+                    generation,
+                    task["instanceId"],
+                    p["tabId"],
+                    p["url"],
+                    credentials,
+                )
+            return self.api_client.request(
+                p["url"],
+                p.get("httpMethod", "GET"),
+                p.get("fields"),
+                credentials["cookies"],
+                valid,
+                track,
+            )
         except ApiDenied:
-            raise ProtocolError('api_denied', 'local API read denied or failed') from None
+            raise ProtocolError("api_denied", "local API read denied or failed") from None
         finally:
             with self.state_lock:
                 self.api_credentials.pop(task_id, None)
                 self.api_connections.pop(task_id, None)
-            if isinstance(credentials, dict): credentials.clear()
+            if isinstance(credentials, dict):
+                credentials.clear()
 
     def _best_effort_release(
         self,
@@ -2277,51 +3459,88 @@ class BridgeDaemon:
         lock = self.task_locks[task["id"]]
         with lock:
             with self.state_lock:
-                if task.get('accessRevoked'):
-                    raise ProtocolError('browser_access_revoked', '浏览器访问已撤销；请创建新任务', {'outcomeUnknown': False})
+                if task.get("accessRevoked"):
+                    raise ProtocolError(
+                        "browser_access_revoked",
+                        "浏览器访问已撤销；请创建新任务",
+                        {"outcomeUnknown": False},
+                    )
                 if task["state"] not in {"cancelled", "needs_sync", "failed"}:
-                    raise ProtocolError("invalid_state", "only a cancelled or unsynchronized task can be resumed")
+                    raise ProtocolError(
+                        "invalid_state", "only a cancelled or unsynchronized task can be resumed"
+                    )
                 if task["instanceId"] not in self.extensions:
                     raise ProtocolError("instance_unavailable", "browser instance is not connected")
                 for tab_id in list(task["tabIds"]):
                     if self.tab_leases.get((task["instanceId"], tab_id)) == task["id"]:
                         del self.tab_leases[(task["instanceId"], tab_id)]
                 task["generation"] += 1
-                task.pop('idleRecoveryState', None)
-                task.pop('autoClosePending', None)
-                task['readOrigins'] = []
+                task.pop("idleRecoveryState", None)
+                task.pop("autoClosePending", None)
+                task["readOrigins"] = []
                 task["downloadKey"] = new_download_key()
                 self.cleanup_proofs.pop(task["id"], None)
                 task["state"] = "pending_approval"
                 task["tabIds"] = []
                 task["agentTabIds"] = []
-                task['adoptedPopupTabIds'] = []
+                task["adoptedPopupTabIds"] = []
                 task["updatedAt"] = time.time()
                 self._persist_tasks()
                 result = self._public_task(task)
                 # 中文注释：恢复会更换代次并撤销旧授权；明确告知下一步，避免把待批准误认为连接故障。
-                result['nextStep'] = '等待扩展自动安装新代次授权；待任务 ready 后读取工作标签。当前模式以扩展显示的模式为准。'
-                result['modeStatus'] = 'awaiting_extension_confirmation'
+                result["nextStep"] = (
+                    "等待扩展自动安装新代次授权；待任务 ready 后读取工作标签。当前模式以扩展显示的模式为准。"
+                )
+                result["modeStatus"] = "awaiting_extension_confirmation"
             self._notify_tasks_changed(task["instanceId"])
             return result
 
-    def _release_task(self, params: Dict[str, Any], final_state: str, close_agent_tabs: bool, *, handoff_if_pending: bool = False, idle_check=None, stale_check=None) -> Dict[str, Any]:
+    def _release_task(
+        self,
+        params: Dict[str, Any],
+        final_state: str,
+        close_agent_tabs: bool,
+        *,
+        handoff_if_pending: bool = False,
+        idle_check=None,
+        stale_check=None,
+    ) -> Dict[str, Any]:
         # 中文注释：显式保留页必须有枚举原因；可信会话结束的 pending_human 仍按原设计自动移交。
-        reasons = {'captcha', 'login', 'verification', 'final_submit', 'user_requested'}
-        if (params.get('keepTabs') is True and (not isinstance(params.get('handoffReason'), str) or params['handoffReason'] not in reasons)
-                or 'handoffReason' in params and params.get('keepTabs') is not True):
-            raise ProtocolError('invalid_fields', '补 handoffReason，或不传 keepTabs 普通关闭', {'outcomeUnknown': False})
+        reasons = {"captcha", "login", "verification", "final_submit", "user_requested"}
+        if (
+            params.get("keepTabs") is True
+            and (
+                not isinstance(params.get("handoffReason"), str)
+                or params["handoffReason"] not in reasons
+            )
+            or "handoffReason" in params
+            and params.get("keepTabs") is not True
+        ):
+            raise ProtocolError(
+                "invalid_fields",
+                "补 handoffReason，或不传 keepTabs 普通关闭",
+                {"outcomeUnknown": False},
+            )
         task = self._owned_task(params)
         with self.state_lock:
             if stale_check is not None:
                 generation, activity, idle_seconds = stale_check
-                eligible = task['state'] == 'ready' or (task['state'] == 'needs_sync' and task.get('idleRecoveryState') == 'ready')
-                if (not eligible or self._pending_human(task) or task['generation'] != generation
-                        or task.get('lastActivityAt', task.get('updatedAt', task['createdAt'])) != activity
-                        or activity + idle_seconds > time.time()):
-                    raise ProtocolError('task_busy', 'stale sweep snapshot changed or task not idle')
+                eligible = task["state"] == "ready" or (
+                    task["state"] == "needs_sync" and task.get("idleRecoveryState") == "ready"
+                )
+                if (
+                    not eligible
+                    or self._pending_human(task)
+                    or task["generation"] != generation
+                    or task.get("lastActivityAt", task.get("updatedAt", task["createdAt"]))
+                    != activity
+                    or activity + idle_seconds > time.time()
+                ):
+                    raise ProtocolError(
+                        "task_busy", "stale sweep snapshot changed or task not idle"
+                    )
             if idle_check is not None:
-                current = (task['generation'], task.get('idleCloseAt'), task.get('lastActivityAt'))
+                current = (task["generation"], task.get("idleCloseAt"), task.get("lastActivityAt"))
                 if current != idle_check or not self._idle_due(task, time.time()):
                     return self._public_task(task)
             if task["state"] in {"closed", "cancelled"}:
@@ -2333,11 +3552,15 @@ class BridgeDaemon:
             if handoff:
                 close_agent_tabs = False
                 task["handoff"] = True
-                task['handoffReason'] = params.get('handoffReason') if params.get('keepTabs') is True else 'pending_human'
+                task["handoffReason"] = (
+                    params.get("handoffReason")
+                    if params.get("keepTabs") is True
+                    else "pending_human"
+                )
             extension = self.extensions.get(task["instanceId"])
             if extension is None:
                 # 中文注释：启动扫描可能早于扩展连接；重连后仅补发这次从未派发的释放。
-                task['autoClosePending'] = close_agent_tabs
+                task["autoClosePending"] = close_agent_tabs
             generation = task["generation"]
             self._revoke_task_locked(task, final_state)
             self.cleanup_proofs.pop(task["id"], None)
@@ -2349,11 +3572,20 @@ class BridgeDaemon:
                 self._record_cleanup(task, generation, extension, None, "browser_offline")
             else:
                 try:
-                    response = self._extension_call(extension, "browser.release", {
-                        "taskId": task["id"], "generation": generation,
-                        "closeAgentTabs": close_agent_tabs}, timeout=5.0)
+                    response = self._extension_call(
+                        extension,
+                        "browser.release",
+                        {
+                            "taskId": task["id"],
+                            "generation": generation,
+                            "closeAgentTabs": close_agent_tabs,
+                        },
+                        timeout=5.0,
+                    )
                 except (ProtocolError, OSError) as exc:
-                    self._record_cleanup(task, generation, extension, None, self._cleanup_error_code(exc))
+                    self._record_cleanup(
+                        task, generation, extension, None, self._cleanup_error_code(exc)
+                    )
                 else:
                     if not isinstance(response, dict) or response.get("released") is not True:
                         response = None
@@ -2364,7 +3596,9 @@ class BridgeDaemon:
                             self._persist_tasks()
         if extension is not None and task.get("workTabs"):
             # 中文注释：终态收组在后台执行，不能把有界 release 延长为等待在途动作。
-            self._start_lifecycle_worker(self._ungroup_terminal_tasks, task["instanceId"], extension, task["id"])
+            self._start_lifecycle_worker(
+                self._ungroup_terminal_tasks, task["instanceId"], extension, task["id"]
+            )
         self._notify_tasks_changed(task["instanceId"])
         return self._public_task(task)
 
@@ -2373,11 +3607,25 @@ class BridgeDaemon:
         if isinstance(exc, OSError):
             return "transport_error"
         code = getattr(exc, "code", "")
-        return code if code in {"extension_timeout", "extension_disconnected", "workspace_unknown", "too_many_pending"} else "extension_error"
+        return (
+            code
+            if code
+            in {
+                "extension_timeout",
+                "extension_disconnected",
+                "workspace_unknown",
+                "too_many_pending",
+            }
+            else "extension_error"
+        )
 
     @staticmethod
     def _cleanup_response(response: Any) -> tuple[dict, tuple[int, ...]]:
-        if not isinstance(response, dict) or not isinstance(response.get("cleanupState"), str) or response["cleanupState"] not in {"succeeded", "pending", "unknown", "failed"}:
+        if (
+            not isinstance(response, dict)
+            or not isinstance(response.get("cleanupState"), str)
+            or response["cleanupState"] not in {"succeeded", "pending", "unknown", "failed"}
+        ):
             return {"cleanupState": "unknown", "cleanupReason": "invalid_response"}, ()
         state = response["cleanupState"]
         lists = {}
@@ -2385,30 +3633,78 @@ class BridgeDaemon:
             value = response.get(field)
             if value is None and state in {"unknown", "failed"}:
                 value = []  # Unknown counts are not proof of zero; omit them below.
-            elif not isinstance(value, list) or len(value) > 256 or any(type(tab_id) is not int or tab_id < 0 for tab_id in value) or len(value) != len(set(value)):
+            elif (
+                not isinstance(value, list)
+                or len(value) > 256
+                or any(type(tab_id) is not int or tab_id < 0 for tab_id in value)
+                or len(value) != len(set(value))
+            ):
                 return {"cleanupState": "unknown", "cleanupReason": "invalid_response"}, ()
             lists[field] = value
         if state == "succeeded" and (lists["remainingTabIds"] or lists["unknownTabIds"]):
             return {"cleanupState": "unknown", "cleanupReason": "invalid_response"}, ()
         reason = response.get("cleanupReason")
-        safe_reasons = {"release_in_progress", "browser_offline", "cleanup_timeout", "workspace_unknown", "ownership_unknown", "remaining_owned_tabs", "preserved_tabs", "cleanup_failed", "verified_complete", "no_journal", "preserved", "cleanup_uncertain", "ungrouped_unverified", "browser_restarted", "handed_to_user"}
+        safe_reasons = {
+            "release_in_progress",
+            "browser_offline",
+            "cleanup_timeout",
+            "workspace_unknown",
+            "ownership_unknown",
+            "remaining_owned_tabs",
+            "preserved_tabs",
+            "cleanup_failed",
+            "verified_complete",
+            "no_journal",
+            "preserved",
+            "cleanup_uncertain",
+            "ungrouped_unverified",
+            "browser_restarted",
+            "handed_to_user",
+        }
         metadata = {"cleanupState": state}
         if isinstance(reason, str) and reason in safe_reasons:
             metadata["cleanupReason"] = reason
-        for field, name in (("remainingTabIds", "cleanupRemainingCount"), ("preservedTabIds", "cleanupPreservedCount"), ("unknownTabIds", "cleanupUnknownCount")):
+        for field, name in (
+            ("remainingTabIds", "cleanupRemainingCount"),
+            ("preservedTabIds", "cleanupPreservedCount"),
+            ("unknownTabIds", "cleanupUnknownCount"),
+        ):
             if field in response:
                 metadata[name] = len(lists[field])
-        return metadata, tuple(lists["remainingTabIds"]) if state == "pending" and "remainingTabIds" in response else ()
+        return metadata, tuple(
+            lists["remainingTabIds"]
+        ) if state == "pending" and "remainingTabIds" in response else ()
 
-    def _record_cleanup(self, task, generation, extension, response, error_code=None, *, allow_proof=False):
-        metadata, owned = self._cleanup_response(response) if error_code is None else ({"cleanupState": "unknown", "cleanupReason": error_code,
-                                                                             "cleanupError": {"code": error_code}}, ())
+    def _record_cleanup(
+        self, task, generation, extension, response, error_code=None, *, allow_proof=False
+    ):
+        metadata, owned = (
+            self._cleanup_response(response)
+            if error_code is None
+            else (
+                {
+                    "cleanupState": "unknown",
+                    "cleanupReason": error_code,
+                    "cleanupError": {"code": error_code},
+                },
+                (),
+            )
+        )
         with self.state_lock:
             if task["generation"] != generation or task["state"] not in {"cancelled", "closed"}:
                 raise ProtocolError("stale_generation", "cleanup task generation changed")
             if extension is not None and self.extensions.get(task["instanceId"]) is not extension:
-                metadata, owned = {"cleanupState": "unknown", "cleanupReason": "browser_offline"}, ()
-            for field in ("cleanupRemainingCount", "cleanupPreservedCount", "cleanupUnknownCount", "cleanupError", "cleanupReason"):
+                metadata, owned = (
+                    {"cleanupState": "unknown", "cleanupReason": "browser_offline"},
+                    (),
+                )
+            for field in (
+                "cleanupRemainingCount",
+                "cleanupPreservedCount",
+                "cleanupUnknownCount",
+                "cleanupError",
+                "cleanupReason",
+            ):
                 task.pop(field, None)
             task.update(metadata)
             self.cleanup_proofs.pop(task["id"], None)
@@ -2430,10 +3726,16 @@ class BridgeDaemon:
                 self._record_cleanup(task, generation, extension, None, "browser_offline")
             else:
                 try:
-                    result = self._extension_call(extension, "browser.cleanup_status", {
-                        "taskId": task["id"], "generation": generation}, timeout=5.0)
+                    result = self._extension_call(
+                        extension,
+                        "browser.cleanup_status",
+                        {"taskId": task["id"], "generation": generation},
+                        timeout=5.0,
+                    )
                 except (ProtocolError, OSError) as exc:
-                    self._record_cleanup(task, generation, extension, None, self._cleanup_error_code(exc))
+                    self._record_cleanup(
+                        task, generation, extension, None, self._cleanup_error_code(exc)
+                    )
                 else:
                     self._record_cleanup(task, generation, extension, result, allow_proof=True)
             return self._public_task(task)
@@ -2441,13 +3743,25 @@ class BridgeDaemon:
     def _ungroup_terminal_tasks(self, instance_id, extension, task_id=None, *, force=False):
         # 中文注释：后台线程不能占用 Native Messaging 读循环；连接与任务代次变化时立即停止。
         with self.state_lock:
-            candidates = sorted((t for t in self.tasks.values()
-                                 if t["instanceId"] == instance_id and t["state"] in {"closed", "cancelled"}
-                                 and (task_id is None or t["id"] == task_id)
-                                 and (force or t.get("cleanupState") == "unknown" or t.get("cleanupReason") in {'preserved', 'handed_to_user'})
-                                 # 中文注释：普通重连只尝试一次；显式 sweep 可以重新复核，仍不能扩大创建证明。
-                                 and (force or not t.get("ungroupAttempted") or 'autoClosePending' in t)
-                                 and (t.get("workTabs") or 'autoClosePending' in t)), key=lambda t: t.get("updatedAt", 0), reverse=True)[:100]
+            candidates = sorted(
+                (
+                    t
+                    for t in self.tasks.values()
+                    if t["instanceId"] == instance_id
+                    and t["state"] in {"closed", "cancelled"}
+                    and (task_id is None or t["id"] == task_id)
+                    and (
+                        force
+                        or t.get("cleanupState") == "unknown"
+                        or t.get("cleanupReason") in {"preserved", "handed_to_user"}
+                    )
+                    # 中文注释：普通重连只尝试一次；显式 sweep 可以重新复核，仍不能扩大创建证明。
+                    and (force or not t.get("ungroupAttempted") or "autoClosePending" in t)
+                    and (t.get("workTabs") or "autoClosePending" in t)
+                ),
+                key=lambda t: t.get("updatedAt", 0),
+                reverse=True,
+            )[:100]
         for task in candidates:
             with self.cleanup_locks[task["id"]]:
                 with self.state_lock:
@@ -2456,28 +3770,46 @@ class BridgeDaemon:
                     if task["state"] not in {"closed", "cancelled"}:
                         continue
                     generation = task["generation"]
-                    auto_close = task.pop('autoClosePending', None)
-                    params = {"taskId": task["id"], "generation": generation, "ungroupOnly": True,
-                              "state": task["state"], "title": task["title"],
-                              "workTabs": [dict(tab) for tab in task.get("workTabs", [])]}
+                    auto_close = task.pop("autoClosePending", None)
+                    params = {
+                        "taskId": task["id"],
+                        "generation": generation,
+                        "ungroupOnly": True,
+                        "state": task["state"],
+                        "title": task["title"],
+                        "workTabs": [dict(tab) for tab in task.get("workTabs", [])],
+                    }
                 try:
                     if auto_close is not None:
                         # 中文注释：补发资格先落盘撤销，崩溃后不能自动重放可能已经派发的释放。
                         self._persist_tasks()
                         self._flush_tasks()
-                        response = self._extension_call(extension, 'browser.release', {
-                            'taskId': task['id'], 'generation': generation, 'closeAgentTabs': auto_close}, timeout=5.0)
+                        response = self._extension_call(
+                            extension,
+                            "browser.release",
+                            {
+                                "taskId": task["id"],
+                                "generation": generation,
+                                "closeAgentTabs": auto_close,
+                            },
+                            timeout=5.0,
+                        )
                         self._record_cleanup(task, generation, extension, response)
-                    response = self._extension_call(extension, "browser.cleanup_retry", params, timeout=30.0)
+                    response = self._extension_call(
+                        extension, "browser.cleanup_retry", params, timeout=30.0
+                    )
                     self._record_cleanup(task, generation, extension, response)
                 except (ProtocolError, OSError):
                     continue
                 with self.state_lock:
-                    if task["generation"] == generation and task["state"] in {"closed", "cancelled"}:
+                    if task["generation"] == generation and task["state"] in {
+                        "closed",
+                        "cancelled",
+                    }:
                         task["ungroupAttempted"] = True
-                        if task.get('handoff') and task.get('cleanupState') == 'succeeded':
+                        if task.get("handoff") and task.get("cleanupState") == "succeeded":
                             # 中文注释：收组回执不能丢失 keep_tabs/人工接管的移交语义。
-                            task['cleanupReason'] = 'handed_to_user'
+                            task["cleanupReason"] = "handed_to_user"
                 self._persist_tasks()
         self._notify_tasks_changed(instance_id)
 
@@ -2487,18 +3819,31 @@ class BridgeDaemon:
             with self.state_lock:
                 proof = self.cleanup_proofs.pop(task["id"], None)
                 extension = self.extensions.get(task["instanceId"])
-                if (task["state"] not in {"cancelled", "closed"} or not proof or
-                        proof[0] != task["generation"] or proof[1] is not extension or
-                        task.get("cleanupState") != "pending"):
-                    raise ProtocolError("reconcile_required", "read-only cleanup status with owned live tabs required")
+                if (
+                    task["state"] not in {"cancelled", "closed"}
+                    or not proof
+                    or proof[0] != task["generation"]
+                    or proof[1] is not extension
+                    or task.get("cleanupState") != "pending"
+                ):
+                    raise ProtocolError(
+                        "reconcile_required",
+                        "read-only cleanup status with owned live tabs required",
+                    )
                 generation, _, tab_ids = proof
                 task.update(cleanupState="pending", cleanupReason="release_in_progress")
                 self._persist_tasks()
             try:
-                result = self._extension_call(extension, "browser.cleanup_retry", {
-                    "taskId": task["id"], "generation": generation, "tabIds": list(tab_ids)}, timeout=5.0)
+                result = self._extension_call(
+                    extension,
+                    "browser.cleanup_retry",
+                    {"taskId": task["id"], "generation": generation, "tabIds": list(tab_ids)},
+                    timeout=5.0,
+                )
             except (ProtocolError, OSError) as exc:
-                self._record_cleanup(task, generation, extension, None, self._cleanup_error_code(exc))
+                self._record_cleanup(
+                    task, generation, extension, None, self._cleanup_error_code(exc)
+                )
             else:
                 self._record_cleanup(task, generation, extension, result)
             return self._public_task(task)
@@ -2519,14 +3864,25 @@ class BridgeDaemon:
         # 中文注释：只接受扩展已确认的同协议 apex/www 对换，不接受其他子域或端口变化。
         try:
             before, after = urlsplit(requested), urlsplit(final)
-            if (before.scheme not in {'http', 'https'} or before.scheme != after.scheme
-                    or before.port != after.port or before.username or before.password
-                    or after.username or after.password or not before.hostname or not after.hostname):
+            if (
+                before.scheme not in {"http", "https"}
+                or before.scheme != after.scheme
+                or before.port != after.port
+                or before.username
+                or before.password
+                or after.username
+                or after.password
+                or not before.hostname
+                or not after.hostname
+            ):
                 return None
-            apex = lambda host: host[4:] if host.startswith('www.') else host
-            if (before.hostname != after.hostname and apex(before.hostname) == apex(after.hostname)
-                    and apex(before.hostname) in {before.hostname, after.hostname}):
-                return f'{after.scheme}://{after.netloc.lower()}'
+            apex = lambda host: host[4:] if host.startswith("www.") else host
+            if (
+                before.hostname != after.hostname
+                and apex(before.hostname) == apex(after.hostname)
+                and apex(before.hostname) in {before.hostname, after.hostname}
+            ):
+                return f"{after.scheme}://{after.netloc.lower()}"
         except ValueError:
             return None
         return None
@@ -2534,28 +3890,53 @@ class BridgeDaemon:
     @staticmethod
     def _validate_popup_scope(scope, params, task):
         """中文注释：私有回读仅含来源与身份，拒绝查询、正文或模型扩大授权。"""
-        valid = isinstance(scope, dict) and set(scope) == {'source', 'candidate'}
-        source = scope.get('source', {}) if valid else {}
-        candidate = scope.get('candidate', {}) if valid else {}
-        valid = (valid and isinstance(source, dict) and isinstance(candidate, dict)
-                 and set(source) == {'tabId', 'windowId', 'origin', 'documentGeneration'}
-                 and set(candidate) == {'candidateRef', 'tabId', 'windowId', 'openerTabId', 'origin', 'windowType'})
+        valid = isinstance(scope, dict) and set(scope) == {"source", "candidate"}
+        source = scope.get("source", {}) if valid else {}
+        candidate = scope.get("candidate", {}) if valid else {}
+        valid = (
+            valid
+            and isinstance(source, dict)
+            and isinstance(candidate, dict)
+            and set(source) == {"tabId", "windowId", "origin", "documentGeneration"}
+            and set(candidate)
+            == {"candidateRef", "tabId", "windowId", "openerTabId", "origin", "windowType"}
+        )
         if valid:
-            valid = (all(type(source[k]) is int and source[k] >= 0 for k in ('tabId', 'windowId', 'documentGeneration'))
-                     and all(type(candidate[k]) is int and candidate[k] >= 0 for k in ('tabId', 'windowId', 'openerTabId'))
-                     and source['tabId'] == params['tabId'] == candidate['openerTabId']
-                     and source['tabId'] != candidate['tabId']
-                     and candidate['candidateRef'] == params['candidateRef'] and candidate['windowType'] in {'popup', 'normal'}
-                     and source['origin'] in task['allowedOrigins'])
+            valid = (
+                all(
+                    type(source[k]) is int and source[k] >= 0
+                    for k in ("tabId", "windowId", "documentGeneration")
+                )
+                and all(
+                    type(candidate[k]) is int and candidate[k] >= 0
+                    for k in ("tabId", "windowId", "openerTabId")
+                )
+                and source["tabId"] == params["tabId"] == candidate["openerTabId"]
+                and source["tabId"] != candidate["tabId"]
+                and candidate["candidateRef"] == params["candidateRef"]
+                and candidate["windowType"] in {"popup", "normal"}
+                and source["origin"] in task["allowedOrigins"]
+            )
         for row in (source, candidate):
             try:
-                parsed = urlsplit(row.get('origin', ''))
-                valid = valid and parsed.scheme in {'http', 'https'} and bool(parsed.hostname) and not parsed.username and not parsed.password and not parsed.path and not parsed.query and not parsed.fragment
+                parsed = urlsplit(row.get("origin", ""))
+                valid = (
+                    valid
+                    and parsed.scheme in {"http", "https"}
+                    and bool(parsed.hostname)
+                    and not parsed.username
+                    and not parsed.password
+                    and not parsed.path
+                    and not parsed.query
+                    and not parsed.fragment
+                )
                 parsed.port
             except (ValueError, AttributeError, TypeError):
                 valid = False
         if not valid:
-            raise ProtocolError('popup_stale', 'popup identity is unavailable or changed', {'outcomeUnknown': False})
+            raise ProtocolError(
+                "popup_stale", "popup identity is unavailable or changed", {"outcomeUnknown": False}
+            )
 
     @staticmethod
     def _validate_run_params(action: str, params: Dict[str, Any]) -> None:
@@ -2563,14 +3944,23 @@ class BridgeDaemon:
             raise ProtocolError("invalid_action", "V1 action is not allowed")
         common = {"owner", "taskId", "requestId", "action"}
         required = {
-            'popup_catalog': {'tabId'}, 'popup_adopt': {'tabId', 'candidateRef'},
-            "tabs": set(), "new_tab": {"url"}, "navigate": {"tabId", "url"},
-            "official.ready_state": {"tabId"}, "official.goto_url": {"tabId", "url"},
+            "popup_catalog": {"tabId"},
+            "popup_adopt": {"tabId", "candidateRef"},
+            "tabs": set(),
+            "new_tab": {"url"},
+            "navigate": {"tabId", "url"},
+            "official.ready_state": {"tabId"},
+            "official.goto_url": {"tabId", "url"},
             "official.new_tab": {"url"},
-            "snapshot": {"tabId"}, "click": {"tabId", "selector"},
-            "fill": {"tabId", "selector", "text"}, "press": {"tabId", "selector", "key"},
-            "screenshot": {"tabId"}, "api_request": {"tabId", "url", "fields"},
-            "page.observe": {"tabId"}, "page.parse": {"tabId"}, "semantic_snapshot": {"tabId"},
+            "snapshot": {"tabId"},
+            "click": {"tabId", "selector"},
+            "fill": {"tabId", "selector", "text"},
+            "press": {"tabId", "selector", "key"},
+            "screenshot": {"tabId"},
+            "api_request": {"tabId", "url", "fields"},
+            "page.observe": {"tabId"},
+            "page.parse": {"tabId"},
+            "semantic_snapshot": {"tabId"},
             "frame_catalog": {"tabId"},
             "ref_click": {"tabId", "binding", "snapshotId", "ref"},
             "ref_fill": {"tabId", "binding", "snapshotId", "ref", "text"},
@@ -2585,22 +3975,36 @@ class BridgeDaemon:
             "interaction.drag_elements": {"tabId", "screenshotId", "source", "target"},
             # 中文注释：文件正文和本地路径不属于模型动作参数。
             "files.upload": {"tabId", "selector"},
-            "scroll": {"tabId", "direction"}, "back": {"tabId"},
-            "js.evaluate": {"tabId", "expression"}, "cdp.send": {"tabId", "method"}, "cdp.events": {"tabId"}, "network.inspect": {"tabId", "options"},
+            "scroll": {"tabId", "direction"},
+            "back": {"tabId"},
+            "js.evaluate": {"tabId", "expression"},
+            "cdp.send": {"tabId", "method"},
+            "cdp.events": {"tabId"},
+            "network.inspect": {"tabId", "options"},
             "gateway.authorize": {"codeDigest"},
             "vault.authorize": {"tabId", "vaultAction", "handleDigest"},
-            "images": {"tabId"}, "console": {"tabId"}, "dialog": {"tabId", "accept"},
+            "images": {"tabId"},
+            "console": {"tabId"},
+            "dialog": {"tabId", "accept"},
         }[action]
         optional = {
-            "click": {"clickMode"}, "ref_click": {"clickMode"},
-            "ref_fill": {"frameToken"}, "ref_press": {"frameToken"}, "ref_set_checked": {"frameToken"},
+            "click": {"clickMode"},
+            "ref_click": {"clickMode"},
+            "ref_fill": {"frameToken"},
+            "ref_press": {"frameToken"},
+            "ref_set_checked": {"frameToken"},
             "ref_select_option": {"frameToken"},
-            "api_request": {"httpMethod"}, "page.observe": {"options"}, "page.parse": {"options"}, "semantic_snapshot": {"options"},
+            "api_request": {"httpMethod"},
+            "page.observe": {"options"},
+            "page.parse": {"options"},
+            "semantic_snapshot": {"options"},
             "interaction.drag_coordinates": {"mode", "steps"},
             "interaction.drag_elements": {"mode", "steps"},
             "js.evaluate": {"world", "awaitPromise", "timeoutMs", "frameToken", "arguments"},
-            "cdp.send": {"params", "frameToken", "targetId", "timeoutMs"}, "cdp.events": {"max", "cursor"},
-            "console": {"clear"}, "dialog": {"promptText"},
+            "cdp.send": {"params", "frameToken", "targetId", "timeoutMs"},
+            "cdp.events": {"max", "cursor"},
+            "console": {"clear"},
+            "dialog": {"promptText"},
             # 中文注释：官方视觉工具的编号标注只引用本次语义快照的引用，不接受坐标或脚本。
             "screenshot": {"annotate", "selector", "binding", "snapshotId", "ref", "format"},
             # 中文注释：带语义引用时只滚动该目标所在的容器，用于虚拟列表有上限的逐屏查找。
@@ -2609,19 +4013,40 @@ class BridgeDaemon:
         }.get(action, set())
         if action == "ref_click":
             optional = optional | {"frameToken"}
-        if action in {"click", "fill", "press", "ref_click", "ref_fill", "ref_press", "ref_set_checked", "ref_select_option"}:
+        if action in {
+            "click",
+            "fill",
+            "press",
+            "ref_click",
+            "ref_fill",
+            "ref_press",
+            "ref_set_checked",
+            "ref_select_option",
+        }:
             optional = optional | {"after"}
         if "after" in params:
             after = params["after"]
-            if (not isinstance(after, dict) or set(after) - {"root", "mode", "budget"} or
-                    not isinstance(after.get("root", "body"), str) or not 1 <= len(after.get("root", "body")) <= 4096 or
-                    not isinstance(after.get("mode", "interactive"), str) or after.get("mode", "interactive") not in {"interactive", "content", "table"} or
-                    type(after.get("budget", 3000)) is not int or not 512 <= after.get("budget", 3000) <= 6000):
+            if (
+                not isinstance(after, dict)
+                or set(after) - {"root", "mode", "budget"}
+                or not isinstance(after.get("root", "body"), str)
+                or not 1 <= len(after.get("root", "body")) <= 4096
+                or not isinstance(after.get("mode", "interactive"), str)
+                or after.get("mode", "interactive") not in {"interactive", "content", "table"}
+                or type(after.get("budget", 3000)) is not int
+                or not 512 <= after.get("budget", 3000) <= 6000
+            ):
                 raise ProtocolError("invalid_params", "invalid action observation")
         if set(params) - common - required - optional or required - set(params):
             raise ProtocolError("invalid_params", "invalid action arguments")
         if "clickMode" in params:
-            modes = {"open_link_in_task_tab"} if action == "click" else {"open_link_in_task_tab", "pointer"} if action == "ref_click" else set()
+            modes = (
+                {"open_link_in_task_tab"}
+                if action == "click"
+                else {"open_link_in_task_tab", "pointer"}
+                if action == "ref_click"
+                else set()
+            )
             if not isinstance(params["clickMode"], str) or params["clickMode"] not in modes:
                 raise ProtocolError("invalid_params", "invalid clickMode")
 
@@ -2632,46 +4057,74 @@ class BridgeDaemon:
             return value
 
         def number(value: Any) -> bool:
-            return not isinstance(value, bool) and isinstance(value, (int, float)) and math.isfinite(value)
+            return (
+                not isinstance(value, bool)
+                and isinstance(value, (int, float))
+                and math.isfinite(value)
+            )
 
         def point(value: Any) -> None:
-            if not isinstance(value, dict) or set(value) != {"x", "y"} or not number(value["x"]) or not number(value["y"]):
+            if (
+                not isinstance(value, dict)
+                or set(value) != {"x", "y"}
+                or not number(value["x"])
+                or not number(value["y"])
+            ):
                 raise ProtocolError("invalid_params", "invalid screenshot point")
 
         def endpoint(value: Any) -> None:
             if not isinstance(value, dict) or set(value) != {"point", "expectedRef"}:
                 raise ProtocolError("invalid_params", "invalid drag endpoint")
             point(value["point"])
-            if not isinstance(value["expectedRef"], str) or not value["expectedRef"] or len(value["expectedRef"]) > 256:
+            if (
+                not isinstance(value["expectedRef"], str)
+                or not value["expectedRef"]
+                or len(value["expectedRef"]) > 256
+            ):
                 raise ProtocolError("invalid_params", "invalid drag endpoint ref")
 
         def binding(value: Any) -> None:
             if not isinstance(value, dict) or set(value) != {"taskId", "documentId", "leaseId"}:
                 raise ProtocolError("invalid_params", "invalid semantic binding")
-            if any(not isinstance(value[key], str) or not value[key] or len(value[key]) > 128 for key in value):
+            if any(
+                not isinstance(value[key], str) or not value[key] or len(value[key]) > 128
+                for key in value
+            ):
                 raise ProtocolError("invalid_params", "invalid semantic binding")
 
         if "selector" in params:
             text("selector", 4096)
-        if 'candidateRef' in params:
-            text('candidateRef', 128)
-        for name, limit in (("snapshotId", 512), ("ref", 256), ("screenshotId", 256),
-                            ("expectedRef", 256), ("source", 4096), ("target", 4096)):
+        if "candidateRef" in params:
+            text("candidateRef", 128)
+        for name, limit in (
+            ("snapshotId", 512),
+            ("ref", 256),
+            ("screenshotId", 256),
+            ("expectedRef", 256),
+            ("source", 4096),
+            ("target", 4096),
+        ):
             if name in params:
                 text(name, limit)
         if "text" in params:
             text("text", 100000, empty=True)
-        if action in {"press", "ref_press"} and (not isinstance(params.get("key"), str)
-                                                 or params["key"] not in {"Enter", "Tab", "Escape", "ArrowDown", "ArrowUp"}):
+        if action in {"press", "ref_press"} and (
+            not isinstance(params.get("key"), str)
+            or params["key"] not in {"Enter", "Tab", "Escape", "ArrowDown", "ArrowUp"}
+        ):
             # 中文注释：批准前拒绝未知按键，避免展示与实际派发的操作不一致。
             raise ProtocolError("invalid_params", "invalid key")
         if "binding" in params:
             binding(params["binding"])
-        if "frameToken" in params and (not isinstance(params["frameToken"], str) or not 1 <= len(params["frameToken"]) <= 128):
+        if "frameToken" in params and (
+            not isinstance(params["frameToken"], str) or not 1 <= len(params["frameToken"]) <= 128
+        ):
             raise ProtocolError("invalid_params", "invalid frame token")
         if "checked" in params and type(params["checked"]) is not bool:
             raise ProtocolError("invalid_params", "checked must be a boolean")
-        if "by" in params and (not isinstance(params["by"], str) or params["by"] not in {"value", "label", "index"}):
+        if "by" in params and (
+            not isinstance(params["by"], str) or params["by"] not in {"value", "label", "index"}
+        ):
             raise ProtocolError("invalid_params", "invalid option selector")
         if "values" in params:
             # 中文注释：原生 select 的 index 为零基整数；value/label 保留 Unicode 字符串。
@@ -2679,7 +4132,9 @@ class BridgeDaemon:
             if not isinstance(values, list) or len(values) > 100:
                 raise ProtocolError("invalid_params", "invalid option values")
             if params.get("by") == "index":
-                invalid = any(type(value) is not int or value < 0 or value > 2 ** 53 - 1 for value in values)
+                invalid = any(
+                    type(value) is not int or value < 0 or value > 2**53 - 1 for value in values
+                )
             else:
                 invalid = any(not isinstance(value, str) or len(value) > 1000 for value in values)
             if invalid or len(set(values)) != len(values):
@@ -2688,123 +4143,244 @@ class BridgeDaemon:
             raise ProtocolError("invalid_params", "give either artifact ids or local paths")
         if action == "files.upload" and "paths" in params:
             paths = params["paths"]
-            if (not isinstance(paths, list) or not 1 <= len(paths) <= 10 or len(set(paths)) != len(paths)
-                    or any(not isinstance(item, str) or not item.startswith("/") or len(item) > 4096 or "\x00" in item
-                           for item in paths)):
+            if (
+                not isinstance(paths, list)
+                or not 1 <= len(paths) <= 10
+                or len(set(paths)) != len(paths)
+                or any(
+                    not isinstance(item, str)
+                    or not item.startswith("/")
+                    or len(item) > 4096
+                    or "\x00" in item
+                    for item in paths
+                )
+            ):
                 raise ProtocolError("invalid_params", "invalid local file paths")
         if action == "files.upload" and "artifactIds" in params:
             ids = params.get("artifactIds")
-            if (not isinstance(ids, list) or not 1 <= len(ids) <= 10
-                    or any(not isinstance(item, str) or not re.fullmatch(
-                        r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", item)
-                           for item in ids) or len(set(ids)) != len(ids)):
+            if (
+                not isinstance(ids, list)
+                or not 1 <= len(ids) <= 10
+                or any(
+                    not isinstance(item, str)
+                    or not re.fullmatch(
+                        r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", item
+                    )
+                    for item in ids
+                )
+                or len(set(ids)) != len(ids)
+            ):
                 raise ProtocolError("invalid_params", "invalid artifact ids")
         if "point" in params:
             point(params["point"])
         if "from" in params:
             endpoint(params["from"])
             endpoint(params["to"])
-        if "steps" in params and (type(params["steps"]) is not int or not 2 <= params["steps"] <= 100):
+        if "steps" in params and (
+            type(params["steps"]) is not int or not 2 <= params["steps"] <= 100
+        ):
             raise ProtocolError("invalid_params", "invalid drag steps")
         if action == "interaction.drag_coordinates" and params.get("mode", "pointer") != "pointer":
             raise ProtocolError("invalid_params", "coordinate drag requires pointer mode")
-        if action == "interaction.drag_elements" and params.get("mode", "pointer") not in {"pointer", "html5-synthetic"}:
+        if action == "interaction.drag_elements" and params.get("mode", "pointer") not in {
+            "pointer",
+            "html5-synthetic",
+        }:
             raise ProtocolError("invalid_params", "invalid drag mode")
         if action == "network.inspect":
-            options = params.get('options')
+            options = params.get("options")
             if not isinstance(options, dict) or len(json.dumps(options)) > 4096:
-                raise ProtocolError('invalid_params', 'invalid network options')
-        if action == 'gateway.authorize' and (not isinstance(params.get('codeDigest'), str)
-                                               or not re.fullmatch(r'[0-9a-f]{64}', params['codeDigest'])):
-            raise ProtocolError('invalid_params', 'invalid script digest')
-        if action == 'vault.authorize' and (params.get('vaultAction') not in {'fill', 'save_login', 'enter_code'}
-                                            or not isinstance(params.get('handleDigest'), str)
-                                            or not re.fullmatch(r'[0-9a-f]{64}', params['handleDigest'])):
-            raise ProtocolError('invalid_params', 'invalid Vault approval scope')
+                raise ProtocolError("invalid_params", "invalid network options")
+        if action == "gateway.authorize" and (
+            not isinstance(params.get("codeDigest"), str)
+            or not re.fullmatch(r"[0-9a-f]{64}", params["codeDigest"])
+        ):
+            raise ProtocolError("invalid_params", "invalid script digest")
+        if action == "vault.authorize" and (
+            params.get("vaultAction") not in {"fill", "save_login", "enter_code"}
+            or not isinstance(params.get("handleDigest"), str)
+            or not re.fullmatch(r"[0-9a-f]{64}", params["handleDigest"])
+        ):
+            raise ProtocolError("invalid_params", "invalid Vault approval scope")
         if action == "js.evaluate":
             text("expression", 100000)
             if params.get("world", "isolated") not in {"isolated", "main"}:
                 raise ProtocolError("invalid_params", "invalid JavaScript world")
             if "awaitPromise" in params and type(params["awaitPromise"]) is not bool:
                 raise ProtocolError("invalid_params", "invalid awaitPromise")
-            if "timeoutMs" in params and (type(params["timeoutMs"]) is not int or not 100 <= params["timeoutMs"] <= 60000):
+            if "timeoutMs" in params and (
+                type(params["timeoutMs"]) is not int or not 100 <= params["timeoutMs"] <= 60000
+            ):
                 raise ProtocolError("invalid_params", "invalid JavaScript timeout")
         if action == "cdp.send":
-            if not isinstance(params.get("method"), str) or not re.fullmatch(r"[A-Z][A-Za-z]{1,40}\.[a-zA-Z]{1,80}", params["method"]):
+            if not isinstance(params.get("method"), str) or not re.fullmatch(
+                r"[A-Z][A-Za-z]{1,40}\.[a-zA-Z]{1,80}", params["method"]
+            ):
                 raise ProtocolError("invalid_params", "invalid CDP method")
-            if "params" in params and (not isinstance(params["params"], dict)
-                                       or len(json.dumps(params["params"])) > 1000000):
+            if "params" in params and (
+                not isinstance(params["params"], dict)
+                or len(json.dumps(params["params"])) > 1000000
+            ):
                 raise ProtocolError("invalid_params", "invalid CDP params")
-            if "targetId" in params and (not isinstance(params["targetId"], str)
-                                          or not 1 <= len(params["targetId"]) <= 128
-                                          or "frameToken" in params):
+            if "targetId" in params and (
+                not isinstance(params["targetId"], str)
+                or not 1 <= len(params["targetId"]) <= 128
+                or "frameToken" in params
+            ):
                 raise ProtocolError("invalid_params", "invalid CDP target")
-            if "timeoutMs" in params and (type(params["timeoutMs"]) is not int
-                                           or not 100 <= params["timeoutMs"] <= 60000):
+            if "timeoutMs" in params and (
+                type(params["timeoutMs"]) is not int or not 100 <= params["timeoutMs"] <= 60000
+            ):
                 raise ProtocolError("invalid_params", "invalid CDP timeout")
         if action == "console" and "clear" in params and type(params["clear"]) is not bool:
             raise ProtocolError("invalid_params", "invalid clear flag")
-        if action == "dialog" and (type(params.get("accept")) is not bool or (
-                "promptText" in params and (not isinstance(params["promptText"], str) or len(params["promptText"]) > 10000))):
+        if action == "dialog" and (
+            type(params.get("accept")) is not bool
+            or (
+                "promptText" in params
+                and (not isinstance(params["promptText"], str) or len(params["promptText"]) > 10000)
+            )
+        ):
             raise ProtocolError("invalid_params", "invalid dialog response")
-        if action == "cdp.events" and "max" in params and (type(params["max"]) is not int or not 1 <= params["max"] <= 500):
+        if (
+            action == "cdp.events"
+            and "max" in params
+            and (type(params["max"]) is not int or not 1 <= params["max"] <= 500)
+        ):
             raise ProtocolError("invalid_params", "invalid event count")
-        if action == "cdp.events" and "cursor" in params and (type(params["cursor"]) is not int or not 0 <= params["cursor"] <= 9007199254740991):
+        if (
+            action == "cdp.events"
+            and "cursor" in params
+            and (type(params["cursor"]) is not int or not 0 <= params["cursor"] <= 9007199254740991)
+        ):
             raise ProtocolError("invalid_params", "invalid event cursor")
         if action == "scroll" and params.get("direction") not in {"up", "down"}:
             raise ProtocolError("invalid_params", "scroll direction must be up or down")
         if action == "screenshot" and "annotate" in params:
             annotate = params["annotate"]
             labels = annotate.get("labels") if isinstance(annotate, dict) else None
-            if (not isinstance(annotate, dict) or set(annotate) != {"binding", "snapshotId", "labels"}
-                    or not isinstance(annotate["binding"], dict) or not isinstance(annotate["snapshotId"], str)
-                    or len(annotate["snapshotId"]) > 512 or not isinstance(labels, list) or len(labels) > 200
-                    or any(not isinstance(row, dict) or set(row) != {"label", "ref"} or type(row["label"]) is not int
-                           or not 1 <= row["label"] <= 1000 or not isinstance(row["ref"], str) or not 0 < len(row["ref"]) <= 256
-                           for row in labels)):
+            if (
+                not isinstance(annotate, dict)
+                or set(annotate) != {"binding", "snapshotId", "labels"}
+                or not isinstance(annotate["binding"], dict)
+                or not isinstance(annotate["snapshotId"], str)
+                or len(annotate["snapshotId"]) > 512
+                or not isinstance(labels, list)
+                or len(labels) > 200
+                or any(
+                    not isinstance(row, dict)
+                    or set(row) != {"label", "ref"}
+                    or type(row["label"]) is not int
+                    or not 1 <= row["label"] <= 1000
+                    or not isinstance(row["ref"], str)
+                    or not 0 < len(row["ref"]) <= 256
+                    for row in labels
+                )
+            ):
                 raise ProtocolError("invalid_params", "invalid screenshot annotation")
         if action == "screenshot":
             if params.get("format", "png") not in {"png", "jpeg"}:
                 raise ProtocolError("invalid_params", "screenshot format must be png or jpeg")
             if "annotate" in params and params.get("format", "png") != "png":
                 raise ProtocolError("invalid_params", "annotated screenshots require png")
-            if "selector" in params and (not isinstance(params["selector"], str) or not 0 < len(params["selector"]) <= 2000
-                                           or {"binding", "snapshotId", "ref"} & set(params)):
+            if "selector" in params and (
+                not isinstance(params["selector"], str)
+                or not 0 < len(params["selector"]) <= 2000
+                or {"binding", "snapshotId", "ref"} & set(params)
+            ):
                 raise ProtocolError("invalid_params", "invalid screenshot selector")
-            if {"binding", "snapshotId", "ref"} & set(params) and not {"binding", "snapshotId", "ref"} <= set(params):
-                raise ProtocolError("invalid_params", "screenshot target needs binding, snapshotId and ref")
-        if action == "scroll" and {"binding", "snapshotId", "ref", "frameToken"} & set(params) and not {"binding", "snapshotId", "ref"} <= set(params):
-            raise ProtocolError("invalid_params", "container scroll needs binding, snapshot_id and ref")
+            if {"binding", "snapshotId", "ref"} & set(params) and not {
+                "binding",
+                "snapshotId",
+                "ref",
+            } <= set(params):
+                raise ProtocolError(
+                    "invalid_params", "screenshot target needs binding, snapshotId and ref"
+                )
+        if (
+            action == "scroll"
+            and {"binding", "snapshotId", "ref", "frameToken"} & set(params)
+            and not {"binding", "snapshotId", "ref"} <= set(params)
+        ):
+            raise ProtocolError(
+                "invalid_params", "container scroll needs binding, snapshot_id and ref"
+            )
         if action == "page.observe":
             # 中文注释：只允许内部等待的固定选择器；不接受源码、跨框架或扩大扫描预算。
             options = params.get("options")
-            if (not isinstance(options, dict) or set(options) != {"selector"}
-                    or not isinstance(options["selector"], str) or not 1 <= len(options["selector"]) <= 512):
+            if (
+                not isinstance(options, dict)
+                or set(options) != {"selector"}
+                or not isinstance(options["selector"], str)
+                or not 1 <= len(options["selector"]) <= 512
+            ):
                 raise ProtocolError("invalid_params", "invalid page observation options")
         if action == "page.parse":
             options = params.get("options", {})
-            if (not isinstance(options, dict) or set(options) - {"root", "sections", "composed", "budget", "cursor", "maxScan", "schema", "frameToken"}
-                    or len(json.dumps(options, allow_nan=False)) > 100000):
+            if (
+                not isinstance(options, dict)
+                or set(options)
+                - {
+                    "root",
+                    "sections",
+                    "composed",
+                    "budget",
+                    "cursor",
+                    "maxScan",
+                    "schema",
+                    "frameToken",
+                }
+                or len(json.dumps(options, allow_nan=False)) > 100000
+            ):
                 raise ProtocolError("invalid_params", "invalid page parse options")
         if action == "js.evaluate" and "arguments" in params:
             if len(json.dumps(params["arguments"], allow_nan=False)) > 100000:
                 raise ProtocolError("invalid_params", "JavaScript argument too large")
         if action == "semantic_snapshot" and "options" in params:
             options = params["options"]
-            allowed = {"mode", "root", "query", "roles", "viewport", "composed", "budget", "cursor", "baselineId", "frameToken", "accessibility"}
+            allowed = {
+                "mode",
+                "root",
+                "query",
+                "roles",
+                "viewport",
+                "composed",
+                "budget",
+                "cursor",
+                "baselineId",
+                "frameToken",
+                "accessibility",
+            }
             if not isinstance(options, dict):
                 raise ProtocolError("invalid_params", "invalid semantic options")
             if set(options) - allowed:
-                raise ProtocolError('invalid_params', 'semantic_snapshot options are unsupported; use page.parse for sections/maxScan/schema',
-                                    {'outcomeUnknown': False, 'fields': sorted(set(options) - allowed)})
+                raise ProtocolError(
+                    "invalid_params",
+                    "semantic_snapshot options are unsupported; use page.parse for sections/maxScan/schema",
+                    {"outcomeUnknown": False, "fields": sorted(set(options) - allowed)},
+                )
             if options.get("mode", "interactive") not in {"interactive", "content", "table"}:
                 raise ProtocolError("invalid_params", "invalid semantic mode")
-            for name, limit, empty in (("root", 4096, False), ("query", 2000, True),
-                                       ("cursor", 512, False), ("baselineId", 512, False)):
-                if name in options and (not isinstance(options[name], str) or (not empty and not options[name]) or len(options[name]) > limit):
+            for name, limit, empty in (
+                ("root", 4096, False),
+                ("query", 2000, True),
+                ("cursor", 512, False),
+                ("baselineId", 512, False),
+            ):
+                if name in options and (
+                    not isinstance(options[name], str)
+                    or (not empty and not options[name])
+                    or len(options[name]) > limit
+                ):
                     raise ProtocolError("invalid_params", "invalid semantic options")
-            if "roles" in options and (not isinstance(options["roles"], list) or len(options["roles"]) > 100
-                    or any(not isinstance(role, str) or not role or len(role) > 100 for role in options["roles"])):
+            if "roles" in options and (
+                not isinstance(options["roles"], list)
+                or len(options["roles"]) > 100
+                or any(
+                    not isinstance(role, str) or not role or len(role) > 100
+                    for role in options["roles"]
+                )
+            ):
                 raise ProtocolError("invalid_params", "invalid semantic roles")
             if "viewport" in options and type(options["viewport"]) is not bool:
                 raise ProtocolError("invalid_params", "invalid semantic viewport")
@@ -2813,15 +4389,28 @@ class BridgeDaemon:
             # 中文注释：无障碍补充只允许显式根内的交互读取，不接受分页或增量基线。
             if "accessibility" in options and type(options["accessibility"]) is not bool:
                 raise ProtocolError("invalid_params", "invalid accessibility flag")
-            if options.get("accessibility") and (not options.get("root") or options.get("mode", "interactive") != "interactive"
-                    or "cursor" in options or "baselineId" in options):
-                raise ProtocolError("invalid_params", "accessibility requires a scoped interactive read")
-            if "frameToken" in options and (not isinstance(options["frameToken"], str) or not 1 <= len(options["frameToken"]) <= 128):
+            if options.get("accessibility") and (
+                not options.get("root")
+                or options.get("mode", "interactive") != "interactive"
+                or "cursor" in options
+                or "baselineId" in options
+            ):
+                raise ProtocolError(
+                    "invalid_params", "accessibility requires a scoped interactive read"
+                )
+            if "frameToken" in options and (
+                not isinstance(options["frameToken"], str)
+                or not 1 <= len(options["frameToken"]) <= 128
+            ):
                 raise ProtocolError("invalid_params", "invalid frame token")
-            if "budget" in options and (type(options["budget"]) is not int or options["budget"] < 512):
+            if "budget" in options and (
+                type(options["budget"]) is not int or options["budget"] < 512
+            ):
                 raise ProtocolError("invalid_params", "invalid semantic budget")
 
-    def _extension_call(self, extension: Dict[str, Any], method: str, params: Dict[str, Any], timeout: float = 15.0) -> Any:
+    def _extension_call(
+        self, extension: Dict[str, Any], method: str, params: Dict[str, Any], timeout: float = 15.0
+    ) -> Any:
         request_id = "srv:" + uuid.uuid4().hex
         pending = {"event": threading.Event(), "response": None}
         with extension["pendingLock"]:
@@ -2830,9 +4419,13 @@ class BridgeDaemon:
             extension["pending"][request_id] = pending
         try:
             try:
-                self._send_extension(extension, {"id": request_id, "method": method, "params": params})
+                self._send_extension(
+                    extension, {"id": request_id, "method": method, "params": params}
+                )
             except OSError as exc:
-                raise ProtocolError("extension_disconnected", "browser extension disconnected") from exc
+                raise ProtocolError(
+                    "extension_disconnected", "browser extension disconnected"
+                ) from exc
             if not pending["event"].wait(timeout):
                 raise ProtocolError("extension_timeout", "browser extension did not respond")
             response = pending["response"]
@@ -2840,17 +4433,22 @@ class BridgeDaemon:
                 raise ProtocolError("extension_disconnected", "browser extension disconnected")
             if "error" in response:
                 error = response["error"] if isinstance(response["error"], dict) else {}
-                if method.startswith('browser.cookie_mirror.'):
+                if method.startswith("browser.cookie_mirror."):
                     # 中文注释：私有 Cookie 通路不接受浏览器提供的错误码或异常原文。
-                    raise ProtocolError('cookie_mirror_denied', '', error.get('data'))
-                raise ProtocolError(str(error.get("code", "extension_error")),
-                                    str(error.get("message", "browser extension error")), error.get("data"))
+                    raise ProtocolError("cookie_mirror_denied", "", error.get("data"))
+                raise ProtocolError(
+                    str(error.get("code", "extension_error")),
+                    str(error.get("message", "browser extension error")),
+                    error.get("data"),
+                )
             return response.get("result")
         finally:
             with extension["pendingLock"]:
                 extension["pending"].pop(request_id, None)
 
-    def _accept_extension_response(self, extension: Dict[str, Any], message: Dict[str, Any]) -> bool:
+    def _accept_extension_response(
+        self, extension: Dict[str, Any], message: Dict[str, Any]
+    ) -> bool:
         request_id = message.get("id")
         if not isinstance(request_id, str):
             return False
@@ -2893,37 +4491,91 @@ class BridgeDaemon:
             if not isinstance(origin, str):
                 raise ProtocolError("invalid_params", "allowedOrigins entries must be strings")
             parsed = urlsplit(origin)
-            if parsed.scheme not in {"http", "https"} or not parsed.netloc or parsed.path not in {"", "/"} or parsed.query or parsed.fragment:
-                raise ProtocolError("invalid_origin", "allowedOrigins must contain exact http(s) origins")
+            if (
+                parsed.scheme not in {"http", "https"}
+                or not parsed.netloc
+                or parsed.path not in {"", "/"}
+                or parsed.query
+                or parsed.fragment
+            ):
+                raise ProtocolError(
+                    "invalid_origin", "allowedOrigins must contain exact http(s) origins"
+                )
             normalized = f"{parsed.scheme}://{parsed.netloc}"
             if origin.rstrip("/") != normalized:
-                raise ProtocolError("invalid_origin", "allowedOrigins must contain exact http(s) origins")
+                raise ProtocolError(
+                    "invalid_origin", "allowedOrigins must contain exact http(s) origins"
+                )
             if normalized not in origins:
                 origins.append(normalized)
         return origins
 
     def _public_task(self, task: Dict[str, Any]) -> Dict[str, Any]:
         # 中文注释：公开状态不包含请求指纹，操作投影使用固定允许字段。
-        result = {key: value for key, value in task.items()
-                  if key not in {"owner", "agentTabIds", "spawnedTabIds", "requestHistory", "readOrigins", "downloads", "officialBlankTabs", "currentOperation", "operationTimeline", "idleRecoveryState", "autoClosePending"}}
+        result = {
+            key: value
+            for key, value in task.items()
+            if key
+            not in {
+                "owner",
+                "agentTabIds",
+                "spawnedTabIds",
+                "requestHistory",
+                "readOrigins",
+                "downloads",
+                "officialBlankTabs",
+                "currentOperation",
+                "operationTimeline",
+                "idleRecoveryState",
+                "autoClosePending",
+            }
+        }
         # 中文注释：计数仅含本会话仍持有租约的工作页，已关闭页面不计入。
-        result['open_tabs'] = sum(1 for row in self.tasks.values() if row['owner'] == task['owner']
-                                  for tab_id in row.get('agentTabIds', [])
-                                  if self.tab_leases.get((row['instanceId'], tab_id)) == row['id'])
+        result["open_tabs"] = sum(
+            1
+            for row in self.tasks.values()
+            if row["owner"] == task["owner"]
+            for tab_id in row.get("agentTabIds", [])
+            if self.tab_leases.get((row["instanceId"], tab_id)) == row["id"]
+        )
         # 中文注释：恢复旧任务也使用当前 daemon 配置。
-        result['workWindowMode'] = 'separate' if task.get('silent') else self.work_window_mode
-        fields = {"action", "state", "startedAt", "completedAt", "durationMs", "errorCode", "tabId", "automatic"}
+        result["workWindowMode"] = "separate" if task.get("silent") else self.work_window_mode
+        fields = {
+            "action",
+            "state",
+            "startedAt",
+            "completedAt",
+            "durationMs",
+            "errorCode",
+            "tabId",
+            "automatic",
+        }
         if isinstance(task.get("currentOperation"), dict):
-            result["currentOperation"] = {key: value for key, value in task["currentOperation"].items() if key in fields}
+            result["currentOperation"] = {
+                key: value for key, value in task["currentOperation"].items() if key in fields
+            }
         if isinstance(task.get("operationTimeline"), list):
-            result["operationTimeline"] = [{key: value for key, value in row.items() if key in fields} for row in task["operationTimeline"][-32:] if isinstance(row, dict)]
+            result["operationTimeline"] = [
+                {key: value for key, value in row.items() if key in fields}
+                for row in task["operationTimeline"][-32:]
+                if isinstance(row, dict)
+            ]
         with self.state_lock:
-            pending = [entry for (task_id, _), entry in self.action_approvals.items()
-                       if task_id == task["id"] and entry.get("generation") == task.get("generation")
-                       and entry.get("status") in {"approval_required", "user_input_required"}
-                       and entry.get("expiresAt", 0) > time.time()]
+            pending = [
+                entry
+                for (task_id, _), entry in self.action_approvals.items()
+                if task_id == task["id"]
+                and entry.get("generation") == task.get("generation")
+                and entry.get("status") in {"approval_required", "user_input_required"}
+                and entry.get("expiresAt", 0) > time.time()
+            ]
             if pending:
-                result["pendingInteraction"] = {"kind": "manual_input" if any(entry.get("status") == "user_input_required" for entry in pending) else "approval", "count": len(pending)}
+                result["pendingInteraction"] = {
+                    "kind": "manual_input"
+                    if any(entry.get("status") == "user_input_required" for entry in pending)
+                    else "approval",
+                    "count": len(pending),
+                }
         return result
 
     def _notify_tasks_changed(self, instance_id: str) -> None:
@@ -2942,33 +4594,47 @@ class BridgeDaemon:
                 extension["sendSequence"] = extension.get("sendSequence", 0) + 1
                 value = {**value, "sequence": extension["sendSequence"]}
             for frame in _extension_frames(value):
-                if frame.get('method') == 'bridge.chunk' and frame['params']['index'] == 0:
-                    self._diagnostic('buffer_state', 'recovered', error_code='message_chunked')
+                if frame.get("method") == "bridge.chunk" and frame["params"]["index"] == 0:
+                    self._diagnostic("buffer_state", "recovered", error_code="message_chunked")
                     if self.copilot is not None:
-                        self.copilot.journal.add(extension['instanceId'], 'bridge_warning', snapshot_bytes=frame['params']['bytes'])
-                elif frame.get('error',{}).get('code')=='result_too_large':
-                    self._diagnostic('buffer_state','dropped',error_code='message_too_large')
-                    if self.copilot is not None:self.copilot.journal.add(extension['instanceId'],'bridge_rejected',error=True)
+                        self.copilot.journal.add(
+                            extension["instanceId"],
+                            "bridge_warning",
+                            snapshot_bytes=frame["params"]["bytes"],
+                        )
+                elif frame.get("error", {}).get("code") == "result_too_large":
+                    self._diagnostic("buffer_state", "dropped", error_code="message_too_large")
+                    if self.copilot is not None:
+                        self.copilot.journal.add(
+                            extension["instanceId"], "bridge_rejected", error=True
+                        )
                 extension["socket"].sendall(_encode_line(frame))
 
     def _expire_approvals_locked(self):
         for key, pending in list(self.action_approvals.items()):
-            if pending['status'] in {'approval_required', 'user_input_required'} and pending['expiresAt'] <= time.time():
-                self._finish_approval_locked(key, 'approval_expired', '确认已过期，未执行；如仍需要，请明确发起新请求。')
+            if (
+                pending["status"] in {"approval_required", "user_input_required"}
+                and pending["expiresAt"] <= time.time()
+            ):
+                self._finish_approval_locked(
+                    key, "approval_expired", "确认已过期，未执行；如仍需要，请明确发起新请求。"
+                )
 
     def _finish_approval_locked(self, key, code, message):
         pending = self.action_approvals.pop(key, None)
         if pending is not None:
             task = self.tasks[key[0]]
-            if pending['status'] == 'executing':
-                self._record_request_locked(task, key[1], pending['digest'], None, None)
+            if pending["status"] == "executing":
+                self._record_request_locked(task, key[1], pending["digest"], None, None)
             else:
-                self._record_request_locked(task, key[1], pending['digest'], {'code': code, 'message': message}, 'error')
+                self._record_request_locked(
+                    task, key[1], pending["digest"], {"code": code, "message": message}, "error"
+                )
             self._persist_tasks()
 
     def _approval_worker(self, key, pending):
         try:
-            self._run_task(pending['params'], _approval=pending)
+            self._run_task(pending["params"], _approval=pending)
         except ProtocolError as exc:
             with self.state_lock:
                 self._finish_approval_locked(key, exc.code, exc.message)
@@ -2976,63 +4642,107 @@ class BridgeDaemon:
             # A lost worker must never make the same queued action runnable.
             with self.state_lock:
                 task = self.tasks[key[0]]
-                self._record_request_locked(task, key[1], pending['digest'], None, None)
+                self._record_request_locked(task, key[1], pending["digest"], None, None)
                 extension = None
-                generation = pending['generation']
+                generation = pending["generation"]
                 # 中文注释：只收尾原批准代次；执行器已撤权、新代及终态不能再次撤销。
-                if task['generation'] == generation and task['state'] in {'ready', 'running', 'paused'}:
-                    self._revoke_task_locked(task, 'needs_sync')
-                    extension = self.extensions.get(task['instanceId'])
+                if task["generation"] == generation and task["state"] in {
+                    "ready",
+                    "running",
+                    "paused",
+                }:
+                    self._revoke_task_locked(task, "needs_sync")
+                    extension = self.extensions.get(task["instanceId"])
                 self._persist_tasks()
             if extension is not None:
                 try:
-                    self._best_effort_release(extension, task['id'], generation, False)
+                    self._best_effort_release(extension, task["id"], generation, False)
                 except Exception:
                     pass  # Revocation is authoritative even if cleanup fails.
         finally:
             with self.state_lock:
                 self.action_approvals.pop(key, None)
-            self._notify_tasks_changed(self.tasks[key[0]]['instanceId'])
+            self._notify_tasks_changed(self.tasks[key[0]]["instanceId"])
 
     def _dispatch_connected_extension(self, extension, method, params):
-        instance_id = extension['instanceId']
+        instance_id = extension["instanceId"]
         # 中文注释：连接核对与状态修改必须原子完成；暂停先取任务锁，保持任务锁→状态锁的既有顺序。
-        if isinstance(method, str) and method.startswith('extension.copilot.'):
+        if isinstance(method, str) and method.startswith("extension.copilot."):
             try:
                 with self.state_lock:
                     if self.extensions.get(instance_id) is not extension:
-                        raise ProtocolError('connection_replaced', 'browser connection was replaced')
+                        raise ProtocolError(
+                            "connection_replaced", "browser connection was replaced"
+                        )
                     if self.copilot is None:
+
                         def notify(target, payload):
                             current = self.extensions.get(target)
                             if current:
-                                self._send_extension(current, {'method': 'copilot.changed', 'params': payload})
-                        self.copilot = Copilot(self.data_dir / 'copilot', notify)
-                        self.copilot.resource_status=lambda task_id:self.tasks.get(task_id,{}).get('state') in {'closed','cancelled'} and self.tasks.get(task_id,{}).get('cleanupState')=='succeeded'
-                if method=='extension.copilot.work_create':
-                    if set(params)-{'url','incognito','resourceId'} or not isinstance(params.get('url'),str) or type(params.get('incognito',False)) is not bool:raise ValueError('invalid table workspace')
-                    parsed=urlsplit(params['url'])
-                    if parsed.scheme not in {'http','https'} or not parsed.hostname or parsed.username or parsed.password:raise ValueError('invalid work URL')
+                                self._send_extension(
+                                    current, {"method": "copilot.changed", "params": payload}
+                                )
+
+                        self.copilot = Copilot(self.data_dir / "copilot", notify)
+                        self.copilot.resource_status = (
+                            lambda task_id: self.tasks.get(task_id, {}).get("state")
+                            in {"closed", "cancelled"}
+                            and self.tasks.get(task_id, {}).get("cleanupState") == "succeeded"
+                        )
+                if method == "extension.copilot.work_create":
+                    if (
+                        set(params) - {"url", "incognito", "resourceId"}
+                        or not isinstance(params.get("url"), str)
+                        or type(params.get("incognito", False)) is not bool
+                    ):
+                        raise ValueError("invalid table workspace")
+                    parsed = urlsplit(params["url"])
+                    if (
+                        parsed.scheme not in {"http", "https"}
+                        or not parsed.hostname
+                        or parsed.username
+                        or parsed.password
+                    ):
+                        raise ValueError("invalid work URL")
                     # 中文注释：表格保存由可信侧栏明确点选；只发放新工作页范围，仍走标准授权/租约安装。
-                    if not self.copilot.resource_allowed(instance_id,params['url'],fetch_id=params.get('resourceId')):raise ValueError('serialized tool requires capability lane')
-                    token=self.copilot.silent_token
-                    result=self._create_task({'owner':'copilot-table-'+secrets.token_hex(12),'title':'Fast-browser-link ·后台数据','instanceId':instance_id,'allowedOrigins':[f'{parsed.scheme}://{parsed.netloc}'],'incognito':params.get('incognito',False),'copilotSilentToken':token,'copilotResourceToken':params.get('resourceId')},table_export=True)
-                    if params.get('resourceId'):self.copilot.resource_tasks[result['id']]=params['resourceId']
+                    if not self.copilot.resource_allowed(
+                        instance_id, params["url"], fetch_id=params.get("resourceId")
+                    ):
+                        raise ValueError("serialized tool requires capability lane")
+                    token = self.copilot.silent_token
+                    result = self._create_task(
+                        {
+                            "owner": "copilot-table-" + secrets.token_hex(12),
+                            "title": "Fast-browser-link ·后台数据",
+                            "instanceId": instance_id,
+                            "allowedOrigins": [f"{parsed.scheme}://{parsed.netloc}"],
+                            "incognito": params.get("incognito", False),
+                            "copilotSilentToken": token,
+                            "copilotResourceToken": params.get("resourceId"),
+                        },
+                        table_export=True,
+                    )
+                    if params.get("resourceId"):
+                        self.copilot.resource_tasks[result["id"]] = params["resourceId"]
                     return result
-                return self.copilot.request(instance_id, method.removeprefix('extension.copilot.'), params)
+                return self.copilot.request(
+                    instance_id, method.removeprefix("extension.copilot."), params
+                )
             except (ValueError, OSError, KeyError, TypeError):
-                raise ProtocolError('copilot_denied', 'Copilot request failed; check local configuration') from None
-        if isinstance(method, str) and method.startswith('extension.cookie_mirror.'):
+                raise ProtocolError(
+                    "copilot_denied", "Copilot request failed; check local configuration"
+                ) from None
+        if isinstance(method, str) and method.startswith("extension.cookie_mirror."):
             # 中文注释：私有通路自行校验连接，不能持有状态锁等待浏览器回复。
             with self.state_lock:
                 if self.extensions.get(instance_id) is not extension:
-                    raise ProtocolError('connection_replaced', 'browser connection was replaced')
+                    raise ProtocolError("connection_replaced", "browser connection was replaced")
             return self._cookie_mirror_extension(instance_id, method, params)
-        if method in {'extension.pause', 'extension.unpause'}:
+        if method in {"extension.pause", "extension.unpause"}:
             return self._dispatch_extension(instance_id, method, params, _connection=extension)
         with self.state_lock:
             if self.extensions.get(instance_id) is not extension:
-                raise ProtocolError('connection_replaced', 'browser connection was replaced')
+                raise ProtocolError("connection_replaced", "browser connection was replaced")
             return self._dispatch_extension(instance_id, method, params)
 
     def _cookie_mirror_extension(self, instance_id, method, params):
@@ -3040,215 +4750,374 @@ class BridgeDaemon:
         try:
             if not isinstance(params, dict):
                 raise MirrorDenied()
-            if method == 'extension.cookie_mirror.request':
-                if params.get('source') != instance_id or 'owner' in params:
+            if method == "extension.cookie_mirror.request":
+                if params.get("source") != instance_id or "owner" in params:
                     raise MirrorDenied()
-                return self.cookie_mirror.request(params, 'extension:' + instance_id)
-            if method == 'extension.cookie_mirror.status' and set(params) == {'transferId'}:
-                return self.cookie_mirror.status(params['transferId'], source=instance_id)
-            if method == 'extension.cookie_mirror.decide':
+                return self.cookie_mirror.request(params, "extension:" + instance_id)
+            if method == "extension.cookie_mirror.status" and set(params) == {"transferId"}:
+                return self.cookie_mirror.status(params["transferId"], source=instance_id)
+            if method == "extension.cookie_mirror.decide":
                 return self.cookie_mirror.decide(instance_id, params)
             raise MirrorDenied()
         except (MirrorDenied, TypeError):
-            raise ProtocolError('cookie_mirror_denied', 'Cookie 镜像请求不可用，请在扩展中核实。') from None
+            raise ProtocolError(
+                "cookie_mirror_denied", "Cookie 镜像请求不可用，请在扩展中核实。"
+            ) from None
 
-    def _dispatch_extension(self, instance_id: str, method: Any, params: Any, *, _connection=None) -> Any:
+    def _dispatch_extension(
+        self, instance_id: str, method: Any, params: Any, *, _connection=None
+    ) -> Any:
         if not isinstance(params, dict):
             raise ProtocolError("invalid_params", "params must be an object")
-        if method == 'extension.set_primary' and params == {}:
+        if method == "extension.set_primary" and params == {}:
             with self.state_lock:
                 if _connection is not None and self.extensions.get(instance_id) is not _connection:
-                    raise ProtocolError('connection_replaced', 'browser connection was replaced')
+                    raise ProtocolError("connection_replaced", "browser connection was replaced")
             return self._set_primary_browser(instance_id)
-        if method == 'extension.browser_list' and params == {}:
+        if method == "extension.browser_list" and params == {}:
             # 中文注释：扩展请求不能在同一套接字上同步回问 consent_status，使用最近一次已确认状态。
             with self.state_lock:
                 primary = self._primary_browser()
-                rows = [{'instanceId': item['instanceId'], 'browser': item['browser'], 'connected': True,
-                         'consentStatus': item.get('lastConsentStatus', 'unknown'),
-                         'primary': bool(primary and primary['instanceId'] == item['instanceId']
-                                         and primary['browser'] == item['browser'])}
-                        for item in self.extensions.values()]
-                if primary and not any(item['primary'] for item in rows):
-                    rows.append({**primary, 'connected': False, 'consentStatus': 'unknown', 'primary': True})
+                rows = [
+                    {
+                        "instanceId": item["instanceId"],
+                        "browser": item["browser"],
+                        "connected": True,
+                        "consentStatus": item.get("lastConsentStatus", "unknown"),
+                        "primary": bool(
+                            primary
+                            and primary["instanceId"] == item["instanceId"]
+                            and primary["browser"] == item["browser"]
+                        ),
+                    }
+                    for item in self.extensions.values()
+                ]
+                if primary and not any(item["primary"] for item in rows):
+                    rows.append(
+                        {**primary, "connected": False, "consentStatus": "unknown", "primary": True}
+                    )
                 return rows
-        if method == 'extension.task_log':
-            if (set(params) != {'taskId', 'generation', 'limit'} or type(params['limit']) is not int
-                    or not 1 <= params['limit'] <= 100):
-                raise ProtocolError('invalid_params', 'invalid task log request')
-            task = self.tasks.get(params['taskId'])
-            if not task or task['instanceId'] != instance_id or task['generation'] != params['generation']:
-                raise ProtocolError('not_found', 'task log unavailable')
-            rows = self._read_task_log(task['id'], params['limit'])
-            pending = self.overlay_operations.get(task['id'])
-            if pending and task['state'] in {'ready','running'}:
-                rows.append({'action': pending['action'], 'time': time.strftime('%Y-%m-%dT%H:%M:%S', time.gmtime(pending['startedAt']))+'Z', 'result': 'pending', 'target': '页面或任务'})
-            return rows[-params['limit']:]
-        if method == 'extension.task_step':
+        if method == "extension.task_log":
+            if (
+                set(params) != {"taskId", "generation", "limit"}
+                or type(params["limit"]) is not int
+                or not 1 <= params["limit"] <= 100
+            ):
+                raise ProtocolError("invalid_params", "invalid task log request")
+            task = self.tasks.get(params["taskId"])
+            if (
+                not task
+                or task["instanceId"] != instance_id
+                or task["generation"] != params["generation"]
+            ):
+                raise ProtocolError("not_found", "task log unavailable")
+            rows = self._read_task_log(task["id"], params["limit"])
+            pending = self.overlay_operations.get(task["id"])
+            if pending and task["state"] in {"ready", "running"}:
+                rows.append(
+                    {
+                        "action": pending["action"],
+                        "time": time.strftime(
+                            "%Y-%m-%dT%H:%M:%S", time.gmtime(pending["startedAt"])
+                        )
+                        + "Z",
+                        "result": "pending",
+                        "target": "页面或任务",
+                    }
+                )
+            return rows[-params["limit"] :]
+        if method == "extension.task_step":
             # 中文注释：扩展内取数器不经过 shared.run，只补显示日志，不修改动作账本或授予执行权限。
-            allowed = {'new_tab', 'navigate', 'semantic_snapshot', 'ref_click', 'scroll', 'table.read', 'page.parse'}
-            if (set(params)-{'taskId','generation','stepId','action','phase','durationMs','errorCode'}
-                    or not isinstance(params.get('action'),str) or params.get('action') not in allowed
-                    or not isinstance(params.get('phase'),str) or params.get('phase') not in {'start','succeeded','failed','unknown'}
-                    or not isinstance(params.get('stepId'),str) or not re.fullmatch(r'[a-f0-9-]{36}',params['stepId'])
-                    or type(params.get('durationMs',0)) not in (int,float) or not 0<=params.get('durationMs',0)<=86400000):
-                raise ProtocolError('invalid_params','invalid overlay step')
-            task = self.tasks.get(params.get('taskId'))
-            if not task or not task.get('silent') or task['instanceId']!=instance_id or task['generation']!=params.get('generation') or task['state'] not in {'ready','running'}:
-                raise ProtocolError('not_found','overlay task unavailable')
-            if params['phase']=='start':
-                self.overlay_operations[task['id']]={'id':params['stepId'],'action':params['action'],'startedAt':time.time()}
+            allowed = {
+                "new_tab",
+                "navigate",
+                "semantic_snapshot",
+                "ref_click",
+                "scroll",
+                "table.read",
+                "page.parse",
+            }
+            if (
+                set(params)
+                - {"taskId", "generation", "stepId", "action", "phase", "durationMs", "errorCode"}
+                or not isinstance(params.get("action"), str)
+                or params.get("action") not in allowed
+                or not isinstance(params.get("phase"), str)
+                or params.get("phase") not in {"start", "succeeded", "failed", "unknown"}
+                or not isinstance(params.get("stepId"), str)
+                or not re.fullmatch(r"[a-f0-9-]{36}", params["stepId"])
+                or type(params.get("durationMs", 0)) not in (int, float)
+                or not 0 <= params.get("durationMs", 0) <= 86400000
+            ):
+                raise ProtocolError("invalid_params", "invalid overlay step")
+            task = self.tasks.get(params.get("taskId"))
+            if (
+                not task
+                or not task.get("silent")
+                or task["instanceId"] != instance_id
+                or task["generation"] != params.get("generation")
+                or task["state"] not in {"ready", "running"}
+            ):
+                raise ProtocolError("not_found", "overlay task unavailable")
+            if params["phase"] == "start":
+                self.overlay_operations[task["id"]] = {
+                    "id": params["stepId"],
+                    "action": params["action"],
+                    "startedAt": time.time(),
+                }
             else:
-                operation=self.overlay_operations.get(task['id'])
-                if not operation or operation['id']!=params['stepId'] or operation['action']!=params['action']:
-                    raise ProtocolError('invalid_state','overlay step changed')
-                self.overlay_operations.pop(task['id'])
-                target={'table.read':('table','表格'),'ref_click':('button','分页按钮'),'scroll':('region','表格滚动区域')}.get(params['action'],('page','工作页'))
-                self._append_task_log(task['id'],{**operation,'state':params['phase'],'durationMs':params.get('durationMs',0),'errorCode':params.get('errorCode')},{'role':target[0],'name':target[1]})
+                operation = self.overlay_operations.get(task["id"])
+                if (
+                    not operation
+                    or operation["id"] != params["stepId"]
+                    or operation["action"] != params["action"]
+                ):
+                    raise ProtocolError("invalid_state", "overlay step changed")
+                self.overlay_operations.pop(task["id"])
+                target = {
+                    "table.read": ("table", "表格"),
+                    "ref_click": ("button", "分页按钮"),
+                    "scroll": ("region", "表格滚动区域"),
+                }.get(params["action"], ("page", "工作页"))
+                self._append_task_log(
+                    task["id"],
+                    {
+                        **operation,
+                        "state": params["phase"],
+                        "durationMs": params.get("durationMs", 0),
+                        "errorCode": params.get("errorCode"),
+                    },
+                    {"role": target[0], "name": target[1]},
+                )
             self._notify_tasks_changed(instance_id)
-            return {'accepted':True}
-        if method == 'extension.revoke_access' and params == {}:
+            return {"accepted": True}
+        if method == "extension.revoke_access" and params == {}:
             # 中文注释：只撤销发送方浏览器的任务，包含尚未装入扩展的待批准任务；其他实例不受影响。
             with self.state_lock:
                 for task in self.tasks.values():
-                    if task['instanceId'] != instance_id or task['state'] == 'closed':
+                    if task["instanceId"] != instance_id or task["state"] == "closed":
                         continue
-                    task['accessRevoked'] = True
-                    self._revoke_task_locked(task, 'cancelled')
-                    task.update(cleanupState='unknown', cleanupReason='access_revoked')
-                    self.cleanup_proofs.pop(task['id'], None)
+                    task["accessRevoked"] = True
+                    self._revoke_task_locked(task, "cancelled")
+                    task.update(cleanupState="unknown", cleanupReason="access_revoked")
+                    self.cleanup_proofs.pop(task["id"], None)
                 self._persist_tasks()
-            return {'revoked': True}
+            return {"revoked": True}
         if method == "extension.access_request_closed":
             return self._access_request_closed(instance_id, params)
-        if method == 'extension.popup_adopted':
+        if method == "extension.popup_adopted":
             return self._handle_popup_adopted(instance_id, params)
-        if method == 'extension.approvals' and params == {}:
+        if method == "extension.approvals" and params == {}:
             with self.state_lock:
                 self._expire_approvals_locked()
-                return [dict(taskId=key[0], nonce=p['nonce'], digest=p['digest'], expiresAt=p['expiresAt'],
-                             generation=p['generation'], modeGeneration=p['modeGeneration'],
-                             kind=p.get('kind', 'action'),
-                             **({'popupScope': p['popupScope']} if p.get('popupScope') else {}),
-                             **({'readOrigin': p['readOrigin']} if p.get('readOrigin') else {}),
-                             **({'fieldKind': p['fieldKind']} if p.get('kind') == 'manual_input' else {}),
-                             request={k:v for k,v in p['params'].items()
-                                      if k != 'owner' and not (k == 'text' and p.get('kind') == 'manual_input')})
-                        for key,p in self.action_approvals.items()
-                        if self.tasks[key[0]]['instanceId'] == instance_id
-                        and p['status'] in {'approval_required', 'user_input_required'}]
-        if method == 'extension.decide':
+                return [
+                    dict(
+                        taskId=key[0],
+                        nonce=p["nonce"],
+                        digest=p["digest"],
+                        expiresAt=p["expiresAt"],
+                        generation=p["generation"],
+                        modeGeneration=p["modeGeneration"],
+                        kind=p.get("kind", "action"),
+                        **({"popupScope": p["popupScope"]} if p.get("popupScope") else {}),
+                        **({"readOrigin": p["readOrigin"]} if p.get("readOrigin") else {}),
+                        **(
+                            {"fieldKind": p["fieldKind"]} if p.get("kind") == "manual_input" else {}
+                        ),
+                        request={
+                            k: v
+                            for k, v in p["params"].items()
+                            if k != "owner"
+                            and not (k == "text" and p.get("kind") == "manual_input")
+                        },
+                    )
+                    for key, p in self.action_approvals.items()
+                    if self.tasks[key[0]]["instanceId"] == instance_id
+                    and p["status"] in {"approval_required", "user_input_required"}
+                ]
+        if method == "extension.decide":
             with self.state_lock:
                 self._expire_approvals_locked()
-                found = next(((key,p) for key,p in self.action_approvals.items()
-                              if key[0] == params.get('taskId') and p['nonce'] == params.get('nonce')), None)
+                found = next(
+                    (
+                        (key, p)
+                        for key, p in self.action_approvals.items()
+                        if key[0] == params.get("taskId") and p["nonce"] == params.get("nonce")
+                    ),
+                    None,
+                )
                 if found is None:
-                    raise ProtocolError('approval_stale', '确认已使用、撤销或过期')
+                    raise ProtocolError("approval_stale", "确认已使用、撤销或过期")
                 key, pending = found
                 task = self.tasks[key[0]]
-                expected_status = 'user_input_required' if pending.get('kind') == 'manual_input' else 'approval_required'
-                if (task['instanceId'] != instance_id or pending['digest'] != params.get('digest')
-                        or pending['status'] != expected_status or task['state'] != 'ready'
-                        or pending['generation'] != task['generation']
-                        or pending['modeGeneration'] != task.get('modeGeneration', 1)):
-                    raise ProtocolError('approval_stale', '确认范围已变化')
-                if pending.get('kind') == 'manual_input':
-                    if params.get('approve') is not True:
-                        self._finish_approval_locked(key, 'user_input_declined', '用户未填写该字段，未执行')
-                        return {'status': 'denied'}
+                expected_status = (
+                    "user_input_required"
+                    if pending.get("kind") == "manual_input"
+                    else "approval_required"
+                )
+                if (
+                    task["instanceId"] != instance_id
+                    or pending["digest"] != params.get("digest")
+                    or pending["status"] != expected_status
+                    or task["state"] != "ready"
+                    or pending["generation"] != task["generation"]
+                    or pending["modeGeneration"] != task.get("modeGeneration", 1)
+                ):
+                    raise ProtocolError("approval_stale", "确认范围已变化")
+                if pending.get("kind") == "manual_input":
+                    if params.get("approve") is not True:
+                        self._finish_approval_locked(
+                            key, "user_input_declined", "用户未填写该字段，未执行"
+                        )
+                        return {"status": "denied"}
                     # The person typed it themselves; nothing was dispatched.
                     self.action_approvals.pop(key, None)
-                    self._record_request_locked(task, key[1], pending['digest'],
-                                                {'status': 'completed_by_user', 'filledBy': 'user',
-                                                 'fieldKind': pending['fieldKind']}, 'result')
+                    self._record_request_locked(
+                        task,
+                        key[1],
+                        pending["digest"],
+                        {
+                            "status": "completed_by_user",
+                            "filledBy": "user",
+                            "fieldKind": pending["fieldKind"],
+                        },
+                        "result",
+                    )
                     self._persist_tasks()
-                    return {'status': 'completed'}
-                if params.get('approve') is not True:
-                    self._finish_approval_locked(key, 'approval_denied', '用户拒绝，未执行')
-                    return {'status': 'denied'}
-                pending['status'] = 'approved'
+                    return {"status": "completed"}
+                if params.get("approve") is not True:
+                    self._finish_approval_locked(key, "approval_denied", "用户拒绝，未执行")
+                    return {"status": "denied"}
+                pending["status"] = "approved"
                 self._start_lifecycle_worker(self._approval_worker, key, pending)
-                return {'status': 'approved'}
-        if method in {'extension.pause', 'extension.unpause'}:
-            task_id = self._required_string(params, 'taskId')
-            changes = params.get('changes') if method == 'extension.unpause' else None
-            if changes is not None and (not isinstance(changes, dict)
-                    or set(changes) != {'urlChanged', 'documentReplaced', 'referencesInvalid', 'readPageFirst'}
-                    or any(type(value) is not bool for value in changes.values())
-                    or changes['referencesInvalid'] is not True or changes['readPageFirst'] is not True):
-                raise ProtocolError('invalid_params', 'invalid takeover changes')
+                return {"status": "approved"}
+        if method in {"extension.pause", "extension.unpause"}:
+            task_id = self._required_string(params, "taskId")
+            changes = params.get("changes") if method == "extension.unpause" else None
+            if changes is not None and (
+                not isinstance(changes, dict)
+                or set(changes)
+                != {"urlChanged", "documentReplaced", "referencesInvalid", "readPageFirst"}
+                or any(type(value) is not bool for value in changes.values())
+                or changes["referencesInvalid"] is not True
+                or changes["readPageFirst"] is not True
+            ):
+                raise ProtocolError("invalid_params", "invalid takeover changes")
             with self.state_lock:
                 task = self.tasks.get(task_id)
-                if task is None or task['instanceId'] != instance_id:
-                    raise ProtocolError('not_found', 'task not found for this browser instance')
+                if task is None or task["instanceId"] != instance_id:
+                    raise ProtocolError("not_found", "task not found for this browser instance")
                 lock = self.task_locks[task_id]
             # 中文注释：先在宿主冻结新派发；扩展等待在途动作收尾后才交出页面，暂停保留租约。
             with lock:
                 with self.state_lock:
                     # 中文注释：等待任务锁期间也可能完成重连，旧连接不能暂停或恢复新连接的任务。
-                    if _connection is not None and self.extensions.get(instance_id) is not _connection:
-                        raise ProtocolError('connection_replaced', 'browser connection was replaced')
-                    expected = {'ready', 'running', 'paused'} if method == 'extension.pause' else {'paused', 'ready'}
-                    if task['generation'] != params.get('generation') or task['state'] not in expected:
-                        raise ProtocolError('invalid_state', 'task state changed before takeover')
+                    if (
+                        _connection is not None
+                        and self.extensions.get(instance_id) is not _connection
+                    ):
+                        raise ProtocolError(
+                            "connection_replaced", "browser connection was replaced"
+                        )
+                    expected = (
+                        {"ready", "running", "paused"}
+                        if method == "extension.pause"
+                        else {"paused", "ready"}
+                    )
+                    if (
+                        task["generation"] != params.get("generation")
+                        or task["state"] not in expected
+                    ):
+                        raise ProtocolError("invalid_state", "task state changed before takeover")
                     # 中文注释：接管使此前排队/准备中的请求失效，继续不会复活旧请求。
-                    if method == 'extension.pause' and task['state'] != 'paused':
-                        task['controlEpoch'] = task.get('controlEpoch', 0) + 1
-                    task['state'] = 'paused' if method == 'extension.pause' else 'ready'
-                    if method == 'extension.pause':
-                        task.pop('resumeSummary', None)
+                    if method == "extension.pause" and task["state"] != "paused":
+                        task["controlEpoch"] = task.get("controlEpoch", 0) + 1
+                    task["state"] = "paused" if method == "extension.pause" else "ready"
+                    if method == "extension.pause":
+                        task.pop("resumeSummary", None)
                     else:
-                        task['resumeSummary'] = changes or {'urlChanged': True, 'documentReplaced': True,
-                                                            'referencesInvalid': True, 'readPageFirst': True}
-                    task['updatedAt'] = time.time()
+                        task["resumeSummary"] = changes or {
+                            "urlChanged": True,
+                            "documentReplaced": True,
+                            "referencesInvalid": True,
+                            "readPageFirst": True,
+                        }
+                    task["updatedAt"] = time.time()
                     self._persist_tasks()
                     result = self._public_task(task)
             self._notify_tasks_changed(instance_id)
             return result
-        if method == 'extension.mode':
+        if method == "extension.mode":
             with self.state_lock:
-                task = self.tasks.get(self._required_string(params, 'taskId'))
-                if task is None or task['instanceId'] != instance_id:
-                    raise ProtocolError('not_found', 'task not found for this browser instance')
-                if (params.get('mode') not in {'smart', 'full'} or task['state'] not in {'ready', 'running', 'authorizing', 'paused'}
-                        or type(params.get('generation')) is not int or params.get('generation') != task['generation']
-                        or type(params.get('modeGeneration')) is not int or params.get('modeGeneration') != task.get('modeGeneration', 1)):
-                    raise ProtocolError('mode_stale', '模式或任务范围已变化，请刷新')
-                if task['state'] in {'running', 'paused'} and params['mode'] == 'full':
-                    raise ProtocolError('invalid_state', '请等待当前操作结束后开启完整访问')
-                task['activeMode'] = params['mode']
-                task['readOrigins'] = []
+                task = self.tasks.get(self._required_string(params, "taskId"))
+                if task is None or task["instanceId"] != instance_id:
+                    raise ProtocolError("not_found", "task not found for this browser instance")
+                if (
+                    params.get("mode") not in {"smart", "full"}
+                    or task["state"] not in {"ready", "running", "authorizing", "paused"}
+                    or type(params.get("generation")) is not int
+                    or params.get("generation") != task["generation"]
+                    or type(params.get("modeGeneration")) is not int
+                    or params.get("modeGeneration") != task.get("modeGeneration", 1)
+                ):
+                    raise ProtocolError("mode_stale", "模式或任务范围已变化，请刷新")
+                if task["state"] in {"running", "paused"} and params["mode"] == "full":
+                    raise ProtocolError("invalid_state", "请等待当前操作结束后开启完整访问")
+                task["activeMode"] = params["mode"]
+                task["readOrigins"] = []
                 # 中文注释：浏览器访问变化时撤销旧网关连接，防止旧连接恢复。
-                task.pop('gatewayPermit', None)
-                task.pop('vaultPermit', None)
-                self.cdp_gateway.revoke(task['id'])
-                if task['state'] == 'authorizing':
-                    task['state'] = 'ready'
-                task['modeGeneration'] = task.get('modeGeneration', 1) + 1
+                task.pop("gatewayPermit", None)
+                task.pop("vaultPermit", None)
+                self.cdp_gateway.revoke(task["id"])
+                if task["state"] == "authorizing":
+                    task["state"] = "ready"
+                task["modeGeneration"] = task.get("modeGeneration", 1) + 1
                 for key in list(self.action_approvals):
-                    if key[0] == task['id']:
-                        self._finish_approval_locked(key, 'approval_revoked', '审批方式已改变，原确认已撤销')
+                    if key[0] == task["id"]:
+                        self._finish_approval_locked(
+                            key, "approval_revoked", "审批方式已改变，原确认已撤销"
+                        )
                 self._persist_tasks()
                 return self._public_task(task)
-        if method == 'extension.reload_status' and params == {}:
+        if method == "extension.reload_status" and params == {}:
             # 中文注释：复用退出门禁，未知操作、未清理任务和在途生命周期均不能触发自动重载。
             with self.state_lock:
-                blocked = [task for task in self.tasks.values()
-                           if task.get('instanceId') == instance_id and not self._task_safe_for_reload(task)]
-                busy = bool(self.lifecycle_operations or self.inflight_requests or self.preparing_requests
-                            or self.action_approvals or self.pending_journal)
-                return {'idle': not blocked and not busy, 'blockingCount': len(blocked),
-                        'lifecycleBusy': busy,
-                        'blockingTasks': [{key: row.get(key) for key in ('id', 'state', 'cleanupState')}
-                                          for row in blocked[:20]]}
+                blocked = [
+                    task
+                    for task in self.tasks.values()
+                    if task.get("instanceId") == instance_id
+                    and not self._task_safe_for_reload(task)
+                ]
+                busy = bool(
+                    self.lifecycle_operations
+                    or self.inflight_requests
+                    or self.preparing_requests
+                    or self.action_approvals
+                    or self.pending_journal
+                )
+                return {
+                    "idle": not blocked and not busy,
+                    "blockingCount": len(blocked),
+                    "lifecycleBusy": busy,
+                    "blockingTasks": [
+                        {key: row.get(key) for key in ("id", "state", "cleanupState")}
+                        for row in blocked[:20]
+                    ],
+                }
         # 中文注释：只有可信扩展可为浮层清理读取本实例已关闭任务；默认列表保持原有语义。
-        if method == "extension.tasks" and (params == {} or (set(params) == {"includeClosed"} and params["includeClosed"] is True)):
+        if method == "extension.tasks" and (
+            params == {} or (set(params) == {"includeClosed"} and params["includeClosed"] is True)
+        ):
             with self.state_lock:
                 if params.get("includeClosed") is True:
                     # 中文注释：重连清理只需任务身份、代次、状态和标签证据；历史详情会撑破单帧上限。
                     return [
-                        {key: task[key] for key in ("id", "instanceId", "generation", "state", "tabIds")}
-                        for task in self.tasks.values() if task["instanceId"] == instance_id
+                        {
+                            key: task[key]
+                            for key in ("id", "instanceId", "generation", "state", "tabIds")
+                        }
+                        for task in self.tasks.values()
+                        if task["instanceId"] == instance_id
                     ]
                 return [
                     self._public_task(task)
@@ -3257,16 +5126,28 @@ class BridgeDaemon:
                 ]
         if method == "extension.approve":
             # 中文注释：API 请求已归入两档模式，旧的单独审批字段不再接受。
-            if 'apiBridgeApproved' in params:
-                raise ProtocolError('invalid_params', 'separate API approval is not supported')
+            if "apiBridgeApproved" in params:
+                raise ProtocolError("invalid_params", "separate API approval is not supported")
             task_id = self._required_string(params, "taskId")
             origins = self._validate_origins(params.get("allowedOrigins"))
             tab_ids = params.get("tabIds")
-            workspace_only = params.get('workspaceOnly') is True
-            if not isinstance(tab_ids, list) or (not tab_ids and not workspace_only) or any(not isinstance(tab_id, int) or isinstance(tab_id, bool) or tab_id < 0 for tab_id in tab_ids):
-                raise ProtocolError("invalid_params", "tabIds must be a non-empty list of integers unless workspace-only")
+            workspace_only = params.get("workspaceOnly") is True
+            if (
+                not isinstance(tab_ids, list)
+                or (not tab_ids and not workspace_only)
+                or any(
+                    not isinstance(tab_id, int) or isinstance(tab_id, bool) or tab_id < 0
+                    for tab_id in tab_ids
+                )
+            ):
+                raise ProtocolError(
+                    "invalid_params",
+                    "tabIds must be a non-empty list of integers unless workspace-only",
+                )
             if workspace_only and tab_ids:
-                raise ProtocolError('invalid_params', 'workspace-only grants cannot claim existing tabs')
+                raise ProtocolError(
+                    "invalid_params", "workspace-only grants cannot claim existing tabs"
+                )
             tab_ids = list(dict.fromkeys(tab_ids))
             with self.state_lock:
                 task = self.tasks.get(task_id)
@@ -3274,14 +5155,21 @@ class BridgeDaemon:
                     raise ProtocolError("not_found", "task not found for this browser instance")
                 if task["state"] != "pending_approval":
                     raise ProtocolError("invalid_state", "task is not pending approval")
-                if workspace_only and (type(params.get('generation')) is not int or params['generation'] != task['generation']):
-                    raise ProtocolError('approval_stale', 'workspace approval generation changed')
+                if workspace_only and (
+                    type(params.get("generation")) is not int
+                    or params["generation"] != task["generation"]
+                ):
+                    raise ProtocolError("approval_stale", "workspace approval generation changed")
                 if origins != task["allowedOrigins"]:
-                    raise ProtocolError("origin_mismatch", "approval cannot widen or change requested origins")
+                    raise ProtocolError(
+                        "origin_mismatch", "approval cannot widen or change requested origins"
+                    )
                 for tab_id in tab_ids:
                     holder = self.tab_leases.get((instance_id, tab_id))
                     if holder is not None and holder != task_id:
-                        raise ProtocolError("lease_conflict", "tab is already controlled by another task")
+                        raise ProtocolError(
+                            "lease_conflict", "tab is already controlled by another task"
+                        )
                 for tab_id in tab_ids:
                     self.tab_leases[(instance_id, tab_id)] = task_id
                 task["tabIds"] = tab_ids
@@ -3296,8 +5184,11 @@ class BridgeDaemon:
                 task = self.tasks.get(task_id)
                 if task is None or task["instanceId"] != instance_id:
                     raise ProtocolError("not_found", "task not found for this browser instance")
-                if 'generation' in params and (type(params['generation']) is not int or params['generation'] != task['generation']):
-                    raise ProtocolError('approval_stale', 'task generation changed')
+                if "generation" in params and (
+                    type(params["generation"]) is not int
+                    or params["generation"] != task["generation"]
+                ):
+                    raise ProtocolError("approval_stale", "task generation changed")
                 if method == "extension.reject":
                     if task["state"] != "pending_approval":
                         raise ProtocolError("invalid_state", "only a pending task can be rejected")
@@ -3309,11 +5200,14 @@ class BridgeDaemon:
                 self._revoke_task_locked(task, final_state)
                 if final_state == "cancelled":
                     # 中文注释：停止回调与扩展共用读取循环，只采信随请求送来的本地清理回执。
-                    cleanup = params.get('cleanup')
-                    if isinstance(cleanup, dict) and cleanup.get('released') is True:
+                    cleanup = params.get("cleanup")
+                    if isinstance(cleanup, dict) and cleanup.get("released") is True:
                         metadata, _ = self._cleanup_response(cleanup)
                     else:
-                        metadata = {'cleanupState': 'unknown', 'cleanupReason': 'extension_unreported'}
+                        metadata = {
+                            "cleanupState": "unknown",
+                            "cleanupReason": "extension_unreported",
+                        }
                     task.update(metadata)
                     self.cleanup_proofs.pop(task_id, None)
                 self._persist_tasks()
@@ -3327,23 +5221,49 @@ class BridgeDaemon:
         raise ProtocolError("unknown_method", "unknown extension method")
 
     def _download_event(self, instance_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
-        allowed = {"taskId", "generation", "tabId", "event", "downloadRef", "url", "filename", "mimeType",
-                   "totalBytes", "bytesReceived", "fileSize", "path", "danger", "exists", "error"}
+        allowed = {
+            "taskId",
+            "generation",
+            "tabId",
+            "event",
+            "downloadRef",
+            "url",
+            "filename",
+            "mimeType",
+            "totalBytes",
+            "bytesReceived",
+            "fileSize",
+            "path",
+            "danger",
+            "exists",
+            "error",
+        }
         if set(params) - allowed or params.get("event") not in {
-                "attributed", "ambiguous", "progress", "complete", "interrupted", "cancelled",
-                "rejected_size", "rejected_limit"}:
+            "attributed",
+            "ambiguous",
+            "progress",
+            "complete",
+            "interrupted",
+            "cancelled",
+            "rejected_size",
+            "rejected_limit",
+        }:
             raise ProtocolError("invalid_params", "invalid download event")
         task_id = self._required_string(params, "taskId")
         with self.state_lock:
             task = self.tasks.get(task_id)
             if task is None or task["instanceId"] != instance_id:
                 raise ProtocolError("not_found", "task not found for this browser instance")
-            if type(params.get("generation")) is not int or params["generation"] != task["generation"]:
+            if (
+                type(params.get("generation")) is not int
+                or params["generation"] != task["generation"]
+            ):
                 raise ProtocolError("approval_stale", "download task generation changed")
             # 中文注释：新下载只归属仍在运行的任务及其租约标签页；已有下载的完成/中断事件在停止后仍可记录。
             if params["event"] in {"attributed", "ambiguous"} and (
-                    task["state"] not in {"ready", "running", "paused"}
-                    or self.tab_leases.get((instance_id, params.get("tabId"))) != task_id):
+                task["state"] not in {"ready", "running", "paused"}
+                or self.tab_leases.get((instance_id, params.get("tabId"))) != task_id
+            ):
                 raise ProtocolError("foreign_tab", "download tab is not leased to this task")
             try:
                 row = self.download_registry.event(task, params)
@@ -3351,12 +5271,20 @@ class BridgeDaemon:
                 raise ProtocolError(str(exc).lower(), "download event rejected") from None
             task["updatedAt"] = time.time()
             self._persist_tasks()
-            return {"accepted": True, **({"downloadId": row["id"], "state": row["state"]} if row else {})}
+            return {
+                "accepted": True,
+                **({"downloadId": row["id"], "state": row["state"]} if row else {}),
+            }
 
     def _cdp_events(self, instance_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
         events = params.get("events")
         dropped = params.get("dropped", 0)
-        if not isinstance(events, list) or len(events) > 500 or type(dropped) is not int or dropped < 0:
+        if (
+            not isinstance(events, list)
+            or len(events) > 500
+            or type(dropped) is not int
+            or dropped < 0
+        ):
             raise ProtocolError("invalid_params", "invalid CDP event batch")
         groups: Dict[tuple, list] = {}
         with self.state_lock:
@@ -3365,10 +5293,15 @@ class BridgeDaemon:
                     continue
                 task = self.tasks.get(event.get("taskId"))
                 # 中文注释：只路由本浏览器实例、仍有浏览器访问授权的活动任务事件。
-                if (task is None or task["instanceId"] != instance_id or event.get("generation") != task["generation"]
-                        or task.get("activeMode") not in {"smart", "full"} or task.get("state") not in {"ready", "running"}
-                        or event.get("tabId") in task.get("outOfScopeTabIds", [])
-                        or self.tab_leases.get((instance_id, event.get("tabId"))) != task["id"]):
+                if (
+                    task is None
+                    or task["instanceId"] != instance_id
+                    or event.get("generation") != task["generation"]
+                    or task.get("activeMode") not in {"smart", "full"}
+                    or task.get("state") not in {"ready", "running"}
+                    or event.get("tabId") in task.get("outOfScopeTabIds", [])
+                    or self.tab_leases.get((instance_id, event.get("tabId"))) != task["id"]
+                ):
                     continue
                 groups.setdefault((task["id"], task["generation"]), []).append(event)
         for (task_id, generation), batch in groups.items():
@@ -3383,46 +5316,71 @@ class BridgeDaemon:
         if workspace is not None and (not isinstance(workspace, str) or len(workspace) > 4096):
             raise ProtocolError("invalid_params", "invalid workspace")
         with self.state_lock:
-            if task['state'] == 'paused':
-                raise ProtocolError('task_paused', 'user has taken over the page', {'outcomeUnknown': False})
-            if task['state'] not in {'ready', 'running'}:
-                raise ProtocolError('invalid_state', 'task is not ready', {'outcomeUnknown': False})
-            smart = task.get('activeMode') == 'smart'
+            if task["state"] == "paused":
+                raise ProtocolError(
+                    "task_paused", "user has taken over the page", {"outcomeUnknown": False}
+                )
+            if task["state"] not in {"ready", "running"}:
+                raise ProtocolError("invalid_state", "task is not ready", {"outcomeUnknown": False})
+            smart = task.get("activeMode") == "smart"
             if smart:
-                permit = task.get('gatewayPermit')
-                request_id = params.get('requestId')
-                if (not isinstance(request_id, str) or not isinstance(params.get('codeDigest'), str)
-                        or permit is None or permit.get('requestIdHash') != _sha256(request_id)
-                        or permit.get('codeDigest') != params['codeDigest']
-                        or permit.get('modeGeneration') != task.get('modeGeneration', 1)
-                        or permit.get('expiresAt', 0) <= time.time()):
-                    raise ProtocolError('approval_required', 'browser_exec script needs approval', {'outcomeUnknown': False})
+                permit = task.get("gatewayPermit")
+                request_id = params.get("requestId")
+                if (
+                    not isinstance(request_id, str)
+                    or not isinstance(params.get("codeDigest"), str)
+                    or permit is None
+                    or permit.get("requestIdHash") != _sha256(request_id)
+                    or permit.get("codeDigest") != params["codeDigest"]
+                    or permit.get("modeGeneration") != task.get("modeGeneration", 1)
+                    or permit.get("expiresAt", 0) <= time.time()
+                ):
+                    raise ProtocolError(
+                        "approval_required",
+                        "browser_exec script needs approval",
+                        {"outcomeUnknown": False},
+                    )
                 # 中文注释：智能审批资格仅能换取一次网关会话，完成后客户端必须主动关闭。
-                task.pop('gatewayPermit', None)
+                task.pop("gatewayPermit", None)
             if task["instanceId"] not in self.extensions:
                 raise ProtocolError("instance_unavailable", "browser instance is not connected")
-            owner, generation, mode_generation = task["owner"], task["generation"], task.get("modeGeneration", 1)
+            owner, generation, mode_generation = (
+                task["owner"],
+                task["generation"],
+                task.get("modeGeneration", 1),
+            )
         try:
-            return self.cdp_gateway.open(owner=owner, task_id=task["id"], generation=generation,
-                                         mode_generation=mode_generation, workspace=workspace,
-                                         smart_authorized=smart)
+            return self.cdp_gateway.open(
+                owner=owner,
+                task_id=task["id"],
+                generation=generation,
+                mode_generation=mode_generation,
+                workspace=workspace,
+                smart_authorized=smart,
+            )
         except GatewayDenied as exc:
             raise ProtocolError("invalid_params", exc.message, {"outcomeUnknown": False}) from None
 
     def _gateway_validate(self, grant: Dict[str, Any]) -> Dict[str, Any]:
         with self.state_lock:
-            if grant.get('revoked') is True:
-                raise GatewayDenied('gateway connection was revoked')
+            if grant.get("revoked") is True:
+                raise GatewayDenied("gateway connection was revoked")
             task = self.tasks.get(grant["taskId"])
-            if (task is None or task["owner"] != grant["owner"] or task["generation"] != grant["generation"]
-                    or task["state"] not in {"ready", "running", "paused"}):
+            if (
+                task is None
+                or task["owner"] != grant["owner"]
+                or task["generation"] != grant["generation"]
+                or task["state"] not in {"ready", "running", "paused"}
+            ):
                 raise GatewayDenied("Hermes task is no longer active")
             if task["state"] == "paused":
                 raise GatewayDenied("the user has taken over this page; wait until they resume")
-            if (task.get('modeGeneration', 1) != grant['modeGeneration']
-                    or (task.get('activeMode') == 'smart' and not grant.get('smartAuthorized'))
-                    or task.get('activeMode') not in {'smart', 'full'}):
-                raise GatewayDenied('browser access was revoked or changed')
+            if (
+                task.get("modeGeneration", 1) != grant["modeGeneration"]
+                or (task.get("activeMode") == "smart" and not grant.get("smartAuthorized"))
+                or task.get("activeMode") not in {"smart", "full"}
+            ):
+                raise GatewayDenied("browser access was revoked or changed")
             if task["instanceId"] not in self.extensions:
                 raise GatewayDenied("browser instance is not connected")
             return task
@@ -3436,7 +5394,9 @@ class BridgeDaemon:
         with lock:
             return self._gateway_call_locked(grant, method, params)
 
-    def _gateway_call_locked(self, grant: Dict[str, Any], method: str, params: Dict[str, Any]) -> Any:
+    def _gateway_call_locked(
+        self, grant: Dict[str, Any], method: str, params: Dict[str, Any]
+    ) -> Any:
         task = self._gateway_validate(grant)
         with self.state_lock:
             extension = self.extensions.get(task["instanceId"])
@@ -3445,7 +5405,9 @@ class BridgeDaemon:
                 raise GatewayDenied("task page left its authorized origins")
             if method == "browser.cdp" and type(tab_id) is int:
                 if tab_id in task.get("credentialTabs", []):
-                    raise GatewayDenied("this page received a credential fill and cannot run raw CDP")
+                    raise GatewayDenied(
+                        "this page received a credential fill and cannot run raw CDP"
+                    )
                 touched = task.setdefault("scriptedTabs", [])
                 if tab_id not in touched:
                     touched.append(tab_id)
@@ -3460,33 +5422,64 @@ class BridgeDaemon:
                     raise GatewayDenied("invalid chunked result")
                 parts = []
                 for index in range(count):
-                    chunk = self._extension_call(extension, "browser.cdp_chunk", {
-                        "taskId": grant["taskId"], "generation": grant["generation"], "modeGeneration": grant["modeGeneration"], "id": meta.get("id"), "index": index},
-                        timeout=30.0)
-                    if not isinstance(chunk, dict) or chunk.get("index") != index or not isinstance(chunk.get("data"), str):
+                    chunk = self._extension_call(
+                        extension,
+                        "browser.cdp_chunk",
+                        {
+                            "taskId": grant["taskId"],
+                            "generation": grant["generation"],
+                            "modeGeneration": grant["modeGeneration"],
+                            "id": meta.get("id"),
+                            "index": index,
+                        },
+                        timeout=30.0,
+                    )
+                    if (
+                        not isinstance(chunk, dict)
+                        or chunk.get("index") != index
+                        or not isinstance(chunk.get("data"), str)
+                    ):
                         raise GatewayDenied("chunked result unavailable")
                     parts.append(chunk["data"])
                 result = json.loads("".join(parts))
             return result
         except ProtocolError as exc:
-            raise GatewayDenied(exc.message if exc.code in {"cdp_error", "cdp_method_denied", "browser_access_required",
-                                                             "frame_not_supported", "credential_mode_conflict",
-                                                             "target_not_owned", "permission_denied", "invalid_params"}
-                                else f"Hermes gateway: {exc.code}") from None
+            raise GatewayDenied(
+                exc.message
+                if exc.code
+                in {
+                    "cdp_error",
+                    "cdp_method_denied",
+                    "browser_access_required",
+                    "frame_not_supported",
+                    "credential_mode_conflict",
+                    "target_not_owned",
+                    "permission_denied",
+                    "invalid_params",
+                }
+                else f"Hermes gateway: {exc.code}"
+            ) from None
 
     def _gateway_create_tab(self, grant: Dict[str, Any], url: str) -> Dict[str, Any]:
         # 中文注释：排队建页和页面调用一样，在取得任务锁后重验连接撤销状态。
         with self.state_lock:
-            lock = self.task_locks.get(grant['taskId'])
+            lock = self.task_locks.get(grant["taskId"])
         if lock is None:
-            raise GatewayDenied('Hermes task is no longer active')
+            raise GatewayDenied("Hermes task is no longer active")
         with lock:
             self._gateway_validate(grant)
             action = "official.new_tab" if url == "about:blank" else "new_tab"
             try:
-                result = self._run_task({"owner": grant["owner"], "taskId": grant["taskId"],
-                                         "requestId": "cdp-gateway-" + uuid.uuid4().hex, "action": action, "url": url},
-                                        _gateway=True)
+                result = self._run_task(
+                    {
+                        "owner": grant["owner"],
+                        "taskId": grant["taskId"],
+                        "requestId": "cdp-gateway-" + uuid.uuid4().hex,
+                        "action": action,
+                        "url": url,
+                    },
+                    _gateway=True,
+                )
             except ProtocolError as exc:
                 raise GatewayDenied(f"Hermes gateway: {exc.code}") from None
             if not isinstance(result, dict) or type(result.get("tabId")) is not int:
@@ -3502,8 +5495,12 @@ class BridgeDaemon:
             with self.state_lock:
                 if self.download_registry.expire(task):
                     self._persist_tasks()
-                return {"downloads": [public_download(row) for row in self.download_registry.rows(task)],
-                        "unattributed": int(task.get("downloadsUnattributed", 0))}
+                return {
+                    "downloads": [
+                        public_download(row) for row in self.download_registry.rows(task)
+                    ],
+                    "unattributed": int(task.get("downloadsUnattributed", 0)),
+                }
         download_id = params.get("downloadId")
         if method == "shared.download_claim":
             with self.task_locks[task["id"]]:
@@ -3512,25 +5509,42 @@ class BridgeDaemon:
                         record, path = self.download_registry.claim(task, download_id)
                     except DownloadError as exc:
                         self._persist_tasks()
-                        raise ProtocolError(str(exc).lower(), "download cannot be claimed",
-                                            {"outcomeUnknown": False}) from None
+                        raise ProtocolError(
+                            str(exc).lower(),
+                            "download cannot be claimed",
+                            {"outcomeUnknown": False},
+                        ) from None
                     self._persist_tasks()
             # 中文注释：领取结果把本机路径交给同一可信会话处理该文件；诊断日志不记录路径。
             return {**record, "localPath": path}
         with self.state_lock:
-            row = self.download_registry.find(task, download_id=download_id) if isinstance(download_id, str) else None
+            row = (
+                self.download_registry.find(task, download_id=download_id)
+                if isinstance(download_id, str)
+                else None
+            )
             if row is None or row.get("generation") != task["generation"]:
-                raise ProtocolError("download_not_found", "download not found", {"outcomeUnknown": False})
+                raise ProtocolError(
+                    "download_not_found", "download not found", {"outcomeUnknown": False}
+                )
             if row.get("state") != "in_progress":
                 return public_download(row)
             extension = self.extensions.get(task["instanceId"])
             if extension is None:
                 raise ProtocolError("instance_unavailable", "browser instance is not connected")
             ref, generation = row["ref"], task["generation"]
-        result = self._extension_call(extension, "browser.download_cancel", {
-            "taskId": task["id"], "generation": generation, "downloadRef": ref}, timeout=10.0)
+        result = self._extension_call(
+            extension,
+            "browser.download_cancel",
+            {"taskId": task["id"], "generation": generation, "downloadRef": ref},
+            timeout=10.0,
+        )
         with self.state_lock:
-            if isinstance(result, dict) and result.get("cancelled") is True and row.get("state") == "in_progress":
+            if (
+                isinstance(result, dict)
+                and result.get("cancelled") is True
+                and row.get("state") == "in_progress"
+            ):
                 row.update(state="cancelled", completedAt=time.time())
                 self._persist_tasks()
             return public_download(row)
@@ -3538,45 +5552,71 @@ class BridgeDaemon:
     def _handle_popup_adopted(self, instance_id, params):
         """中文注释：仅已认证扩展可报告观察期白名单接管；模型通道不能签发此授权。"""
         with self.state_lock:
-            task = self.tasks.get(params.get('taskId'))
-            if (task is None or task['instanceId'] != instance_id
-                    or task['state'] not in {'ready', 'running'} or task.get('accessRevoked')
-                    or params.get('generation') != task['generation']
-                    or params.get('modeGeneration') != task.get('modeGeneration', 1)
-                    or task.get('activeMode') not in {'smart', 'full'}):
-                raise ProtocolError('approval_stale', 'automatic popup scope changed')
-            if len(task.get('requestHistory', [])) >= self.request_history_limit:
-                raise ProtocolError('request_history_full', 'automatic popup audit history is full')
-            scope = params.get('popupScope')
-            source = scope.get('source', {}) if isinstance(scope, dict) else {}
-            candidate = scope.get('candidate', {}) if isinstance(scope, dict) else {}
-            self._validate_popup_scope(scope, {'tabId': source.get('tabId'), 'candidateRef': candidate.get('candidateRef')}, task)
-            tab_id, source_id = candidate['tabId'], source['tabId']
-            if (self.tab_leases.get((instance_id, source_id)) != task['id']
-                    or (instance_id, tab_id) in self.tab_leases
-                    or tab_id in task.get('retiredPopupTabs', {}).get(str(task['generation']), [])):
-                raise ProtocolError('foreign_tab', 'automatic popup lease changed')
-            self.tab_leases[(instance_id, tab_id)] = task['id']
-            task['tabIds'].append(tab_id)
-            task.setdefault('adoptedPopupTabIds', []).append(tab_id)
-            task.setdefault('popupSources', {})[str(tab_id)] = source_id
-            if candidate['origin'] not in task['allowedOrigins']:
-                task['allowedOrigins'].append(candidate['origin'])
-            if candidate['origin'] not in task.setdefault('readOrigins', []):
-                task['readOrigins'].append(candidate['origin'])
-            request_hash = _sha256('auto-popup:' + candidate['candidateRef'])
-            entry = {'requestIdHash': request_hash, 'payloadHash': _sha256(json.dumps(scope, sort_keys=True)),
-                     'action': 'popup_adopt', 'generation': task['generation'],
-                     'modeGeneration': task['modeGeneration'], 'state': 'confirmed',
-                     'dispatched': True, 'automatic': True, 'popupTargetTabId': tab_id}
-            task.setdefault('requestHistory', []).append(entry)
+            task = self.tasks.get(params.get("taskId"))
+            if (
+                task is None
+                or task["instanceId"] != instance_id
+                or task["state"] not in {"ready", "running"}
+                or task.get("accessRevoked")
+                or params.get("generation") != task["generation"]
+                or params.get("modeGeneration") != task.get("modeGeneration", 1)
+                or task.get("activeMode") not in {"smart", "full"}
+            ):
+                raise ProtocolError("approval_stale", "automatic popup scope changed")
+            if len(task.get("requestHistory", [])) >= self.request_history_limit:
+                raise ProtocolError("request_history_full", "automatic popup audit history is full")
+            scope = params.get("popupScope")
+            source = scope.get("source", {}) if isinstance(scope, dict) else {}
+            candidate = scope.get("candidate", {}) if isinstance(scope, dict) else {}
+            self._validate_popup_scope(
+                scope,
+                {"tabId": source.get("tabId"), "candidateRef": candidate.get("candidateRef")},
+                task,
+            )
+            tab_id, source_id = candidate["tabId"], source["tabId"]
+            if (
+                self.tab_leases.get((instance_id, source_id)) != task["id"]
+                or (instance_id, tab_id) in self.tab_leases
+                or tab_id in task.get("retiredPopupTabs", {}).get(str(task["generation"]), [])
+            ):
+                raise ProtocolError("foreign_tab", "automatic popup lease changed")
+            self.tab_leases[(instance_id, tab_id)] = task["id"]
+            task["tabIds"].append(tab_id)
+            task.setdefault("adoptedPopupTabIds", []).append(tab_id)
+            task.setdefault("popupSources", {})[str(tab_id)] = source_id
+            if candidate["origin"] not in task["allowedOrigins"]:
+                task["allowedOrigins"].append(candidate["origin"])
+            if candidate["origin"] not in task.setdefault("readOrigins", []):
+                task["readOrigins"].append(candidate["origin"])
+            request_hash = _sha256("auto-popup:" + candidate["candidateRef"])
+            entry = {
+                "requestIdHash": request_hash,
+                "payloadHash": _sha256(json.dumps(scope, sort_keys=True)),
+                "action": "popup_adopt",
+                "generation": task["generation"],
+                "modeGeneration": task["modeGeneration"],
+                "state": "confirmed",
+                "dispatched": True,
+                "automatic": True,
+                "popupTargetTabId": tab_id,
+            }
+            task.setdefault("requestHistory", []).append(entry)
             now = time.time()
-            task.setdefault('operationTimeline', []).append({'action': 'popup_adopt', 'state': 'confirmed',
-                'startedAt': now, 'completedAt': now, 'durationMs': 0, 'tabId': tab_id, 'automatic': True})
-            task['operationTimeline'] = task['operationTimeline'][-32:]
+            task.setdefault("operationTimeline", []).append(
+                {
+                    "action": "popup_adopt",
+                    "state": "confirmed",
+                    "startedAt": now,
+                    "completedAt": now,
+                    "durationMs": 0,
+                    "tabId": tab_id,
+                    "automatic": True,
+                }
+            )
+            task["operationTimeline"] = task["operationTimeline"][-32:]
             self.pending_journal.append(self._ledger_record(task, entry))
             self._persist_tasks()
-            return {'adopted': True, 'tabId': tab_id}
+            return {"adopted": True, "tabId": tab_id}
 
     def _handle_tab_event(self, instance_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
         task_id = self._required_string(params, "taskId")
@@ -3587,23 +5627,41 @@ class BridgeDaemon:
             raise ProtocolError("invalid_params", "tabId must be a non-negative integer")
         if event not in {"closed", "navigated", "created"}:
             raise ProtocolError("invalid_params", "unknown tab event")
-        if event != "created" and (not isinstance(document_generation, int) or isinstance(document_generation, bool) or document_generation < 0):
-            raise ProtocolError("invalid_params", "documentGeneration must be a non-negative integer")
+        if event != "created" and (
+            not isinstance(document_generation, int)
+            or isinstance(document_generation, bool)
+            or document_generation < 0
+        ):
+            raise ProtocolError(
+                "invalid_params", "documentGeneration must be a non-negative integer"
+            )
         with self.state_lock:
             task = self.tasks.get(task_id)
             if task is None or task["instanceId"] != instance_id:
                 raise ProtocolError("not_found", "task not found for this browser instance")
             # 中文注释：关闭和导航通知与新建通知一样绑定代次，旧事件不得撤销恢复后的同一标签。
-            if type(params.get('generation')) is not int or params['generation'] != task['generation']:
-                raise ProtocolError('approval_stale', 'tab event task generation changed')
+            if (
+                type(params.get("generation")) is not int
+                or params["generation"] != task["generation"]
+            ):
+                raise ProtocolError("approval_stale", "tab event task generation changed")
             if event == "created":
                 opener = params.get("openerTabId")
-                if (type(params.get("generation")) is not int or params["generation"] != task["generation"]
-                        or task["state"] not in {"ready", "running", "paused"}):
+                if (
+                    type(params.get("generation")) is not int
+                    or params["generation"] != task["generation"]
+                    or task["state"] not in {"ready", "running", "paused"}
+                ):
                     raise ProtocolError("approval_stale", "popup task generation changed")
-                if (type(opener) is not int
-                        or (opener not in task.get("spawnedTabIds", []) and self.tab_leases.get((instance_id, opener)) != task_id)
-                        or tab_id in task["agentTabIds"] or (instance_id, tab_id) in self.tab_leases):
+                if (
+                    type(opener) is not int
+                    or (
+                        opener not in task.get("spawnedTabIds", [])
+                        and self.tab_leases.get((instance_id, opener)) != task_id
+                    )
+                    or tab_id in task["agentTabIds"]
+                    or (instance_id, tab_id) in self.tab_leases
+                ):
                     raise ProtocolError("foreign_tab", "popup opener is not owned by this task")
                 task.setdefault("spawnedTabIds", []).append(tab_id)
                 task["agentTabIds"].append(tab_id)
@@ -3613,13 +5671,22 @@ class BridgeDaemon:
                 return self._public_task(task)
             if self.tab_leases.get((instance_id, tab_id)) != task_id:
                 # 中文注释：接管回执前的关闭只接受本代次已派发且仍在途的精确 popup 目标。
-                pending_adopt = any(row.get('action') == 'popup_adopt'
-                    and row.get('generation') == task['generation'] and row.get('state') == 'dispatched'
-                    and row.get('popupTargetTabId') == tab_id
-                    and (task_id, row.get('requestIdHash')) in self.inflight_requests
-                    for row in task.get('requestHistory', []))
-                if event == 'closed' and (instance_id, tab_id) not in self.tab_leases and pending_adopt:
-                    retired = task.setdefault('retiredPopupTabs', {}).setdefault(str(task['generation']), [])
+                pending_adopt = any(
+                    row.get("action") == "popup_adopt"
+                    and row.get("generation") == task["generation"]
+                    and row.get("state") == "dispatched"
+                    and row.get("popupTargetTabId") == tab_id
+                    and (task_id, row.get("requestIdHash")) in self.inflight_requests
+                    for row in task.get("requestHistory", [])
+                )
+                if (
+                    event == "closed"
+                    and (instance_id, tab_id) not in self.tab_leases
+                    and pending_adopt
+                ):
+                    retired = task.setdefault("retiredPopupTabs", {}).setdefault(
+                        str(task["generation"]), []
+                    )
                     if tab_id not in retired:
                         retired.append(tab_id)
                     self._persist_tasks()
@@ -3627,12 +5694,26 @@ class BridgeDaemon:
                 # 中文注释：只接受当前代次在途建页请求的提前关闭通知；其他任务租约不受影响。
                 request_id = params.get("creationRequestId")
                 request_hash = _sha256(request_id) if isinstance(request_id, str) else None
-                pending_open = next((row for row in task.get("requestHistory", [])
-                    if row.get("requestIdHash") == request_hash and row.get("generation") == task["generation"]
-                    and row.get("state") == "dispatched" and row.get("action") in {"new_tab", "official.new_tab"}), None)
-                if (event == "closed" and (instance_id, tab_id) not in self.tab_leases and pending_open
-                        and (task_id, request_hash) in self.inflight_requests):
-                    retired = task.setdefault("retiredAgentTabs", {}).setdefault(str(task["generation"]), [])
+                pending_open = next(
+                    (
+                        row
+                        for row in task.get("requestHistory", [])
+                        if row.get("requestIdHash") == request_hash
+                        and row.get("generation") == task["generation"]
+                        and row.get("state") == "dispatched"
+                        and row.get("action") in {"new_tab", "official.new_tab"}
+                    ),
+                    None,
+                )
+                if (
+                    event == "closed"
+                    and (instance_id, tab_id) not in self.tab_leases
+                    and pending_open
+                    and (task_id, request_hash) in self.inflight_requests
+                ):
+                    retired = task.setdefault("retiredAgentTabs", {}).setdefault(
+                        str(task["generation"]), []
+                    )
                     if tab_id not in retired:
                         retired.append(tab_id)
                     self._persist_tasks()
@@ -3642,24 +5723,40 @@ class BridgeDaemon:
             if event == "closed":
                 # 中文注释：已知模型页的关闭事件也登记墓碑，晚到建页回执不能复活该页。
                 if tab_id in task["agentTabIds"]:
-                    retired = task.setdefault("retiredAgentTabs", {}).setdefault(str(task["generation"]), [])
+                    retired = task.setdefault("retiredAgentTabs", {}).setdefault(
+                        str(task["generation"]), []
+                    )
                     if tab_id not in retired:
                         retired.append(tab_id)
                 del self.tab_leases[(instance_id, tab_id)]
                 if tab_id in task.get("outOfScopeTabIds", []):
-                    task["outOfScopeTabIds"] = [value for value in task["outOfScopeTabIds"] if value != tab_id]
+                    task["outOfScopeTabIds"] = [
+                        value for value in task["outOfScopeTabIds"] if value != tab_id
+                    ]
                 task["tabIds"] = [value for value in task["tabIds"] if value != tab_id]
                 task["agentTabIds"] = [value for value in task["agentTabIds"] if value != tab_id]
-                source_id = task.get('popupSources', {}).pop(str(tab_id), None)
-                if type(source_id) is int and self.tab_leases.get((instance_id, source_id)) == task_id:
-                    task.setdefault('popupReturns', {})[str(tab_id)] = source_id
-                    task['popupClosed'] = {'returnedTo': source_id}
-                task['adoptedPopupTabIds'] = [value for value in task.get('adoptedPopupTabIds', []) if value != tab_id]
+                source_id = task.get("popupSources", {}).pop(str(tab_id), None)
+                if (
+                    type(source_id) is int
+                    and self.tab_leases.get((instance_id, source_id)) == task_id
+                ):
+                    task.setdefault("popupReturns", {})[str(tab_id)] = source_id
+                    task["popupClosed"] = {"returnedTo": source_id}
+                task["adoptedPopupTabIds"] = [
+                    value for value in task.get("adoptedPopupTabIds", []) if value != tab_id
+                ]
                 # 中文注释：建页回执尚未到达时，登记集合为空不代表工作区丢失。
-                opening = any(row.get("action") in {"new_tab", "official.new_tab"}
-                              and row.get("state") == "dispatched" and row.get("generation") == task["generation"]
-                              for row in task.get("requestHistory", []))
-                if not task["tabIds"] and not opening and task["state"] in {"ready", "running", "paused"}:
+                opening = any(
+                    row.get("action") in {"new_tab", "official.new_tab"}
+                    and row.get("state") == "dispatched"
+                    and row.get("generation") == task["generation"]
+                    for row in task.get("requestHistory", [])
+                )
+                if (
+                    not task["tabIds"]
+                    and not opening
+                    and task["state"] in {"ready", "running", "paused"}
+                ):
                     task["state"] = "needs_sync"
             elif params.get("outOfScope") is True and "url" not in params:
                 # 标签页离开授权网站：只标记该页，任务、租约与标签组保持不变；
@@ -3675,10 +5772,10 @@ class BridgeDaemon:
                     if not (url == "about:blank" and tab_id in task.get("officialBlankTabs", [])):
                         if isinstance(url, str):
                             # 中文注释：可信扩展的租约页通知可能早于建页回执，先登记精确 www 跳转。
-                            for site in task['allowedOrigins']:
-                                redirected = self._www_redirect_origin(site+'/', url)
-                                if redirected and redirected not in task['allowedOrigins']:
-                                    task['allowedOrigins'].append(redirected)
+                            for site in task["allowedOrigins"]:
+                                redirected = self._www_redirect_origin(site + "/", url)
+                                if redirected and redirected not in task["allowedOrigins"]:
+                                    task["allowedOrigins"].append(redirected)
                                     break
                         self._validate_action_url(url, task["allowedOrigins"])
                         # 中文注释：空白工作页一旦进入真实来源，就不再保留 about:blank 例外。
@@ -3689,7 +5786,9 @@ class BridgeDaemon:
                     self._persist_tasks()
                     raise
                 if tab_id in task.get("outOfScopeTabIds", []):
-                    task["outOfScopeTabIds"] = [value for value in task["outOfScopeTabIds"] if value != tab_id]
+                    task["outOfScopeTabIds"] = [
+                        value for value in task["outOfScopeTabIds"] if value != tab_id
+                    ]
             task["updatedAt"] = time.time()
             self._persist_tasks()
             return self._public_task(task)
@@ -3700,7 +5799,17 @@ class BridgeDaemon:
             request = _read_line(reader)
             params = request.get("params")
             if request.get("method") != "extension.hello" or not isinstance(params, dict):
-                conn.sendall(_encode_line({"id": request.get("id"), "error": {"code": "hello_required", "message": "extension.hello required"}}))
+                conn.sendall(
+                    _encode_line(
+                        {
+                            "id": request.get("id"),
+                            "error": {
+                                "code": "hello_required",
+                                "message": "extension.hello required",
+                            },
+                        }
+                    )
+                )
                 return
             instance_id = params.get("instanceId")
             browser = params.get("browser")
@@ -3709,8 +5818,23 @@ class BridgeDaemon:
             capabilities = raw_capabilities if isinstance(raw_capabilities, dict) else {}
             consent_status_supported = capabilities.get("consentStatus") is True
             access_request_supported = capabilities.get("accessRequest") is True
-            if not isinstance(instance_id, str) or not instance_id or browser not in {"chrome", "edge"} or not isinstance(version, str):
-                conn.sendall(_encode_line({"id": request.get("id"), "error": {"code": "invalid_params", "message": "invalid extension metadata"}}))
+            if (
+                not isinstance(instance_id, str)
+                or not instance_id
+                or browser not in {"chrome", "edge"}
+                or not isinstance(version, str)
+            ):
+                conn.sendall(
+                    _encode_line(
+                        {
+                            "id": request.get("id"),
+                            "error": {
+                                "code": "invalid_params",
+                                "message": "invalid extension metadata",
+                            },
+                        }
+                    )
+                )
                 return
             connection_generation = uuid.uuid4().hex
             with self.state_lock:
@@ -3718,7 +5842,12 @@ class BridgeDaemon:
                 if old is not None:
                     self.cookie_mirror.disconnected(instance_id)
                     for task in self.tasks.values():
-                        if task["instanceId"] != instance_id or task["state"] in {"cancelled", "closed", "failed", "needs_sync"}:
+                        if task["instanceId"] != instance_id or task["state"] in {
+                            "cancelled",
+                            "closed",
+                            "failed",
+                            "needs_sync",
+                        }:
                             continue
                         self._revoke_task_locked(task, "needs_sync")
                     self._persist_tasks()
@@ -3744,8 +5873,18 @@ class BridgeDaemon:
                     "accessRequestSupported": access_request_supported,
                     "statusProjection": capabilities.get("statusProjection") is True,
                     # 中文注释：只接收当前实现认识的能力标识，缺失时不推断支持。
-                    "features": [f for f in ('browser_core_v1', 'page_parse_v1', 'page_function_v1', 'network_evidence_v1', 'cookie_mirror_v1')
-                                 if isinstance(capabilities.get('features'), list) and f in capabilities['features']],
+                    "features": [
+                        f
+                        for f in (
+                            "browser_core_v1",
+                            "page_parse_v1",
+                            "page_function_v1",
+                            "network_evidence_v1",
+                            "cookie_mirror_v1",
+                        )
+                        if isinstance(capabilities.get("features"), list)
+                        and f in capabilities["features"]
+                    ],
                     "accessRequest": None,
                 }
                 # 中文注释：当前读循环只持有自己登记的连接，不能在锁外重新取到并发替换后的 socket。
@@ -3753,7 +5892,9 @@ class BridgeDaemon:
             self._diagnostic("connection_state", "connected")
             hello_result = {"connected": True}
             if access_request_supported:
-                hello_result.update(instanceId=instance_id, connectionGeneration=connection_generation)
+                hello_result.update(
+                    instanceId=instance_id, connectionGeneration=connection_generation
+                )
             self._send_extension(extension, {"id": request.get("id"), "result": hello_result})
             if self.copilot is not None:
                 self.copilot.bridge_connection(instance_id, True)
@@ -3766,26 +5907,50 @@ class BridgeDaemon:
                 request_id = request.get("id")
                 with extension["sendLock"]:
                     try:
-                        result = self._dispatch_connected_extension(extension, request.get("method"), request.get("params"))
+                        result = self._dispatch_connected_extension(
+                            extension, request.get("method"), request.get("params")
+                        )
                         # 中文注释：扩展入口的停止/撤权与客户端入口一样先落盘，再确认；崩溃不能复活已确认撤销的任务。
-                        if request.get('method') in {'extension.stop', 'extension.reject', 'extension.revoke_access', 'extension.popup_adopted'}:
+                        if request.get("method") in {
+                            "extension.stop",
+                            "extension.reject",
+                            "extension.revoke_access",
+                            "extension.popup_adopted",
+                        }:
                             self._flush_tasks()
                         response = {"id": request_id, "result": result}
                     except ProtocolError as exc:
-                        response = {"id": request_id, "error": {"code": exc.code, "message": exc.message}}
+                        response = {
+                            "id": request_id,
+                            "error": {"code": exc.code, "message": exc.message},
+                        }
                     except Exception as exc:
                         # 中文注释：单条扩展请求的意外异常只回错误并记诊断，不能关闭整条原生连接。
                         self._diagnostic("extension_request", "failed", error_code="internal_error")
-                        response = {"id": request_id, "error": {"code": "internal_error", "message": type(exc).__name__}}
+                        response = {
+                            "id": request_id,
+                            "error": {"code": "internal_error", "message": type(exc).__name__},
+                        }
                     self._send_extension(extension, response)
                 method = request.get("method")
                 if method in {"extension.tab_event", "extension.popup_adopted"} or (
-                    method in {"extension.approve", "extension.reject", "extension.stop", "extension.revoke_access"}
+                    method
+                    in {
+                        "extension.approve",
+                        "extension.reject",
+                        "extension.stop",
+                        "extension.revoke_access",
+                    }
                     and "result" in response
                 ):
                     self._notify_tasks_changed(instance_id)
                     if method in {"extension.stop", "extension.revoke_access"}:
-                        self._start_lifecycle_worker(self._ungroup_terminal_tasks, instance_id, extension, request.get("params", {}).get("taskId"))
+                        self._start_lifecycle_worker(
+                            self._ungroup_terminal_tasks,
+                            instance_id,
+                            extension,
+                            request.get("params", {}).get("taskId"),
+                        )
         finally:
             if instance_id is not None:
                 with self.state_lock:
@@ -3793,13 +5958,21 @@ class BridgeDaemon:
                     if current is not None and current.get("socket") is conn:
                         del self.extensions[instance_id]
                         for task in self.tasks.values():
-                            if task['instanceId']==instance_id:self.overlay_operations.pop(task['id'],None)
+                            if task["instanceId"] == instance_id:
+                                self.overlay_operations.pop(task["id"], None)
                         if self.copilot is not None:
                             self.copilot.bridge_connection(instance_id, False)
                         self.cookie_mirror.disconnected(instance_id)
-                        self._diagnostic("connection_state", "disconnected", error_code="DISCONNECTED")
+                        self._diagnostic(
+                            "connection_state", "disconnected", error_code="DISCONNECTED"
+                        )
                         for task in self.tasks.values():
-                            if task["instanceId"] != instance_id or task["state"] in {"cancelled", "closed", "failed", "needs_sync"}:
+                            if task["instanceId"] != instance_id or task["state"] in {
+                                "cancelled",
+                                "closed",
+                                "failed",
+                                "needs_sync",
+                            }:
                                 continue
                             self._revoke_task_locked(task, "needs_sync")
                         self._persist_tasks()
@@ -3869,7 +6042,11 @@ def _sha256(value: str) -> str:
 
 
 def _is_sha256(value: Any) -> bool:
-    return isinstance(value, str) and len(value) == 64 and all(character in "0123456789abcdef" for character in value)
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(character in "0123456789abcdef" for character in value)
+    )
 
 
 def _encode_line(value: Dict[str, Any]) -> bytes:
@@ -3881,19 +6058,34 @@ def _encode_line(value: Dict[str, Any]) -> bytes:
 
 def _extension_frames(value):
     """中文注释：扩展出站独立分帧，不改变客户端协议及浏览器动作的去重语义。"""
-    text = json.dumps(value, separators=(',', ':'), ensure_ascii=False)
-    size = len(text.encode('utf-8'))
+    text = json.dumps(value, separators=(",", ":"), ensure_ascii=False)
+    size = len(text.encode("utf-8"))
     if size <= 512 * 1024:
         yield value
         return
     if size > 16 * 1024 * 1024:
         # 中文注释：超出重组预算只拒绝本次交付，不能关闭端口或截成可误执行的浏览器指令。
-        yield {'id': value.get('id'), 'error': {'code': 'result_too_large', 'message': 'Bridge message exceeds reassembly budget'}}
+        yield {
+            "id": value.get("id"),
+            "error": {
+                "code": "result_too_large",
+                "message": "Bridge message exceeds reassembly budget",
+            },
+        }
         return
     identity = uuid.uuid4().hex
-    chunks = [text[start:start + 48000] for start in range(0, len(text), 48000)]
+    chunks = [text[start : start + 48000] for start in range(0, len(text), 48000)]
     for index, chunk in enumerate(chunks):
-        yield {'method': 'bridge.chunk', 'params': {'id': identity, 'index': index, 'total': len(chunks), 'bytes': size, 'text': chunk}}
+        yield {
+            "method": "bridge.chunk",
+            "params": {
+                "id": identity,
+                "index": index,
+                "total": len(chunks),
+                "bytes": size,
+                "text": chunk,
+            },
+        }
 
 
 def _read_line(reader) -> Dict[str, Any]:

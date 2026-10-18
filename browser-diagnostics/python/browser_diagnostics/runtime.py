@@ -9,8 +9,7 @@ T = TypeVar("T")
 
 
 class EventSink(Protocol):
-    def write(self, event: Mapping[str, Any]) -> None:
-        ...
+    def write(self, event: Mapping[str, Any]) -> None: ...
 
 
 def _emit_safely(sink: EventSink, fields: Mapping[str, Any]) -> bool:
@@ -76,5 +75,7 @@ def observe_action(
         )
         raise
     elapsed = max(0.0, (time.monotonic() - started) * 1000.0)
-    _emit_safely(sink, _action_fields(context, status="succeeded", duration_ms=elapsed, error_code=None))
+    _emit_safely(
+        sink, _action_fields(context, status="succeeded", duration_ms=elapsed, error_code=None)
+    )
     return result

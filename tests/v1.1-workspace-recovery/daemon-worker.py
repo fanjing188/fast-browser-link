@@ -4,6 +4,7 @@ This process never starts a daemon socket or browser. A Node test supplies the
 production extension Executor over JSONL when the daemon dispatches an extension
 call; all browser APIs are in-memory fixtures.
 """
+
 from __future__ import annotations
 
 import json
@@ -81,7 +82,9 @@ def dispatch(message: dict) -> dict:
         if message.get("type") == "client":
             result = bridge._dispatch_client(message.get("method"), message.get("params"))
         elif message.get("type") == "extension":
-            result = bridge._dispatch_extension(instance_id, message.get("method"), message.get("params"))
+            result = bridge._dispatch_extension(
+                instance_id, message.get("method"), message.get("params")
+            )
         else:
             raise ValueError("unknown synthetic command")
         return {"type": "result", "id": message.get("id"), "result": result}

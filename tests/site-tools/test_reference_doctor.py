@@ -1,4 +1,5 @@
 """中文注释：真实套接字诊断、无副作用检查、能力裁剪与文档漂移。"""
+
 import importlib.util
 import json
 import os
@@ -11,82 +12,148 @@ import unittest
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / 'native-bridge'))
+sys.path.insert(0, str(ROOT / "native-bridge"))
 from tests.support import temporary_bridge_home
+
 
 def load(path):
     spec = importlib.util.spec_from_file_location(path.stem, path)
-    module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
     return module
-reference = load(ROOT / 'executor-plugin/reference.py')
-doctor = load(ROOT / 'native-bridge/doctor.py')
+
+
+reference = load(ROOT / "executor-plugin/reference.py")
+doctor = load(ROOT / "native-bridge/doctor.py")
+
 
 class ReferenceTests(unittest.TestCase):
     def test_generated_document_matches_actual_helper_exports(self):
-        self.assertEqual((ROOT / 'docs/browser-api-reference.md').read_text(), reference.render())
-        names = {h['name'] for h in reference.helper_catalog()}
-        self.assertTrue({'network_start', 'network_detail', 'page_request'} <= names)
-        self.assertNotIn('_call', names)
+        self.assertEqual((ROOT / "docs/browser-api-reference.md").read_text(), reference.render())
+        names = {h["name"] for h in reference.helper_catalog()}
+        self.assertTrue({"network_start", "network_detail", "page_request"} <= names)
+        self.assertNotIn("_call", names)
+
     def test_disconnected_or_old_extension_never_advertises_new_helpers(self):
-        self.assertEqual(reference.project([], 'missing')['helpers'], [])
-        old = reference.project([{'instanceId': 'a', 'connected': True, 'features': ['browser_core_v1']}], 'a')
-        self.assertNotIn('network_start', [h['name'] for h in old['helpers']])
-        new = reference.project([{'instanceId': 'a', 'connected': True, 'features': ['network_evidence_v1']}], 'a')
-        self.assertIn('network_start', [h['name'] for h in new['helpers']])
+        self.assertEqual(reference.project([], "missing")["helpers"], [])
+        old = reference.project(
+            [{"instanceId": "a", "connected": True, "features": ["browser_core_v1"]}], "a"
+        )
+        self.assertNotIn("network_start", [h["name"] for h in old["helpers"]])
+        new = reference.project(
+            [{"instanceId": "a", "connected": True, "features": ["network_evidence_v1"]}], "a"
+        )
+        self.assertIn("network_start", [h["name"] for h in new["helpers"]])
+
 
 class DoctorTests(unittest.TestCase):
     def test_short_bridge_fixture_honors_tmpdir_permissions_and_cleanup(self):
         with temporary_bridge_home() as home:
             self.assertEqual(home.parent, Path(tempfile.gettempdir()).resolve())
             self.assertEqual(home.stat().st_mode & 0o777, 0o700)
-            self.assertLessEqual(len(os.fsencode(home / 'plugin-data/fast-browser-link-native/bridge.sock')), 103)
+            self.assertLessEqual(
+                len(os.fsencode(home / "plugin-data/fast-browser-link-native/bridge.sock")), 103
+            )
         self.assertFalse(home.exists())
 
     def test_single_probe_timeout_is_unconfirmed_with_next_action(self):
         # 中文注释：守护进程可能忙于其他请求；一次连接超时不构成进程退出证据。
         with tempfile.TemporaryDirectory() as d:
-            data = Path(d) / 'plugin-data/fast-browser-link-native'; data.mkdir(parents=True)
-            (data / 'token').write_text('synthetic'); (data / 'token').chmod(0o600)
-            with patch.object(doctor.socket, 'socket', side_effect=socket.timeout()):
-                self.assertEqual(doctor.probe(Path(d))['code'], 'host_unconfirmed')
-            result = doctor.diagnose(Path(d), Path(d), lambda _: {'ok': False, 'code': 'host_unconfirmed'})
-            self.assertEqual(next(row for row in result['checks'] if row['component'] == 'host')['code'], 'host_unconfirmed')
-            self.assertTrue(any('fast_browser_health' in line for line in result['advice']))
+            data = Path(d) / "plugin-data/fast-browser-link-native"
+            data.mkdir(parents=True)
+            (data / "token").write_text("synthetic")
+            (data / "token").chmod(0o600)
+            with patch.object(doctor.socket, "socket", side_effect=socket.timeout()):
+                self.assertEqual(doctor.probe(Path(d))["code"], "host_unconfirmed")
+            result = doctor.diagnose(
+                Path(d), Path(d), lambda _: {"ok": False, "code": "host_unconfirmed"}
+            )
+            self.assertEqual(
+                next(row for row in result["checks"] if row["component"] == "host")["code"],
+                "host_unconfirmed",
+            )
+            self.assertTrue(any("fast_browser_health" in line for line in result["advice"]))
+
     def test_missing_install_does_not_create_or_start_anything(self):
         with tempfile.TemporaryDirectory() as d:
-            result = doctor.diagnose(Path(d) / 'hermes', Path(d) / 'user')
-            self.assertFalse(result['ok']); self.assertTrue(result['read_only'])
+            result = doctor.diagnose(Path(d) / "hermes", Path(d) / "user")
+            self.assertFalse(result["ok"])
+            self.assertTrue(result["read_only"])
             self.assertEqual(list(Path(d).iterdir()), [])
+
     def test_manifest_checks_launcher_and_separates_access_from_connection(self):
         with tempfile.TemporaryDirectory() as d:
-            home = Path(d) / 'h'; user = Path(d) / 'u'
-            plugin = home / 'plugins/fast-browser-link/plugin.yaml'; plugin.parent.mkdir(parents=True); plugin.write_text('name: fast-browser-link')
-            launcher = Path(d) / 'host'; launcher.write_text('# fixture'); launcher.chmod(0o700)
-            manifest = user / 'Library/Application Support/Google/Chrome/NativeMessagingHosts' / (doctor.HOST + '.json')
+            home = Path(d) / "h"
+            user = Path(d) / "u"
+            plugin = home / "plugins/fast-browser-link/plugin.yaml"
+            plugin.parent.mkdir(parents=True)
+            plugin.write_text("name: fast-browser-link")
+            launcher = Path(d) / "host"
+            launcher.write_text("# fixture")
+            launcher.chmod(0o700)
+            manifest = (
+                user
+                / "Library/Application Support/Google/Chrome/NativeMessagingHosts"
+                / (doctor.HOST + ".json")
+            )
             manifest.parent.mkdir(parents=True)
-            manifest.write_text(json.dumps({'name': doctor.HOST, 'type': 'stdio', 'path': str(launcher), 'allowed_origins': ['chrome-extension://' + 'a' * 32 + '/']}))
-            result = doctor.diagnose(home, user, lambda _: {'ok': True, 'browsers': [{'connected': True, 'consentStatus': 'disabled'}]})
-            self.assertTrue(result['ok']); self.assertTrue(any('浏览器访问' in s for s in result['advice']))
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "name": doctor.HOST,
+                        "type": "stdio",
+                        "path": str(launcher),
+                        "allowed_origins": ["chrome-extension://" + "a" * 32 + "/"],
+                    }
+                )
+            )
+            result = doctor.diagnose(
+                home,
+                user,
+                lambda _: {
+                    "ok": True,
+                    "browsers": [{"connected": True, "consentStatus": "disabled"}],
+                },
+            )
+            self.assertTrue(result["ok"])
+            self.assertTrue(any("浏览器访问" in s for s in result["advice"]))
             launcher.chmod(0o600)
-            self.assertFalse(doctor.diagnose(home, user, lambda _: {'ok': True, 'browsers': [{'connected': True}]})['ok'])
+            self.assertFalse(
+                doctor.diagnose(
+                    home, user, lambda _: {"ok": True, "browsers": [{"connected": True}]}
+                )["ok"]
+            )
+
     def test_authenticated_probe_uses_existing_socket_only(self):
         # 中文注释：保留真实 HOME；测试数据和套接字全部位于短临时目录。
         with temporary_bridge_home() as d:
-            data = Path(d) / 'plugin-data/fast-browser-link-native'; data.mkdir(parents=True)
-            (data / 'token').write_text('synthetic'); (data / 'token').chmod(0o600)
-            server = socket.socket(socket.AF_UNIX); server.bind(str(data / 'bridge.sock')); server.listen()
+            data = Path(d) / "plugin-data/fast-browser-link-native"
+            data.mkdir(parents=True)
+            (data / "token").write_text("synthetic")
+            (data / "token").chmod(0o600)
+            server = socket.socket(socket.AF_UNIX)
+            server.bind(str(data / "bridge.sock"))
+            server.listen()
             seen = []
+
             def serve():
-                with server.accept()[0] as conn, conn.makefile('rb') as reader:
+                with server.accept()[0] as conn, conn.makefile("rb") as reader:
                     seen.append(json.loads(reader.readline()))
-                    for result in ({'ok': True, 'protocolVersion': 1}, [{'connected': True}]):
-                        request = json.loads(reader.readline()); seen.append(request['method'])
-                        conn.sendall((json.dumps({'id': request['id'], 'result': result}) + '\n').encode())
-            worker = threading.Thread(target=serve); worker.start()
+                    for result in ({"ok": True, "protocolVersion": 1}, [{"connected": True}]):
+                        request = json.loads(reader.readline())
+                        seen.append(request["method"])
+                        conn.sendall(
+                            (json.dumps({"id": request["id"], "result": result}) + "\n").encode()
+                        )
+
+            worker = threading.Thread(target=serve)
+            worker.start()
             try:
-                result = doctor.probe(Path(d)); worker.join(2)
-                self.assertTrue(result['ok']); self.assertEqual(seen[1:], ['health', 'browser.list'])
-                self.assertNotIn('synthetic', json.dumps(result))
+                result = doctor.probe(Path(d))
+                worker.join(2)
+                self.assertTrue(result["ok"])
+                self.assertEqual(seen[1:], ["health", "browser.list"])
+                self.assertNotIn("synthetic", json.dumps(result))
             finally:
                 server.close()
 
@@ -94,93 +161,155 @@ class DoctorTests(unittest.TestCase):
 class SharedRuntimeTests(unittest.TestCase):
     def test_registered_diagnostics_follow_rpc_runtime_instead_of_adapter_home(self):
         from types import SimpleNamespace
-        rows = [{'instanceId': 'edge', 'connected': True, 'features': ['browser_core_v1']}]
+
+        rows = [{"instanceId": "edge", "connected": True, "features": ["browser_core_v1"]}]
         with tempfile.TemporaryDirectory() as d:
-            home = Path(d).resolve() / 'hermes'; connected = Path(d).resolve() / 'standalone'
+            home = Path(d).resolve() / "hermes"
+            connected = Path(d).resolve() / "standalone"
             authority = SimpleNamespace(lease_tools=lambda _: None, consume=lambda *a, **k: None)
             runtime = SimpleNamespace(bridge_home=connected, authority=authority)
             observed = []
+
             def probe(target):
                 observed.append(Path(target))
-                return {'ok': Path(target) == connected, 'browsers': rows if Path(target) == connected else []}
-            diagnostic = SimpleNamespace(probe=probe, runtime_paths=lambda target: {'bridgeHome': str(target),
-                'socket': str(target / 'plugin-data/fast-browser-link-native/bridge.sock'),
-                'tokenFile': str(target / 'plugin-data/fast-browser-link-native/token'),
-                'pidFile': str(target / 'plugin-data/fast-browser-link-native/daemon.pid')},
-                diagnose=lambda target, **kw: doctor.diagnose(target, user_home=home, probe_fn=probe, **kw))
-            handlers = {}; ctx = SimpleNamespace(register_tool=lambda **kw: handlers.update({kw['name']: kw['handler']}))
+                return {
+                    "ok": Path(target) == connected,
+                    "browsers": rows if Path(target) == connected else [],
+                }
+
+            diagnostic = SimpleNamespace(
+                probe=probe,
+                runtime_paths=lambda target: {
+                    "bridgeHome": str(target),
+                    "socket": str(target / "plugin-data/fast-browser-link-native/bridge.sock"),
+                    "tokenFile": str(target / "plugin-data/fast-browser-link-native/token"),
+                    "pidFile": str(target / "plugin-data/fast-browser-link-native/daemon.pid"),
+                },
+                diagnose=lambda target, **kw: doctor.diagnose(
+                    target, user_home=home, probe_fn=probe, **kw
+                ),
+            )
+            handlers = {}
+            ctx = SimpleNamespace(
+                register_tool=lambda **kw: handlers.update({kw["name"]: kw["handler"]})
+            )
             reference.register(ctx, runtime, home, lease_error=ValueError)
-            with patch.object(reference, 'load', return_value=diagnostic):
-                first = json.loads(handlers['fast_browser_doctor']({}))
-                second = json.loads(handlers['fast_browser_reference']({'instance_id': 'edge'}))
+            with patch.object(reference, "load", return_value=diagnostic):
+                first = json.loads(handlers["fast_browser_doctor"]({}))
+                second = json.loads(handlers["fast_browser_reference"]({"instance_id": "edge"}))
             self.assertEqual(observed, [connected, connected])
-            self.assertTrue(second['connected'])
-            self.assertEqual(first['runtime'], second['runtime'])
-            self.assertEqual(first['runtime']['bridgeHome'], str(connected))
+            self.assertTrue(second["connected"])
+            self.assertEqual(first["runtime"], second["runtime"])
+            self.assertEqual(first["runtime"]["bridgeHome"], str(connected))
 
     def test_dual_root_rpc_doctor_and_reference_use_same_existing_socket(self):
         import socketserver
         from types import SimpleNamespace
-        native = load(ROOT / 'executor-plugin/native_runtime.py')
-        client = load(ROOT / 'native-bridge/client.py')
-        rows = [{'instanceId': 'synthetic-edge', 'browser': 'edge', 'connected': True,
-                 'consentStatus': 'enabled', 'features': ['browser_core_v1']}]
+
+        native = load(ROOT / "executor-plugin/native_runtime.py")
+        client = load(ROOT / "native-bridge/client.py")
+        rows = [
+            {
+                "instanceId": "synthetic-edge",
+                "browser": "edge",
+                "connected": True,
+                "consentStatus": "enabled",
+                "features": ["browser_core_v1"],
+            }
+        ]
         seen = []
+
         class Handler(socketserver.StreamRequestHandler):
             def handle(self):
                 hello = json.loads(self.rfile.readline())
-                if hello != {'role': 'client', 'token': 'synthetic'}:
+                if hello != {"role": "client", "token": "synthetic"}:
                     return
                 for line in self.rfile:
-                    request = json.loads(line); seen.append(request['method'])
-                    result = rows if request['method'] == 'browser.list' else {'ok': True, 'protocolVersion': 1}
-                    self.wfile.write((json.dumps({'id': request['id'], 'result': result}) + '\n').encode())
+                    request = json.loads(line)
+                    seen.append(request["method"])
+                    result = (
+                        rows
+                        if request["method"] == "browser.list"
+                        else {"ok": True, "protocolVersion": 1}
+                    )
+                    self.wfile.write(
+                        (json.dumps({"id": request["id"], "result": result}) + "\n").encode()
+                    )
+
         with temporary_bridge_home() as base:
-            hermes = base / 'h'; standalone = base / 's'
-            data = standalone / 'plugin-data/fast-browser-link-native'; data.mkdir(parents=True)
-            (data / 'token').write_text('synthetic'); (data / 'token').chmod(0o600)
-            with socketserver.ThreadingUnixStreamServer(str(data / 'bridge.sock'), Handler) as server:
-                worker = threading.Thread(target=server.serve_forever); worker.start()
+            hermes = base / "h"
+            standalone = base / "s"
+            data = standalone / "plugin-data/fast-browser-link-native"
+            data.mkdir(parents=True)
+            (data / "token").write_text("synthetic")
+            (data / "token").chmod(0o600)
+            with socketserver.ThreadingUnixStreamServer(
+                str(data / "bridge.sock"), Handler
+            ) as server:
+                worker = threading.Thread(target=server.serve_forever)
+                worker.start()
                 rpc = None
                 try:
-                    with patch.dict(os.environ, {'FAST_BROWSER_BRIDGE_HOME': str(standalone)}):
-                        runtime = native.NativeProfileRuntime(hermes, ROOT / 'executor-plugin')
-                        rpc = client.BridgeClient(runtime.bridge_home); rpc.autostart = False
+                    with patch.dict(os.environ, {"FAST_BROWSER_BRIDGE_HOME": str(standalone)}):
+                        runtime = native.NativeProfileRuntime(hermes, ROOT / "executor-plugin")
+                        rpc = client.BridgeClient(runtime.bridge_home)
+                        rpc.autostart = False
                         runtime._client = rpc
-                        self.assertTrue(runtime.call('health', {})['ok'])
-                        self.assertEqual(runtime.call('browser.list', {}), rows)
+                        self.assertTrue(runtime.call("health", {})["ok"])
+                        self.assertEqual(runtime.call("browser.list", {}), rows)
                         # 中文注释：注册入口仍消费可信身份；这里仅替换身份签发，不替换实际 UDS 探针。
-                        runtime.authority = SimpleNamespace(lease_tools=lambda _: None, consume=lambda *a, **k: None)
+                        runtime.authority = SimpleNamespace(
+                            lease_tools=lambda _: None, consume=lambda *a, **k: None
+                        )
                         handlers = {}
-                        ctx = SimpleNamespace(register_tool=lambda **kw: handlers.update({kw['name']: kw['handler']}))
+                        ctx = SimpleNamespace(
+                            register_tool=lambda **kw: handlers.update({kw["name"]: kw["handler"]})
+                        )
                         reference.register(ctx, runtime, hermes, lease_error=ValueError)
-                        diagnosis = json.loads(handlers['fast_browser_doctor']({}))
-                        online = json.loads(handlers['fast_browser_reference']({'instance_id': 'synthetic-edge'}))
-                        self.assertTrue(next(r for r in diagnosis['checks'] if r['component'] == 'host')['ok'])
-                        self.assertTrue(next(r for r in diagnosis['checks'] if r['component'] == 'extension')['ok'])
-                        self.assertTrue(online['connected'])
-                        self.assertEqual(diagnosis['runtime'], online['runtime'])
-                        self.assertEqual(diagnosis['runtime']['socket'], str(data / 'bridge.sock'))
+                        diagnosis = json.loads(handlers["fast_browser_doctor"]({}))
+                        online = json.loads(
+                            handlers["fast_browser_reference"]({"instance_id": "synthetic-edge"})
+                        )
+                        self.assertTrue(
+                            next(r for r in diagnosis["checks"] if r["component"] == "host")["ok"]
+                        )
+                        self.assertTrue(
+                            next(r for r in diagnosis["checks"] if r["component"] == "extension")[
+                                "ok"
+                            ]
+                        )
+                        self.assertTrue(online["connected"])
+                        self.assertEqual(diagnosis["runtime"], online["runtime"])
+                        self.assertEqual(diagnosis["runtime"]["socket"], str(data / "bridge.sock"))
                         direct = doctor.diagnose(hermes, base)
-                        self.assertEqual(direct['runtime'], diagnosis['runtime'])
-                        self.assertFalse((hermes / 'plugin-data/fast-browser-link-native/bridge.sock').exists())
-                        self.assertNotIn('synthetic', json.dumps(diagnosis['runtime']))
+                        self.assertEqual(direct["runtime"], diagnosis["runtime"])
+                        self.assertFalse(
+                            (hermes / "plugin-data/fast-browser-link-native/bridge.sock").exists()
+                        )
+                        self.assertNotIn("synthetic", json.dumps(diagnosis["runtime"]))
                         rpc.close()
-                    self.assertEqual(seen.count('health'), 4)
-                    self.assertEqual(seen.count('browser.list'), 4)
+                    self.assertEqual(seen.count("health"), 4)
+                    self.assertEqual(seen.count("browser.list"), 4)
                 finally:
                     if rpc is not None:
                         rpc.close()
-                    server.shutdown(); worker.join(2)
+                    server.shutdown()
+                    worker.join(2)
 
     def test_root_resolution_is_explicit_or_profile_scoped_without_online_guessing(self):
-        client = load(ROOT / 'native-bridge/client.py')
-        with tempfile.TemporaryDirectory() as d, patch.dict(os.environ, {'FAST_BROWSER_BRIDGE_HOME': ''}):
+        client = load(ROOT / "native-bridge/client.py")
+        with (
+            tempfile.TemporaryDirectory() as d,
+            patch.dict(os.environ, {"FAST_BROWSER_BRIDGE_HOME": ""}),
+        ):
             base = Path(d).resolve()
-            self.assertEqual(client.resolve_bridge_home(base / 'hermes/profiles/work'), base / 'hermes')
-            self.assertEqual(client.resolve_bridge_home(base / 'standalone'), base / 'standalone')
-            with patch.dict(os.environ, {'FAST_BROWSER_BRIDGE_HOME': str(base / 'standalone')}):
-                self.assertEqual(client.resolve_bridge_home(base / 'hermes'), base / 'standalone')
+            self.assertEqual(
+                client.resolve_bridge_home(base / "hermes/profiles/work"), base / "hermes"
+            )
+            self.assertEqual(client.resolve_bridge_home(base / "standalone"), base / "standalone")
+            with patch.dict(os.environ, {"FAST_BROWSER_BRIDGE_HOME": str(base / "standalone")}):
+                self.assertEqual(client.resolve_bridge_home(base / "hermes"), base / "standalone")
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     unittest.main()

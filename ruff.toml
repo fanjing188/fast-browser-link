@@ -1,0 +1,19 @@
+required-version = "==0.14.0"
+line-length = 100
+extend-exclude = [
+    # 第三方源码和集成检出保留上游格式。
+    "third-party",
+    ".ci",
+    # 依赖和虚拟环境不属于本仓库源码。
+    "node_modules",
+    ".venv",
+    # 构建、打包、验收和临时输出由工具生成。
+    "dist", "dist-native", "artifacts", "release", "out", "evidence", "runs", "logs",
+    "tmp", ".tmp",
+    # 本地代理目录不属于公开源码。
+    ".claude", ".codex",
+    # 内部任务单、报告及其辅助脚本不参加公开格式门禁。
+    "docs/growth",
+    # 该既有夹具含非 ASCII bytes 字面量，解析失败；本轮不修改其行为或内容。
+    "tests/fixtures/package_fixtures.py",
+]

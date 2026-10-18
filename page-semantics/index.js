@@ -7,8 +7,8 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
   maxScan=Math.min(maxScan,100000); maxItems=Math.min(maxItems,1000); maxText=Math.min(maxText,2000);
   const binding=Object.freeze({taskId,documentId,leaseId});
   const instance=Array.from(globalThis.crypto.getRandomValues(new Uint32Array(4)),n=>n.toString(16)).join('-');
-  const docIds=new WeakMap([[doc,documentId]]);let childDocumentSequence=0;
-  const identityFor=other=>{if(!docIds.has(other))docIds.set(other,`${instance}:document:${++childDocumentSequence}`);return docIds.get(other);};
+  const docIds=new WeakMap([[doc,documentId]]);let docSequence=0;
+  const identityFor=other=>{if(!docIds.has(other))docIds.set(other,`${instance}:document:${++docSequence}`);return docIds.get(other);};
   const refs=new WeakMap(); let sequence=0n,generation=0n,currentId;
   let active=new Map(), baseline=null, cursorState=null, epoch=0, revoked=false, frameDocs=new Map();
   const snapshots=new Map();
@@ -17,7 +17,7 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
   // 中文注释：样式和上下文缓存只活在一次同步解析内，下一次读或动作必定重新计算。
   let styles=new WeakMap(),contexts=new WeakMap(),surfaces=new WeakMap();
   const computed=node=>{if(!styles.has(node))styles.set(node,node.ownerDocument.defaultView.getComputedStyle(node));return styles.get(node);};
-  const documentRoot=doc.documentElement;
+  const docRoot=doc.documentElement;
   const isOverlay=node=>{
     for(let n=node;n;n=n.parentNode || n.host){if(n.nodeType===1 && n.hasAttribute?.('data-fast-automation-overlay'))return true;}
     return false;
@@ -34,7 +34,7 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
   function sync(){
     styles=new WeakMap();contexts=new WeakMap();surfaces=new WeakMap();
     changed(observer.takeRecords());
-    if(revoked)throw new Error('LEASE_REVOKED');if(Date.now()>=expiresAt)throw new Error('LEASE_EXPIRED');if(doc.documentElement!==documentRoot)throw new Error('DOCUMENT_REPLACED');
+    if(revoked)throw new Error('LEASE_REVOKED');if(Date.now()>=expiresAt)throw new Error('LEASE_EXPIRED');if(doc.documentElement!==docRoot)throw new Error('DOCUMENT_REPLACED');
     for(const [frame,state] of frameDocs){
       let current;try{current=frame.contentDocument;}catch{current=null;}
       if(!frame.isConnected || current!==state.document || current?.documentElement!==state.root)epoch++;
@@ -44,11 +44,12 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
   function stats(){return {activeRefs:active.size,baselineItems:baseline?.items.length||0,cursors:cursorState?1:0,maxItems,maxScan,maxText};}
   // 中文注释：复用合法 HTML 编辑属性形式，空值和纯文本模式与 true 使用相同解析链路。
   const editable='[contenteditable="true" i],[contenteditable=""],[contenteditable="plaintext-only" i]';
+  const controls=`button,a[href],input,select,textarea,summary,${editable},[tabindex]`;
   const checkRoles=new Set(['checkbox','radio','switch','menuitemcheckbox','menuitemradio']);
-  const interactiveRoles=new Set([...checkRoles,...'button link textbox searchbox combobox listbox option menuitem slider spinbutton tab treeitem'.split(' ')]);
+  const actionRoles=new Set([...checkRoles,...'button link textbox searchbox combobox listbox option menuitem slider spinbutton tab treeitem'.split(' ')]);
   // 中文注释：按 WAI-ARIA 1.2 采用首个有效非抽象角色，未知 token 不覆盖原生语义。
-  const ariaRoles=new Set([...interactiveRoles,...'alert alertdialog application article banner blockquote caption cell code columnheader complementary contentinfo definition deletion dialog directory document emphasis feed figure form generic grid gridcell group heading img insertion list listitem log main marquee math menu menubar meter navigation none note paragraph presentation progressbar radiogroup region row rowgroup rowheader scrollbar search separator status strong subscript suggestion superscript table tablist tabpanel term time timer toolbar tooltip tree treegrid'.split(' ')]);
-  const selectors={interactive:`button,a[href],input,select,textarea,summary,${editable},[role],[tabindex],div,span`,content:'h1,h2,h3,h4,h5,h6,p,li,blockquote,pre,figcaption,[role=heading]',table:'tr,[role=row],[data-ui-name="Body.Row"]'};
+  const ariaRoles=new Set([...actionRoles,...'alert alertdialog application article banner blockquote caption cell code columnheader complementary contentinfo definition deletion dialog directory document emphasis feed figure form generic grid gridcell group heading img insertion list listitem log main marquee math menu menubar meter navigation none note paragraph presentation progressbar radiogroup region row rowgroup rowheader scrollbar search separator status strong subscript suggestion superscript table tablist tabpanel term time timer toolbar tooltip tree treegrid'.split(' ')]);
+  const selectors={interactive:`${controls},[role],div,span`,content:'h1,h2,h3,h4,h5,h6,p,li,blockquote,pre,figcaption,[role=heading]',table:'tr,[role=row],[data-ui-name="Body.Row"]'};
   function ref(node){if(!refs.has(node))refs.set(node,`${instance}:e${++sequence}`);return refs.get(node);}
   const redact=createPageTextRedactor();
   let truncated=false;
@@ -69,7 +70,7 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
       if(++scanned>maxScan){truncated=true;break;}
       if(node.nodeType===3){yield node;continue;}
       // 中文注释：推断点击行的名称不汇总独立子控件，悬停工具按钮出现时仍指向同一业务目标。
-      if(skipControls&&node!==root&&node.nodeType===1&&(node.matches(`button,a[href],input,select,textarea,summary,${editable},[tabindex]`)||interactiveRoles.has(role(node))))continue;
+      if(skipControls&&node!==root&&node.nodeType===1&&(node.matches(controls)||actionRoles.has(role(node))))continue;
       if(node.nodeType===1&&node.matches('script,style,noscript,input,textarea,select,[hidden],[aria-hidden="true"],[inert]'))continue;
       const assigned=node.localName==='slot'?node.assignedNodes({flatten:true}):[];
       const children=assigned.length?assigned:node.childNodes;
@@ -321,8 +322,8 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
     }
     return {visible:true,inViewport:iv,occluded:oc,target:el};
   }
-  // 中文注释：只剪掉后代无法重新显现的隐藏分支；visibility、透明度和屏外位置仍逐节点判断。
-  const excludedBranch=node=>isOverlay(node)||node.matches('[hidden],[aria-hidden="true"],[inert]')||computed(node).display==='none';
+  // 中文注释：隐藏勾选控件仍需检查外部 label 代理；其余无布局分支直接剪枝。
+  const excludedBranch=node=>isOverlay(node)||node.matches('[hidden],[aria-hidden="true"],[inert]')||computed(node).display==='none'&&!node.matches('input[type=checkbox],input[type=radio]');
   function* lightElements(scope,coverage){
     const accept=node=>{if(!excludedBranch(node))return 1;coverage.prunedSubtrees=(coverage.prunedSubtrees||0)+1;return 2;};
     if(accept(scope)===2)return;
@@ -508,7 +509,7 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
       output.coverage.scanned++;
       if(node.localName==='canvas'&&visible(node,false))output.coverage.unsupportedCanvas++;
       if(!node.matches(selectors[mode]))continue;
-      if(mode==='interactive' && !node.matches(`button,a[href],input,select,textarea,summary,${editable},[tabindex]`) && !interactiveRoles.has(role(node)))continue;
+      if(mode==='interactive' && !node.matches(controls) && !actionRoles.has(role(node)))continue;
       const visibility=mode==='interactive'?interactionVisibility(node):null;
       if(visibility?visibility.visible===false||!visible(visibility.target,viewport)||node.matches('input[type="hidden"]'):!visible(node,viewport)){output.coverage.filtered++;continue;}
       const value=mode==='interactive'?item(node,scope):fullItem(node,mode);
@@ -572,34 +573,34 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
   function resolve(token){
     sync();
     if(!token || Object.keys(binding).some(k=>token[k]!==binding[k]))throw new Error('BINDING_MISMATCH');
-    const savedSnapshot=snapshots.get(token.snapshotId),record=savedSnapshot?.records.get(token.ref);
+    const snap=snapshots.get(token.snapshotId),record=snap?.records.get(token.ref);
     if(!record)throw new Error('STALE_REF');
-    const shown=n=>visible(n,false)||savedSnapshot.mode==='interactive'&&interactionVisibility(n).visible;
+    const shown=n=>visible(n,false)||snap.mode==='interactive'&&interactionVisibility(n).visible;
     let node=record.node;lastRelocated=record.relocated===true;
     const root=record.scope[0],owner=root.ownerDocument||root,currentScope=targetScope(root);
     if(owner.documentElement!==record.scope[1])throw new Error('DOCUMENT_REPLACED');
     if(currentScope.length!==record.scope.length||currentScope.some((part,i)=>part!==record.scope[i])||node.isConnected&&node.getRootNode()!==root)throw new Error('STALE_REF');
     // 中文注释：重定位不能越过调用者选定的根；根被替换时旧引用失效。
-    const within=node=>{for(let n=node;n;n=n.parentElement||n.getRootNode().host||n.ownerDocument.defaultView?.frameElement)if(n===savedSnapshot.root)return true;return false;};
-    if(!savedSnapshot.root.isConnected)throw new Error('STALE_REF');
+    const within=node=>{for(let n=node;n;n=n.parentElement||n.getRootNode().host||n.ownerDocument.defaultView?.frameElement)if(n===snap.root)return true;return false;};
+    if(!snap.root.isConnected)throw new Error('STALE_REF');
     const {blocked:_blocked,actionable:_actionable,...saved}=record.value;
     let current;
     if(node.isConnected && saved?.fragment){
       const value=fullItem(node),part=fragments(value)?.[saved.fragment.part];
       current=part?fragmentItem(value,part,saved.fragment.part):null;
-    } else if(node.isConnected)current=savedSnapshot.mode==='interactive'?item(node,savedSnapshot.root):fullItem(node);
+    } else if(node.isConnected)current=snap.mode==='interactive'?item(node,snap.root):fullItem(node);
     // 中文注释：同一真实控件沿用结构身份，周边进度文本不作废引用；AX 和正文片段仍严格比较。
     const identity=value=>JSON.stringify({...value,context:value.context?.map(({name:_name,...entry})=>entry)});
-    if(node.isConnected&&within(node)&&shown(node)&&(JSON.stringify(current)===JSON.stringify(saved)||savedSnapshot.mode==='interactive'&&saved.nameSource!=='accessibility'&&stableKey(node,current)===record.key&&identity(current)===identity(saved)))return node;
+    if(node.isConnected&&within(node)&&shown(node)&&(JSON.stringify(current)===JSON.stringify(saved)||snap.mode==='interactive'&&saved.nameSource!=='accessibility'&&stableKey(node,current)===record.key&&identity(current)===identity(saved)))return node;
     // 中文注释：只遍历原作用域的普通子树，不进入其他 frame 或 Shadow 树。
-    const matches=[],candidates=[],scope=root===doc?savedSnapshot.root:root.host?root:owner.body;
+    const matches=[],candidates=[],scope=root===doc?snap.root:root.host?root:owner.body;
     const walker=owner.createTreeWalker(scope,1);
     let scanned=0;
     for(let candidate=scope;candidate;candidate=walker.nextNode()){
       if(++scanned>maxScan)throw new Error('STALE_REF');
       if(matches.length>5)break;
-      if(!within(candidate)||!candidate.matches?.(selectors[savedSnapshot.mode])||!shown(candidate))continue;
-      const description=savedSnapshot.mode==='interactive'?item(candidate,savedSnapshot.root):fullItem(candidate);
+      if(!within(candidate)||!candidate.matches?.(selectors[snap.mode])||!shown(candidate))continue;
+      const description=snap.mode==='interactive'?item(candidate,snap.root):fullItem(candidate);
       if(description.role===saved.role&&candidates.length<5)candidates.push({role:description.role,name:description.name.slice(0,80)});
       if(stableKey(candidate,description)===record.key)matches.push(candidate);
     }

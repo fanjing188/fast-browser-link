@@ -19,7 +19,7 @@ sys.path.insert(0, str(BRIDGE_DIR))
 
 from client import BridgeError, ensure_service  # noqa: E402
 
-WORKER_SOURCE = '''from concurrent.futures import ThreadPoolExecutor
+WORKER_SOURCE = """from concurrent.futures import ThreadPoolExecutor
 import os
 from pathlib import Path
 import sys
@@ -54,9 +54,9 @@ def run(index):
 
 with ThreadPoolExecutor(max_workers=4) as pool:
     list(pool.map(run, range(4)))
-'''
+"""
 
-WRAPPER_SOURCE = '''import os
+WRAPPER_SOURCE = """import os
 from pathlib import Path
 import sys
 import time
@@ -75,7 +75,7 @@ while not release.exists():
     time.sleep(0.005)
 real_daemon = os.environ["REAL_DAEMON"]
 os.execv(sys.executable, [sys.executable, real_daemon, *sys.argv[1:]])
-'''
+"""
 
 
 class StartupGateRegressionTests(unittest.TestCase):
@@ -142,7 +142,9 @@ class StartupGateRegressionTests(unittest.TestCase):
 
     @classmethod
     def _live_pids(cls, pids: list[int]) -> list[int]:
-        return sorted(pid for pid, state in cls._process_states(pids).items() if not state.startswith("Z"))
+        return sorted(
+            pid for pid, state in cls._process_states(pids).items() if not state.startswith("Z")
+        )
 
     @classmethod
     def _stop_exact_pids(cls, pids: list[int]) -> None:
@@ -199,12 +201,20 @@ class StartupGateRegressionTests(unittest.TestCase):
                 details = []
                 for process in exited:
                     stdout, stderr = process.communicate()
-                    details.append({"returncode": process.returncode, "stdout": stdout, "stderr": stderr})
+                    details.append(
+                        {"returncode": process.returncode, "stdout": stdout, "stderr": stderr}
+                    )
                 self.fail(f"startup worker exited before the barrier: {details}")
             time.sleep(0.01)
-        self.assertEqual(len(self._read_lines(self.ready_file)), 8, "all eight startup callers did not reach the barrier")
+        self.assertEqual(
+            len(self._read_lines(self.ready_file)),
+            8,
+            "all eight startup callers did not reach the barrier",
+        )
         self.start_file.touch()
-        self._wait_for(lambda: len(self._read_int_lines(self.spawn_log)) >= 1, "no daemon spawn was attempted")
+        self._wait_for(
+            lambda: len(self._read_int_lines(self.spawn_log)) >= 1, "no daemon spawn was attempted"
+        )
         time.sleep(1.0)
         spawn_pids = self._read_int_lines(self.spawn_log)
         self.spawn_pids = spawn_pids
@@ -213,7 +223,9 @@ class StartupGateRegressionTests(unittest.TestCase):
         worker_results = []
         for process in self.workers:
             stdout, stderr = process.communicate(timeout=15)
-            worker_results.append({"returncode": process.returncode, "stdout": stdout, "stderr": stderr})
+            worker_results.append(
+                {"returncode": process.returncode, "stdout": stdout, "stderr": stderr}
+            )
         self.assertTrue(all(item["returncode"] == 0 for item in worker_results), worker_results)
 
         data_dir = self.home / "plugin-data" / "fast-browser-link-native"

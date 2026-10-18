@@ -26,17 +26,21 @@ _STARTUP_LOCKS: dict[Path, threading.Lock] = {}
 def resolve_bridge_home(home):
     """中文注释：RPC 与只读诊断共用显式桥接根/profile 解析；不按在线状态猜测其他安装。"""
     home = Path(home).expanduser().resolve()
-    override = os.environ.get('FAST_BROWSER_BRIDGE_HOME', '').strip()
+    override = os.environ.get("FAST_BROWSER_BRIDGE_HOME", "").strip()
     if override:
         return Path(override).expanduser().resolve()
-    return home.parent.parent if home.parent.name == 'profiles' else home
+    return home.parent.parent if home.parent.name == "profiles" else home
 
 
 def runtime_paths(home):
     home = Path(home).expanduser().resolve()
     data = _data_dir(home)
-    return {'bridgeHome': str(home), 'socket': str(data / 'bridge.sock'),
-            'tokenFile': str(data / 'token'), 'pidFile': str(data / 'daemon.pid')}
+    return {
+        "bridgeHome": str(home),
+        "socket": str(data / "bridge.sock"),
+        "tokenFile": str(data / "token"),
+        "pidFile": str(data / "daemon.pid"),
+    }
 
 
 def _data_dir(home: os.PathLike[str] | str) -> Path:
@@ -50,12 +54,16 @@ def _read_token(home: os.PathLike[str] | str) -> str:
         fd = os.open(path, os.O_RDONLY | no_follow)
     except OSError as exc:
         if exc.errno == errno.ELOOP:
-            raise BridgeError("insecure_token", "native bridge token must not be a symlink") from exc
+            raise BridgeError(
+                "insecure_token", "native bridge token must not be a symlink"
+            ) from exc
         raise
     try:
         info = os.fstat(fd)
         if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid():
-            raise BridgeError("insecure_token", "native bridge token is not a same-owner regular file")
+            raise BridgeError(
+                "insecure_token", "native bridge token is not a same-owner regular file"
+            )
         if stat.S_IMODE(info.st_mode) != 0o600:
             raise BridgeError("insecure_token", "native bridge token permissions must be 0600")
         with os.fdopen(fd, "r", encoding="ascii") as handle:
@@ -74,116 +82,276 @@ def safe_summary(value):
     if not isinstance(value, dict):
         return {}
     import re
+
     result = {}
-    for key in ('count', 'success', 'failed', 'matched', 'missing', 'cleared', 'clearFailed'):
+    for key in ("count", "success", "failed", "matched", "missing", "cleared", "clearFailed"):
         if type(value.get(key)) is int and 0 <= value[key] <= 1000000:
             result[key] = value[key]
-    if isinstance(value.get('reason'), str) and value['reason'] in {'transfer_failed', 'expired', 'disconnected'}:
-        result['reason'] = value['reason']
-    if isinstance(value.get('reasons'), dict):
-        result['reasons'] = {key: n for key, n in value['reasons'].items()
-                             if key in {'expired', 'prefix_constraint', 'partition_write_failed', 'write_failed'} and type(n) is int and 0 <= n <= 1000000}
-    if isinstance(value.get('sites'), list):
-        result['sites'] = [{'site': row['site'], **safe_summary({key: item for key, item in row.items() if key != 'sites'})}
-                           for row in value['sites'][:4096] if isinstance(row, dict) and isinstance(row.get('site'), str) and re.fullmatch(r'(?:[a-z0-9-]+\.)*[a-z0-9-]+|\[[0-9a-f:]{2,45}\]', row['site']) and len(row['site']) <= 253]
+    if isinstance(value.get("reason"), str) and value["reason"] in {
+        "transfer_failed",
+        "expired",
+        "disconnected",
+    }:
+        result["reason"] = value["reason"]
+    if isinstance(value.get("reasons"), dict):
+        result["reasons"] = {
+            key: n
+            for key, n in value["reasons"].items()
+            if key in {"expired", "prefix_constraint", "partition_write_failed", "write_failed"}
+            and type(n) is int
+            and 0 <= n <= 1000000
+        }
+    if isinstance(value.get("sites"), list):
+        result["sites"] = [
+            {
+                "site": row["site"],
+                **safe_summary({key: item for key, item in row.items() if key != "sites"}),
+            }
+            for row in value["sites"][:4096]
+            if isinstance(row, dict)
+            and isinstance(row.get("site"), str)
+            and re.fullmatch(r"(?:[a-z0-9-]+\.)*[a-z0-9-]+|\[[0-9a-f:]{2,45}\]", row["site"])
+            and len(row["site"]) <= 253
+        ]
     return result
 
 
 class BridgeError(RuntimeError):
     def __init__(self, code: str, message: str, data: Any = None):
         # 中文注释：Cookie 异常文本也固定，防止浏览器异常被调用方记录到日志。
-        if code == 'cookie_mirror_denied':
-            message = 'Cookie 镜像请求不可用，请在扩展中核实。'
+        if code == "cookie_mirror_denied":
+            message = "Cookie 镜像请求不可用，请在扩展中核实。"
         super().__init__(message)
         self.code = code
         self.message = message
-        self.data = {key: data[key] for key in ("outcomeUnknown", "retryable")
-                     if isinstance(data, dict) and type(data.get(key)) is bool}
-        if code == 'invalid_params' and isinstance(data, dict) and isinstance(data.get('fields'), list):
-            self.data['fields'] = sorted(field for field in data['fields'] if isinstance(field, str) and field in {'sections', 'maxScan', 'schema'})
+        self.data = {
+            key: data[key]
+            for key in ("outcomeUnknown", "retryable")
+            if isinstance(data, dict) and type(data.get(key)) is bool
+        }
+        if (
+            code == "invalid_params"
+            and isinstance(data, dict)
+            and isinstance(data.get("fields"), list)
+        ):
+            self.data["fields"] = sorted(
+                field
+                for field in data["fields"]
+                if isinstance(field, str) and field in {"sections", "maxScan", "schema"}
+            )
         # 中文注释：保护仍拒绝输出，仅转发扩展已确认的点击事实，不接受页面字段或异常原文。
-        if (isinstance(data, dict) and data.get('actionConfirmed') is True and code in {
-                'content_shield_stale', 'content_shield_changed', 'content_shield_unavailable',
-                'content_shield_uninspectable', 'content_shield_unsupported', 'content_shield_invalid_rules',
-                'content_shield_unsupported_viewport', 'content_shield_blocker_overlap', 'content_shield_render_unsupported'}):
-            self.data['actionConfirmed'] = True
+        if (
+            isinstance(data, dict)
+            and data.get("actionConfirmed") is True
+            and code
+            in {
+                "content_shield_stale",
+                "content_shield_changed",
+                "content_shield_unavailable",
+                "content_shield_uninspectable",
+                "content_shield_unsupported",
+                "content_shield_invalid_rules",
+                "content_shield_unsupported_viewport",
+                "content_shield_blocker_overlap",
+                "content_shield_render_unsupported",
+            }
+        ):
+            self.data["actionConfirmed"] = True
         # 中文注释：点击错误只保留固定效果和提示，脚本与工具共用该边界。
-        if isinstance(data, dict) and code == 'click_no_effect':
-            self.data['effect'] = 'unobserved'
-            if data.get('suggestion') == '输入已派发但未观察到效果；请读取目标页核对，检查按钮状态或改用页面支持的操作，不要反复重试。':
-                self.data['suggestion'] = data['suggestion']
-        if code == 'cookie_mirror_denied':
+        if isinstance(data, dict) and code == "click_no_effect":
+            self.data["effect"] = "unobserved"
+            if (
+                data.get("suggestion")
+                == "输入已派发但未观察到效果；请读取目标页核对，检查按钮状态或改用页面支持的操作，不要反复重试。"
+            ):
+                self.data["suggestion"] = data["suggestion"]
+        if code == "cookie_mirror_denied":
             # 中文注释：镜像错误与页面错误分开处理，不放行候选、遮挡或任意诊断文本。
             self.data.update(safe_summary(data))
             return
-        if isinstance(data, dict) and isinstance(data.get('recovery'), dict):
-            recovery = data['recovery']
+        if isinstance(data, dict) and isinstance(data.get("recovery"), dict):
+            recovery = data["recovery"]
             if len(json.dumps(recovery)) <= 32768:
-                self.data['recovery'] = {key: recovery[key] for key in (
-                    'triggered', 'rounds', 'locator', 'clickMethod', 'strategies', 'selected',
-                    'otherCandidates', 'candidates', 'observation', 'screenshotPath', 'screenshotError') if key in recovery}
+                self.data["recovery"] = {
+                    key: recovery[key]
+                    for key in (
+                        "triggered",
+                        "rounds",
+                        "locator",
+                        "clickMethod",
+                        "strategies",
+                        "selected",
+                        "otherCandidates",
+                        "candidates",
+                        "observation",
+                        "screenshotPath",
+                        "screenshotError",
+                    )
+                    if key in recovery
+                }
         # 中文注释：仅转发固定形状的脱敏候选和遮挡摘要；不转发网页异常原文。
-        if isinstance(data, dict) and code in {'reference_target_missing', 'reference_target_ambiguous'}:
-            rows = data.get('candidates')
+        if isinstance(data, dict) and code in {
+            "reference_target_missing",
+            "reference_target_ambiguous",
+        }:
+            rows = data.get("candidates")
             if isinstance(rows, list):
-                self.data['candidates'] = [{'role': row['role'][:40], 'name': row['name'][:80]}
-                                           for row in rows[:5] if isinstance(row, dict)
-                                           and isinstance(row.get('role'), str) and isinstance(row.get('name'), str)]
-        if isinstance(data, dict) and code == 'target_occluded':
-            obstruction = data.get('obstruction')
-            if isinstance(obstruction, dict) and isinstance(obstruction.get('role'), str) and isinstance(obstruction.get('name'), str):
-                self.data['obstruction'] = {'role': obstruction['role'][:40], 'name': obstruction['name'][:80]}
-                button = obstruction.get('closeButton')
-                binding = button.get('binding') if isinstance(button, dict) else None
-                if isinstance(binding, dict) and all(isinstance(binding.get(key), str) for key in ('taskId', 'documentId', 'leaseId')) and all(isinstance(button.get(key), str) for key in ('snapshotId', 'ref', 'name')):
-                    self.data['obstruction']['closeButton'] = {'binding': {key: binding[key] for key in ('taskId', 'documentId', 'leaseId')}, 'snapshotId': button['snapshotId'], 'ref': button['ref'], 'role': 'button', 'name': button['name'][:80]}
+                self.data["candidates"] = [
+                    {"role": row["role"][:40], "name": row["name"][:80]}
+                    for row in rows[:5]
+                    if isinstance(row, dict)
+                    and isinstance(row.get("role"), str)
+                    and isinstance(row.get("name"), str)
+                ]
+        if isinstance(data, dict) and code == "target_occluded":
+            obstruction = data.get("obstruction")
+            if (
+                isinstance(obstruction, dict)
+                and isinstance(obstruction.get("role"), str)
+                and isinstance(obstruction.get("name"), str)
+            ):
+                self.data["obstruction"] = {
+                    "role": obstruction["role"][:40],
+                    "name": obstruction["name"][:80],
+                }
+                button = obstruction.get("closeButton")
+                binding = button.get("binding") if isinstance(button, dict) else None
+                if (
+                    isinstance(binding, dict)
+                    and all(
+                        isinstance(binding.get(key), str)
+                        for key in ("taskId", "documentId", "leaseId")
+                    )
+                    and all(
+                        isinstance(button.get(key), str) for key in ("snapshotId", "ref", "name")
+                    )
+                ):
+                    self.data["obstruction"]["closeButton"] = {
+                        "binding": {
+                            key: binding[key] for key in ("taskId", "documentId", "leaseId")
+                        },
+                        "snapshotId": button["snapshotId"],
+                        "ref": button["ref"],
+                        "role": "button",
+                        "name": button["name"][:80],
+                    }
         # 中文注释：只允许固定阶段原因和脱敏当前来源；字段名不会带入网页异常文本。
         if isinstance(data, dict):
             # 中文注释：框架诊断只含来源和有限几何，不传地址参数、正文或任意异常。
             from urllib.parse import urlsplit
             import math
-            frame = data.get('skippedFrame')
+
+            frame = data.get("skippedFrame")
             if isinstance(frame, dict):
                 try:
-                    url = urlsplit(frame.get('origin', ''))
-                    site = f'{url.scheme}://{url.netloc}'
-                    if (frame.get('origin') == 'opaque' or (url.scheme in {'http', 'https'} and url.hostname
-                            and not url.username and not url.password and frame['origin'] == site)):
-                        if all(type(frame.get(k)) in {int, float} and math.isfinite(frame[k]) for k in ('x', 'y', 'width', 'height')):
-                            self.data['skippedFrame'] = {k: frame[k] for k in ('origin', 'x', 'y', 'width', 'height')}
+                    url = urlsplit(frame.get("origin", ""))
+                    site = f"{url.scheme}://{url.netloc}"
+                    if frame.get("origin") == "opaque" or (
+                        url.scheme in {"http", "https"}
+                        and url.hostname
+                        and not url.username
+                        and not url.password
+                        and frame["origin"] == site
+                    ):
+                        if all(
+                            type(frame.get(k)) in {int, float} and math.isfinite(frame[k])
+                            for k in ("x", "y", "width", "height")
+                        ):
+                            self.data["skippedFrame"] = {
+                                k: frame[k] for k in ("origin", "x", "y", "width", "height")
+                            }
                 except (ValueError, TypeError):
                     pass
-            shield_exceptions = {'inventory_exception', 'inventory_type_error', 'inventory_range_error', 'inventory_reference_error', 'inventory_syntax_error', 'inventory_security_error', 'inventory_invalid_state'}
-            if data.get('reasonCode') in shield_exceptions | {'settings_unavailable', 'document_not_ready', 'inventory_invalid', 'token_limit', 'node_limit', 'invalid_geometry'}:
-                self.data['reasonCode'] = data['reasonCode']
-            if code == 'content_shield_unavailable' and data.get('reasonCode') in shield_exceptions and isinstance(data.get('stage'), str) and data['stage'] in {'shield_inventory', 'shield_index', 'shield_style', 'shield_text', 'shield_visit', 'shield_walk', 'shield_tokens', 'shield_geometry', 'shield_sensitive'}:
-                self.data['stage'] = data['stage']
-            if isinstance(data.get('stage'), str) and isinstance(data.get('reasonCode'), str) and (data.get('stage'), data.get('reasonCode')) in {('overlay', 'initialization_exception'), ('overlay', 'return_type_invalid'), ('document', 'document_changed')}:
-                self.data.update(stage=data['stage'], reasonCode=data['reasonCode'])
-            if code in {'origin_denied', 'tab_out_of_scope'} and isinstance(data.get('currentOrigin'), str):
+            shield_exceptions = {
+                "inventory_exception",
+                "inventory_type_error",
+                "inventory_range_error",
+                "inventory_reference_error",
+                "inventory_syntax_error",
+                "inventory_security_error",
+                "inventory_invalid_state",
+            }
+            if data.get("reasonCode") in shield_exceptions | {
+                "settings_unavailable",
+                "document_not_ready",
+                "inventory_invalid",
+                "token_limit",
+                "node_limit",
+                "invalid_geometry",
+            }:
+                self.data["reasonCode"] = data["reasonCode"]
+            if (
+                code == "content_shield_unavailable"
+                and data.get("reasonCode") in shield_exceptions
+                and isinstance(data.get("stage"), str)
+                and data["stage"]
+                in {
+                    "shield_inventory",
+                    "shield_index",
+                    "shield_style",
+                    "shield_text",
+                    "shield_visit",
+                    "shield_walk",
+                    "shield_tokens",
+                    "shield_geometry",
+                    "shield_sensitive",
+                }
+            ):
+                self.data["stage"] = data["stage"]
+            if (
+                isinstance(data.get("stage"), str)
+                and isinstance(data.get("reasonCode"), str)
+                and (data.get("stage"), data.get("reasonCode"))
+                in {
+                    ("overlay", "initialization_exception"),
+                    ("overlay", "return_type_invalid"),
+                    ("document", "document_changed"),
+                }
+            ):
+                self.data.update(stage=data["stage"], reasonCode=data["reasonCode"])
+            if code in {"origin_denied", "tab_out_of_scope"} and isinstance(
+                data.get("currentOrigin"), str
+            ):
                 from urllib.parse import urlsplit
+
                 try:
-                    parts = urlsplit(data['currentOrigin'])
-                    if parts.scheme in {'http', 'https'} and parts.hostname and not parts.username and not parts.password:
+                    parts = urlsplit(data["currentOrigin"])
+                    if (
+                        parts.scheme in {"http", "https"}
+                        and parts.hostname
+                        and not parts.username
+                        and not parts.password
+                    ):
                         parts.port
-                        self.data['currentOrigin'] = f'{parts.scheme}://{parts.netloc}'
-                        self.data['scopeHint'] = '同站用 goto_url，新站用 fast_browser_open。'
+                        self.data["currentOrigin"] = f"{parts.scheme}://{parts.netloc}"
+                        self.data["scopeHint"] = "同站用 goto_url，新站用 fast_browser_open。"
                 except ValueError:
                     pass
         # 中文注释：跨站跳转仅传已验证的来源，不转发路径或异常原文。
-        if code == 'redirected_out_of_scope' and isinstance(data, dict):
+        if code == "redirected_out_of_scope" and isinstance(data, dict):
             from urllib.parse import urlsplit
-            value = data.get('finalOrigin')
+
+            value = data.get("finalOrigin")
             if isinstance(value, str):
                 parts = urlsplit(value)
-                if parts.scheme in {'http', 'https'} and parts.hostname and not parts.path and not parts.query and not parts.fragment and not parts.username and not parts.password:
-                    self.data['finalOrigin'] = value
+                if (
+                    parts.scheme in {"http", "https"}
+                    and parts.hostname
+                    and not parts.path
+                    and not parts.query
+                    and not parts.fragment
+                    and not parts.username
+                    and not parts.password
+                ):
+                    self.data["finalOrigin"] = value
 
 
 class BridgeClient:
     """Thread-safe synchronous JSONL client."""
 
-    def __init__(self, home: os.PathLike[str] | str, timeout: float = 15.0, *, autostart: bool = True):
+    def __init__(
+        self, home: os.PathLike[str] | str, timeout: float = 15.0, *, autostart: bool = True
+    ):
         self.home = Path(home).expanduser().resolve()
         self.timeout = timeout
         # 中文注释：一次性清理必须使用已经运行的服务，不能因连接失败自动启动并触发空闲扫描。
@@ -226,11 +394,12 @@ class BridgeClient:
             except Exception:
                 sock.close()
                 raise
+
         try:
             connect()
         except (FileNotFoundError, ConnectionRefusedError):
             if not self.autostart:
-                raise BridgeError('service_unavailable', 'native bridge is not running') from None
+                raise BridgeError("service_unavailable", "native bridge is not running") from None
             ensure_service(self.home)
             connect()
 
@@ -247,13 +416,17 @@ class BridgeClient:
         return not readable
 
     def call(self, method: str, params: Dict[str, Any] | None = None) -> Any:
-        params=dict(params or {})
-        silent=os.environ.get('FAST_BROWSER_COPILOT_SILENT_TOKEN')
-        if silent and method=='browser.access_request':raise BridgeError('copilot_background_only','协作任务不能打开前台授权窗口，请在侧栏处理连接。')
-        if silent and method=='shared.create':
-            params['copilotSilentToken']=silent
-            resource=os.environ.get('FAST_BROWSER_COPILOT_RESOURCE_TOKEN')
-            if resource:params['copilotResourceToken']=resource
+        params = dict(params or {})
+        silent = os.environ.get("FAST_BROWSER_COPILOT_SILENT_TOKEN")
+        if silent and method == "browser.access_request":
+            raise BridgeError(
+                "copilot_background_only", "协作任务不能打开前台授权窗口，请在侧栏处理连接。"
+            )
+        if silent and method == "shared.create":
+            params["copilotSilentToken"] = silent
+            resource = os.environ.get("FAST_BROWSER_COPILOT_RESOURCE_TOKEN")
+            if resource:
+                params["copilotResourceToken"] = resource
         request = {"id": uuid.uuid4().hex, "method": method, "params": params}
         with self._lock:
             if self._socket is not None and not self._reusable():
@@ -274,18 +447,28 @@ class BridgeClient:
                     self._socket.sendall(_encode_line(request))
                 except OSError as exc:
                     self._disconnect()
-                    raise BridgeError("outcome_unknown", "request may have been accepted before the connection failed") from exc
+                    raise BridgeError(
+                        "outcome_unknown",
+                        "request may have been accepted before the connection failed",
+                    ) from exc
                 try:
                     response = _read_line(self._reader)
                 except (OSError, EOFError, ValueError, json.JSONDecodeError) as exc:
                     self._disconnect()
-                    raise BridgeError("outcome_unknown", "request outcome is unknown because the response was lost") from exc
+                    raise BridgeError(
+                        "outcome_unknown",
+                        "request outcome is unknown because the response was lost",
+                    ) from exc
                 if response.get("id") != request["id"]:
                     self._disconnect()
                     raise BridgeError("protocol_error", "response id mismatch")
                 if "error" in response:
                     error = response["error"]
-                    raise BridgeError(str(error.get("code", "error")), str(error.get("message", "bridge error")), error.get("data"))
+                    raise BridgeError(
+                        str(error.get("code", "error")),
+                        str(error.get("message", "bridge error")),
+                        error.get("data"),
+                    )
                 return response.get("result")
             raise BridgeError("connection_failed", "native bridge connection failed")
 
@@ -337,7 +520,9 @@ def _open_startup_lock(path: Path) -> int:
         fd = os.open(path, os.O_RDWR | os.O_CREAT | no_follow, 0o600)
     except OSError as exc:
         if exc.errno == errno.ELOOP:
-            raise BridgeError("insecure_startup_lock", "native bridge startup lock must not be a symlink") from exc
+            raise BridgeError(
+                "insecure_startup_lock", "native bridge startup lock must not be a symlink"
+            ) from exc
         raise
     try:
         info = os.fstat(fd)
@@ -358,7 +543,9 @@ def _checked_data_dir(home: os.PathLike[str] | str) -> Path:
     data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     info = os.lstat(data_dir)
     if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid():
-        raise BridgeError("insecure_data_dir", "native bridge data path must be a same-owner real directory")
+        raise BridgeError(
+            "insecure_data_dir", "native bridge data path must be a same-owner real directory"
+        )
     os.chmod(data_dir, 0o700)
     return data_dir
 
@@ -390,13 +577,16 @@ def ensure_service(home: os.PathLike[str] | str, timeout: float = 5.0) -> None:
             fcntl.flock(lock_fd, fcntl.LOCK_EX)
             if _probe(home_path):
                 return
-            installed = data_dir / 'host-bin/daemon.py'
+            installed = data_dir / "host-bin/daemon.py"
             # 中文注释：从下载包运行维护命令时也启动所选安装的宿主，避免进程身份落到下载目录。
             if installed.exists():
-                if any(part.is_symlink() for part in (installed,*installed.parents)):
-                    raise BridgeError('insecure_daemon_path','installed daemon path contains symlink')
-                daemon_path=installed
-            else:daemon_path = Path(__file__).with_name("daemon.py")
+                if any(part.is_symlink() for part in (installed, *installed.parents)):
+                    raise BridgeError(
+                        "insecure_daemon_path", "installed daemon path contains symlink"
+                    )
+                daemon_path = installed
+            else:
+                daemon_path = Path(__file__).with_name("daemon.py")
             _spawn_detached([sys.executable, str(daemon_path), "--home", str(home_path)])
             deadline = time.monotonic() + timeout
             while time.monotonic() < deadline:

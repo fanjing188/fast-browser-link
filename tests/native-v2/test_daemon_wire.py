@@ -1,4 +1,5 @@
 """Daemon-side native v2 validation and no-replay tests."""
+
 from __future__ import annotations
 
 import copy
@@ -26,92 +27,166 @@ finally:
 
 class SafeIdleExitTests(unittest.TestCase):
     def setUp(self):
-        self.daemon = daemon_module.BridgeDaemon(Path(tempfile.gettempdir()) / 'idle-unit')
+        self.daemon = daemon_module.BridgeDaemon(Path(tempfile.gettempdir()) / "idle-unit")
 
     def test_reload_status_reuses_terminal_and_unknown_operation_gate_without_mutating_tasks(self):
-        clean = {'id': 'clean', 'instanceId': 'browser', 'state': 'closed', 'cleanupState': 'succeeded', 'requestHistory': []}
-        self.daemon.tasks = {'clean': clean}
-        status = lambda: self.daemon._dispatch_extension('browser', 'extension.reload_status', {})
-        self.assertTrue(status()['idle'])
-        for changed in ({'state': 'running'}, {'cleanupState': 'unknown'}, {'currentOperation': {'state': 'unknown'}}):
-            row = {**clean, **changed}; self.daemon.tasks = {'clean': row}; result = status()
-            self.assertFalse(result['idle']); self.assertEqual(result['blockingCount'], 1); self.assertEqual(self.daemon.tasks['clean'], row)
-            self.assertEqual(set(result['blockingTasks'][0]), {'id', 'state', 'cleanupState'})
-        self.daemon.tasks = {'clean': clean}; self.daemon.lifecycle_operations = 1
-        self.assertFalse(status()['idle'])
+        clean = {
+            "id": "clean",
+            "instanceId": "browser",
+            "state": "closed",
+            "cleanupState": "succeeded",
+            "requestHistory": [],
+        }
+        self.daemon.tasks = {"clean": clean}
+        status = lambda: self.daemon._dispatch_extension("browser", "extension.reload_status", {})
+        self.assertTrue(status()["idle"])
+        for changed in (
+            {"state": "running"},
+            {"cleanupState": "unknown"},
+            {"currentOperation": {"state": "unknown"}},
+        ):
+            row = {**clean, **changed}
+            self.daemon.tasks = {"clean": row}
+            result = status()
+            self.assertFalse(result["idle"])
+            self.assertEqual(result["blockingCount"], 1)
+            self.assertEqual(self.daemon.tasks["clean"], row)
+            self.assertEqual(set(result["blockingTasks"][0]), {"id", "state", "cleanupState"})
+        self.daemon.tasks = {"clean": clean}
+        self.daemon.lifecycle_operations = 1
+        self.assertFalse(status()["idle"])
 
     def test_reload_accepts_existing_human_verification_only_until_the_next_task_change(self):
         from datetime import datetime, timezone
-        row = {'id': 'historic', 'instanceId': 'browser', 'state': 'closed', 'cleanupState': 'succeeded',
-               'updatedAt': 100, 'currentOperation': {'state': 'unknown'}, 'requestHistory': [{'state': 'unknown'}],
-               'userVerified': {'reason': '用户已核实', 'at': datetime.fromtimestamp(101, timezone.utc).isoformat()}}
+
+        row = {
+            "id": "historic",
+            "instanceId": "browser",
+            "state": "closed",
+            "cleanupState": "succeeded",
+            "updatedAt": 100,
+            "currentOperation": {"state": "unknown"},
+            "requestHistory": [{"state": "unknown"}],
+            "userVerified": {
+                "reason": "用户已核实",
+                "at": datetime.fromtimestamp(101, timezone.utc).isoformat(),
+            },
+        }
         original = copy.deepcopy(row)
-        self.assertTrue(self.daemon._task_safe_for_reload(row)); self.assertFalse(self.daemon._task_safe_for_idle_exit(row))
-        self.assertTrue(self.daemon._task_safe_for_reload({**row, 'operationTimeline': [{'state': 'confirmed'}]}))
+        self.assertTrue(self.daemon._task_safe_for_reload(row))
+        self.assertFalse(self.daemon._task_safe_for_idle_exit(row))
+        self.assertTrue(
+            self.daemon._task_safe_for_reload(
+                {**row, "operationTimeline": [{"state": "confirmed"}]}
+            )
+        )
         self.assertEqual(row, original)
-        for changed in ({'updatedAt': 102}, {'cleanupState': 'unknown'}, {'state': 'running'},
-                        {'requestHistory': [{'state': 'awaiting_human'}]}, {'userVerified': {'reason': '', 'at': row['userVerified']['at']}}):
+        for changed in (
+            {"updatedAt": 102},
+            {"cleanupState": "unknown"},
+            {"state": "running"},
+            {"requestHistory": [{"state": "awaiting_human"}]},
+            {"userVerified": {"reason": "", "at": row["userVerified"]["at"]}},
+        ):
             self.assertFalse(self.daemon._task_safe_for_reload({**row, **changed}))
 
     def tick(self, now):
-        with patch.object(daemon_module.time, 'monotonic', return_value=now):
+        with patch.object(daemon_module.time, "monotonic", return_value=now):
             return self.daemon._try_idle_exit()
 
     def test_safe_idle_exit_waits_full_default_grace(self):
         grace = daemon_module._DAEMON_IDLE_GRACE_SECONDS
         self.assertFalse(self.tick(10))
-        self.assertFalse(self.tick(10 + grace - .01))
+        self.assertFalse(self.tick(10 + grace - 0.01))
         self.assertTrue(self.tick(10 + grace))
         self.assertTrue(self.daemon.stop_event.is_set())
 
     def test_safe_idle_exit_requires_verified_terminal_tasks(self):
-        clean = {'state': 'closed', 'cleanupState': 'succeeded', 'requestHistory': []}
-        blocked = [
-            {**clean, 'state': state} for state in
-            ('ready', 'running', 'paused', 'needs_sync', 'pending_approval', 'authorizing', 'future')
-        ] + [
-            {**clean, 'cleanupState': state} for state in ('pending', 'unknown', 'failed', None)
-        ] + [
-            {**clean, 'currentOperation': operation} for operation in
-            (None, {}, {'state': 'running'}, {'state': 'pending'}, {'state': 'unknown'}, {'state': 'future'})
-        ] + [
-            {**clean, 'requestHistory': history} for history in
-            (None, {}, [{}], [{'state': state} for state in ('dispatched',)],
-             [{'state': 'awaiting_approval'}], [{'state': 'awaiting_human'}], [{'state': 'unknown'}])
-        ] + [{**clean, 'operationTimeline': [{'state': 'unknown'}]},
-             {**clean, 'idlePendingHuman': True}, {**clean, 'vaultPermit': {'pending': True}}]
+        clean = {"state": "closed", "cleanupState": "succeeded", "requestHistory": []}
+        blocked = (
+            [
+                {**clean, "state": state}
+                for state in (
+                    "ready",
+                    "running",
+                    "paused",
+                    "needs_sync",
+                    "pending_approval",
+                    "authorizing",
+                    "future",
+                )
+            ]
+            + [{**clean, "cleanupState": state} for state in ("pending", "unknown", "failed", None)]
+            + [
+                {**clean, "currentOperation": operation}
+                for operation in (
+                    None,
+                    {},
+                    {"state": "running"},
+                    {"state": "pending"},
+                    {"state": "unknown"},
+                    {"state": "future"},
+                )
+            ]
+            + [
+                {**clean, "requestHistory": history}
+                for history in (
+                    None,
+                    {},
+                    [{}],
+                    [{"state": state} for state in ("dispatched",)],
+                    [{"state": "awaiting_approval"}],
+                    [{"state": "awaiting_human"}],
+                    [{"state": "unknown"}],
+                )
+            ]
+            + [
+                {**clean, "operationTimeline": [{"state": "unknown"}]},
+                {**clean, "idlePendingHuman": True},
+                {**clean, "vaultPermit": {"pending": True}},
+            ]
+        )
         for task in blocked:
             with self.subTest(task=task):
-                self.daemon = daemon_module.BridgeDaemon(Path(tempfile.gettempdir()) / 'idle-unit')
-                self.daemon.tasks['task'] = task
+                self.daemon = daemon_module.BridgeDaemon(Path(tempfile.gettempdir()) / "idle-unit")
+                self.daemon.tasks["task"] = task
                 self.assertFalse(self.tick(10))
                 self.assertFalse(self.tick(100))
                 self.assertFalse(self.daemon.stop_event.is_set())
-                self.assertEqual(self.daemon.tasks['task'], task)
-        for state in ('closed', 'cancelled', 'failed'):
+                self.assertEqual(self.daemon.tasks["task"], task)
+        for state in ("closed", "cancelled", "failed"):
             with self.subTest(terminal=state):
-                self.daemon = daemon_module.BridgeDaemon(Path(tempfile.gettempdir()) / 'idle-unit')
-                self.daemon.tasks['task'] = {**clean, 'state': state,
-                    'currentOperation': {'state': 'succeeded'},
-                    'requestHistory': [{'state': 'confirmed'}, {'state': 'rejected'}]}
+                self.daemon = daemon_module.BridgeDaemon(Path(tempfile.gettempdir()) / "idle-unit")
+                self.daemon.tasks["task"] = {
+                    **clean,
+                    "state": state,
+                    "currentOperation": {"state": "succeeded"},
+                    "requestHistory": [{"state": "confirmed"}, {"state": "rejected"}],
+                }
                 self.assertFalse(self.tick(10))
                 self.assertTrue(self.tick(100))
 
     def test_safe_idle_exit_blocks_pending_state_and_persistence(self):
         for field, value in (
-                ('extensions', {'ext': {'pending': {'r': {}}}}),
-                ('tab_leases', {('ext', 7): 'task'}), ('inflight_requests', {'r': {}}),
-                ('preparing_requests', {'r': {}}), ('action_approvals', {'r': {}}),
-                ('api_credentials', {'task': {}}), ('api_connections', {'task': object()}),
-                ('pending_journal', [{}]), ('persist_dirty', True),
-                ('persist_error', OSError('fixture')), ('persist_timer', object())):
+            ("extensions", {"ext": {"pending": {"r": {}}}}),
+            ("tab_leases", {("ext", 7): "task"}),
+            ("inflight_requests", {"r": {}}),
+            ("preparing_requests", {"r": {}}),
+            ("action_approvals", {"r": {}}),
+            ("api_credentials", {"task": {}}),
+            ("api_connections", {"task": object()}),
+            ("pending_journal", [{}]),
+            ("persist_dirty", True),
+            ("persist_error", OSError("fixture")),
+            ("persist_timer", object()),
+        ):
             with self.subTest(field=field):
-                self.daemon = daemon_module.BridgeDaemon(Path(tempfile.gettempdir()) / 'idle-unit')
+                self.daemon = daemon_module.BridgeDaemon(Path(tempfile.gettempdir()) / "idle-unit")
                 self.assertFalse(self.tick(10))
                 setattr(self.daemon, field, value)
                 self.assertFalse(self.tick(100))
                 self.assertFalse(self.daemon.stop_event.is_set())
-        self.daemon = daemon_module.BridgeDaemon(Path(tempfile.gettempdir()) / 'idle-unit')
+        self.daemon = daemon_module.BridgeDaemon(Path(tempfile.gettempdir()) / "idle-unit")
         self.daemon.persist_lock.acquire()
         try:
             self.assertFalse(self.tick(10))
@@ -120,28 +195,27 @@ class SafeIdleExitTests(unittest.TestCase):
             self.daemon.persist_lock.release()
 
     def test_safe_idle_exit_preserves_private_nonce_and_mirror_pending(self):
-        for pending in ('nonce', 'mirror', 'relay'):
+        for pending in ("nonce", "mirror", "relay"):
             with self.subTest(pending=pending):
-                self.daemon = daemon_module.BridgeDaemon(Path(tempfile.gettempdir()) / 'idle-unit')
-                if pending == 'nonce':
-                    self.daemon.vault_private._nonces[('session', 'task', 7)] = {'expiresAt': 0}
-                elif pending == 'mirror':
-                    self.daemon.cookie_mirror.operations['fixture'] = {'status': 'preparing'}
+                self.daemon = daemon_module.BridgeDaemon(Path(tempfile.gettempdir()) / "idle-unit")
+                if pending == "nonce":
+                    self.daemon.vault_private._nonces[("session", "task", 7)] = {"expiresAt": 0}
+                elif pending == "mirror":
+                    self.daemon.cookie_mirror.operations["fixture"] = {"status": "preparing"}
                 else:
-                    self.daemon.cookie_mirror.relay.chunks['fixture'] = (0, [])
+                    self.daemon.cookie_mirror.relay.chunks["fixture"] = (0, [])
                 self.assertFalse(self.tick(10))
                 self.assertFalse(self.tick(100))
                 self.assertFalse(self.daemon.stop_event.is_set())
 
-
     def test_safe_idle_exit_counts_unauthenticated_accepted_connections(self):
         with tempfile.TemporaryDirectory(dir=tempfile.gettempdir()) as directory:
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
-                server.bind(str(Path(directory) / 's'))
+                server.bind(str(Path(directory) / "s"))
                 server.listen(1)
                 server.setblocking(False)
                 with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as peer:
-                    peer.connect(str(Path(directory) / 's'))
+                    peer.connect(str(Path(directory) / "s"))
                     conn = self.daemon._accept_connection(server)
                     self.assertIsNotNone(conn)
                     assert conn is not None
@@ -160,21 +234,21 @@ class SafeIdleExitTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=tempfile.gettempdir()) as directory:
             self.daemon = daemon_module.BridgeDaemon(Path(directory))
             self.daemon._prepare_data_dir()
-            self.daemon.vault_private.socket_path = Path(directory) / 'v'
+            self.daemon.vault_private.socket_path = Path(directory) / "v"
             self.daemon.vault_private.start()
             try:
                 with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as peer:
                     peer.connect(str(self.daemon.vault_private.socket_path))
                     deadline = time.monotonic() + 1
                     while not self.daemon.lifecycle_connections and time.monotonic() < deadline:
-                        time.sleep(.005)
+                        time.sleep(0.005)
                     self.assertEqual(len(self.daemon.lifecycle_connections), 1)
                     self.assertFalse(self.tick(10))
                     self.assertFalse(self.tick(100))
                     peer.shutdown(socket.SHUT_RDWR)
                 deadline = time.monotonic() + 1
                 while self.daemon.lifecycle_connections and time.monotonic() < deadline:
-                    time.sleep(.005)
+                    time.sleep(0.005)
                 self.assertFalse(self.daemon.lifecycle_connections)
             finally:
                 self.daemon.stop_event.set()
@@ -183,9 +257,11 @@ class SafeIdleExitTests(unittest.TestCase):
     def test_safe_idle_exit_waits_for_admitted_background_worker(self):
         entered = daemon_module.threading.Event()
         release = daemon_module.threading.Event()
+
         def work():
             entered.set()
             release.wait(2)
+
         worker = self.daemon._start_lifecycle_worker(work)
         try:
             self.assertTrue(entered.wait(1))
@@ -204,32 +280,40 @@ class SafeIdleExitTests(unittest.TestCase):
         self.assertFalse(self.tick(10))
         self.assertTrue(self.tick(100))
         with self.assertRaises(daemon_module.ProtocolError) as caught:
-            self.daemon._dispatch_client('health', {})
-        self.assertEqual(caught.exception.code, 'service_stopping')
+            self.daemon._dispatch_client("health", {})
+        self.assertEqual(caught.exception.code, "service_stopping")
 
     def test_safe_idle_exit_waits_for_expired_mirror_cleanup_on_old_connection(self):
         # 中文注释：断开的扩展仍可能有后台清理；删除 operation 不能代表收尾完成。
-        ext = {'sendLock': daemon_module.threading.RLock(),
-               'pendingLock': daemon_module.threading.Lock(), 'pending': {},
-               'socket': socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)}
-        ext['socket'].close()
-        self.daemon.cookie_mirror.operations['fixture'] = {
-            'transferId': 'fixture', 'status': 'preparing',
-            'sourceConnection': ext, 'targetConnection': ext}
-        ext['sendLock'].acquire()
-        worker = daemon_module.threading.Thread(target=self.daemon.cookie_mirror.expire, args=('fixture',))
+        ext = {
+            "sendLock": daemon_module.threading.RLock(),
+            "pendingLock": daemon_module.threading.Lock(),
+            "pending": {},
+            "socket": socket.socket(socket.AF_UNIX, socket.SOCK_STREAM),
+        }
+        ext["socket"].close()
+        self.daemon.cookie_mirror.operations["fixture"] = {
+            "transferId": "fixture",
+            "status": "preparing",
+            "sourceConnection": ext,
+            "targetConnection": ext,
+        }
+        ext["sendLock"].acquire()
+        worker = daemon_module.threading.Thread(
+            target=self.daemon.cookie_mirror.expire, args=("fixture",)
+        )
         worker.start()
         try:
             deadline = time.monotonic() + 1
-            while not ext['pending'] and time.monotonic() < deadline:
-                time.sleep(.001)
-            self.assertTrue(ext['pending'])
+            while not ext["pending"] and time.monotonic() < deadline:
+                time.sleep(0.001)
+            self.assertTrue(ext["pending"])
             self.assertFalse(self.daemon.cookie_mirror.operations)
             self.assertFalse(self.tick(10))
             self.assertFalse(self.tick(40))
             self.assertTrue(worker.is_alive())
         finally:
-            ext['sendLock'].release()
+            ext["sendLock"].release()
             worker.join(2)
         self.assertFalse(worker.is_alive())
         self.assertFalse(self.tick(50))
@@ -292,13 +376,18 @@ class NativeV2DaemonTests(unittest.TestCase):
 
     def test_persisted_operation_ledger_separates_pending_confirmed_and_unknown(self):
         def status(request_id, owner="owner-v2"):
-            return self.daemon._dispatch_client("shared.operation_status", {
-                "owner": owner, "taskId": "task-v2", "requestId": request_id})
+            return self.daemon._dispatch_client(
+                "shared.operation_status",
+                {"owner": owner, "taskId": "task-v2", "requestId": request_id},
+            )
+
         # 中文注释：只暴露请求摘要和派发状态；读取状态不会再次调用扩展。
         self.run_action("read-ledger", "snapshot")
         confirmed = status("read-ledger")
-        self.assertEqual((confirmed["state"], confirmed["dispatched"], confirmed["generation"]),
-                         ("confirmed", True, 4))
+        self.assertEqual(
+            (confirmed["state"], confirmed["dispatched"], confirmed["generation"]),
+            ("confirmed", True, 4),
+        )
         self.assertNotIn("read-ledger", str(confirmed))
         self.run_action("pending-ledger", "click", selector="#confirm")
         pending = status("pending-ledger")
@@ -317,26 +406,41 @@ class NativeV2DaemonTests(unittest.TestCase):
         self.daemon._flush_tasks()
         restored = daemon_module.BridgeDaemon(Path(self.tmp.name))
         restored._load_tasks()
-        status = restored._dispatch_client("shared.operation_status", {
-            "owner": "owner-v2", "taskId": "task-v2", "requestId": "persisted-read"})
+        status = restored._dispatch_client(
+            "shared.operation_status",
+            {"owner": "owner-v2", "taskId": "task-v2", "requestId": "persisted-read"},
+        )
         # 中文注释：重启后保留确认步骤，但原响应不再可重放；任务须重新同步。
-        self.assertEqual((status['state'], status['dispatched']), ('confirmed', True))
-        self.assertEqual(restored.tasks['task-v2']['state'], 'needs_sync')
+        self.assertEqual((status["state"], status["dispatched"]), ("confirmed", True))
+        self.assertEqual(restored.tasks["task-v2"]["state"], "needs_sync")
         with self.assertRaises(daemon_module.ProtocolError) as caught:
-            restored._dispatch_client('shared.run', {'owner': 'owner-v2', 'taskId': 'task-v2',
-                'requestId': 'persisted-read', 'action': 'snapshot', 'tabId': 7})
-        self.assertEqual(caught.exception.code, 'request_outcome_unavailable')
+            restored._dispatch_client(
+                "shared.run",
+                {
+                    "owner": "owner-v2",
+                    "taskId": "task-v2",
+                    "requestId": "persisted-read",
+                    "action": "snapshot",
+                    "tabId": 7,
+                },
+            )
+        self.assertEqual(caught.exception.code, "request_outcome_unavailable")
 
     # 中文注释：AX 读取参数先在 daemon 验证，非法请求不能触发扩展或审批。
     def test_accessibility_requires_root_and_nonpaged_interactive_mode(self):
         validate = daemon_module.BridgeDaemon._validate_run_params
-        validate('semantic_snapshot', {'tabId': 7, 'options': {'root': '#panel', 'accessibility': True}})
-        for options in ({'accessibility': True}, {'root': '#panel', 'accessibility': 'yes'},
-                        {'root': '#panel', 'accessibility': True, 'mode': 'table'},
-                        {'root': '#panel', 'accessibility': True, 'cursor': 'old'},
-                        {'root': '#panel', 'accessibility': True, 'baselineId': 'old'}):
+        validate(
+            "semantic_snapshot", {"tabId": 7, "options": {"root": "#panel", "accessibility": True}}
+        )
+        for options in (
+            {"accessibility": True},
+            {"root": "#panel", "accessibility": "yes"},
+            {"root": "#panel", "accessibility": True, "mode": "table"},
+            {"root": "#panel", "accessibility": True, "cursor": "old"},
+            {"root": "#panel", "accessibility": True, "baselineId": "old"},
+        ):
             with self.subTest(options=options), self.assertRaises(daemon_module.ProtocolError):
-                validate('semantic_snapshot', {'tabId': 7, 'options': options})
+                validate("semantic_snapshot", {"tabId": 7, "options": options})
 
     def test_v1_actions_are_forwarded_with_trusted_generation_and_no_replay(self):
         result = self.run_action(
@@ -358,32 +462,81 @@ class NativeV2DaemonTests(unittest.TestCase):
         extension, method, params, _ = self.calls[-1]
         self.assertIs(extension, self.extension)
         self.assertEqual(method, "browser.execute")
-        self.assertEqual(params, dict(taskId="task-v2", requestId="click-1", action="click", tabId=7,
-            **command, generation=4, modeGeneration=1, allowedOrigins=["https://example.com"]))
+        self.assertEqual(
+            params,
+            dict(
+                taskId="task-v2",
+                requestId="click-1",
+                action="click",
+                tabId=7,
+                **command,
+                generation=4,
+                modeGeneration=1,
+                allowedOrigins=["https://example.com"],
+            ),
+        )
         for _ in range(3):
             self.assertEqual(self.run_action("click-1", "click", **command), result)
         with self.assertRaises(daemon_module.ProtocolError) as conflict:
             self.run_action("click-1", "click", selector="#other")
         self.assertEqual(conflict.exception.code, "request_id_conflict")
         self.assertEqual(len(self.calls), before + 1)
-        self.assertEqual(self.daemon._dispatch_extension("instance-v2", "extension.approvals", {}), [])
+        self.assertEqual(
+            self.daemon._dispatch_extension("instance-v2", "extension.approvals", {}), []
+        )
 
     def test_daemon_rejects_malformed_fields_and_unsupported_actions_before_extension(self):
         cases = [
-            ("semantic_snapshot", {"options": {"mode": "interactive", "owner": "forged"}}, "invalid_params"),
-            ("ref_click", {"binding": {"taskId": "task-v2", "documentId": "d", "leaseId": "l"}, "snapshotId": "s"}, "invalid_params"),
+            (
+                "semantic_snapshot",
+                {"options": {"mode": "interactive", "owner": "forged"}},
+                "invalid_params",
+            ),
+            (
+                "ref_click",
+                {
+                    "binding": {"taskId": "task-v2", "documentId": "d", "leaseId": "l"},
+                    "snapshotId": "s",
+                },
+                "invalid_params",
+            ),
         ]
         cases.append(("interaction.capture", {"unexpected": True}, "invalid_params"))
-        cases.extend((action, {}, "invalid_params") for action in (
-            "interaction.bounds", "interaction.click",
-            "interaction.drag_coordinates", "interaction.drag_elements",
-        ))
+        cases.extend(
+            (action, {}, "invalid_params")
+            for action in (
+                "interaction.bounds",
+                "interaction.click",
+                "interaction.drag_coordinates",
+                "interaction.drag_elements",
+            )
+        )
         cases.extend((action, {}, "invalid_action") for action in ("js", "cdp"))
         # 中文注释：无效语义按键在批准或派发前必须被拒绝。
-        cases.append(("ref_press", {"binding": {"taskId": "task-v2", "documentId": "d", "leaseId": "l"},
-                                      "snapshotId": "s", "ref": "r", "key": "Delete"}, "invalid_params"))
-        cases.append(("ref_press", {"binding": {"taskId": "task-v2", "documentId": "d", "leaseId": "l"},
-                                      "snapshotId": "s", "ref": "r", "key": ["Enter"]}, "invalid_params"))
+        cases.append(
+            (
+                "ref_press",
+                {
+                    "binding": {"taskId": "task-v2", "documentId": "d", "leaseId": "l"},
+                    "snapshotId": "s",
+                    "ref": "r",
+                    "key": "Delete",
+                },
+                "invalid_params",
+            )
+        )
+        cases.append(
+            (
+                "ref_press",
+                {
+                    "binding": {"taskId": "task-v2", "documentId": "d", "leaseId": "l"},
+                    "snapshotId": "s",
+                    "ref": "r",
+                    "key": ["Enter"],
+                },
+                "invalid_params",
+            )
+        )
         for index, (action, extra, code) in enumerate(cases):
             with self.subTest(action=action):
                 self.task["state"] = "ready"
@@ -393,16 +546,20 @@ class NativeV2DaemonTests(unittest.TestCase):
         self.assertEqual(self.calls, [])
 
     def test_file_upload_requires_registered_artifact_before_smart_approval_or_dispatch(self):
-        artifact_id = '12345678-1234-1234-1234-123456789abc'
+        artifact_id = "12345678-1234-1234-1234-123456789abc"
         with self.assertRaises(daemon_module.ProtocolError) as smart:
-            self.run_action('file-smart', 'files.upload', selector='#file', artifactIds=[artifact_id])
+            self.run_action(
+                "file-smart", "files.upload", selector="#file", artifactIds=[artifact_id]
+            )
         # 中文注释：智能审批不会绕过文件登记，缺失文件在弹窗前明确拒绝。
-        self.assertEqual(smart.exception.code, 'artifact_unavailable')
-        self.task['activeMode'] = 'full'
+        self.assertEqual(smart.exception.code, "artifact_unavailable")
+        self.task["activeMode"] = "full"
         with self.assertRaises(daemon_module.ProtocolError) as missing:
-            self.run_action('file-missing', 'files.upload', selector='#file', artifactIds=[artifact_id])
+            self.run_action(
+                "file-missing", "files.upload", selector="#file", artifactIds=[artifact_id]
+            )
         # 中文注释：无登记 ID 不会触发 CDP 文件选择，也不会被当成空文件上传。
-        self.assertEqual(missing.exception.code, 'artifact_unavailable')
+        self.assertEqual(missing.exception.code, "artifact_unavailable")
         self.assertEqual(self.calls, [])
 
     def test_timeout_preserves_task_and_same_request_is_not_replayed(self):
@@ -414,24 +571,24 @@ class NativeV2DaemonTests(unittest.TestCase):
 
         self.daemon._extension_call = timeout_call
         # 中文注释：只读和写动作都缓存超时，但只有写动作的执行结果不确定。
-        self.task['activeMode'] = 'full'
-        for action, extra in [('screenshot', {}), ('click', {'selector': '#button'})]:
+        self.task["activeMode"] = "full"
+        for action, extra in [("screenshot", {}), ("click", {"selector": "#button"})]:
             with self.subTest(action=action):
-                request_id = 'timeout-' + action
+                request_id = "timeout-" + action
                 before = len(dispatches)
                 with self.assertRaises(daemon_module.ProtocolError) as first:
                     self.run_action(request_id, action, **extra)
-                self.assertEqual(first.exception.code, 'extension_timeout')
-                if action == 'screenshot':
-                    self.assertIs(first.exception.data['outcomeUnknown'], False)
-                self.assertEqual(self.task['state'], 'ready')
-                self.assertEqual(self.task['generation'], 4)
-                self.assertEqual(self.daemon.tab_leases[('instance-v2', 7)], 'task-v2')
+                self.assertEqual(first.exception.code, "extension_timeout")
+                if action == "screenshot":
+                    self.assertIs(first.exception.data["outcomeUnknown"], False)
+                self.assertEqual(self.task["state"], "ready")
+                self.assertEqual(self.task["generation"], 4)
+                self.assertEqual(self.daemon.tab_leases[("instance-v2", 7)], "task-v2")
                 with self.assertRaises(daemon_module.ProtocolError) as replay:
                     self.run_action(request_id, action, **extra)
-                self.assertEqual(replay.exception.code, 'extension_timeout')
+                self.assertEqual(replay.exception.code, "extension_timeout")
                 self.assertEqual(replay.exception.data, first.exception.data)
-                self.assertEqual(dispatches[before:], ['browser.execute'])
+                self.assertEqual(dispatches[before:], ["browser.execute"])
 
     def test_disconnection_marks_needs_sync_and_same_request_is_not_replayed(self):
         # 中文注释：断线与单次超时不同，仍须撤销代次、释放扩展状态并拒绝重放。
@@ -439,7 +596,7 @@ class NativeV2DaemonTests(unittest.TestCase):
 
         def disconnected_call(_extension, method, _params, **_kwargs):
             dispatches.append(method)
-            raise daemon_module.ProtocolError('extension_disconnected', 'fixture disconnected')
+            raise daemon_module.ProtocolError("extension_disconnected", "fixture disconnected")
 
         self.daemon._extension_call = disconnected_call
         with self.assertRaises(daemon_module.ProtocolError) as first:

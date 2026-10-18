@@ -81,9 +81,19 @@ class BridgeIntegrationTests(unittest.TestCase):
         try:
             self.assertEqual(
                 client.call("browser.list", {}),
-                [{"instanceId": "chrome-profile-a", "browser": "chrome", "version": "0.1.0", "connected": True,
-                  # 中文注释：旧握手未声明能力，宿主应明确返回空列表。
-                  "features": [], "primary": False, "consentStatus": "unknown", "accessRequestSupported": False}],
+                [
+                    {
+                        "instanceId": "chrome-profile-a",
+                        "browser": "chrome",
+                        "version": "0.1.0",
+                        "connected": True,
+                        # 中文注释：旧握手未声明能力，宿主应明确返回空列表。
+                        "features": [],
+                        "primary": False,
+                        "consentStatus": "unknown",
+                        "accessRequestSupported": False,
+                    }
+                ],
             )
         finally:
             client.close()
@@ -95,54 +105,87 @@ class BridgeIntegrationTests(unittest.TestCase):
 
     def test_default_idle_exit_after_real_native_host_eof_and_restart(self):
         from daemon import _DAEMON_IDLE_GRACE_SECONDS
+
         ensure_service(self.home)
-        data = self.home / 'plugin-data/fast-browser-link-native'
-        pid = int((data / 'daemon.pid').read_text())
-        origin = 'chrome-extension://hhnljehnkmhhgjjjmnlhilfpcjhobloc/'
-        (data / 'host-config.json').write_text(json.dumps({'allowedOrigins': [origin]}))
-        process = subprocess.Popen([sys.executable, str(BRIDGE_DIR / 'host.py'), origin],
-            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            env=dict(os.environ, HERMES_HOME=str(self.home)))
-        assert process.stdin is not None and process.stdout is not None and process.stderr is not None
+        data = self.home / "plugin-data/fast-browser-link-native"
+        pid = int((data / "daemon.pid").read_text())
+        origin = "chrome-extension://hhnljehnkmhhgjjjmnlhilfpcjhobloc/"
+        (data / "host-config.json").write_text(json.dumps({"allowedOrigins": [origin]}))
+        process = subprocess.Popen(
+            [sys.executable, str(BRIDGE_DIR / "host.py"), origin],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=dict(os.environ, HERMES_HOME=str(self.home)),
+        )
+        assert (
+            process.stdin is not None and process.stdout is not None and process.stderr is not None
+        )
         try:
-            payload = json.dumps({'id': 'idle-hello', 'method': 'extension.hello',
-                'params': {'instanceId': 'idle-instance', 'browser': 'chrome', 'version': '0.1.0'}}).encode()
-            process.stdin.write(struct.pack('<I', len(payload)) + payload)
+            payload = json.dumps(
+                {
+                    "id": "idle-hello",
+                    "method": "extension.hello",
+                    "params": {
+                        "instanceId": "idle-instance",
+                        "browser": "chrome",
+                        "version": "0.1.0",
+                    },
+                }
+            ).encode()
+            process.stdin.write(struct.pack("<I", len(payload)) + payload)
             process.stdin.flush()
-            size = struct.unpack('<I', process.stdout.read(4))[0]
-            self.assertTrue(json.loads(process.stdout.read(size))['result']['connected'])
+            size = struct.unpack("<I", process.stdout.read(4))[0]
+            self.assertTrue(json.loads(process.stdout.read(size))["result"]["connected"])
             time.sleep(_DAEMON_IDLE_GRACE_SECONDS + 1)
-            command = subprocess.run(['/bin/ps', '-p', str(pid), '-o', 'command='], capture_output=True, text=True)
+            command = subprocess.run(
+                ["/bin/ps", "-p", str(pid), "-o", "command="], capture_output=True, text=True
+            )
             self.assertEqual(command.returncode, 0)
-            self.assertIn(f'daemon.py --home {self.home}', command.stdout)
+            self.assertIn(f"daemon.py --home {self.home}", command.stdout)
             process.stdin.close()
             process.wait(timeout=5)
             self.assertEqual(process.returncode, 0)
             started = time.monotonic()
             deadline = started + _DAEMON_IDLE_GRACE_SECONDS + 5
-            while (data / 'daemon.pid').exists() and time.monotonic() < deadline:
-                time.sleep(.05)
-            self.assertFalse((data / 'daemon.pid').exists(), 'daemon did not self-exit after real host EOF')
-            self.assertFalse((data / 'bridge.sock').exists())
-            self.assertFalse((data / 'vault.sock').exists())
+            while (data / "daemon.pid").exists() and time.monotonic() < deadline:
+                time.sleep(0.05)
+            self.assertFalse(
+                (data / "daemon.pid").exists(), "daemon did not self-exit after real host EOF"
+            )
+            self.assertFalse((data / "bridge.sock").exists())
+            self.assertFalse((data / "vault.sock").exists())
             # 中文注释：PID 文件在进程返回前删除，必须在原期限内等真实进程退出。
             while True:
-                command = subprocess.run(['/bin/ps', '-p', str(pid), '-o', 'command='], capture_output=True, text=True)
+                command = subprocess.run(
+                    ["/bin/ps", "-p", str(pid), "-o", "command="], capture_output=True, text=True
+                )
                 if command.returncode == 1 or time.monotonic() >= deadline:
                     break
-                time.sleep(.05)
-            self.assertEqual(command.returncode, 1, 'daemon process remained alive after idle cleanup')
+                time.sleep(0.05)
+            self.assertEqual(
+                command.returncode, 1, "daemon process remained alive after idle cleanup"
+            )
             ensure_service(self.home)
-            restarted = int((data / 'daemon.pid').read_text())
+            restarted = int((data / "daemon.pid").read_text())
             self.assertNotEqual(pid, restarted)
             client = BridgeClient(self.home)
             try:
-                self.assertEqual(client.call('health', {}), {'ok': True, 'protocolVersion': 1})
+                self.assertEqual(client.call("health", {}), {"ok": True, "protocolVersion": 1})
             finally:
                 client.close()
-            print(json.dumps({'native_host_eof': process.returncode, 'old_pid': pid,
-                'exit_wait_seconds': time.monotonic() - started, 'ps_after_exit_code': command.returncode,
-                'restart_pid': restarted, 'default_grace': _DAEMON_IDLE_GRACE_SECONDS}))
+            print(
+                json.dumps(
+                    {
+                        "native_host_eof": process.returncode,
+                        "old_pid": pid,
+                        "exit_wait_seconds": time.monotonic() - started,
+                        "ps_after_exit_code": command.returncode,
+                        "restart_pid": restarted,
+                        "default_grace": _DAEMON_IDLE_GRACE_SECONDS,
+                    }
+                )
+            )
         finally:
             if process.poll() is None:
                 process.stdin.close()
@@ -159,7 +202,11 @@ class BridgeIntegrationTests(unittest.TestCase):
         (data_dir / "host-config.json").write_text(json.dumps({"allowedOrigins": [allowed]}))
         env = dict(os.environ, HERMES_HOME=str(self.home))
         completed = subprocess.run(
-            [sys.executable, str(BRIDGE_DIR / "host.py"), "chrome-extension://pppppppppppppppppppppppppppppppp/"],
+            [
+                sys.executable,
+                str(BRIDGE_DIR / "host.py"),
+                "chrome-extension://pppppppppppppppppppppppppppppppp/",
+            ],
             input=b"",
             capture_output=True,
             env=env,
@@ -205,8 +252,10 @@ class BridgeIntegrationTests(unittest.TestCase):
             text=True,
         )
         manifest_paths = [
-            isolated_home / "Library/Application Support/Google/Chrome/NativeMessagingHosts/com.fast.browser_link.json",
-            isolated_home / "Library/Application Support/Microsoft Edge/NativeMessagingHosts/com.fast.browser_link.json",
+            isolated_home
+            / "Library/Application Support/Google/Chrome/NativeMessagingHosts/com.fast.browser_link.json",
+            isolated_home
+            / "Library/Application Support/Microsoft Edge/NativeMessagingHosts/com.fast.browser_link.json",
         ]
         for manifest_path in manifest_paths:
             manifest = json.loads(manifest_path.read_text())
@@ -250,7 +299,9 @@ class BridgeIntegrationTests(unittest.TestCase):
                             "id": request["id"],
                             "result": {"ok": True, "protocolVersion": 1},
                         }
-                        connection.sendall(json.dumps(response, separators=(",", ":")).encode() + b"\n")
+                        connection.sendall(
+                            json.dumps(response, separators=(",", ":")).encode() + b"\n"
+                        )
                     else:
                         seen_requests.append(request)
                 finally:

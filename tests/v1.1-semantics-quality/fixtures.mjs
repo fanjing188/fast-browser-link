@@ -6,14 +6,14 @@ export function makeMultilingualEntry(index) {
   // Place nonprinting C0/C1 controls inside otherwise meaningful text.
   const noisy = text.replace('Café', 'Ca\u0000fé').replace('हिन्दी', 'हि\u0085न्दी');
   const expected = noisy.replace(/\s+/g, ' ').trim();
-  return {id, noisy, expected};
+  return { id, noisy, expected };
 }
 
 export function appendMultilingualCorpus(document, count = LARGE_CORPUS_SIZE) {
   const expected = [];
   const fragment = document.createDocumentFragment();
   for (let index = 0; index < count; index++) {
-    const {id, noisy, expected: clean} = makeMultilingualEntry(index);
+    const { id, noisy, expected: clean } = makeMultilingualEntry(index);
     const paragraph = document.createElement('p');
     paragraph.dataset.fixtureId = id;
     paragraph.textContent = noisy;

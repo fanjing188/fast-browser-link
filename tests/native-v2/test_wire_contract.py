@@ -1,4 +1,5 @@
 """Shared native v2 wire contract tests; no personal profile state."""
+
 from __future__ import annotations
 
 import importlib.util
@@ -61,21 +62,47 @@ class NativeV2WireTests(unittest.TestCase):
 
     def test_schema_exposes_public_actions_with_connection_authorization(self):
         actions = set(
-            self.tools.TOOL_SCHEMAS["fast_browser_run"]["parameters"]["properties"]["action"]["enum"]
+            self.tools.TOOL_SCHEMAS["fast_browser_run"]["parameters"]["properties"]["action"][
+                "enum"
+            ]
         )
         expected = {
             # 当前共享桥接公开滚动与历史返回动作。
-            "navigate", "snapshot", "click", "fill", "press", "screenshot", "tabs", "new_tab",
-            "scroll", "back",
-            "popup_catalog", "popup_adopt",
-            "page.parse", "semantic_snapshot", "frame_catalog", "ref_click", "ref_fill", "ref_press", "ref_set_checked", "ref_select_option", "api_request",
-            "interaction.capture", "interaction.bounds", "interaction.click",
-            "interaction.drag_coordinates", "interaction.drag_elements",
+            "navigate",
+            "snapshot",
+            "click",
+            "fill",
+            "press",
+            "screenshot",
+            "tabs",
+            "new_tab",
+            "scroll",
+            "back",
+            "popup_catalog",
+            "popup_adopt",
+            "page.parse",
+            "semantic_snapshot",
+            "frame_catalog",
+            "ref_click",
+            "ref_fill",
+            "ref_press",
+            "ref_set_checked",
+            "ref_select_option",
+            "api_request",
+            "interaction.capture",
+            "interaction.bounds",
+            "interaction.click",
+            "interaction.drag_coordinates",
+            "interaction.drag_elements",
             "files.upload",
             # 中文注释：连接授权后直接执行，凭据互斥与特殊确认不随模式开关移除。
-            "js.evaluate", "cdp.send", "cdp.events",
+            "js.evaluate",
+            "cdp.send",
+            "cdp.events",
             # 中文注释：官方 get_images/console/dialog 对应的原生动作。
-            "images", "console", "dialog",
+            "images",
+            "console",
+            "dialog",
         }
         self.assertEqual(actions, expected)
         self.assertTrue({"evaluate", "raw_cdp", "javascript"}.isdisjoint(actions))
@@ -86,7 +113,9 @@ class NativeV2WireTests(unittest.TestCase):
         # 中文注释：1.11.1 起登录弹窗直接接管，描述不得再要求白名单外确认。
         self.assertIn("白名单外及已发现的现有登录弹窗同样无需确认", description)
         self.assertNotIn("必须明确确认", description)
-        self.assertIn("paths", self.tools.TOOL_SCHEMAS["fast_browser_run"]["parameters"]["properties"])
+        self.assertIn(
+            "paths", self.tools.TOOL_SCHEMAS["fast_browser_run"]["parameters"]["properties"]
+        )
 
     def test_semantic_snapshot_and_ref_actions_map_exact_wire_fields(self):
         cases = [
@@ -138,28 +167,54 @@ class NativeV2WireTests(unittest.TestCase):
             ),
             (
                 # 中文注释：语义按键必须把绑定引用和按键原样送入可信 daemon。
-                {"task_id": "task-1", "action": "ref_press", "tab_id": 7,
-                 "binding": {"taskId": "task-1", "documentId": "loader-1", "leaseId": "lease-1"},
-                 "snapshot_id": "snapshot-1", "ref": "namespace:e5", "key": "ArrowDown"},
+                {
+                    "task_id": "task-1",
+                    "action": "ref_press",
+                    "tab_id": 7,
+                    "binding": {"taskId": "task-1", "documentId": "loader-1", "leaseId": "lease-1"},
+                    "snapshot_id": "snapshot-1",
+                    "ref": "namespace:e5",
+                    "key": "ArrowDown",
+                },
                 {"binding", "snapshotId", "ref", "key"},
             ),
             (
-                {"task_id": "task-1", "action": "ref_set_checked", "tab_id": 7,
-                 "binding": {"taskId": "task-1", "documentId": "loader-1", "leaseId": "lease-1"},
-                 "snapshot_id": "snapshot-1", "ref": "namespace:e3", "checked": True},
+                {
+                    "task_id": "task-1",
+                    "action": "ref_set_checked",
+                    "tab_id": 7,
+                    "binding": {"taskId": "task-1", "documentId": "loader-1", "leaseId": "lease-1"},
+                    "snapshot_id": "snapshot-1",
+                    "ref": "namespace:e3",
+                    "checked": True,
+                },
                 {"binding", "snapshotId", "ref", "checked"},
             ),
             (
-                {"task_id": "task-1", "action": "ref_select_option", "tab_id": 7,
-                 "binding": {"taskId": "task-1", "documentId": "loader-1", "leaseId": "lease-1"},
-                 "snapshot_id": "snapshot-1", "ref": "namespace:e4", "by": "label", "values": ["甲"]},
+                {
+                    "task_id": "task-1",
+                    "action": "ref_select_option",
+                    "tab_id": 7,
+                    "binding": {"taskId": "task-1", "documentId": "loader-1", "leaseId": "lease-1"},
+                    "snapshot_id": "snapshot-1",
+                    "ref": "namespace:e4",
+                    "by": "label",
+                    "values": ["甲"],
+                },
                 {"binding", "snapshotId", "ref", "by", "values"},
             ),
             (
                 # 中文注释：index 选择器传零基整数，不经 JSON/daemon 转换为字符串。
-                {"task_id": "task-1", "action": "ref_select_option", "tab_id": 7,
-                 "binding": {"taskId": "task-1", "documentId": "loader-1", "leaseId": "lease-1"},
-                 "snapshot_id": "snapshot-1", "ref": "namespace:e4", "by": "index", "values": [0, 2]},
+                {
+                    "task_id": "task-1",
+                    "action": "ref_select_option",
+                    "tab_id": 7,
+                    "binding": {"taskId": "task-1", "documentId": "loader-1", "leaseId": "lease-1"},
+                    "snapshot_id": "snapshot-1",
+                    "ref": "namespace:e4",
+                    "by": "index",
+                    "values": [0, 2],
+                },
                 {"binding", "snapshotId", "ref", "by", "values"},
             ),
         ]
@@ -182,29 +237,70 @@ class NativeV2WireTests(unittest.TestCase):
                 {"tabId": 7},
             ),
             (
-                {"task_id": "task-1", "tab_id": 7, "action": "interaction.bounds",
-                 "screenshot_id": "shot-1", "selector": "#button"},
+                {
+                    "task_id": "task-1",
+                    "tab_id": 7,
+                    "action": "interaction.bounds",
+                    "screenshot_id": "shot-1",
+                    "selector": "#button",
+                },
                 {"tabId": 7, "screenshotId": "shot-1", "selector": "#button"},
             ),
             (
-                {"task_id": "task-1", "tab_id": 7, "action": "interaction.click",
-                 "screenshot_id": "shot-1", "point": {"x": 10, "y": 20}, "expected_ref": "ref-1"},
-                {"tabId": 7, "screenshotId": "shot-1", "point": {"x": 10, "y": 20},
-                 "expectedRef": "ref-1"},
+                {
+                    "task_id": "task-1",
+                    "tab_id": 7,
+                    "action": "interaction.click",
+                    "screenshot_id": "shot-1",
+                    "point": {"x": 10, "y": 20},
+                    "expected_ref": "ref-1",
+                },
+                {
+                    "tabId": 7,
+                    "screenshotId": "shot-1",
+                    "point": {"x": 10, "y": 20},
+                    "expectedRef": "ref-1",
+                },
             ),
             (
-                {"task_id": "task-1", "tab_id": 7, "action": "interaction.drag_coordinates",
-                 "screenshot_id": "shot-1", "from": endpoint_from, "to": endpoint_to,
-                 "mode": "pointer", "steps": 4},
-                {"tabId": 7, "screenshotId": "shot-1", "from": endpoint_from, "to": endpoint_to,
-                 "mode": "pointer", "steps": 4},
+                {
+                    "task_id": "task-1",
+                    "tab_id": 7,
+                    "action": "interaction.drag_coordinates",
+                    "screenshot_id": "shot-1",
+                    "from": endpoint_from,
+                    "to": endpoint_to,
+                    "mode": "pointer",
+                    "steps": 4,
+                },
+                {
+                    "tabId": 7,
+                    "screenshotId": "shot-1",
+                    "from": endpoint_from,
+                    "to": endpoint_to,
+                    "mode": "pointer",
+                    "steps": 4,
+                },
             ),
             (
-                {"task_id": "task-1", "tab_id": 7, "action": "interaction.drag_elements",
-                 "screenshot_id": "shot-1", "source": "#source", "target": "#target",
-                 "mode": "html5-synthetic", "steps": 4},
-                {"tabId": 7, "screenshotId": "shot-1", "source": "#source", "target": "#target",
-                 "mode": "html5-synthetic", "steps": 4},
+                {
+                    "task_id": "task-1",
+                    "tab_id": 7,
+                    "action": "interaction.drag_elements",
+                    "screenshot_id": "shot-1",
+                    "source": "#source",
+                    "target": "#target",
+                    "mode": "html5-synthetic",
+                    "steps": 4,
+                },
+                {
+                    "tabId": 7,
+                    "screenshotId": "shot-1",
+                    "source": "#source",
+                    "target": "#target",
+                    "mode": "html5-synthetic",
+                    "steps": 4,
+                },
             ),
         ]
         for args, expected_fields in cases:
@@ -224,7 +320,12 @@ class NativeV2WireTests(unittest.TestCase):
                 "task_id": "task-1",
                 "action": "ref_click",
                 "tab_id": 7,
-                "binding": {"taskId": "task-1", "documentId": "d", "leaseId": "l", "owner": "forged"},
+                "binding": {
+                    "taskId": "task-1",
+                    "documentId": "d",
+                    "leaseId": "l",
+                    "owner": "forged",
+                },
                 "snapshot_id": "s",
                 "ref": "r",
             },

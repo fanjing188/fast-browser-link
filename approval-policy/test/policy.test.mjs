@@ -53,7 +53,10 @@ test('任务范围内的读取和写入默认允许', () => {
 
   assert.equal(state.preferredMode, 'smart');
   assert.equal(state.activeMode, 'smart');
-  assert.equal(policy.decide(state, { action: 'snapshot', tabId: 41 }, runtimeFor(state)).decision, 'allow');
+  assert.equal(
+    policy.decide(state, { action: 'snapshot', tabId: 41 }, runtimeFor(state)).decision,
+    'allow',
+  );
 
   const click = policy.decide(state, { action: 'click', tabId: 41 }, runtimeFor(state));
   assert.equal(click.decision, 'allow');
@@ -201,10 +204,11 @@ test('取消任务立即撤销授权且不能继续执行', () => {
   assert.equal(decision.decision, 'deny');
   assert.equal(decision.code, 'TASK_NOT_ACTIVE');
   assert.throws(
-    () => policy.enableFullAccess(
-      cancelled,
-      grantFor('grant-after-cancel', { expectedModeGeneration: cancelled.modeGeneration }),
-    ),
+    () =>
+      policy.enableFullAccess(
+        cancelled,
+        grantFor('grant-after-cancel', { expectedModeGeneration: cancelled.modeGeneration }),
+      ),
     (error) => error.code === 'TASK_NOT_ACTIVE',
   );
 });

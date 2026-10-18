@@ -1,4 +1,5 @@
 """V1.1 concurrency regressions through the production daemon dispatcher."""
+
 import json
 import os
 from pathlib import Path
@@ -72,8 +73,10 @@ class DroppingResponseProxy:
                 backend.sendall(line)
                 response_line = self._line(backend_reader)
                 response = json.loads(response_line)
-                if (request.get("method") == "shared.run"
-                        and request.get("params", {}).get("requestId") == self.request_id):
+                if (
+                    request.get("method") == "shared.run"
+                    and request.get("params", {}).get("requestId") == self.request_id
+                ):
                     self.dropped_request_count += 1
                     self.dropped_response = response
                     # The daemon has finished dispatch and produced its result;
@@ -123,7 +126,9 @@ class ProductionConcurrencyTests(unittest.TestCase):
     def setUp(self):
         self.home = self.enterContext(temporary_bridge_home())
         self.socket_path = self.home / "plugin-data" / "fast-browser-link-native" / "bridge.sock"
-        self.assertLess(len(os.fsencode(self.socket_path)), 104, "fixture AF_UNIX path exceeds macOS limit")
+        self.assertLess(
+            len(os.fsencode(self.socket_path)), 104, "fixture AF_UNIX path exceeds macOS limit"
+        )
         self.peer = None
         self.reader_thread = None
         self.messages = queue.Queue()
@@ -135,7 +140,7 @@ class ProductionConcurrencyTests(unittest.TestCase):
         self.owner_prefix = f"c12-{uuid.uuid4().hex[:12]}"
 
         # 中文注释：只向临时 daemon 指定 current，不修改用户配置。
-        with patch.dict(os.environ, {'FAST_BROWSER_WORK_WINDOW': 'current'}):
+        with patch.dict(os.environ, {"FAST_BROWSER_WORK_WINDOW": "current"}):
             ensure_service(self.home)
         self.assertEqual(self.rpc("health", {}), {"ok": True, "protocolVersion": 1})
         self.peer = subprocess.Popen(
@@ -158,21 +163,35 @@ class ProductionConcurrencyTests(unittest.TestCase):
         for browser in ("chrome", "edge"):
             for ordinal, tab_id in ((1, 71), (2, 72)):
                 owner = f"{self.owner_prefix}-{browser}-{ordinal}"
-                task = self.rpc("shared.create", {
-                    "owner": owner,
-                    "title": f"synthetic {browser} task {ordinal}",
-                    "instanceId": INSTANCE[browser],
-                    "allowedOrigins": [ORIGIN],
-                })
+                task = self.rpc(
+                    "shared.create",
+                    {
+                        "owner": owner,
+                        "title": f"synthetic {browser} task {ordinal}",
+                        "instanceId": INSTANCE[browser],
+                        "allowedOrigins": [ORIGIN],
+                    },
+                )
                 self.assertEqual(task["state"], "pending_approval")
-                entry = {"browser": browser, "ordinal": ordinal, "tabId": tab_id,
-                         "owner": owner, "id": task["id"], "generation": task["generation"]}
+                entry = {
+                    "browser": browser,
+                    "ordinal": ordinal,
+                    "tabId": tab_id,
+                    "owner": owner,
+                    "id": task["id"],
+                    "generation": task["generation"],
+                }
                 self.tasks[(browser, ordinal)] = entry
-                approved = self.control("approve", instanceId=INSTANCE[browser],
-                                        taskId=task["id"], tabId=tab_id)
+                approved = self.control(
+                    "approve", instanceId=INSTANCE[browser], taskId=task["id"], tabId=tab_id
+                )
                 self.assertEqual(approved["state"], "ready")
-                full = self.control("mode", instanceId=INSTANCE[browser],
-                                    taskId=task["id"], generation=task["generation"])
+                full = self.control(
+                    "mode",
+                    instanceId=INSTANCE[browser],
+                    taskId=task["id"],
+                    generation=task["generation"],
+                )
                 self.assertEqual(full["activeMode"], "full")
 
     def _read_peer(self):
@@ -211,10 +230,13 @@ class ProductionConcurrencyTests(unittest.TestCase):
             self.next_control_id += 1
             request_id = self.next_control_id
             assert self.peer is not None and self.peer.stdin is not None
-            self.peer.stdin.write(json.dumps({"id": request_id, "command": command, **params}) + "\n")
+            self.peer.stdin.write(
+                json.dumps({"id": request_id, "command": command, **params}) + "\n"
+            )
             self.peer.stdin.flush()
             response = self._wait_message(
-                lambda item: item.get("type") == "response" and item.get("id") == request_id, 10)
+                lambda item: item.get("type") == "response" and item.get("id") == request_id, 10
+            )
             if "error" in response:
                 raise AssertionError(f"synthetic peer {command} failed: {response['error']}")
             return response.get("result")
@@ -256,99 +278,164 @@ class ProductionConcurrencyTests(unittest.TestCase):
             if current.get("state") == state:
                 return current
             time.sleep(0.02)
-        self.fail(f"task {task['id']} did not reach {state}: {current.get('state')} / {current.get('lastError')}")
+        self.fail(
+            f"task {task['id']} did not reach {state}: {current.get('state')} / {current.get('lastError')}"
+        )
 
     def test_open_select_subagent_isolation_and_close_cross_complete_native_stack(self):
         # 中文注释：从可信工具租约到真实 daemon/Bridge/Executor/工作区，验证父子会话、显式选页与正常清理。
-        plugin = ROOT / 'executor-plugin'
+        plugin = ROOT / "executor-plugin"
         sys.path.insert(0, str(plugin))
         try:
             import native_runtime
         finally:
             sys.path.remove(str(plugin))
         profile = native_runtime.NativeProfileRuntime(self.home, plugin)
-        script = native_runtime.load_module(plugin / 'script_lane/host_bridge.py', 'audit_script_')
-        integration = native_runtime.load_module(plugin / 'single_tool_adapter/integration.py', 'audit_binding_')
-        opener = native_runtime.load_module(plugin / 'open_tool.py', 'audit_open_')
-        tools = native_runtime.load_module(plugin / 'native_tools.py', 'audit_tools_')
+        script = native_runtime.load_module(plugin / "script_lane/host_bridge.py", "audit_script_")
+        integration = native_runtime.load_module(
+            plugin / "single_tool_adapter/integration.py", "audit_binding_"
+        )
+        opener = native_runtime.load_module(plugin / "open_tool.py", "audit_open_")
+        tools = native_runtime.load_module(plugin / "native_tools.py", "audit_tools_")
         script_bridge = script.HostBridge(profile, plugin)
         bridge = integration.HostBindingCoordinator(script_bridge)
-        profile.authority.lease_tools(('fast_browser_open', 'fast_browser_use_tab'))
-        open_handler = opener.make_handler(profile, bridge, lease_error=native_runtime.OwnerLeaseError)
-        select_handler = opener.make_use_tab_handler(profile, bridge, lease_error=native_runtime.OwnerLeaseError)
+        profile.authority.lease_tools(("fast_browser_open", "fast_browser_use_tab"))
+        open_handler = opener.make_handler(
+            profile, bridge, lease_error=native_runtime.OwnerLeaseError
+        )
+        select_handler = opener.make_use_tab_handler(
+            profile, bridge, lease_error=native_runtime.OwnerLeaseError
+        )
+
         def invoke(name, args, session):
-            hook = profile.authority.pre_tool_call(name, args, session_id=session, tool_call_id=uuid.uuid4().hex)
-            self.assertEqual(hook['action'], 'modify')
-            handler = (open_handler if name == 'fast_browser_open' else select_handler if name == 'fast_browser_use_tab'
-                       else tools.make_tool_handler(name, profile, host_bridge=bridge))
-            return json.loads(handler({**args, **hook['args']}, session_id=session))
+            hook = profile.authority.pre_tool_call(
+                name, args, session_id=session, tool_call_id=uuid.uuid4().hex
+            )
+            self.assertEqual(hook["action"], "modify")
+            handler = (
+                open_handler
+                if name == "fast_browser_open"
+                else select_handler
+                if name == "fast_browser_use_tab"
+                else tools.make_tool_handler(name, profile, host_bridge=bridge)
+            )
+            return json.loads(handler({**args, **hook["args"]}, session_id=session))
+
         try:
-            self.control('consent', instanceId=INSTANCE['chrome'])
-            parent = invoke('fast_browser_open', {'url': ORIGIN + '/parent'}, 'parent-session')
-            child = invoke('fast_browser_open', {'url': ORIGIN + '/child'}, 'subagent-session')
-            second = invoke('fast_browser_open', {'url': ORIGIN + '/second'}, 'parent-session')
-            self.assertEqual(parent['task_id'], second['task_id'])
-            self.assertNotEqual(parent['task_id'], child['task_id'])
-            self.assertNotEqual(parent['tab_id'], child['tab_id'])
-            self.assertEqual(invoke('fast_browser_use_tab', {'tab_id': parent['tab_id']}, 'subagent-session')['code'], 'foreign_tab')
-            self.assertTrue(invoke('fast_browser_use_tab', {'tab_id': second['tab_id']}, 'parent-session')['success'])
-            denied = invoke('fast_browser_get', {'task_id': parent['task_id']}, 'subagent-session')
-            self.assertEqual(denied['bridgeCode'], 'forbidden')
-            for session, opened in [('parent-session', parent), ('subagent-session', child)]:
-                result = invoke('fast_browser_run', {'task_id': opened['task_id'], 'request_id': uuid.uuid4().hex,
-                    'action': 'navigate', 'tab_id': opened['tab_id'], 'url': ORIGIN + '/' + session}, session)
-                self.assertNotIn('error', result)
-            observed = self.stats('chrome')['tabs']
-            self.assertEqual(observed[str(parent['tab_id'])]['url'], ORIGIN + '/parent-session')
-            self.assertEqual(observed[str(child['tab_id'])]['url'], ORIGIN + '/subagent-session')
-            self.assertFalse(observed[str(parent['tab_id'])]['active'])
-            self.assertEqual(observed[str(parent['tab_id'])]['groupId'], observed[str(second['tab_id'])]['groupId'])
-            self.assertNotEqual(observed[str(parent['tab_id'])]['groupId'], observed[str(child['tab_id'])]['groupId'])
-            closed = invoke('fast_browser_close', {'task_id': parent['task_id']}, 'parent-session')
-            self.assertEqual((closed['state'], closed['cleanupState']), ('closed', 'succeeded'))
-            observed = self.stats('chrome')['tabs']
-            self.assertNotIn(str(parent['tab_id']), observed)
-            self.assertNotIn(str(second['tab_id']), observed)
-            self.assertIn(str(child['tab_id']), observed)
-            self.assertIn('71', observed)
+            self.control("consent", instanceId=INSTANCE["chrome"])
+            parent = invoke("fast_browser_open", {"url": ORIGIN + "/parent"}, "parent-session")
+            child = invoke("fast_browser_open", {"url": ORIGIN + "/child"}, "subagent-session")
+            second = invoke("fast_browser_open", {"url": ORIGIN + "/second"}, "parent-session")
+            self.assertEqual(parent["task_id"], second["task_id"])
+            self.assertNotEqual(parent["task_id"], child["task_id"])
+            self.assertNotEqual(parent["tab_id"], child["tab_id"])
+            self.assertEqual(
+                invoke("fast_browser_use_tab", {"tab_id": parent["tab_id"]}, "subagent-session")[
+                    "code"
+                ],
+                "foreign_tab",
+            )
+            self.assertTrue(
+                invoke("fast_browser_use_tab", {"tab_id": second["tab_id"]}, "parent-session")[
+                    "success"
+                ]
+            )
+            denied = invoke("fast_browser_get", {"task_id": parent["task_id"]}, "subagent-session")
+            self.assertEqual(denied["bridgeCode"], "forbidden")
+            for session, opened in [("parent-session", parent), ("subagent-session", child)]:
+                result = invoke(
+                    "fast_browser_run",
+                    {
+                        "task_id": opened["task_id"],
+                        "request_id": uuid.uuid4().hex,
+                        "action": "navigate",
+                        "tab_id": opened["tab_id"],
+                        "url": ORIGIN + "/" + session,
+                    },
+                    session,
+                )
+                self.assertNotIn("error", result)
+            observed = self.stats("chrome")["tabs"]
+            self.assertEqual(observed[str(parent["tab_id"])]["url"], ORIGIN + "/parent-session")
+            self.assertEqual(observed[str(child["tab_id"])]["url"], ORIGIN + "/subagent-session")
+            self.assertFalse(observed[str(parent["tab_id"])]["active"])
+            self.assertEqual(
+                observed[str(parent["tab_id"])]["groupId"],
+                observed[str(second["tab_id"])]["groupId"],
+            )
+            self.assertNotEqual(
+                observed[str(parent["tab_id"])]["groupId"],
+                observed[str(child["tab_id"])]["groupId"],
+            )
+            closed = invoke("fast_browser_close", {"task_id": parent["task_id"]}, "parent-session")
+            self.assertEqual((closed["state"], closed["cleanupState"]), ("closed", "succeeded"))
+            observed = self.stats("chrome")["tabs"]
+            self.assertNotIn(str(parent["tab_id"]), observed)
+            self.assertNotIn(str(second["tab_id"]), observed)
+            self.assertIn(str(child["tab_id"]), observed)
+            self.assertIn("71", observed)
             # 中文注释：会话结束和子代理结束走真实注册钩子，只清理对应 owner，不依赖模型主动 close。
             import types
+
             hooks = {}
-            ctx = types.SimpleNamespace(register_hook=lambda name, callback: hooks.update({name: callback}),
-                register_tool=lambda **kwargs: None, on_unload=lambda callback: None)
+            ctx = types.SimpleNamespace(
+                register_hook=lambda name, callback: hooks.update({name: callback}),
+                register_tool=lambda **kwargs: None,
+                on_unload=lambda callback: None,
+            )
             tools.register_native_context(ctx, profile, host_bridge=bridge)
-            self.assertIn('on_session_finalize', hooks)
-            self.assertIn('subagent_stop', hooks)
+            self.assertIn("on_session_finalize", hooks)
+            self.assertIn("subagent_stop", hooks)
             # 中文注释：1.4.3 起每轮结束与 /stop 也注册钩子；未发 completed 信号时 finalize 仍立即关闭。
-            self.assertIn('on_session_end', hooks)
-            self.assertIn('agent_loop_stopped', hooks)
-            final = invoke('fast_browser_open', {'url': ORIGIN + '/final'}, 'parent-session')
-            issued = profile.authority.pre_tool_call('fast_browser_get', {'task_id': final['task_id']},
-                session_id='parent-session', tool_call_id='unused-before-finalize')
-            hooks['on_session_finalize'](session_id='parent-session')
+            self.assertIn("on_session_end", hooks)
+            self.assertIn("agent_loop_stopped", hooks)
+            final = invoke("fast_browser_open", {"url": ORIGIN + "/final"}, "parent-session")
+            issued = profile.authority.pre_tool_call(
+                "fast_browser_get",
+                {"task_id": final["task_id"]},
+                session_id="parent-session",
+                tool_call_id="unused-before-finalize",
+            )
+            hooks["on_session_finalize"](session_id="parent-session")
             with self.assertRaises(native_runtime.OwnerLeaseError):
-                profile.authority.consume('fast_browser_get', {'task_id': final['task_id'], **issued['args']},
-                    session_id='parent-session')
-            observed = self.stats('chrome')['tabs']
-            self.assertNotIn(str(final['tab_id']), observed)
-            self.assertIn(str(child['tab_id']), observed)
-            hooks['subagent_stop'](parent_session_id='parent-session', child_session_id='subagent-session')
-            self.assertNotIn(str(child['tab_id']), self.stats('chrome')['tabs'])
+                profile.authority.consume(
+                    "fast_browser_get",
+                    {"task_id": final["task_id"], **issued["args"]},
+                    session_id="parent-session",
+                )
+            observed = self.stats("chrome")["tabs"]
+            self.assertNotIn(str(final["tab_id"]), observed)
+            self.assertIn(str(child["tab_id"]), observed)
+            hooks["subagent_stop"](
+                parent_session_id="parent-session", child_session_id="subagent-session"
+            )
+            self.assertNotIn(str(child["tab_id"]), self.stats("chrome")["tabs"])
         finally:
             script_bridge.close()
             profile.close()
 
-    def test_connection_authorizes_new_tasks_full_only_and_direct_writes_without_cross_browser_effects(self):
+    def test_connection_authorizes_new_tasks_full_only_and_direct_writes_without_cross_browser_effects(
+        self,
+    ):
         # 中文注释：旧偏好为关闭也不能降级连接；新任务只取得自己的工作页权限。
         old = self.tasks[("chrome", 1)]
         edge = self.tasks[("edge", 1)]
         edge_before = self.rpc("shared.get", {"owner": edge["owner"], "taskId": edge["id"]})
         edge_tabs_before = self.stats("edge")["tabs"]
-        self.assertEqual([tab["id"] for tab in self._run_task(old, "before-connection")], [old["tabId"]])
+        self.assertEqual(
+            [tab["id"] for tab in self._run_task(old, "before-connection")], [old["tabId"]]
+        )
         connected = self.control("consent", instanceId=INSTANCE["chrome"])
         self.assertEqual(connected, {"enabled": True, "status": "enabled"})
-        fresh = self.rpc("shared.create", {"owner": old["owner"], "title": "connected-full-task",
-            "instanceId": INSTANCE["chrome"], "allowedOrigins": [ORIGIN]})
+        fresh = self.rpc(
+            "shared.create",
+            {
+                "owner": old["owner"],
+                "title": "connected-full-task",
+                "instanceId": INSTANCE["chrome"],
+                "allowedOrigins": [ORIGIN],
+            },
+        )
         fresh = {**fresh, "owner": old["owner"]}
         for task in (old, fresh):
             current = self.wait_task_state(task, "ready")
@@ -358,7 +445,9 @@ class ProductionConcurrencyTests(unittest.TestCase):
         opened = self._run_task(fresh, "direct-new-tab", "new_tab", url=ORIGIN + "/created")
         fresh["tabId"] = opened["tabId"]
         self.assertNotIn(fresh["tabId"], (71, 72))
-        self.assertEqual([tab["id"] for tab in self._run_task(fresh, "fresh-owned-read")], [fresh["tabId"]])
+        self.assertEqual(
+            [tab["id"] for tab in self._run_task(fresh, "fresh-owned-read")], [fresh["tabId"]]
+        )
         self.control("reset_counts", instanceId=INSTANCE["chrome"])
         target = ORIGIN + "/direct-write"
         written = self._run_task(fresh, "direct-navigate", "navigate", url=target)
@@ -367,15 +456,21 @@ class ProductionConcurrencyTests(unittest.TestCase):
         self.assertEqual(self.stats("chrome")["updates"], {str(fresh["tabId"]): 1})
         self.assertEqual(self.stats("chrome")["tabs"][str(fresh["tabId"])]["url"], target)
         with self.assertRaises(BridgeError) as denied:
-            self._run_task(fresh, "foreign-existing-tab", "navigate", tabId=old["tabId"], url=target)
+            self._run_task(
+                fresh, "foreign-existing-tab", "navigate", tabId=old["tabId"], url=target
+            )
         self.assertEqual(denied.exception.code, "foreign_tab")
         self.assertEqual(self.stats("chrome")["updates"], {str(fresh["tabId"]): 1})
-        self.assertEqual([tab["id"] for tab in self._run_task(old, "old-still-ready")], [old["tabId"]])
+        self.assertEqual(
+            [tab["id"] for tab in self._run_task(old, "old-still-ready")], [old["tabId"]]
+        )
         edge_after = self.rpc("shared.get", {"owner": edge["owner"], "taskId": edge["id"]})
         for field in ("state", "generation", "modeGeneration", "activeMode", "tabIds"):
             self.assertEqual(edge_after[field], edge_before[field])
         self.assertEqual(self.stats("edge")["tabs"], edge_tabs_before)
-        self.assertEqual([tab["id"] for tab in self._run_task(edge, "edge-still-ready")], [edge["tabId"]])
+        self.assertEqual(
+            [tab["id"] for tab in self._run_task(edge, "edge-still-ready")], [edge["tabId"]]
+        )
 
     def test_extension_stop_releases_inflight_read_without_replay(self):
         # 中文注释：浏览器 API 的挂起/放行是唯一合成边界；撤权和停止都调用生产方法。
@@ -385,11 +480,18 @@ class ProductionConcurrencyTests(unittest.TestCase):
         self.control("pause_get", instanceId=INSTANCE["chrome"], tabId=task["tabId"])
         with ThreadPoolExecutor(max_workers=1) as pool:
             running = pool.submit(self._run_task, task, request_id)
-            self._wait_message(lambda item: item.get("type") == "get_entered"
-                               and item.get("instanceId") == INSTANCE["chrome"]
-                               and item.get("tabId") == task["tabId"], 5)
-            stopped = self.control("stop", instanceId=INSTANCE["chrome"],
-                                   taskId=task["id"], generation=task["generation"])
+            self._wait_message(
+                lambda item: item.get("type") == "get_entered"
+                and item.get("instanceId") == INSTANCE["chrome"]
+                and item.get("tabId") == task["tabId"],
+                5,
+            )
+            stopped = self.control(
+                "stop",
+                instanceId=INSTANCE["chrome"],
+                taskId=task["id"],
+                generation=task["generation"],
+            )
             self.assertTrue(stopped["revoked"])
             self.control("resume_get", instanceId=INSTANCE["chrome"], tabId=task["tabId"])
             with self.assertRaises(BridgeError) as caught:
@@ -397,11 +499,15 @@ class ProductionConcurrencyTests(unittest.TestCase):
             self.assertEqual(caught.exception.code, "permission_denied")
             self.assertEqual(caught.exception.data, {"outcomeUnknown": False, "retryable": False})
             terminal = self.control("wait_stopped", instanceId=INSTANCE["chrome"])
-            self.assertEqual((terminal["state"], terminal["cleanupState"]), ("cancelled", "succeeded"))
+            self.assertEqual(
+                (terminal["state"], terminal["cleanupState"]), ("cancelled", "succeeded")
+            )
         current = self.wait_task_state(task, "cancelled")
         self.assertEqual(current["generation"], task["generation"])
         self.assertEqual(current["tabIds"], [])
-        local = next(row for row in self.stats("chrome")["executorTasks"] if row["id"] == task["id"])
+        local = next(
+            row for row in self.stats("chrome")["executorTasks"] if row["id"] == task["id"]
+        )
         self.assertTrue(local["revoked"])
         self.assertEqual(self.stats("chrome")["gets"], {str(task["tabId"]): 1})
         self.assertEqual(self.stats("chrome")["updates"], {})
@@ -412,7 +518,9 @@ class ProductionConcurrencyTests(unittest.TestCase):
             self.assertFalse(denied.exception.data.get("outcomeUnknown"))
         self.assertEqual(self.stats("chrome")["gets"], {str(task["tabId"]): 1})
         for sibling in (self.tasks[("chrome", 2)], self.tasks[("edge", 1)]):
-            self.assertEqual([tab["id"] for tab in self._run_task(sibling, "survives-stop")], [sibling["tabId"]])
+            self.assertEqual(
+                [tab["id"] for tab in self._run_task(sibling, "survives-stop")], [sibling["tabId"]]
+            )
 
     def test_two_browsers_each_keep_two_task_leases_with_same_numeric_tab_ids(self):
         for ordinal in (1, 2):
@@ -423,23 +531,27 @@ class ProductionConcurrencyTests(unittest.TestCase):
         self.control("reset_counts", instanceId=INSTANCE["chrome"])
         self.control("reset_counts", instanceId=INSTANCE["edge"])
 
-        request_ids = {(browser, ordinal): f"duplicate-{browser}-{ordinal}-{uuid.uuid4().hex}"
-                       for browser in ("chrome", "edge") for ordinal in (1, 2)}
+        request_ids = {
+            (browser, ordinal): f"duplicate-{browser}-{ordinal}-{uuid.uuid4().hex}"
+            for browser in ("chrome", "edge")
+            for ordinal in (1, 2)
+        }
         keys = list(request_ids)
         simultaneous_keys = [key for key in keys for _ in range(2)]
+
         # 中文注释：在途重复请求立即返回未知，完成后的重复请求返回缓存结果；两种情况都只派发一次。
         def duplicate_call(key):
             try:
                 return self._run_task(self.tasks[key], request_ids[key])
             except BridgeError as exc:
-                self.assertEqual(exc.code, 'request_outcome_unavailable')
+                self.assertEqual(exc.code, "request_outcome_unavailable")
                 return None
+
         with ThreadPoolExecutor(max_workers=8) as pool:
-            duplicate_results = list(pool.map(
-                duplicate_call, simultaneous_keys))
+            duplicate_results = list(pool.map(duplicate_call, simultaneous_keys))
         first_results = []
         for index, key in enumerate(keys):
-            result, duplicate = duplicate_results[index * 2:index * 2 + 2]
+            result, duplicate = duplicate_results[index * 2 : index * 2 + 2]
             if result is None:
                 result, duplicate = duplicate, result
             if duplicate is not None:
@@ -450,7 +562,9 @@ class ProductionConcurrencyTests(unittest.TestCase):
             self.assertIn(f"/{key[0]}/{key[1]}", result[0]["url"])
         for browser in ("chrome", "edge"):
             observed = self.stats(browser)["gets"]
-            self.assertEqual(observed, {"71": 1, "72": 1}, f"duplicate dispatched again on {browser}: {observed}")
+            self.assertEqual(
+                observed, {"71": 1, "72": 1}, f"duplicate dispatched again on {browser}: {observed}"
+            )
 
         task = self.tasks[("chrome", 1)]
         with self.assertRaises(BridgeError) as conflict:
@@ -462,16 +576,29 @@ class ProductionConcurrencyTests(unittest.TestCase):
         self.control("pause_get", instanceId=INSTANCE["chrome"], tabId=cancelled["tabId"])
         with ThreadPoolExecutor(max_workers=1) as pool:
             inflight = pool.submit(self._run_task, cancelled, f"inflight-{uuid.uuid4().hex}")
-            self._wait_message(lambda item: item.get("type") == "get_entered"
-                               and item.get("instanceId") == INSTANCE["chrome"]
-                               and item.get("tabId") == cancelled["tabId"], 5)
-            result = self.rpc("shared.cancel", {"owner": cancelled["owner"], "taskId": cancelled["id"]})
+            self._wait_message(
+                lambda item: item.get("type") == "get_entered"
+                and item.get("instanceId") == INSTANCE["chrome"]
+                and item.get("tabId") == cancelled["tabId"],
+                5,
+            )
+            result = self.rpc(
+                "shared.cancel", {"owner": cancelled["owner"], "taskId": cancelled["id"]}
+            )
             self.assertEqual(result["state"], "cancelled")
 
-            unaffected = [self.tasks[("chrome", 2)], self.tasks[("edge", 1)], self.tasks[("edge", 2)]]
+            unaffected = [
+                self.tasks[("chrome", 2)],
+                self.tasks[("edge", 1)],
+                self.tasks[("edge", 2)],
+            ]
             with ThreadPoolExecutor(max_workers=3) as peers:
-                peer_results = list(peers.map(
-                    lambda task: self._run_task(task, f"survivor-{uuid.uuid4().hex}"), unaffected))
+                peer_results = list(
+                    peers.map(
+                        lambda task: self._run_task(task, f"survivor-{uuid.uuid4().hex}"),
+                        unaffected,
+                    )
+                )
             for task, tabs in zip(unaffected, peer_results):
                 self.assertEqual([tab["id"] for tab in tabs], [task["tabId"]])
 
@@ -493,7 +620,9 @@ class ProductionConcurrencyTests(unittest.TestCase):
             current = self.wait_task_state(task, "needs_sync")
             self.assertEqual(current["generation"], 1)
             self.assertEqual(current["tabIds"], [])
-        edge_current = self.rpc("shared.get", {"owner": edge_task["owner"], "taskId": edge_task["id"]})
+        edge_current = self.rpc(
+            "shared.get", {"owner": edge_task["owner"], "taskId": edge_task["id"]}
+        )
         self.assertEqual(edge_current["state"], "ready")
 
         self.control("reconnect", instanceId=INSTANCE["chrome"])
@@ -502,11 +631,13 @@ class ProductionConcurrencyTests(unittest.TestCase):
             self.assertEqual(resumed["state"], "pending_approval")
             self.assertEqual(resumed["generation"], 2)
             task["generation"] = 2
-            approved = self.control("approve", instanceId=INSTANCE["chrome"],
-                                    taskId=task["id"], tabId=task["tabId"])
+            approved = self.control(
+                "approve", instanceId=INSTANCE["chrome"], taskId=task["id"], tabId=task["tabId"]
+            )
             self.assertEqual(approved["generation"], 2)
-            full = self.control("mode", instanceId=INSTANCE["chrome"],
-                                taskId=task["id"], generation=2)
+            full = self.control(
+                "mode", instanceId=INSTANCE["chrome"], taskId=task["id"], generation=2
+            )
             self.assertEqual(full["activeMode"], "full")
             tabs = self._run_task(task, f"generation-two-{uuid.uuid4().hex}")
             self.assertEqual([tab["id"] for tab in tabs], [task["tabId"]])
@@ -528,10 +659,15 @@ class ProductionConcurrencyTests(unittest.TestCase):
         proxy_home = self.enterContext(temporary_bridge_home())
         proxy_data = proxy_home / "plugin-data" / "fast-browser-link-native"
         proxy_data.mkdir(parents=True)
-        (proxy_data / "token").write_text((self.home / "plugin-data" / "fast-browser-link-native" / "token").read_text().strip() + "\n")
+        (proxy_data / "token").write_text(
+            (self.home / "plugin-data" / "fast-browser-link-native" / "token").read_text().strip()
+            + "\n"
+        )
         os.chmod(proxy_data / "token", 0o600)
         proxy_socket = proxy_data / "bridge.sock"
-        self.assertLess(len(os.fsencode(proxy_socket)), 104, "proxy AF_UNIX path exceeds macOS limit")
+        self.assertLess(
+            len(os.fsencode(proxy_socket)), 104, "proxy AF_UNIX path exceeds macOS limit"
+        )
         self.proxy = DroppingResponseProxy(self.socket_path, proxy_socket, request_id)
 
         lost_client = BridgeClient(proxy_home, timeout=8)
@@ -577,7 +713,6 @@ class ProductionConcurrencyTests(unittest.TestCase):
         if self.proxy is not None:
             self.proxy.close()
         stop_fixture_daemon(self.home)
-
 
 
 if __name__ == "__main__":

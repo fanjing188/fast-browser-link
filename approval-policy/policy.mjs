@@ -29,12 +29,7 @@ const ACTIONS = Object.freeze({
   close_tab: Object.freeze({ risk: 'destructive', requiresTabLease: true }),
 });
 
-const STRING_SCOPE_FIELDS = Object.freeze([
-  'browserInstanceId',
-  'taskId',
-  'ownerId',
-  'sessionId',
-]);
+const STRING_SCOPE_FIELDS = Object.freeze(['browserInstanceId', 'taskId', 'ownerId', 'sessionId']);
 const GENERATION_SCOPE_FIELDS = Object.freeze(['taskGeneration', 'connectionGeneration']);
 
 const SCOPE_CHECKS = Object.freeze([
@@ -135,7 +130,10 @@ export function createApprovalPolicy({ verifyFullAccessGrant } = {}) {
       }
     }
     if (grant?.expectedModeGeneration !== state.modeGeneration) {
-      throw new PolicyError('GRANT_MODE_GENERATION_MISMATCH', 'grant was issued for another mode generation');
+      throw new PolicyError(
+        'GRANT_MODE_GENERATION_MISMATCH',
+        'grant was issued for another mode generation',
+      );
     }
     if (!verifyFullAccessGrant(grant, state.scope)) {
       throw new PolicyError('UNTRUSTED_GRANT', 'full access requires a trusted extension UI grant');
@@ -185,7 +183,10 @@ export function createApprovalPolicy({ verifyFullAccessGrant } = {}) {
     validateScope(nextScope);
     for (const field of ['browserInstanceId', 'taskId', 'ownerId']) {
       if (nextScope?.[field] !== state.scope[field]) {
-        throw new PolicyError('RECONNECT_SCOPE_MISMATCH', `${field} cannot change during reconnect`);
+        throw new PolicyError(
+          'RECONNECT_SCOPE_MISMATCH',
+          `${field} cannot change during reconnect`,
+        );
       }
     }
 
@@ -229,8 +230,11 @@ export function createApprovalPolicy({ verifyFullAccessGrant } = {}) {
     }
 
     return Object.freeze({
-      decision: 'allow', code: 'TASK_SCOPE_ALLOWED', risk: action.risk,
-      activeMode: state.activeMode, modeGeneration: state.modeGeneration,
+      decision: 'allow',
+      code: 'TASK_SCOPE_ALLOWED',
+      risk: action.risk,
+      activeMode: state.activeMode,
+      modeGeneration: state.modeGeneration,
       repeatApprovalRequired: false,
     });
   }

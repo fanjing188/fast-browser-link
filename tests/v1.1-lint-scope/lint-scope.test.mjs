@@ -6,7 +6,7 @@ import { ESLint } from 'eslint';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const eslint = new ESLint({ cwd: repoRoot });
-const repoPath = relativePath => path.join(repoRoot, relativePath);
+const repoPath = (relativePath) => path.join(repoRoot, relativePath);
 
 test('ignores generated build and release output only', async () => {
   for (const generated of [
@@ -21,10 +21,7 @@ test('ignores generated build and release output only', async () => {
 });
 
 test('keeps active native-extension source in the root lint scope', async () => {
-  const sourceFiles = [
-    'native-extension/automation-overlay.mjs',
-    'native-extension/core.mjs',
-  ];
+  const sourceFiles = ['native-extension/automation-overlay.mjs', 'native-extension/core.mjs'];
 
   for (const sourceFile of sourceFiles) {
     assert.equal(await eslint.isPathIgnored(repoPath(sourceFile)), false, sourceFile);
@@ -32,7 +29,7 @@ test('keeps active native-extension source in the root lint scope', async () => 
 
   const results = await eslint.lintFiles(sourceFiles);
   assert.deepEqual(
-    results.flatMap(result => result.messages.filter(message => message.severity === 2)),
+    results.flatMap((result) => result.messages.filter((message) => message.severity === 2)),
     [],
   );
 });
@@ -43,8 +40,12 @@ test('retains no-undef as an error for an in-memory source negative control', as
     { filePath: repoPath('native-extension/core.mjs') },
   );
 
-  assert.ok(result.messages.some(message =>
-    message.ruleId === 'no-undef'
-      && message.severity === 2
-      && message.message.includes('undeclaredLintScopeIdentifier')));
+  assert.ok(
+    result.messages.some(
+      (message) =>
+        message.ruleId === 'no-undef' &&
+        message.severity === 2 &&
+        message.message.includes('undeclaredLintScopeIdentifier'),
+    ),
+  );
 });

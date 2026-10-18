@@ -1,4 +1,5 @@
 """Isolated source-package helper for shared native v2 real-browser acceptance."""
+
 from __future__ import annotations
 
 import importlib.util
@@ -43,8 +44,16 @@ def stage(work: Path, origins: list[str]):
     if value["plugin"].exists():
         raise FileExistsError("fixture plugin already exists")
     value["plugin"].parent.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(ROOT / "executor-plugin", value["plugin"], ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
-    shutil.copytree(ROOT / "native-bridge", value["plugin"] / "native_bridge", ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "tests"))
+    shutil.copytree(
+        ROOT / "executor-plugin",
+        value["plugin"],
+        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+    )
+    shutil.copytree(
+        ROOT / "native-bridge",
+        value["plugin"] / "native_bridge",
+        ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "tests"),
+    )
     installer = load(ROOT / "native-bridge/install.py", "native_v2_installer_" + uuid.uuid4().hex)
     staged = installer.stage(value["home"], origins)
     return {
@@ -62,7 +71,9 @@ def rpc(work: Path, session: str, suffix: str, args: dict):
     value = paths(work)
     os.environ["HOME"] = str(value["home"])
     os.environ["HERMES_HOME"] = str(value["hermes"])
-    hermes_source = Path(os.environ.get("HERMES_SOURCE", str(Path.home() / ".hermes/hermes-agent"))).resolve()
+    hermes_source = Path(
+        os.environ.get("HERMES_SOURCE", str(Path.home() / ".hermes/hermes-agent"))
+    ).resolve()
     sys.path.insert(0, str(hermes_source))
     try:
         from hermes_cli import plugins
@@ -77,7 +88,9 @@ def rpc(work: Path, session: str, suffix: str, args: dict):
         try:
             return original_call(method, params)
         except Exception as exc:
-            diagnostic.update({"method": method, "code": getattr(exc, "code", None), "message": str(exc)})
+            diagnostic.update(
+                {"method": method, "code": getattr(exc, "code", None), "message": str(exc)}
+            )
             raise
 
     profile.call = recorded_call
@@ -107,7 +120,9 @@ def batch(work: Path, session: str, kind: str, args: dict):
     value = paths(work)
     os.environ["HOME"] = str(value["home"])
     os.environ["HERMES_HOME"] = str(value["hermes"])
-    hermes_source = Path(os.environ.get("HERMES_SOURCE", str(Path.home() / ".hermes/hermes-agent"))).resolve()
+    hermes_source = Path(
+        os.environ.get("HERMES_SOURCE", str(Path.home() / ".hermes/hermes-agent"))
+    ).resolve()
     sys.path.insert(0, str(hermes_source))
     try:
         from hermes_cli import plugins
@@ -123,7 +138,9 @@ def batch(work: Path, session: str, kind: str, args: dict):
             return original_call(method, params)
         except Exception as exc:
             diagnostic.clear()
-            diagnostic.update({"method": method, "code": getattr(exc, "code", None), "message": str(exc)})
+            diagnostic.update(
+                {"method": method, "code": getattr(exc, "code", None), "message": str(exc)}
+            )
             raise
 
     profile.call = recorded_call
@@ -135,8 +152,11 @@ def batch(work: Path, session: str, kind: str, args: dict):
         nonlocal sequence
         sequence += 1
         payload = {
-            "task_id": args["task_id"], "request_id": f"{args['request_prefix']}-{sequence}",
-            "action": action, "tab_id": args["tab_id"], **extra,
+            "task_id": args["task_id"],
+            "request_id": f"{args['request_prefix']}-{sequence}",
+            "action": action,
+            "tab_id": args["tab_id"],
+            **extra,
         }
         result = _invoke(plugins, tools, profile, "fast_browser_run", payload, session)
         if result.get("error"):
@@ -147,27 +167,60 @@ def batch(work: Path, session: str, kind: str, args: dict):
         with patch.object(plugins, "_delivery_manager", return_value=manager):
             if kind == "click":
                 shot = run("interaction.capture")
-                bounds = run("interaction.bounds", screenshot_id=shot["id"], selector=args["selector"])
-                clicked = run("interaction.click", screenshot_id=shot["id"], point=bounds["imageCenter"], expected_ref=bounds["ref"])
-                replay = _invoke(plugins, tools, profile, "fast_browser_run", {
-                    "task_id": args["task_id"], "request_id": f"{args['request_prefix']}-replay",
-                    "action": "interaction.click", "tab_id": args["tab_id"],
-                    "screenshot_id": shot["id"], "point": bounds["imageCenter"], "expected_ref": bounds["ref"],
-                }, session)
+                bounds = run(
+                    "interaction.bounds", screenshot_id=shot["id"], selector=args["selector"]
+                )
+                clicked = run(
+                    "interaction.click",
+                    screenshot_id=shot["id"],
+                    point=bounds["imageCenter"],
+                    expected_ref=bounds["ref"],
+                )
+                replay = _invoke(
+                    plugins,
+                    tools,
+                    profile,
+                    "fast_browser_run",
+                    {
+                        "task_id": args["task_id"],
+                        "request_id": f"{args['request_prefix']}-replay",
+                        "action": "interaction.click",
+                        "tab_id": args["tab_id"],
+                        "screenshot_id": shot["id"],
+                        "point": bounds["imageCenter"],
+                        "expected_ref": bounds["ref"],
+                    },
+                    session,
+                )
                 return {"shot": shot, "bounds": bounds, "result": clicked, "replay": replay}
             if kind == "drag_elements":
                 shot = run("interaction.capture")
-                result = run("interaction.drag_elements", screenshot_id=shot["id"], source=args["source"],
-                             target=args["target"], mode=args.get("mode", "pointer"))
+                result = run(
+                    "interaction.drag_elements",
+                    screenshot_id=shot["id"],
+                    source=args["source"],
+                    target=args["target"],
+                    mode=args.get("mode", "pointer"),
+                )
                 return {"shot": shot, "result": result}
             if kind == "drag_coordinates":
                 shot = run("interaction.capture")
-                source = run("interaction.bounds", screenshot_id=shot["id"], selector=args["source"])
-                target = run("interaction.bounds", screenshot_id=shot["id"], selector=args["target"])
-                result = run("interaction.drag_coordinates", screenshot_id=shot["id"],
-                             **{"from": {"point": source["imageCenter"], "expectedRef": source["ref"]},
-                                "to": {"point": target["imageCenter"], "expectedRef": target["ref"]},
-                                "mode": "pointer", "steps": args.get("steps", 8)})
+                source = run(
+                    "interaction.bounds", screenshot_id=shot["id"], selector=args["source"]
+                )
+                target = run(
+                    "interaction.bounds", screenshot_id=shot["id"], selector=args["target"]
+                )
+                result = run(
+                    "interaction.drag_coordinates",
+                    screenshot_id=shot["id"],
+                    **{
+                        "from": {"point": source["imageCenter"], "expectedRef": source["ref"]},
+                        "to": {"point": target["imageCenter"], "expectedRef": target["ref"]},
+                        "mode": "pointer",
+                        "steps": args.get("steps", 8),
+                    },
+                )
                 return {"shot": shot, "source": source, "target": target, "result": result}
             raise ValueError("unknown batch kind")
     finally:
@@ -180,12 +233,18 @@ def inspect(work: Path):
     if not pid_path.is_file():
         raise RuntimeError("fixture daemon is not running")
     pid = int(pid_path.read_text())
-    command = subprocess.run(["ps", "-p", str(pid), "-o", "command="], check=True, capture_output=True, text=True).stdout.strip()
+    command = subprocess.run(
+        ["ps", "-p", str(pid), "-o", "command="], check=True, capture_output=True, text=True
+    ).stdout.strip()
     expected = value["hermes"] / "plugin-data/fast-browser-link-native/host-bin/daemon.py"
     alternate = value["plugin"] / "native_bridge/daemon.py"
     if str(alternate) in command:
         import hashlib
-        assert hashlib.sha256(alternate.read_bytes()).digest() == hashlib.sha256(expected.read_bytes()).digest()
+
+        assert (
+            hashlib.sha256(alternate.read_bytes()).digest()
+            == hashlib.sha256(expected.read_bytes()).digest()
+        )
         expected = alternate
     if str(expected) not in command or str(value["hermes"]) not in command:
         raise RuntimeError("daemon is not using staged bridge code")
@@ -205,10 +264,16 @@ def cleanup(work: Path):
     if not pid_path.is_file():
         return {}
     pid = int(pid_path.read_text())
-    command = subprocess.run(["ps", "-p", str(pid), "-o", "command="], capture_output=True, text=True)
+    command = subprocess.run(
+        ["ps", "-p", str(pid), "-o", "command="], capture_output=True, text=True
+    )
     expected = str(value["hermes"] / "plugin-data/fast-browser-link-native/host-bin/daemon.py")
     alternate = str(value["plugin"] / "native_bridge/daemon.py")
-    if command.returncode == 0 and (expected in command.stdout or alternate in command.stdout) and str(value["hermes"]) in command.stdout:
+    if (
+        command.returncode == 0
+        and (expected in command.stdout or alternate in command.stdout)
+        and str(value["hermes"]) in command.stdout
+    ):
         stop_fixture_daemon(value["hermes"])
     else:
         raise RuntimeError("refusing to stop non-fixture process")

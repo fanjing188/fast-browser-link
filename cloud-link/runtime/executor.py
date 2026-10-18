@@ -1,4 +1,5 @@
 """独立云端执行器；使用已有本机桥和结果投影，不注册或覆盖 Hermes 工具。"""
+
 from __future__ import annotations
 
 import hashlib
@@ -16,20 +17,28 @@ class CloudDenied(ValueError):
 
 
 class CloudExecutor:
-    def __init__(self, home, data_dir, device_id, instance_id, *, client=None, bind_task=None, authorize=None):
+    def __init__(
+        self, home, data_dir, device_id, instance_id, *, client=None, bind_task=None, authorize=None
+    ):
         self.device_id = device_id
         self.instance_id = instance_id
         if client is None and bind_task is None:
-            raise CloudDenied('cloud_native_authorization_required')
+            raise CloudDenied("cloud_native_authorization_required")
         self.bind_task = bind_task
         self.authorize = authorize
         runtime_module = native_tools._runtime
-        client_module = runtime_module.load_module(NATIVE_BRIDGE / 'client.py', 'cloud_bridge_client_')
-        self._bridge_errors = (client_module.BridgeError,OSError,RuntimeError)
+        client_module = runtime_module.load_module(
+            NATIVE_BRIDGE / "client.py", "cloud_bridge_client_"
+        )
+        self._bridge_errors = (client_module.BridgeError, OSError, RuntimeError)
         # 中文注释：云端只连接已运行的桥；不启动、重启或卸载现有本地服务。
         self.client = client or BridgePool(home)
-        self.cleanup_client = client or client_module.BridgeClient(home, timeout=35, autostart=False)
-        self.runtime = runtime_module.NativeProfileRuntime(Path(data_dir) / 'profile', PLUGIN, bridge_client=self.client)
+        self.cleanup_client = client or client_module.BridgeClient(
+            home, timeout=35, autostart=False
+        )
+        self.runtime = runtime_module.NativeProfileRuntime(
+            Path(data_dir) / "profile", PLUGIN, bridge_client=self.client
+        )
         self._close_lock = threading.Lock()
         self._closed = False
         self._active = 0
@@ -40,7 +49,7 @@ class CloudExecutor:
     def execute(self, command):
         with self._condition:
             if self._closed:
-                raise CloudDenied('cloud_disabled')
+                raise CloudDenied("cloud_disabled")
             self._active += 1
         try:
             return self._execute(command)
@@ -51,120 +60,168 @@ class CloudExecutor:
 
     def _check_authorized(self):
         if self._closed:
-            raise CloudDenied('cloud_disabled')
+            raise CloudDenied("cloud_disabled")
         if self.authorize:
             self.authorize()
 
     def _execute(self, command):
         self._check_authorized()
         # 中文注释：设备和会话来自认证队列，模型参数不能指定 owner 或本机实例。
-        if command.get('device_id') != self.device_id or command.get('tool') not in TOOL_SUFFIXES:
-            raise CloudDenied('cloud_scope_denied')
-        session = command.get('session_id')
-        request_id = command.get('id')
-        args = command.get('args')
-        if not isinstance(session, str) or not session or not isinstance(request_id, str) or not request_id:
-            raise CloudDenied('cloud_identity_required')
-        if not isinstance(args, dict) or any(key in args for key in ('owner', 'session_id', 'instance_id',
-                                                                 native_tools._runtime.OWNER_LEASE_ARG, 'request_id')):
-            raise CloudDenied('cloud_identity_denied')
-        if time.time() >= command['expires_at']:
-            raise CloudDenied('cloud_command_expired')
+        if command.get("device_id") != self.device_id or command.get("tool") not in TOOL_SUFFIXES:
+            raise CloudDenied("cloud_scope_denied")
+        session = command.get("session_id")
+        request_id = command.get("id")
+        args = command.get("args")
+        if (
+            not isinstance(session, str)
+            or not session
+            or not isinstance(request_id, str)
+            or not request_id
+        ):
+            raise CloudDenied("cloud_identity_required")
+        if not isinstance(args, dict) or any(
+            key in args
+            for key in (
+                "owner",
+                "session_id",
+                "instance_id",
+                native_tools._runtime.OWNER_LEASE_ARG,
+                "request_id",
+            )
+        ):
+            raise CloudDenied("cloud_identity_denied")
+        if time.time() >= command["expires_at"]:
+            raise CloudDenied("cloud_command_expired")
         args = dict(args)
-        tool = command['tool']
-        if tool == 'create':
-            origins = args.get('allowed_origins')
+        tool = command["tool"]
+        if tool == "create":
+            origins = args.get("allowed_origins")
             if not isinstance(origins, list) or not origins:
-                raise CloudDenied('cloud_origin_denied')
-            args['instance_id'] = self.instance_id
-            args['title'] = '[云端] ' + str(args.get('title', ''))[:195]
-        if tool == 'run':
-            if args.get('action') not in CLOUD_ACTIONS:
-                raise CloudDenied('cloud_action_denied')
-            args['request_id'] = request_id
-        if tool == 'get' and ('until' in args or 'timeout_s' in args):
-            raise CloudDenied('cloud_action_denied')
-        trusted_session = hashlib.sha256((self.device_id + '\0' + session).encode()).hexdigest()
+                raise CloudDenied("cloud_origin_denied")
+            args["instance_id"] = self.instance_id
+            args["title"] = "[云端] " + str(args.get("title", ""))[:195]
+        if tool == "run":
+            if args.get("action") not in CLOUD_ACTIONS:
+                raise CloudDenied("cloud_action_denied")
+            args["request_id"] = request_id
+        if tool == "get" and ("until" in args or "timeout_s" in args):
+            raise CloudDenied("cloud_action_denied")
+        trusted_session = hashlib.sha256((self.device_id + "\0" + session).encode()).hexdigest()
         owner = self.runtime.authority.owner_for_session(trusted_session)
         with self._condition:
             self._owners.add(owner)
-        if tool not in ('create', 'list'):
+        if tool not in ("create", "list"):
             # 中文注释：先回读任务归属，禁止云端使用本地任务或同 owner 的其他浏览器实例。
-            task = self.runtime.call('shared.get', {'owner': owner, 'taskId': args.get('task_id')})
+            task = self.runtime.call("shared.get", {"owner": owner, "taskId": args.get("task_id")})
             self._check_authorized()
-            if task.get('instanceId') != self.instance_id:
-                raise CloudDenied('cloud_task_denied')
-            if tool == 'run' and self.bind_task:
+            if task.get("instanceId") != self.instance_id:
+                raise CloudDenied("cloud_task_denied")
+            if tool == "run" and self.bind_task:
                 # 中文注释：每次动作前重验独立权限，防止服务重启或撤权后沿用旧的 full 租约。
                 self.bind_task(task)
-                observed = self.runtime.call('shared.get', {'owner': owner, 'taskId': args['task_id']})
+                observed = self.runtime.call(
+                    "shared.get", {"owner": owner, "taskId": args["task_id"]}
+                )
                 self._check_authorized()
-                if observed.get('activeMode') != 'full':
-                    raise CloudDenied('cloud_policy_not_confirmed')
-        tool_name = 'fast_browser_' + tool
+                if observed.get("activeMode") != "full":
+                    raise CloudDenied("cloud_policy_not_confirmed")
+        tool_name = "fast_browser_" + tool
         handler = native_tools.make_tool_handler(tool_name, self.runtime)
+
         def invoke():
             # 中文注释：每次读取原请求回执都使用新的一次性身份租约，浏览器 requestId 保持不变。
             self._check_authorized()
-            lease = self.runtime.authority.pre_tool_call(tool_name, args, session_id=trusted_session, tool_call_id=request_id)
-            if not lease or lease.get('action') != 'modify':
-                raise CloudDenied('cloud_identity_denied')
+            lease = self.runtime.authority.pre_tool_call(
+                tool_name, args, session_id=trusted_session, tool_call_id=request_id
+            )
+            if not lease or lease.get("action") != "modify":
+                raise CloudDenied("cloud_identity_denied")
             # 中文注释：阻塞读回和身份租约登记之后都重验，已关闭/旧代次不能再提交浏览器动作。
             self._check_authorized()
-            return json.loads(handler({**args, **lease['args']}, session_id=trusted_session))
+            return json.loads(handler({**args, **lease["args"]}, session_id=trusted_session))
+
         value = invoke()
-        if tool in ('create', 'resume') and self.bind_task and isinstance(value, dict) and value.get('id'):
+        if (
+            tool in ("create", "resume")
+            and self.bind_task
+            and isinstance(value, dict)
+            and value.get("id")
+        ):
             # 中文注释：在回传任务前，由独立 Native 通道把云端任务绑定到独立授权模式。
             try:
                 self.bind_task(value)
                 # 中文注释：授权读回也复用本地闭合结果投影，不能把 Native 原始字段发给云端。
-                observed = self.runtime.call('shared.get', {'owner': owner, 'taskId': value['id']})
-                if observed.get('activeMode') != 'full':
-                    raise CloudDenied('cloud_policy_not_confirmed')
-                value = native_tools._public(native_tools._runtime._base._project_tool_result(tool_name, args, observed))
+                observed = self.runtime.call("shared.get", {"owner": owner, "taskId": value["id"]})
+                if observed.get("activeMode") != "full":
+                    raise CloudDenied("cloud_policy_not_confirmed")
+                value = native_tools._public(
+                    native_tools._runtime._base._project_tool_result(tool_name, args, observed)
+                )
             except Exception:
-                self.cleanup_client.call('shared.handoff', {'owner': owner, 'taskId': value['id'], 'keepTabs': True})
-                raise CloudDenied('cloud_authorization_unavailable') from None
-        if tool == 'run':
+                self.cleanup_client.call(
+                    "shared.handoff", {"owner": owner, "taskId": value["id"], "keepTabs": True}
+                )
+                raise CloudDenied("cloud_authorization_unavailable") from None
+        if tool == "run":
             # 中文注释：审批回调在 daemon 内执行；这里只查询同一请求的缓存回执，不创建新动作。
-            while isinstance(value, dict) and value.get('status') in ('approval_required', 'user_input_required'):
-                if self._closed or time.time() >= command['expires_at']:
-                    self.cleanup_client.call('shared.handoff', {'owner': owner, 'taskId': args['task_id'], 'keepTabs': True})
-                    return {'code': 'cloud_approval_expired', 'outcome_unknown': True}
+            while isinstance(value, dict) and value.get("status") in (
+                "approval_required",
+                "user_input_required",
+            ):
+                if self._closed or time.time() >= command["expires_at"]:
+                    self.cleanup_client.call(
+                        "shared.handoff",
+                        {"owner": owner, "taskId": args["task_id"], "keepTabs": True},
+                    )
+                    return {"code": "cloud_approval_expired", "outcome_unknown": True}
                 time.sleep(0.5)
-                status = self.runtime.call('shared.operation_status', {'owner': owner, 'taskId': args['task_id'], 'requestId': request_id})
-                if status.get('state') == 'unknown':
-                    return {'code': 'outcome_unknown', 'outcome_unknown': True}
+                status = self.runtime.call(
+                    "shared.operation_status",
+                    {"owner": owner, "taskId": args["task_id"], "requestId": request_id},
+                )
+                if status.get("state") == "unknown":
+                    return {"code": "outcome_unknown", "outcome_unknown": True}
                 # 中文注释：审批后动作由 daemon 执行，派发中只查账本；终态再读取同一请求的缓存回执。
-                if status.get('state') in ('confirmed', 'rejected'):
+                if status.get("state") in ("confirmed", "rejected"):
                     value = invoke()
-        if tool == 'list':
-            value = [task for task in value if task.get('instanceId') == self.instance_id] if isinstance(value, list) else value
-        if isinstance(value, dict) and value.get('state') in ('closed','cancelled'):
+        if tool == "list":
+            value = (
+                [task for task in value if task.get("instanceId") == self.instance_id]
+                if isinstance(value, list)
+                else value
+            )
+        if isinstance(value, dict) and value.get("state") in ("closed", "cancelled"):
             with self._condition:
                 self._owners.discard(owner)
-            if value.get('cleanupState') == 'succeeded':
+            if value.get("cleanupState") == "succeeded":
                 self._forget_owner(owner)
         return value
 
     def handoff_session(self, session, *, keep_tabs=True):
         # 中文注释：只交还当前云端会话的任务；不同会话使用不同 owner，不能串收资源。
-        trusted = hashlib.sha256((self.device_id + '\0' + session).encode()).hexdigest()
+        trusted = hashlib.sha256((self.device_id + "\0" + session).encode()).hexdigest()
         owner = self.runtime.authority.owner_for_session(trusted)
         return self._handoff_owner(owner, keep_tabs=keep_tabs)
 
     def _handoff_owner(self, owner, *, keep_tabs=True):
         complete = True
-        for task in self.cleanup_client.call('shared.list', {'owner': owner}):
-            if task.get('instanceId') != self.instance_id:
+        for task in self.cleanup_client.call("shared.list", {"owner": owner}):
+            if task.get("instanceId") != self.instance_id:
                 complete = False
                 continue
-            if task.get('state') not in ('closed', 'cancelled', 'failed'):
-                task = self.cleanup_client.call('shared.handoff', {'owner': owner, 'taskId': task['id'], 'keepTabs': keep_tabs})
-            if task.get('state') in ('closed','cancelled') and task.get('cleanupState') != 'succeeded':
+            if task.get("state") not in ("closed", "cancelled", "failed"):
+                task = self.cleanup_client.call(
+                    "shared.handoff", {"owner": owner, "taskId": task["id"], "keepTabs": keep_tabs}
+                )
+            if (
+                task.get("state") in ("closed", "cancelled")
+                and task.get("cleanupState") != "succeeded"
+            ):
                 # 中文注释：先读取原清理证明；自动回收只核实原清理证明，不重新派发删页。
-                task = self.cleanup_client.call('shared.cleanup_status', {'owner': owner, 'taskId': task['id']})
-            complete = complete and task.get('cleanupState') == 'succeeded'
+                task = self.cleanup_client.call(
+                    "shared.cleanup_status", {"owner": owner, "taskId": task["id"]}
+                )
+            complete = complete and task.get("cleanupState") == "succeeded"
         with self._condition:
             if complete and not self._closed:
                 self._owners.discard(owner)
@@ -193,17 +250,23 @@ class CloudExecutor:
             if self._closed:
                 return []
             self._closed = True
-        session_owners = {session:self.runtime.authority.owner_for_session(
-            hashlib.sha256((self.device_id+'\0'+session).encode()).hexdigest()) for session in sessions}
+        session_owners = {
+            session: self.runtime.authority.owner_for_session(
+                hashlib.sha256((self.device_id + "\0" + session).encode()).hexdigest()
+            )
+            for session in sessions
+        }
         with self._condition:
             self._owners.update(session_owners.values())
         confirmed = set()
+
         def reclaim(owner):
             # 中文注释：单个任务的未知清理不能阻断其他会话收尾，也不能被当作已清理。
             try:
                 return self._handoff_owner(owner)
             except self._bridge_errors:
                 return False
+
         try:
             for owner in self._owner_snapshot():
                 reclaim(owner)
@@ -218,4 +281,4 @@ class CloudExecutor:
             self.runtime.close()
             self.client.close()
             self.cleanup_client.close()
-        return [session for session,owner in session_owners.items() if owner in confirmed]
+        return [session for session, owner in session_owners.items() if owner in confirmed]

@@ -1,4 +1,5 @@
 """Synthetic public-route tests for task diagnostics API wiring."""
+
 from __future__ import annotations
 
 import importlib.util
@@ -76,9 +77,15 @@ class DiagnosticsApiTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(dir=os.environ.get("TMPDIR"))
         self.addCleanup(self.tmp.cleanup)
-        self.api = _load_module("diagnostics_api_under_test", PLUGIN_ROOT / "dashboard" / "plugin_api.py")
-        self.projection_module = _load_module("diagnostics_projection_under_test", PLUGIN_ROOT / "task_diagnostics.py")
-        self.sink = JsonlDiagnosticSink(Path(self.tmp.name) / "diagnostics", max_bytes=4096, max_files=5)
+        self.api = _load_module(
+            "diagnostics_api_under_test", PLUGIN_ROOT / "dashboard" / "plugin_api.py"
+        )
+        self.projection_module = _load_module(
+            "diagnostics_projection_under_test", PLUGIN_ROOT / "task_diagnostics.py"
+        )
+        self.sink = JsonlDiagnosticSink(
+            Path(self.tmp.name) / "diagnostics", max_bytes=4096, max_files=5
+        )
         self.projection = self.projection_module.TaskDiagnosticProjection(self.sink)
         self.bridge = SyntheticDiagnosticsBridge({}, self.projection)
 
@@ -107,15 +114,17 @@ class DiagnosticsApiTests(unittest.TestCase):
         self.client = TestClient(app)
 
     def _write_event(self, status, *, task_id=None, request_id=REQUEST_HASH):
-        self.sink.write(make_event(
-            timestamp="2026-09-23T10:00:00.000Z",
-            component="native_bridge",
-            event_type="request_state",
-            task_id=self.task_id if task_id is None else task_id,
-            request_id=request_id,
-            status=status,
-            duration_ms=12.5,
-        ))
+        self.sink.write(
+            make_event(
+                timestamp="2026-09-23T10:00:00.000Z",
+                component="native_bridge",
+                event_type="request_state",
+                task_id=self.task_id if task_id is None else task_id,
+                request_id=request_id,
+                status=status,
+                duration_ms=12.5,
+            )
+        )
 
     # 中文注释：用户接管是已知 paused 状态，不应投影为未知或被 API 拒绝。
     def test_paused_task_remains_paused_in_diagnostics(self):
@@ -138,21 +147,26 @@ class DiagnosticsApiTests(unittest.TestCase):
             params={"requestIdHash": REQUEST_HASH, "limit": "1", "cursor": "0"},
         )
         self.assertEqual(first.status_code, 200, first.text)
-        self.assertEqual(first.json(), {
-            "events": [{
-                "timestamp": "2026-09-23T10:00:00.000Z",
-                "component": "native_bridge",
-                "event_type": "request_state",
-                "status": "running",
-                "duration_ms": 12.5,
-                "error_code": None,
-                "action": None,
-            }],
-            "execution_state": "ready",
-            "cleanup_state": "succeeded",
-            "has_more": True,
-            "next_cursor": 1,
-        })
+        self.assertEqual(
+            first.json(),
+            {
+                "events": [
+                    {
+                        "timestamp": "2026-09-23T10:00:00.000Z",
+                        "component": "native_bridge",
+                        "event_type": "request_state",
+                        "status": "running",
+                        "duration_ms": 12.5,
+                        "error_code": None,
+                        "action": None,
+                    }
+                ],
+                "execution_state": "ready",
+                "cleanup_state": "succeeded",
+                "has_more": True,
+                "next_cursor": 1,
+            },
+        )
         second = self.client.get(
             f"{PREFIX}/{self.task_id}/diagnostics",
             params={"requestIdHash": REQUEST_HASH, "limit": "1", "cursor": "1"},
@@ -163,13 +177,16 @@ class DiagnosticsApiTests(unittest.TestCase):
         diagnostic_calls = [call for call in self.bridge.calls if call[0] == "shared.diagnostics"]
         self.assertEqual(len(diagnostic_calls), 2)
         for _, params in diagnostic_calls:
-            self.assertEqual(params, {
-                "owner": self.owner,
-                "taskId": self.task_id,
-                "requestIdHash": REQUEST_HASH,
-                "limit": 1,
-                "cursor": params["cursor"],
-            })
+            self.assertEqual(
+                params,
+                {
+                    "owner": self.owner,
+                    "taskId": self.task_id,
+                    "requestIdHash": REQUEST_HASH,
+                    "limit": 1,
+                    "cursor": params["cursor"],
+                },
+            )
             self.assertNotIn("requestId", params)
         after = {
             path.name: path.read_bytes()
@@ -183,15 +200,17 @@ class DiagnosticsApiTests(unittest.TestCase):
     def test_malformed_diagnostics_projection_is_rejected_without_secret_leak(self):
         secret_url = "https://private.invalid/path?token=diagnostics-secret"
         self.bridge.diagnostics_result_override = {
-            "events": [{
-                "timestamp": "2026-09-23T10:00:00.000Z",
-                "component": "native_bridge",
-                "event_type": "request_state",
-                "status": "failed",
-                "duration_ms": 1,
-                "error_code": "INTERNAL_ERROR",
-                "url": secret_url,
-            }],
+            "events": [
+                {
+                    "timestamp": "2026-09-23T10:00:00.000Z",
+                    "component": "native_bridge",
+                    "event_type": "request_state",
+                    "status": "failed",
+                    "duration_ms": 1,
+                    "error_code": "INTERNAL_ERROR",
+                    "url": secret_url,
+                }
+            ],
             "execution_state": "ready",
             "cleanup_state": "succeeded",
             "has_more": False,

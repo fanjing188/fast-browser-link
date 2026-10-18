@@ -1,0 +1,35 @@
+# 第三方代码保留上游源码形态和许可证上下文。
+third-party/
+# 外部集成检出及其虚拟环境由上游维护。
+.ci/
+# 开发依赖不属于本仓库源码。
+**/node_modules/
+# 构建、打包和验收输出会重新生成，不回写产物。
+**/dist/
+native-extension/dist-native/
+artifacts/
+release/
+out/
+**/evidence/
+**/runs/
+**/logs/
+# 本地临时文件和代理工作目录不属于公开源码。
+tmp/
+.tmp/
+.claude/
+.codex/
+.venv/
+# 任务单和内部报告不参加公开格式门禁。
+docs/growth/
+# 核心文件按函数源码拼接注入声明；格式形态影响 76000 字节门禁。
+native-extension/core.mjs
+# 下列三个模块的函数源码直接进入同一注入声明，保留压缩输入形态。
+page-semantics/index.js
+page-semantics/parser.mjs
+page-semantics/redact.mjs
+
+# 品牌模块由 generate-brand.py 生成，字节一致性测试要求保留生成器的权威输出。
+native-extension/brand.mjs
+
+# 页面网络函数按表达式读取并注入；格式化补分号会破坏外层括号。
+executor-plugin/script_lane/page-request.js

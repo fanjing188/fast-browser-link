@@ -5,6 +5,7 @@ The scanner only reads Python as text and parses it with ``ast``. It never impor
 Hermes, Browser Use, Browser Harness, starts a CLI, or contacts a browser. The
 checked-in baseline is intentionally updated only with ``--update-baseline``.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -132,7 +133,9 @@ def _sha256(raw: bytes) -> str:
 
 
 def _canonical_hash(value: Any) -> str:
-    raw = json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    raw = json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode(
+        "utf-8"
+    )
     return _sha256(raw)
 
 
@@ -160,7 +163,9 @@ def _eval_static(node: ast.AST, constants: dict[str, ast.AST], seen: tuple[str, 
     if isinstance(node, ast.Dict):
         result: dict[Any, Any] = {}
         for key_node, value_node in zip(node.keys, node.values):
-            key = _eval_static(key_node, constants, seen) if key_node is not None else _dynamic(node)
+            key = (
+                _eval_static(key_node, constants, seen) if key_node is not None else _dynamic(node)
+            )
             value = _eval_static(value_node, constants, seen)
             if isinstance(key, str) or isinstance(key, (int, float, bool)) or key is None:
                 result[key] = value
@@ -228,7 +233,11 @@ def _module_constants(tree: ast.Module) -> dict[str, ast.AST]:
             for target in statement.targets:
                 if isinstance(target, ast.Name):
                     constants[target.id] = statement.value
-        elif isinstance(statement, ast.AnnAssign) and isinstance(statement.target, ast.Name) and statement.value is not None:
+        elif (
+            isinstance(statement, ast.AnnAssign)
+            and isinstance(statement.target, ast.Name)
+            and statement.value is not None
+        ):
             constants[statement.target.id] = statement.value
     return constants
 
@@ -242,7 +251,8 @@ def _parse_source(path: Path) -> ast.Module:
 
 def _function_map(tree: ast.Module) -> dict[str, ast.FunctionDef | ast.AsyncFunctionDef]:
     return {
-        item.name: item for item in tree.body
+        item.name: item
+        for item in tree.body
         if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))
     }
 
@@ -255,25 +265,36 @@ def _signature(node: ast.FunctionDef | ast.AsyncFunctionDef) -> str:
 def _function_details(tree: ast.Module, function_name: str) -> dict[str, Any]:
     function = _function_map(tree).get(function_name)
     if function is None:
-        return {"function": function_name, "unresolved": True, "conditions": [], "calls": [], "writes": [], "returns": []}
-    conditions = sorted({
-        _node_text(item.test) for item in ast.walk(function) if isinstance(item, ast.If)
-    })
-    calls = sorted({
-        _node_text(item.func) for item in ast.walk(function) if isinstance(item, ast.Call)
-    })
-    writes = sorted({
-        _node_text(target)
-        for item in ast.walk(function)
-        if isinstance(item, (ast.Assign, ast.AnnAssign, ast.AugAssign))
-        for target in (item.targets if isinstance(item, ast.Assign) else [item.target])
-        if isinstance(target, (ast.Subscript, ast.Attribute))
-    })
-    returns = sorted({
-        _node_text(item.value) if item.value is not None else "None"
-        for item in _iter_module_nodes(function.body)
-        if isinstance(item, ast.Return)
-    })
+        return {
+            "function": function_name,
+            "unresolved": True,
+            "conditions": [],
+            "calls": [],
+            "writes": [],
+            "returns": [],
+        }
+    conditions = sorted(
+        {_node_text(item.test) for item in ast.walk(function) if isinstance(item, ast.If)}
+    )
+    calls = sorted(
+        {_node_text(item.func) for item in ast.walk(function) if isinstance(item, ast.Call)}
+    )
+    writes = sorted(
+        {
+            _node_text(target)
+            for item in ast.walk(function)
+            if isinstance(item, (ast.Assign, ast.AnnAssign, ast.AugAssign))
+            for target in (item.targets if isinstance(item, ast.Assign) else [item.target])
+            if isinstance(target, (ast.Subscript, ast.Attribute))
+        }
+    )
+    returns = sorted(
+        {
+            _node_text(item.value) if item.value is not None else "None"
+            for item in _iter_module_nodes(function.body)
+            if isinstance(item, ast.Return)
+        }
+    )
     return {
         "function": function_name,
         "unresolved": False,
@@ -305,8 +326,10 @@ def _is_register_call(node: ast.AST) -> bool:
         return False
     func = node.func
     return (
-        isinstance(func, ast.Attribute) and func.attr == "register"
-        and isinstance(func.value, ast.Name) and func.value.id == "registry"
+        isinstance(func, ast.Attribute)
+        and func.attr == "register"
+        and isinstance(func.value, ast.Name)
+        and func.value.id == "registry"
     )
 
 
@@ -319,21 +342,23 @@ def _bind_target(target: ast.AST, value: Any, bound: dict[str, Any]) -> None:
         bound[target.id] = value
     elif isinstance(target, (ast.Tuple, ast.List)) and isinstance(value, (tuple, list)):
         values = list(value)
-        starred = next((i for i, child in enumerate(target.elts) if isinstance(child, ast.Starred)), None)
+        starred = next(
+            (i for i, child in enumerate(target.elts) if isinstance(child, ast.Starred)), None
+        )
         if starred is None:
             for child, item in zip(target.elts, values):
                 _bind_target(child, item, bound)
         else:
             fixed_after = len(target.elts) - starred - 1
             prefix = values[:starred]
-            middle = values[starred:len(values) - fixed_after if fixed_after else None]
-            suffix = values[len(values) - fixed_after:] if fixed_after else []
+            middle = values[starred : len(values) - fixed_after if fixed_after else None]
+            suffix = values[len(values) - fixed_after :] if fixed_after else []
             for child, item in zip(target.elts[:starred], prefix):
                 _bind_target(child, item, bound)
             star_item = target.elts[starred]
             if isinstance(star_item, ast.Starred):
                 _bind_target(star_item.value, tuple(middle), bound)
-            for child, item in zip(target.elts[starred + 1:], suffix):
+            for child, item in zip(target.elts[starred + 1 :], suffix):
                 _bind_target(child, item, bound)
 
 
@@ -375,7 +400,9 @@ def _call_registration(
         if isinstance(toolset, str) and toolset.startswith("browser"):
             raise ValueError(f"unresolved browser tool registration in {source_rel}:{call.lineno}")
         return None
-    if not (name.startswith("browser_") or (isinstance(toolset, str) and toolset.startswith("browser"))):
+    if not (
+        name.startswith("browser_") or (isinstance(toolset, str) and toolset.startswith("browser"))
+    ):
         return None
     schema_node = keywords.get("schema")
     schema = value_of(schema_node)
@@ -398,7 +425,7 @@ def _call_registration(
         if gate_value is None:
             check_fn = f"_routed_check_fn({name!r})"
         elif isinstance(gate_value, str) and gate_value.startswith("$dynamic("):
-            check_fn = gate_value[len("$dynamic("):-1]
+            check_fn = gate_value[len("$dynamic(") : -1]
         else:
             check_fn = str(gate_value)
     dynamic_node = keywords.get("dynamic_schema_overrides")
@@ -432,9 +459,7 @@ def _tool_registrations(tools_dir: Path) -> tuple[list[dict[str, Any]], set[str]
         schema_by_name = _schema_values(tree, constants)
         rel = path.relative_to(tools_dir.parent).as_posix()
         parents = {
-            child: parent
-            for parent in ast.walk(tree)
-            for child in ast.iter_child_nodes(parent)
+            child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)
         }
         grouped: dict[ast.AST, list[ast.Call]] = {}
         direct: list[ast.Call] = []
@@ -448,7 +473,9 @@ def _tool_registrations(tools_dir: Path) -> tuple[list[dict[str, Any]], set[str]
             module_scope = True
             while ancestor in parents:
                 ancestor = parents[ancestor]
-                if isinstance(ancestor, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
+                if isinstance(
+                    ancestor, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)
+                ):
                     module_scope = False
                     break
                 if nearest_loop is None and isinstance(ancestor, (ast.For, ast.AsyncFor)):
@@ -471,20 +498,33 @@ def _tool_registrations(tools_dir: Path) -> tuple[list[dict[str, Any]], set[str]
                 _bind_target(loop.target, row, bound)
                 for call in calls:
                     item = _call_registration(
-                        call, constants=constants, schema_by_name=schema_by_name,
-                        source_rel=rel, local_values=bound,
+                        call,
+                        constants=constants,
+                        schema_by_name=schema_by_name,
+                        source_rel=rel,
+                        local_values=bound,
                     )
                     if item is not None:
                         found.append(item)
                         source_files.add(rel)
         for call in direct:
             item = _call_registration(
-                call, constants=constants, schema_by_name=schema_by_name, source_rel=rel,
+                call,
+                constants=constants,
+                schema_by_name=schema_by_name,
+                source_rel=rel,
             )
             if item is not None:
                 found.append(item)
                 source_files.add(rel)
-    found.sort(key=lambda item: (item["name"], item.get("toolset") or "", item["registration_source"], item["registration_line"]))
+    found.sort(
+        key=lambda item: (
+            item["name"],
+            item.get("toolset") or "",
+            item["registration_source"],
+            item["registration_line"],
+        )
+    )
     return found, source_files
 
 
@@ -565,17 +605,23 @@ def _entrypoint(site_root: Path, dist: Path) -> tuple[str | None, Path | None]:
     return None, path
 
 
-def _cli_source_inventory(cli_root: Path) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
+def _cli_source_inventory(
+    cli_root: Path,
+) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
     cli_root = cli_root.resolve()
     site_root = cli_root.parent if cli_root.name == "browser_harness" else cli_root
     harness = cli_root if cli_root.name == "browser_harness" else site_root / "browser_harness"
     browser_use = site_root / "browser_use"
     if not (harness / "helpers.py").is_file() or not (harness / "run.py").is_file():
-        raise ValueError(f"{cli_root} must contain browser_harness/helpers.py and browser_harness/run.py")
+        raise ValueError(
+            f"{cli_root} must contain browser_harness/helpers.py and browser_harness/run.py"
+        )
     browser_dist = sorted(site_root.glob("browser_use-*.dist-info"))
     harness_dist = sorted(site_root.glob("browser_harness-*.dist-info"))
     if not browser_dist or not harness_dist:
-        raise ValueError("CLI source root must include browser-use and browser-harness dist-info metadata")
+        raise ValueError(
+            "CLI source root must include browser-use and browser-harness dist-info metadata"
+        )
     browser_meta_path = browser_dist[0] / "METADATA"
     harness_meta_path = harness_dist[0] / "METADATA"
     browser_meta = _metadata_fields(browser_meta_path)
@@ -586,17 +632,23 @@ def _cli_source_inventory(cli_root: Path) -> tuple[dict[str, Any], list[dict[str
     helper_tree = _parse_source(helper_path)
     helper_funcs = _function_map(helper_tree)
     helper_records: list[dict[str, Any]] = []
-    helper_sources: dict[str, tuple[Path, ast.Module]] = {"browser_harness/helpers.py": (helper_path, helper_tree)}
+    helper_sources: dict[str, tuple[Path, ast.Module]] = {
+        "browser_harness/helpers.py": (helper_path, helper_tree)
+    }
     for name, function in helper_funcs.items():
         if name.startswith("_"):
             continue
-        helper_records.append({
-            "name": name,
-            "signature": _signature(function),
-            "source": "browser_harness/helpers.py",
-            "line": function.lineno,
-            "summary": (ast.get_docstring(function) or "").splitlines()[0] if ast.get_docstring(function) else "",
-        })
+        helper_records.append(
+            {
+                "name": name,
+                "signature": _signature(function),
+                "source": "browser_harness/helpers.py",
+                "line": function.lineno,
+                "summary": (ast.get_docstring(function) or "").splitlines()[0]
+                if ast.get_docstring(function)
+                else "",
+            }
+        )
     # Public callable imports are also exposed by ``from .helpers import *``.
     for node in helper_tree.body:
         if not isinstance(node, ast.ImportFrom):
@@ -614,14 +666,18 @@ def _cli_source_inventory(cli_root: Path) -> tuple[dict[str, Any], list[dict[str
                 function = recorder_functions.get(alias.name)
                 if name.startswith("_") or function is None:
                     continue
-                helper_records.append({
-                    "name": name,
-                    "signature": _signature(function),
-                    "source": "browser_harness/recorder.py",
-                    "line": function.lineno,
-                    "summary": (ast.get_docstring(function) or "").splitlines()[0] if ast.get_docstring(function) else "",
-                    "exported_via": "browser_harness.helpers",
-                })
+                helper_records.append(
+                    {
+                        "name": name,
+                        "signature": _signature(function),
+                        "source": "browser_harness/recorder.py",
+                        "line": function.lineno,
+                        "summary": (ast.get_docstring(function) or "").splitlines()[0]
+                        if ast.get_docstring(function)
+                        else "",
+                        "exported_via": "browser_harness.helpers",
+                    }
+                )
 
     run_path = harness / "run.py"
     run_tree = _parse_source(run_path)
@@ -632,27 +688,43 @@ def _cli_source_inventory(cli_root: Path) -> tuple[dict[str, Any], list[dict[str
     cli_functions = _function_map(cli_tree)
     run_functions = _function_map(run_tree)
     helper_imports = any(
-        isinstance(node, ast.ImportFrom) and node.level == 1 and node.module == "helpers"
+        isinstance(node, ast.ImportFrom)
+        and node.level == 1
+        and node.module == "helpers"
         and any(alias.name == "*" for alias in node.names)
         for node in run_tree.body
     )
     delegate_function = cli_functions.get("_run_browser_harness")
-    delegates_to_harness = bool(delegate_function and any(
-        isinstance(node, ast.ImportFrom) and node.module == "browser_harness"
-        and any(alias.name == "run" for alias in node.names)
-        for node in ast.walk(delegate_function)
-    ) and any(
-        isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-        and isinstance(node.func.value, ast.Name) and node.func.value.id == "run" and node.func.attr == "main"
-        for node in ast.walk(delegate_function)
-    ))
-    workspace_loader = run_functions.get("_load_agent_helpers") or _function_map(helper_tree).get("_load_agent_helpers")
-    workspace_source = helper_path if workspace_loader and workspace_loader in helper_funcs.values() else run_path
+    delegates_to_harness = bool(
+        delegate_function
+        and any(
+            isinstance(node, ast.ImportFrom)
+            and node.module == "browser_harness"
+            and any(alias.name == "run" for alias in node.names)
+            for node in ast.walk(delegate_function)
+        )
+        and any(
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "run"
+            and node.func.attr == "main"
+            for node in ast.walk(delegate_function)
+        )
+    )
+    workspace_loader = run_functions.get("_load_agent_helpers") or _function_map(helper_tree).get(
+        "_load_agent_helpers"
+    )
+    workspace_source = (
+        helper_path if workspace_loader and workspace_loader in helper_funcs.values() else run_path
+    )
     workspace_tree = helper_tree if workspace_source == helper_path else run_tree
     workspace_text = workspace_source.read_text(encoding="utf-8", errors="replace")
     workspace_loads_agent_helpers = (
-        workspace_loader is not None and "agent_helpers.py" in workspace_text
-        and "spec_from_file_location" in workspace_text and "exec_module" in workspace_text
+        workspace_loader is not None
+        and "agent_helpers.py" in workspace_text
+        and "spec_from_file_location" in workspace_text
+        and "exec_module" in workspace_text
     )
     public_imported_helpers = sorted({item["name"] for item in helper_records})
     helper_records.sort(key=lambda item: (item["name"], item["source"]))
@@ -670,7 +742,9 @@ def _cli_source_inventory(cli_root: Path) -> tuple[dict[str, Any], list[dict[str
             if path in {helper_path, run_path, cli_path, browser_meta_path, harness_meta_path}:
                 raise ValueError(f"required CLI inventory source missing: {path.name}")
             continue
-        sources.append({"path": path.relative_to(site_root).as_posix(), "sha256": _sha256(path.read_bytes())})
+        sources.append(
+            {"path": path.relative_to(site_root).as_posix(), "sha256": _sha256(path.read_bytes())}
+        )
 
     return (
         {
@@ -684,15 +758,21 @@ def _cli_source_inventory(cli_root: Path) -> tuple[dict[str, Any], list[dict[str
             "workspace_helpers": {
                 "path": "agent_helpers.py",
                 "loaded_from_workspace": workspace_loads_agent_helpers,
-                "loader_source": "browser_harness/helpers.py" if workspace_source == helper_path else "browser_harness/run.py",
+                "loader_source": "browser_harness/helpers.py"
+                if workspace_source == helper_path
+                else "browser_harness/run.py",
                 "callable_names_runtime_defined": True,
                 "status": "部分" if workspace_loads_agent_helpers else "缺失",
                 "reason": (
                     "The original CLI dynamically loads public workspace functions, but bridge calls from those "
                     "functions still inherit the limited supported-helper subset."
-                    if workspace_loads_agent_helpers else "No static workspace helper loader was found."
+                    if workspace_loads_agent_helpers
+                    else "No static workspace helper loader was found."
                 ),
-                "evidence": ["tests/v1.1-python/test_distributed_helper.py", "docs/python-scripting.md"],
+                "evidence": [
+                    "tests/v1.1-python/test_distributed_helper.py",
+                    "docs/python-scripting.md",
+                ],
             },
             "fresh_python_process_per_browser_exec_call": True,
             "helper_description_claims": [],
@@ -714,24 +794,32 @@ def _browser_description_claims(browser_cli_path: Path) -> list[str]:
     if not isinstance(value, str):
         return []
     non_api_words = {"navigates", "value"}
-    return sorted({
-        name for name in _HELPER_CALL_RE.findall(value)
-        if re.fullmatch(r"[a-z][a-z0-9_]*", name) and name not in non_api_words
-    })
+    return sorted(
+        {
+            name
+            for name in _HELPER_CALL_RE.findall(value)
+            if re.fullmatch(r"[a-z][a-z0-9_]*", name) and name not in non_api_words
+        }
+    )
 
 
 def _expression_function_details(tree: ast.Module, expression: ast.AST) -> dict[str, Any]:
     functions = _function_map(tree)
-    names = sorted({
-        node.id for node in ast.walk(expression)
-        if isinstance(node, ast.Name) and node.id in functions
-    })
+    names = sorted(
+        {
+            node.id
+            for node in ast.walk(expression)
+            if isinstance(node, ast.Name) and node.id in functions
+        }
+    )
     details = [_function_details(tree, name) for name in names]
     return {
         "function": _node_text(expression),
         "component_functions": names,
         "unresolved": not bool(details),
-        "conditions": sorted({condition for item in details for condition in item.get("conditions", [])}),
+        "conditions": sorted(
+            {condition for item in details for condition in item.get("conditions", [])}
+        ),
         "calls": sorted({call for item in details for call in item.get("calls", [])}),
         "writes": sorted({write for item in details for write in item.get("writes", [])}),
         "returns": sorted({value for item in details for value in item.get("returns", [])}),
@@ -749,17 +837,20 @@ def _browser_exec_process_contract(hermes_root: Path) -> bool:
     if browser_exec is None or runner is None:
         return False
     calls_runner = any(
-        isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
         and node.func.id == "_run_cli_killing_process_group"
         for node in ast.walk(browser_exec)
     )
     starts_process = any(
-        isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
         and node.func.attr == "Popen"
         for node in ast.walk(runner)
     )
     communicates = any(
-        isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
         and node.func.attr == "communicate"
         for node in ast.walk(runner)
     )
@@ -789,25 +880,32 @@ def _model_schema_rewriters(hermes_root: Path) -> tuple[list[dict[str, Any]], li
                 "Hermes conditionally filters or rewrites this schema, but the connector has not verified "
                 "every live tool-definition variant through the registered model-facing entry."
             ),
-            "evidence": ["docs/V1.1-OFFICIAL-COMPATIBILITY-PLAN.md", "tests/v1.1-official-actions/test_official_entry.py"],
+            "evidence": [
+                "docs/V1.1-OFFICIAL-COMPATIBILITY-PLAN.md",
+                "tests/v1.1-official-actions/test_official_entry.py",
+            ],
         }
         record = {"name": key, "transform": _node_text(value_node), **details, **assessment}
         records.append(record)
-        dynamic.append({
-            "tool": key,
-            "kind": "model_tool_definition_rewriter",
-            "source": "model_tools.py",
-            "transform": _node_text(value_node),
-            "conditions": details.get("conditions", []),
-            "returns": details.get("returns", []),
-            **assessment,
-        })
+        dynamic.append(
+            {
+                "tool": key,
+                "kind": "model_tool_definition_rewriter",
+                "source": "model_tools.py",
+                "transform": _node_text(value_node),
+                "conditions": details.get("conditions", []),
+                "returns": details.get("returns", []),
+                **assessment,
+            }
+        )
     records.sort(key=lambda item: item["name"])
     dynamic.sort(key=lambda item: (item["tool"], item["kind"]))
     return records, dynamic
 
 
-def _registry_dynamic_schemas(hermes_root: Path, tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _registry_dynamic_schemas(
+    hermes_root: Path, tools: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     by_module: dict[str, ast.Module] = {}
     for tool in tools:
@@ -817,24 +915,38 @@ def _registry_dynamic_schemas(hermes_root: Path, tools: list[dict[str, Any]]) ->
         path = hermes_root / tool["registration_source"]
         tree = by_module.setdefault(tool["registration_source"], _parse_source(path))
         function_name = expression if re.match(r"^[A-Za-z_]\w*$", expression) else None
-        details = _function_details(tree, function_name) if function_name else {
-            "function": expression, "unresolved": True, "conditions": [], "calls": [], "writes": [], "returns": []
-        }
+        details = (
+            _function_details(tree, function_name)
+            if function_name
+            else {
+                "function": expression,
+                "unresolved": True,
+                "conditions": [],
+                "calls": [],
+                "writes": [],
+                "returns": [],
+            }
+        )
         assessment = {
             "status": "部分" if tool["name"] == "browser_exec" else "缺失",
             "reason": (
                 "A source-level conditional schema path is present; its runtime-config variants have not all "
                 "been exercised through the plugin's public model-tool registration."
             ),
-            "evidence": ["docs/V1.1-OFFICIAL-COMPATIBILITY-PLAN.md", "tests/v1.1-official-actions/test_official_entry.py"],
+            "evidence": [
+                "docs/V1.1-OFFICIAL-COMPATIBILITY-PLAN.md",
+                "tests/v1.1-official-actions/test_official_entry.py",
+            ],
         }
-        rows.append({
-            "tool": tool["name"],
-            "kind": "registry_dynamic_schema_overrides",
-            "source": tool["registration_source"],
-            **details,
-            **assessment,
-        })
+        rows.append(
+            {
+                "tool": tool["name"],
+                "kind": "registry_dynamic_schema_overrides",
+                "source": tool["registration_source"],
+                **details,
+                **assessment,
+            }
+        )
     rows.sort(key=lambda item: (item["tool"], item["source"]))
     return rows
 
@@ -864,11 +976,15 @@ def _assessment(surface: str, item: dict[str, Any]) -> dict[str, Any]:
         ]
     result = dict(selected or {"status": "缺失", "reason": default_reason, "evidence": evidence})
     if result.get("status") not in VALID_STATUSES:
-        raise ValueError(f"invalid compatibility status for {surface} {name}: {result.get('status')}")
+        raise ValueError(
+            f"invalid compatibility status for {surface} {name}: {result.get('status')}"
+        )
     return result
 
 
-def _read_sources(paths: Iterable[Path], root: Path, required: set[str] | None = None) -> list[dict[str, str]]:
+def _read_sources(
+    paths: Iterable[Path], root: Path, required: set[str] | None = None
+) -> list[dict[str, str]]:
     result = []
     required = required or set()
     for path in sorted(set(paths)):
@@ -895,12 +1011,18 @@ def collect_inventory(hermes_root: Path, cli_root: Path) -> dict[str, Any]:
     registry_dynamic = _registry_dynamic_schemas(hermes_root, tools)
     cli, helpers, cli_sources = _cli_source_inventory(cli_root)
     helper_digest_source = hermes_root / "tools" / "browser_use_cli.py"
-    cli["helper_description_claims"] = _browser_description_claims(helper_digest_source) if helper_digest_source.is_file() else []
+    cli["helper_description_claims"] = (
+        _browser_description_claims(helper_digest_source) if helper_digest_source.is_file() else []
+    )
     cli["fresh_python_process_per_browser_exec_call"] = _browser_exec_process_contract(hermes_root)
     actual_helpers = {item["name"] for item in helpers}
     cli["helper_description_diff"] = {
-        "described_but_not_exported": sorted(set(cli["helper_description_claims"]) - actual_helpers),
-        "exported_but_not_described": sorted(actual_helpers - set(cli["helper_description_claims"])),
+        "described_but_not_exported": sorted(
+            set(cli["helper_description_claims"]) - actual_helpers
+        ),
+        "exported_but_not_described": sorted(
+            actual_helpers - set(cli["helper_description_claims"])
+        ),
     }
     for item in helpers:
         item.update(_assessment("helper", item))
@@ -941,13 +1063,21 @@ def collect_inventory(hermes_root: Path, cli_root: Path) -> dict[str, Any]:
         "official_tools": tools,
         "official_helpers": helpers,
         "cli_execution_contract": {
-            key: cli[key] for key in (
-                "entry_point", "cli_delegates_to_harness", "harness_imports_helper_exports",
-                "workspace_helpers", "fresh_python_process_per_browser_exec_call",
-                "helper_description_claims", "helper_description_diff", "helper_exports",
+            key: cli[key]
+            for key in (
+                "entry_point",
+                "cli_delegates_to_harness",
+                "harness_imports_helper_exports",
+                "workspace_helpers",
+                "fresh_python_process_per_browser_exec_call",
+                "helper_description_claims",
+                "helper_description_diff",
+                "helper_exports",
             )
         },
-        "dynamic_schemas": sorted(registry_dynamic + model_dynamic, key=lambda item: (item["tool"], item["kind"])),
+        "dynamic_schemas": sorted(
+            registry_dynamic + model_dynamic, key=lambda item: (item["tool"], item["kind"])
+        ),
         "model_schema_rewriters": model_rewriters,
         "source_hashes": {
             "hermes": hermes_sources,
@@ -956,7 +1086,9 @@ def collect_inventory(hermes_root: Path, cli_root: Path) -> dict[str, Any]:
     }
 
 
-def _indexed(items: list[dict[str, Any]], identity: tuple[str, ...]) -> dict[tuple[str, ...], dict[str, Any]]:
+def _indexed(
+    items: list[dict[str, Any]], identity: tuple[str, ...]
+) -> dict[tuple[str, ...], dict[str, Any]]:
     return {tuple(str(item.get(field, "")) for field in identity): item for item in items}
 
 
@@ -966,10 +1098,25 @@ def compare_inventories(baseline: dict[str, Any], current: dict[str, Any]) -> li
     if baseline.get("versions") != current.get("versions"):
         changes.append("source versions/revision changed")
     for collection, identity, label, compare_keys in (
-        ("official_tools", ("name", "toolset", "registration_source"), "tool", ("schema", "availability", "dynamic_schema_overrides", "handler_defaults")),
+        (
+            "official_tools",
+            ("name", "toolset", "registration_source"),
+            "tool",
+            ("schema", "availability", "dynamic_schema_overrides", "handler_defaults"),
+        ),
         ("official_helpers", ("name", "source"), "helper", ("signature",)),
-        ("dynamic_schemas", ("tool", "kind", "source"), "dynamic schema", ("function", "transform", "conditions", "calls", "writes", "returns")),
-        ("model_schema_rewriters", ("name",), "model schema rewriter", ("transform", "conditions", "calls", "writes", "returns")),
+        (
+            "dynamic_schemas",
+            ("tool", "kind", "source"),
+            "dynamic schema",
+            ("function", "transform", "conditions", "calls", "writes", "returns"),
+        ),
+        (
+            "model_schema_rewriters",
+            ("name",),
+            "model schema rewriter",
+            ("transform", "conditions", "calls", "writes", "returns"),
+        ),
     ):
         before = _indexed(baseline.get(collection, []), identity)
         after = _indexed(current.get(collection, []), identity)
@@ -986,8 +1133,13 @@ def compare_inventories(baseline: dict[str, Any], current: dict[str, Any]) -> li
             if first.get("status") != second.get("status"):
                 changes.append(f"{label} changed compatibility assessment: {'/'.join(key)}")
     for group in ("hermes", "browser_use_cli"):
-        before = {item["path"]: item["sha256"] for item in baseline.get("source_hashes", {}).get(group, [])}
-        after = {item["path"]: item["sha256"] for item in current.get("source_hashes", {}).get(group, [])}
+        before = {
+            item["path"]: item["sha256"]
+            for item in baseline.get("source_hashes", {}).get(group, [])
+        }
+        after = {
+            item["path"]: item["sha256"] for item in current.get("source_hashes", {}).get(group, [])
+        }
         for path in sorted(after.keys() - before.keys()):
             changes.append(f"{group} source added: {path}")
         for path in sorted(before.keys() - after.keys()):
@@ -1004,26 +1156,47 @@ def compare_inventories(baseline: dict[str, Any], current: dict[str, Any]) -> li
 
 def _write_json(path: Path, value: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(value, indent=2, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8")
+    path.write_text(
+        json.dumps(value, indent=2, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8"
+    )
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     default_dir = Path(__file__).resolve().parents[1] / "tests" / "v1.1-compatibility"
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--hermes-root", type=Path, default=os.environ.get("HERMES_SOURCE"), help="Hermes source checkout (or HERMES_SOURCE)")
-    parser.add_argument("--cli-root", type=Path, default=os.environ.get("BROWSER_USE_CLI_SOURCE"), help="Browser Use site-packages root (or BROWSER_USE_CLI_SOURCE)")
+    parser.add_argument(
+        "--hermes-root",
+        type=Path,
+        default=os.environ.get("HERMES_SOURCE"),
+        help="Hermes source checkout (or HERMES_SOURCE)",
+    )
+    parser.add_argument(
+        "--cli-root",
+        type=Path,
+        default=os.environ.get("BROWSER_USE_CLI_SOURCE"),
+        help="Browser Use site-packages root (or BROWSER_USE_CLI_SOURCE)",
+    )
     parser.add_argument("--output", type=Path, default=default_dir / "inventory.generated.json")
     parser.add_argument("--baseline", type=Path, default=default_dir / "inventory.baseline.json")
     mode = parser.add_mutually_exclusive_group()
-    mode.add_argument("--check", action="store_true", help="exit 1 when inventory differs from baseline")
-    mode.add_argument("--update-baseline", action="store_true", help="explicitly replace baseline with current static inventory")
+    mode.add_argument(
+        "--check", action="store_true", help="exit 1 when inventory differs from baseline"
+    )
+    mode.add_argument(
+        "--update-baseline",
+        action="store_true",
+        help="explicitly replace baseline with current static inventory",
+    )
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     if not args.hermes_root or not args.cli_root:
-        print("error: set --hermes-root/--cli-root or HERMES_SOURCE/BROWSER_USE_CLI_SOURCE", file=sys.stderr)
+        print(
+            "error: set --hermes-root/--cli-root or HERMES_SOURCE/BROWSER_USE_CLI_SOURCE",
+            file=sys.stderr,
+        )
         return 2
     try:
         inventory = collect_inventory(args.hermes_root, args.cli_root)
@@ -1051,7 +1224,9 @@ def main(argv: list[str] | None = None) -> int:
     tool_count = len(inventory["official_tools"])
     helper_count = len(inventory["official_helpers"])
     dynamic_count = len(inventory["dynamic_schemas"])
-    print(f"inventory generated: {tool_count} official tools, {helper_count} CLI helpers, {dynamic_count} dynamic schema paths")
+    print(
+        f"inventory generated: {tool_count} official tools, {helper_count} CLI helpers, {dynamic_count} dynamic schema paths"
+    )
     print(f"report: {args.output}")
     if args.update_baseline:
         print(f"baseline updated: {args.baseline}")

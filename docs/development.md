@@ -3,11 +3,13 @@
 ## Prerequisites
 
 - Node.js 22.12+ and Python 3.11+ for the self-contained tests
+- Prettier 3.6.2 (locked in npm devDependencies) and Ruff 0.14.0 (`python3 -m pip install ruff==0.14.0`) for formatting
 - macOS with Chrome or Edge for actual browser execution
 - The pinned Hermes test checkout only for the separate integration gate (see [testing.md](testing.md))
 
 ```sh
 npm ci --ignore-scripts
+python3 -m pip install ruff==0.14.0
 npm test
 ```
 
@@ -36,6 +38,8 @@ docs/                   Documentation
 |---|---|
 | `npm test` | Self-contained Node, script-lane and V1.3 regressions; no Hermes install |
 | `npm run verify` | Full Hermes integration gate in an isolated snapshot; writes a report under `tests/v1.1-verification/` (ignored by Git) |
+| `npm run format` | Format JS/MJS with Prettier and Python with Ruff (100-column target) |
+| `npm run format:check` | Verify formatting without rewriting files; also runs in CI |
 | `npm run lint` | ESLint over the repository |
 | `npm run check:js` | Syntax and manifest checks for extension and plugin JavaScript |
 | `npm run check:docs` | Link, path and secret checks for `docs/` |
@@ -108,3 +112,5 @@ hermes --profile default plugins enable fast-browser-link
 ```
 
 The first command returns a plan; apply returns `installed_disabled` and activation is separate. This lower-level interface installs only the root and refuses existing installations; use `install.sh` for shared profile references and `install.sh --upgrade` for replacement. Manual operators still handle extension loading and app restart. Neither installation interface grants optional `tools.override` or Vault access. See [security](../SECURITY.md#extension-identity-and-installation-packages) for identity and checksum checks, and [testing](testing.md) for isolated acceptance.
+
+Formatting exclusions and their reasons are listed in `.prettierignore` and `ruff.toml`. Source-serialized semantic modules keep their existing shape to preserve the injected declaration byte budget. Long literals are left intact so protocol values, prompts and UI text do not change.

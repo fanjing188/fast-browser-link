@@ -1,6 +1,8 @@
 """First Python→existing shared-task action tracer; no real browser is started."""
+
 import importlib.util
 import pathlib
+import re
 import tempfile
 import unittest
 import os
@@ -8,8 +10,13 @@ import threading
 import time
 from unittest.mock import patch
 
-MODULE = pathlib.Path(__file__).resolve().parents[2] / 'executor-plugin' / 'script_lane' / 'action_session.py'
-spec = importlib.util.spec_from_file_location('v11_action_session', MODULE)
+MODULE = (
+    pathlib.Path(__file__).resolve().parents[2]
+    / "executor-plugin"
+    / "script_lane"
+    / "action_session.py"
+)
+spec = importlib.util.spec_from_file_location("v11_action_session", MODULE)
 adapter = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(adapter)
 
@@ -24,8 +31,12 @@ class RecordingRuntime:
         response = next(self.responses)
         if isinstance(response, Exception):
             raise response
-        if isinstance(response, dict) and response.get('status') == 'approval_required' and 'requestId' not in response:
-            return {**response, 'requestId': params['requestId']}
+        if (
+            isinstance(response, dict)
+            and response.get("status") == "approval_required"
+            and "requestId" not in response
+        ):
+            return {**response, "requestId": params["requestId"]}
         return response
 
 
@@ -33,184 +44,277 @@ class ActionSessionTest(unittest.TestCase):
     def test_paused_action_waits_for_same_task_then_continues(self):
         # 中文注释：暂停期间不派发第二动作；恢复后原请求编号只重查未派发步骤。
         resumed = threading.Event()
+
         class PausedRuntime:
-            def __init__(self): self.actions = []; self.reads = 0
+            def __init__(self):
+                self.actions = []
+                self.reads = 0
+
             def call(self, method, params):
-                if method == 'shared.get':
+                if method == "shared.get":
                     self.reads += 1
-                    return {'state': 'ready' if resumed.is_set() else 'paused', 'generation': 2,
-                            'resumeSummary': {'urlChanged': True, 'documentReplaced': False,
-                                              'referencesInvalid': True, 'readPageFirst': True}}
+                    return {
+                        "state": "ready" if resumed.is_set() else "paused",
+                        "generation": 2,
+                        "resumeSummary": {
+                            "urlChanged": True,
+                            "documentReplaced": False,
+                            "referencesInvalid": True,
+                            "readPageFirst": True,
+                        },
+                    }
                 self.actions.append(dict(params))
                 if not resumed.is_set():
-                    raise type('Paused', (Exception,), {'code': 'task_paused', 'data': {'outcomeUnknown': False}})()
-                return {'tabId': 9}
+                    raise type(
+                        "Paused",
+                        (Exception,),
+                        {"code": "task_paused", "data": {"outcomeUnknown": False}},
+                    )()
+                return {"tabId": 9}
+
         runtime = PausedRuntime()
-        session = adapter.ActionSession(runtime, owner='trusted-owner', task_id='task-1')
-        session.install_scope('instance-1', 2)
+        session = adapter.ActionSession(runtime, owner="trusted-owner", task_id="task-1")
+        session.install_scope("instance-1", 2)
         result = []
-        worker = threading.Thread(target=lambda: result.append(session.new_tab('https://example.test/')))
+        worker = threading.Thread(
+            target=lambda: result.append(session.new_tab("https://example.test/"))
+        )
         worker.start()
         time.sleep(0.08)
         self.assertEqual(len(runtime.actions), 1)
-        resumed.set(); worker.join(2)
+        resumed.set()
+        worker.join(2)
         self.assertFalse(worker.is_alive())
         self.assertEqual(result, [9])
-        self.assertEqual(runtime.actions[0]['requestId'], runtime.actions[1]['requestId'])
-        self.assertTrue(session.completion()['resumeSummary']['urlChanged'])
+        self.assertEqual(runtime.actions[0]["requestId"], runtime.actions[1]["requestId"])
+        self.assertTrue(session.completion()["resumeSummary"]["urlChanged"])
 
     def test_pause_timeout_is_classified_without_dispatch(self):
         class PausedRuntime:
             def call(self, method, _params):
-                if method == 'shared.get': return {'state': 'paused', 'generation': 2}
-                raise type('Paused', (Exception,), {'code': 'task_paused', 'data': {'outcomeUnknown': False}})()
-        session = adapter.ActionSession(PausedRuntime(), owner='trusted-owner', task_id='task-1')
-        session.install_scope('instance-1', 2)
-        with patch.dict(os.environ, {'FAST_BROWSER_PAUSE_TIMEOUT_S': '1'}):
+                if method == "shared.get":
+                    return {"state": "paused", "generation": 2}
+                raise type(
+                    "Paused",
+                    (Exception,),
+                    {"code": "task_paused", "data": {"outcomeUnknown": False}},
+                )()
+
+        session = adapter.ActionSession(PausedRuntime(), owner="trusted-owner", task_id="task-1")
+        session.install_scope("instance-1", 2)
+        with patch.dict(os.environ, {"FAST_BROWSER_PAUSE_TIMEOUT_S": "1"}):
             with self.assertRaises(adapter.ActionRejected) as caught:
-                session.new_tab('https://example.test/')
-        self.assertEqual(caught.exception.code, 'task_paused')
+                session.new_tab("https://example.test/")
+        self.assertEqual(caught.exception.code, "task_paused")
 
     def test_existing_tab_helper_waits_before_selecting_paused_page(self):
         resumed = threading.Event()
+
         class Runtime:
             def call(self, method, _params):
                 self_method = method
-                assert self_method == 'shared.get'
-                return {'state': 'ready' if resumed.is_set() else 'paused', 'generation': 2,
-                        'tabIds': [7], 'workTabs': [{'tabId': 7}]}
-        session = adapter.ActionSession(Runtime(), owner='trusted-owner', task_id='task-1')
-        session.install_scope('instance-1', 2)
+                assert self_method == "shared.get"
+                return {
+                    "state": "ready" if resumed.is_set() else "paused",
+                    "generation": 2,
+                    "tabIds": [7],
+                    "workTabs": [{"tabId": 7}],
+                }
+
+        session = adapter.ActionSession(Runtime(), owner="trusted-owner", task_id="task-1")
+        session.install_scope("instance-1", 2)
         values = []
         worker = threading.Thread(target=lambda: values.append(session.use_tab(7)))
-        worker.start();time.sleep(0.08)
+        worker.start()
+        time.sleep(0.08)
         self.assertEqual(values, [])
-        resumed.set();worker.join(2)
+        resumed.set()
+        worker.join(2)
         self.assertEqual(values, [7])
 
     def test_operation_status_is_read_only_even_after_an_unknown_write(self):
-        runtime = RecordingRuntime([
-            TimeoutError('response lost'),
-            {'requestIdHash': 'a' * 64, 'state': 'unknown', 'dispatched': True, 'generation': 4},
-        ])
-        session = adapter.ActionSession(runtime, owner='trusted-owner', task_id='task-1')
+        runtime = RecordingRuntime(
+            [
+                TimeoutError("response lost"),
+                {
+                    "requestIdHash": "a" * 64,
+                    "state": "unknown",
+                    "dispatched": True,
+                    "generation": 4,
+                },
+            ]
+        )
+        session = adapter.ActionSession(runtime, owner="trusted-owner", task_id="task-1")
         with self.assertRaises(adapter.OutcomeUnknown):
-            session.new_tab('https://example.test/')
+            session.new_tab("https://example.test/")
         status = session.operation_status()
         # 中文注释：同一请求只查询账本，未知写入仍冻结，不产生第二次 shared.run。
-        self.assertEqual(status['state'], 'unknown')
-        self.assertEqual(status['requestId'], runtime.calls[0][1]['requestId'])
-        self.assertEqual([method for method, _ in runtime.calls], ['shared.run', 'shared.operation_status'])
+        self.assertEqual(status["state"], "unknown")
+        self.assertEqual(status["requestId"], runtime.calls[0][1]["requestId"])
+        self.assertEqual(
+            [method for method, _ in runtime.calls], ["shared.run", "shared.operation_status"]
+        )
         with self.assertRaises(adapter.OutcomeUnknown):
             session.snapshot()
 
     def test_js_error_receipt_keeps_code_and_does_not_freeze_session(self):
         # 中文注释：真实浏览器回归：js.evaluate 的语法/运行时异常回执曾被当成结果不确定并冻结会话。
-        runtime = RecordingRuntime([
-            {'tabId': 7},
-            {'ok': False, 'code': 'js_syntax_error', 'outcomeUnknown': False,
-             'exception': {'type': 'SyntaxError', 'text': "SyntaxError: Unexpected token '*'"}},
-            {'ok': False, 'code': 'js_exception', 'outcomeUnknown': True,
-             'exception': {'type': 'TypeError', 'text': 'TypeError: x is null'}},
-            {'ok': True, 'value': 'title'},
-        ])
-        session = adapter.ActionSession(runtime, owner='trusted-owner', task_id='task-1')
-        session.new_tab('https://example.test/')
-        first = session.run('js.evaluate', {'expression': 'document.title +* 1'})
-        self.assertEqual((first['ok'], first['code']), (False, 'js_syntax_error'))
-        second = session.run('js.evaluate', {'expression': 'x.y'})
-        self.assertEqual(second['code'], 'js_exception')
-        self.assertEqual(session.run('js.evaluate', {'expression': 'document.title'})['value'], 'title')
+        runtime = RecordingRuntime(
+            [
+                {"tabId": 7},
+                {
+                    "ok": False,
+                    "code": "js_syntax_error",
+                    "outcomeUnknown": False,
+                    "exception": {
+                        "type": "SyntaxError",
+                        "text": "SyntaxError: Unexpected token '*'",
+                    },
+                },
+                {
+                    "ok": False,
+                    "code": "js_exception",
+                    "outcomeUnknown": True,
+                    "exception": {"type": "TypeError", "text": "TypeError: x is null"},
+                },
+                {"ok": True, "value": "title"},
+            ]
+        )
+        session = adapter.ActionSession(runtime, owner="trusted-owner", task_id="task-1")
+        session.new_tab("https://example.test/")
+        first = session.run("js.evaluate", {"expression": "document.title +* 1"})
+        self.assertEqual((first["ok"], first["code"]), (False, "js_syntax_error"))
+        second = session.run("js.evaluate", {"expression": "x.y"})
+        self.assertEqual(second["code"], "js_exception")
+        self.assertEqual(
+            session.run("js.evaluate", {"expression": "document.title"})["value"], "title"
+        )
 
     def test_other_ok_false_receipts_still_freeze_session(self):
-        runtime = RecordingRuntime([{'tabId': 7}, {'ok': False, 'code': 'something_else'}])
-        session = adapter.ActionSession(runtime, owner='trusted-owner', task_id='task-1')
-        session.new_tab('https://example.test/')
+        runtime = RecordingRuntime([{"tabId": 7}, {"ok": False, "code": "something_else"}])
+        session = adapter.ActionSession(runtime, owner="trusted-owner", task_id="task-1")
+        session.new_tab("https://example.test/")
         with self.assertRaises(adapter.OutcomeUnknown):
-            session.run('js.evaluate', {'expression': 'document.title'})
+            session.run("js.evaluate", {"expression": "document.title"})
         with self.assertRaises(adapter.OutcomeUnknown):
             session.snapshot()
 
     def test_last_operation_can_be_returned_after_child_exit(self):
-        runtime = RecordingRuntime([
-            {'tabId': 7},
-            {'requestIdHash': 'b' * 64, 'state': 'confirmed', 'dispatched': True, 'generation': 4},
-        ])
-        session = adapter.ActionSession(runtime, owner='trusted-owner', task_id='task-1')
-        session.new_tab('https://example.test/')
+        runtime = RecordingRuntime(
+            [
+                {"tabId": 7},
+                {
+                    "requestIdHash": "b" * 64,
+                    "state": "confirmed",
+                    "dispatched": True,
+                    "generation": 4,
+                },
+            ]
+        )
+        session = adapter.ActionSession(runtime, owner="trusted-owner", task_id="task-1")
+        session.new_tab("https://example.test/")
         last = session.last_operation()
-        self.assertEqual(last['requestId'], runtime.calls[0][1]['requestId'])
-        self.assertEqual((last['state'], last['dispatched']), ('confirmed', True))
+        self.assertEqual(last["requestId"], runtime.calls[0][1]["requestId"])
+        self.assertEqual((last["state"], last["dispatched"]), ("confirmed", True))
 
     def test_reconnect_rebinds_only_the_same_task_and_keeps_unknown_write_fenced(self):
-        task = {'id': 'task-1', 'instanceId': 'instance-1', 'state': 'ready', 'generation': 2,
-                'tabIds': [8], 'workTabs': [{'tabId': 8}]}
-        runtime = RecordingRuntime([ConnectionError('offline'), task,
-                                    [{'instanceId': 'instance-1', 'connected': True}],
-                                    {'text': 'new page'}])
-        session = adapter.ActionSession(runtime, owner='trusted-owner', task_id='task-1')
-        session.install_scope('instance-1', 1)
+        task = {
+            "id": "task-1",
+            "instanceId": "instance-1",
+            "state": "ready",
+            "generation": 2,
+            "tabIds": [8],
+            "workTabs": [{"tabId": 8}],
+        }
+        runtime = RecordingRuntime(
+            [
+                ConnectionError("offline"),
+                task,
+                [{"instanceId": "instance-1", "connected": True}],
+                {"text": "new page"},
+            ]
+        )
+        session = adapter.ActionSession(runtime, owner="trusted-owner", task_id="task-1")
+        session.install_scope("instance-1", 1)
         session.tab_id = 7
-        self.assertEqual(session.reconnect()['state'], 'disconnected')
+        self.assertEqual(session.reconnect()["state"], "disconnected")
         ready = session.reconnect()
-        self.assertEqual((ready['generation'], ready['tabId'], ready['requiresReconciliation']), (2, 8, True))
+        self.assertEqual(
+            (ready["generation"], ready["tabId"], ready["requiresReconciliation"]), (2, 8, True)
+        )
         # 中文注释：新代次只恢复通道和唯一工作页，不重放旧请求；必须先读取页面。
         with self.assertRaises(adapter.OutcomeUnknown):
             session.snapshot()
-        self.assertEqual(session.reconcile()['text'], 'new page')
-        self.assertEqual([method for method, _ in runtime.calls],
-                         ['shared.get', 'shared.get', 'browser.list', 'shared.run'])
+        self.assertEqual(session.reconcile()["text"], "new page")
+        self.assertEqual(
+            [method for method, _ in runtime.calls],
+            ["shared.get", "shared.get", "browser.list", "shared.run"],
+        )
 
     def test_python_batch_uses_bound_task_tab_and_writes_checkpoint(self):
-        runtime = RecordingRuntime([
-            {'tabId': 71, 'url': 'https://example.test/start'},
-            {'tabId': 71, 'url': 'https://example.test/page/2'},
-            {'snapshotId': 'snap-2', 'binding': {'taskId': 'task-1', 'documentId': 'doc-2', 'leaseId': 'lease-2'},
-             'items': [{'ref': 'r1', 'role': 'button', 'name': '下一页'}]},
-            {'text': 'first\nsecond\nfirst'},
-        ])
-        session = adapter.ActionSession(runtime, owner='trusted-owner', task_id='task-1')
+        runtime = RecordingRuntime(
+            [
+                {"tabId": 71, "url": "https://example.test/start"},
+                {"tabId": 71, "url": "https://example.test/page/2"},
+                {
+                    "snapshotId": "snap-2",
+                    "binding": {"taskId": "task-1", "documentId": "doc-2", "leaseId": "lease-2"},
+                    "items": [{"ref": "r1", "role": "button", "name": "下一页"}],
+                },
+                {"text": "first\nsecond\nfirst"},
+            ]
+        )
+        session = adapter.ActionSession(runtime, owner="trusted-owner", task_id="task-1")
         with tempfile.TemporaryDirectory() as folder:
-            session.new_tab('https://example.test/start')
-            receipt = session.goto_url('https://example.test/page/2')
+            session.new_tab("https://example.test/start")
+            receipt = session.goto_url("https://example.test/page/2")
             # 中文注释：导航摘要保留快照绑定和 ref，可直接组成后续引用动作参数。
-            self.assertEqual(receipt['summary']['items'][0]['ref'], 'r1')
-            self.assertEqual(receipt['summary']['binding']['documentId'], 'doc-2')
-            rows = sorted(set(session.snapshot()['text'].splitlines()))
-            path = pathlib.Path(folder) / 'checkpoint.txt'
-            path.write_text('\n'.join(rows), encoding='utf-8')
-            self.assertEqual(path.read_text(encoding='utf-8'), 'first\nsecond')
-        self.assertEqual([call[1]['action'] for call in runtime.calls],
-                         ['new_tab', 'navigate', 'semantic_snapshot', 'snapshot'])
-        self.assertEqual([call[1].get('tabId') for call in runtime.calls], [None, 71, 71, 71])
-        self.assertEqual(len({call[1]['requestId'] for call in runtime.calls}), 4)
-        self.assertTrue(all(method == 'shared.run' and payload['owner'] == 'trusted-owner' and payload['taskId'] == 'task-1' for method, payload in runtime.calls))
+            self.assertEqual(receipt["summary"]["items"][0]["ref"], "r1")
+            self.assertEqual(receipt["summary"]["binding"]["documentId"], "doc-2")
+            rows = sorted(set(session.snapshot()["text"].splitlines()))
+            path = pathlib.Path(folder) / "checkpoint.txt"
+            path.write_text("\n".join(rows), encoding="utf-8")
+            self.assertEqual(path.read_text(encoding="utf-8"), "first\nsecond")
+        self.assertEqual(
+            [call[1]["action"] for call in runtime.calls],
+            ["new_tab", "navigate", "semantic_snapshot", "snapshot"],
+        )
+        self.assertEqual([call[1].get("tabId") for call in runtime.calls], [None, 71, 71, 71])
+        self.assertEqual(len({call[1]["requestId"] for call in runtime.calls}), 4)
+        self.assertTrue(
+            all(
+                method == "shared.run"
+                and payload["owner"] == "trusted-owner"
+                and payload["taskId"] == "task-1"
+                for method, payload in runtime.calls
+            )
+        )
 
     def test_approval_pauses_and_queries_same_request_before_next_action(self):
-        runtime = RecordingRuntime([{'status': 'approval_required'}, {'tabId': 5}])
-        session = adapter.ActionSession(runtime, owner='trusted-owner', task_id='task-1')
+        runtime = RecordingRuntime([{"status": "approval_required"}, {"tabId": 5}])
+        session = adapter.ActionSession(runtime, owner="trusted-owner", task_id="task-1")
         with self.assertRaises(adapter.ApprovalRequired):
-            session.new_tab('https://example.test/')
+            session.new_tab("https://example.test/")
         with self.assertRaises(adapter.PendingAction):
-            session.new_tab('https://example.test/other')
+            session.new_tab("https://example.test/other")
         self.assertEqual(session.resume_pending(), 5)
         self.assertEqual(runtime.calls[0], runtime.calls[1])
         self.assertEqual(session.tab_id, 5)
 
     def test_pending_receipt_with_foreign_id_freezes_without_retry(self):
-        runtime = RecordingRuntime([{'status': 'approval_required', 'requestId': 'foreign'}])
-        session = adapter.ActionSession(runtime, owner='trusted-owner', task_id='task-1')
+        runtime = RecordingRuntime([{"status": "approval_required", "requestId": "foreign"}])
+        session = adapter.ActionSession(runtime, owner="trusted-owner", task_id="task-1")
         with self.assertRaises(adapter.OutcomeUnknown):
-            session.new_tab('https://example.test/')
+            session.new_tab("https://example.test/")
         with self.assertRaises(adapter.OutcomeUnknown):
             session.resume_pending()
         self.assertEqual(len(runtime.calls), 1)
 
     def test_unknown_outcome_freezes_actions_without_replay(self):
-        runtime = RecordingRuntime([TimeoutError('transport lost')])
-        session = adapter.ActionSession(runtime, owner='trusted-owner', task_id='task-1')
+        runtime = RecordingRuntime([TimeoutError("transport lost")])
+        session = adapter.ActionSession(runtime, owner="trusted-owner", task_id="task-1")
         with self.assertRaises(adapter.OutcomeUnknown):
-            session.new_tab('https://example.test/')
+            session.new_tab("https://example.test/")
         with self.assertRaises(adapter.OutcomeUnknown):
             session.resume_pending()
         with self.assertRaises(adapter.OutcomeUnknown):
@@ -218,81 +322,116 @@ class ActionSessionTest(unittest.TestCase):
         self.assertEqual(len(runtime.calls), 1)
 
     def test_navigate_receipt_for_foreign_tab_freezes_session(self):
-        runtime = RecordingRuntime([{'tabId': 71}, {'tabId': 99, 'url': 'https://example.test/elsewhere'}])
-        session = adapter.ActionSession(runtime, owner='trusted-owner', task_id='task-1')
-        session.new_tab('https://example.test/start')
+        runtime = RecordingRuntime(
+            [{"tabId": 71}, {"tabId": 99, "url": "https://example.test/elsewhere"}]
+        )
+        session = adapter.ActionSession(runtime, owner="trusted-owner", task_id="task-1")
+        session.new_tab("https://example.test/start")
         with self.assertRaises(adapter.OutcomeUnknown):
-            session.goto_url('https://example.test/elsewhere')
+            session.goto_url("https://example.test/elsewhere")
         self.assertEqual(session.tab_id, 71)
         with self.assertRaises(adapter.OutcomeUnknown):
             session.snapshot()
 
     def test_official_page_info_preserves_real_helper_shape(self):
-        expected = {'url': 'https://example.test/page', 'title': 'Synthetic',
-                    'w': 1280, 'h': 720, 'sx': 0, 'sy': 12.5,
-                    'pw': 1600, 'ph': 2400}
-        runtime = RecordingRuntime([{'tabId': 71}, expected])
-        session = adapter.ActionSession(runtime, owner='trusted-owner', task_id='task-1')
-        session.new_tab('https://example.test/page')
+        expected = {
+            "url": "https://example.test/page",
+            "title": "Synthetic",
+            "w": 1280,
+            "h": 720,
+            "sx": 0,
+            "sy": 12.5,
+            "pw": 1600,
+            "ph": 2400,
+        }
+        runtime = RecordingRuntime([{"tabId": 71}, expected])
+        session = adapter.ActionSession(runtime, owner="trusted-owner", task_id="task-1")
+        session.new_tab("https://example.test/page")
         self.assertEqual(session.official_page_info(), expected)
         call = runtime.calls[-1][1]
-        self.assertEqual((call['action'], call['tabId']), ('official.page_info', 71))
+        self.assertEqual((call["action"], call["tabId"]), ("official.page_info", 71))
 
     def test_official_fill_input_requires_real_key_events_and_preserves_arguments(self):
-        receipt = {'found': True, 'delivery': 'cdp-key-events',
-                   'inputEvent': True, 'changeEvent': True}
-        runtime = RecordingRuntime([{'tabId': 71}, receipt])
-        session = adapter.ActionSession(runtime, owner='trusted-owner', task_id='task-1')
-        session.new_tab('https://example.test/page')
-        self.assertEqual(session.official_fill_input('#q', 'hello', clear_first=False, timeout=2.5), receipt)
+        receipt = {
+            "found": True,
+            "delivery": "cdp-key-events",
+            "inputEvent": True,
+            "changeEvent": True,
+        }
+        runtime = RecordingRuntime([{"tabId": 71}, receipt])
+        session = adapter.ActionSession(runtime, owner="trusted-owner", task_id="task-1")
+        session.new_tab("https://example.test/page")
+        self.assertEqual(
+            session.official_fill_input("#q", "hello", clear_first=False, timeout=2.5), receipt
+        )
         call = runtime.calls[-1][1]
-        self.assertEqual({key: call[key] for key in ('action', 'tabId', 'selector', 'text', 'clearFirst', 'timeout')},
-                         {'action': 'official.fill_input', 'tabId': 71, 'selector': '#q',
-                          'text': 'hello', 'clearFirst': False, 'timeout': 2.5})
+        self.assertEqual(
+            {
+                key: call[key]
+                for key in ("action", "tabId", "selector", "text", "clearFirst", "timeout")
+            },
+            {
+                "action": "official.fill_input",
+                "tabId": 71,
+                "selector": "#q",
+                "text": "hello",
+                "clearFirst": False,
+                "timeout": 2.5,
+            },
+        )
 
     def test_official_fill_input_does_not_accept_dom_setter_receipt(self):
-        runtime = RecordingRuntime([{'tabId': 71}, {'found': True, 'delivery': 'dom-synthetic',
-                                                     'inputEvent': True, 'changeEvent': True}])
-        session = adapter.ActionSession(runtime, owner='trusted-owner', task_id='task-1')
-        session.new_tab('https://example.test/page')
+        runtime = RecordingRuntime(
+            [
+                {"tabId": 71},
+                {
+                    "found": True,
+                    "delivery": "dom-synthetic",
+                    "inputEvent": True,
+                    "changeEvent": True,
+                },
+            ]
+        )
+        session = adapter.ActionSession(runtime, owner="trusted-owner", task_id="task-1")
+        session.new_tab("https://example.test/page")
         with self.assertRaises(adapter.OutcomeUnknown):
-            session.official_fill_input('#q', 'hello')
+            session.official_fill_input("#q", "hello")
         with self.assertRaises(adapter.OutcomeUnknown):
             session.snapshot()
         self.assertEqual(len(runtime.calls), 2)
 
     def test_no_bound_tab_rejects_navigation_before_backend(self):
         runtime = RecordingRuntime([])
-        session = adapter.ActionSession(runtime, owner='trusted-owner', task_id='task-1')
+        session = adapter.ActionSession(runtime, owner="trusted-owner", task_id="task-1")
         with self.assertRaises(adapter.NoBoundTab):
-            session.goto_url('https://example.test/')
+            session.goto_url("https://example.test/")
         self.assertEqual(runtime.calls, [])
 
     def test_bad_new_tab_receipt_never_binds_tab(self):
-        runtime = RecordingRuntime([{'tabId': True}])
-        session = adapter.ActionSession(runtime, owner='trusted-owner', task_id='task-1')
+        runtime = RecordingRuntime([{"tabId": True}])
+        session = adapter.ActionSession(runtime, owner="trusted-owner", task_id="task-1")
         with self.assertRaises(adapter.OutcomeUnknown):
-            session.new_tab('https://example.test/')
+            session.new_tab("https://example.test/")
         self.assertIsNone(session.tab_id)
 
     def test_screenshot_returns_real_png_data_without_cdp_translation(self):
-        runtime = RecordingRuntime([{'tabId': 71}, {'data': 'iVBORw0KGgo='}])
-        session = adapter.ActionSession(runtime, owner='trusted-owner', task_id='task-1')
-        session.new_tab('https://example.test/')
-        self.assertEqual(session.screenshot(), 'iVBORw0KGgo=')
-        self.assertEqual(runtime.calls[-1][1]['action'], 'screenshot')
-        self.assertEqual(runtime.calls[-1][1]['tabId'], 71)
+        runtime = RecordingRuntime([{"tabId": 71}, {"data": "iVBORw0KGgo="}])
+        session = adapter.ActionSession(runtime, owner="trusted-owner", task_id="task-1")
+        session.new_tab("https://example.test/")
+        self.assertEqual(session.screenshot(), "iVBORw0KGgo=")
+        self.assertEqual(runtime.calls[-1][1]["action"], "screenshot")
+        self.assertEqual(runtime.calls[-1][1]["tabId"], 71)
 
     def test_invalid_screenshot_receipt_freezes_instead_of_writing_file(self):
-        runtime = RecordingRuntime([{'tabId': 71}, {'path': '/tmp/decoy.png'}])
-        session = adapter.ActionSession(runtime, owner='trusted-owner', task_id='task-1')
-        session.new_tab('https://example.test/')
+        runtime = RecordingRuntime([{"tabId": 71}, {"path": "/tmp/decoy.png"}])
+        session = adapter.ActionSession(runtime, owner="trusted-owner", task_id="task-1")
+        session.new_tab("https://example.test/")
         with self.assertRaises(adapter.OutcomeUnknown):
             session.screenshot()
         self.assertEqual(len(runtime.calls), 2)
 
     def test_identity_and_target_are_mandatory(self):
-        for kwargs in ({'owner': '', 'task_id': 'task'}, {'owner': 'owner', 'task_id': ''}):
+        for kwargs in ({"owner": "", "task_id": "task"}, {"owner": "owner", "task_id": ""}):
             with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
                 adapter.ActionSession(RecordingRuntime([]), **kwargs)
 
@@ -303,92 +442,131 @@ class PopupDirectIntegrationTest(unittest.TestCase):
     def setUp(self):
         root = MODULE.parents[2]
         peer_spec = importlib.util.spec_from_file_location(
-            'script_popup_peer_fixture', root / 'tests/native-v2/test_oauth_popup_executor.py')
+            "script_popup_peer_fixture", root / "tests/native-v2/test_oauth_popup_executor.py"
+        )
         assert peer_spec is not None and peer_spec.loader is not None
         peer_module = importlib.util.module_from_spec(peer_spec)
         peer_spec.loader.exec_module(peer_module)
-        self.fixture = peer_module.DaemonPopupPeerTests(methodName='runTest')
+        self.fixture = peer_module.DaemonPopupPeerTests(methodName="runTest")
         # 中文注释：原 fixture 只模拟授权；补充 Chrome/CDP 的只读页面响应，不改生产逻辑。
         import subprocess
-        peer_path = root / 'tests/v1.1-concurrency/bridge_executor_peer.mjs'
+
+        peer_path = root / "tests/v1.1-concurrency/bridge_executor_peer.mjs"
         source = peer_path.read_text()
-        source = source.replace("if(method==='Runtime.callFunctionOn')return {result:{value:true}};", """
+        source, replacements = re.subn(
+            r"if\s*\(method\s*===\s*['\"]Runtime\.callFunctionOn['\"]\)\s*return\s*\{\s*result:\s*\{\s*value:\s*true\s*\}\s*\};",
+            """
         if(method==='Runtime.evaluate')return {result:{value:'complete'}};
         if(method==='Runtime.callFunctionOn'&&params.arguments?.[0]?.value==='semantic_snapshot')
           return {result:{value:{version:1,binding:params.arguments[1].value.binding,
             snapshotId:'popup-doc-2',kind:'full',items:[{ref:'r1',role:'heading',name:'Original popup'}],
             coverage:{complete:true}}}};
         if(method==='Runtime.callFunctionOn')return {result:{value:true}};
-        """)
-        source = source.replace("if (process.argv[2] === '--oauth-fixture')", 'if (true)')
+        """,
+            source,
+        )
+        self.assertEqual(replacements, 1)
+        source, replacements = re.subn(
+            r"if\s*\(process\.argv\[2\]\s*===\s*['\"]--oauth-fixture['\"]\)",
+            "if (true)",
+            source,
+        )
+        self.assertEqual(replacements, 1)
         popen = subprocess.Popen
-        with patch.object(subprocess, 'Popen', side_effect=lambda _args, **kwargs:
-                          popen(['node', '--input-type=module', '-e', source],
-                                cwd=peer_path.parent, **kwargs)):
+        with patch.object(
+            subprocess,
+            "Popen",
+            side_effect=lambda _args, **kwargs: popen(
+                ["node", "--input-type=module", "-e", source], cwd=peer_path.parent, **kwargs
+            ),
+        ):
             self.fixture.setUp()
         self.addCleanup(self.fixture.doCleanups)
         self.runtime_calls = []
+
         # 中文注释：仅连接传输边界；所有决策、批准、账本与页面租约均走生产实现。
         def call(method, params):
             self.runtime_calls.append((method, dict(params)))
             return self.fixture.daemon._dispatch_client(method, params)
-        self.session = adapter.ActionSession(type('Runtime', (), {'call': staticmethod(call)})(),
-                                             owner='owner', task_id='task')
-        self.session.install_scope('instance', 1)
+
+        self.session = adapter.ActionSession(
+            type("Runtime", (), {"call": staticmethod(call)})(), owner="owner", task_id="task"
+        )
+        self.session.install_scope("instance", 1)
         self.session.tab_id = 1
 
     def adopt_popup(self):
-        candidate = self.session.run('popup_catalog', {})['candidates'][0]
-        receipt = self.session.run('popup_adopt', {'candidateRef': candidate['candidateRef']})
-        self.assertTrue(receipt['adopted'])
+        candidate = self.session.run("popup_catalog", {})["candidates"][0]
+        receipt = self.session.run("popup_adopt", {"candidateRef": candidate["candidateRef"]})
+        self.assertTrue(receipt["adopted"])
         self.assertEqual(self.fixture.daemon.action_approvals, {})
         return candidate, receipt
 
     def test_popup_adopts_directly_without_pending_request(self):
         self.adopt_popup()
         self.assertIsNone(self.session._pending)
-        self.assertTrue(self.session.completion()['execution_complete'])
+        self.assertTrue(self.session.completion()["execution_complete"])
         self.assertEqual(self.session.current_tab(), 1)
 
     def test_unknown_adoption_stays_fenced_without_replay(self):
-        candidate = self.session.run('popup_catalog', {})['candidates'][0]
+        candidate = self.session.run("popup_catalog", {})["candidates"][0]
+
         def lost(response):
-            response.pop('result')
-            response['error'] = {'code': 'extension_disconnected', 'message': 'receipt lost',
-                                 'data': {'outcomeUnknown': True}}
+            response.pop("result")
+            response["error"] = {
+                "code": "extension_disconnected",
+                "message": "receipt lost",
+                "data": {"outcomeUnknown": True},
+            }
+
         self.fixture.intercept_adoption_receipt(lost)
         with self.assertRaises(adapter.OutcomeUnknown):
-            self.session.run('popup_adopt', {'candidateRef': candidate['candidateRef']})
+            self.session.run("popup_adopt", {"candidateRef": candidate["candidateRef"]})
         before = len(self.fixture.calls)
         with self.assertRaises(adapter.OutcomeUnknown):
             self.session.resume_pending()
         with self.assertRaises(adapter.OutcomeUnknown):
-            self.session.run('semantic_snapshot', {})
+            self.session.run("semantic_snapshot", {})
         self.assertEqual(len(self.fixture.calls), before)
-        self.assertFalse(self.session.completion()['execution_complete'])
-        self.assertEqual(self.fixture.rpc(op='state')['removed'], [])
+        self.assertFalse(self.session.completion()["execution_complete"])
+        self.assertEqual(self.fixture.rpc(op="state")["removed"], [])
 
     def test_late_adoption_cannot_survive_scope_changes(self):
-        for change in ('generation', 'modeGeneration', 'cancelled', 'target_closed', 'source_lease'):
+        for change in (
+            "generation",
+            "modeGeneration",
+            "cancelled",
+            "target_closed",
+            "source_lease",
+        ):
             with self.subTest(change=change):
-                case = PopupDirectIntegrationTest(methodName='runTest')
+                case = PopupDirectIntegrationTest(methodName="runTest")
                 case.setUp()
                 try:
-                    candidate = case.session.run('popup_catalog', {})['candidates'][0]
+                    candidate = case.session.run("popup_catalog", {})["candidates"][0]
+
                     def changed(response):
-                        if change in ('generation', 'modeGeneration'):
+                        if change in ("generation", "modeGeneration"):
                             case.fixture.task[change] += 1
-                        elif change == 'cancelled':
-                            case.fixture.daemon._revoke_task_locked(case.fixture.task, 'cancelled')
-                        elif change == 'target_closed':
-                            case.fixture.daemon._handle_tab_event('instance', {
-                                'taskId': 'task', 'generation': 1, 'tabId': 2,
-                                'event': 'closed', 'documentGeneration': 0})
+                        elif change == "cancelled":
+                            case.fixture.daemon._revoke_task_locked(case.fixture.task, "cancelled")
+                        elif change == "target_closed":
+                            case.fixture.daemon._handle_tab_event(
+                                "instance",
+                                {
+                                    "taskId": "task",
+                                    "generation": 1,
+                                    "tabId": 2,
+                                    "event": "closed",
+                                    "documentGeneration": 0,
+                                },
+                            )
                         else:
-                            case.fixture.daemon.tab_leases.pop(('instance', 1))
+                            case.fixture.daemon.tab_leases.pop(("instance", 1))
+
                     case.fixture.intercept_adoption_receipt(changed)
                     with self.assertRaises(adapter.OutcomeUnknown):
-                        case.session.run('popup_adopt', {'candidateRef': candidate['candidateRef']})
+                        case.session.run("popup_adopt", {"candidateRef": candidate["candidateRef"]})
                     before = len(case.fixture.calls)
                     with self.assertRaises(adapter.OutcomeUnknown):
                         case.session.resume_pending()
@@ -398,113 +576,187 @@ class PopupDirectIntegrationTest(unittest.TestCase):
 
     def test_real_script_direct_adoption_reads_original_popup_through_public_projection(self):
         import json
+
         root = MODULE.parents[2]
-        native_runtime = self.fixture.module.native_runtime if hasattr(self.fixture.module, 'native_runtime') else __import__('native_runtime')
-        host = native_runtime.load_module(root / 'executor-plugin/script_lane/host_bridge.py', 'popup_script_host_')
-        tool = native_runtime.load_module(root / 'executor-plugin/script_lane/tool.py', 'popup_script_tool_')
-        projection = native_runtime.load_module(root / 'executor-plugin/runtime.py', 'popup_script_projection_')
-        authority = native_runtime.NativeOwnerAuthority(pathlib.Path(self.fixture.temp.name) / 'authority')
+        native_runtime = (
+            self.fixture.module.native_runtime
+            if hasattr(self.fixture.module, "native_runtime")
+            else __import__("native_runtime")
+        )
+        host = native_runtime.load_module(
+            root / "executor-plugin/script_lane/host_bridge.py", "popup_script_host_"
+        )
+        tool = native_runtime.load_module(
+            root / "executor-plugin/script_lane/tool.py", "popup_script_tool_"
+        )
+        projection = native_runtime.load_module(
+            root / "executor-plugin/runtime.py", "popup_script_projection_"
+        )
+        authority = native_runtime.NativeOwnerAuthority(
+            pathlib.Path(self.fixture.temp.name) / "authority"
+        )
         authority.lease_tools((tool.TOOL_NAME,))
-        owner = authority.owner_for_session('popup-script')
-        self.fixture.task['owner'] = owner
-        self.fixture.task['workTabs'] = [{'tabId': 1}]
+        owner = authority.owner_for_session("popup-script")
+        self.fixture.task["owner"] = owner
+        self.fixture.task["workTabs"] = [{"tabId": 1}]
         original = self.session._runtime.call
+
         def call(method, params):
-            if method == 'browser.list':
-                return [{'instanceId': 'instance', 'connected': True}]
+            if method == "browser.list":
+                return [{"instanceId": "instance", "connected": True}]
             result = original(method, params)
-            if method in ('shared.get', 'shared.run'):
-                result = projection._project_tool_result('fast_browser_get' if method == 'shared.get'
-                    else 'fast_browser_run', params, result)
+            if method in ("shared.get", "shared.run"):
+                result = projection._project_tool_result(
+                    "fast_browser_get" if method == "shared.get" else "fast_browser_run",
+                    params,
+                    result,
+                )
             return result
-        runtime = type('Runtime', (), {'call': staticmethod(call), 'authority': authority})()
-        bridge = host.HostBridge(runtime, root / 'executor-plugin')
+
+        runtime = type("Runtime", (), {"call": staticmethod(call), "authority": authority})()
+        bridge = host.HostBridge(runtime, root / "executor-plugin")
         self.addCleanup(bridge.close)
-        bridge.bind('popup-script', owner=owner, task_id='task', tab_id=1)
-        handler = tool.make_handler(bridge, authority, pathlib.Path(self.fixture.temp.name),
-                                   lease_error=native_runtime.OwnerLeaseError, bridge_denied=host.BridgeDenied)
-        code = ("candidate=popup_catalog(tab=1)['candidates'][0]\n"
-                "result=popup_adopt(candidate['candidateRef'], tab=1)\n"
-                "print(result['adopted'], current_tab())\n"
-                "use_tab(candidate['tabId'])\n"
-                "page=read_page(mode='interactive')\n"
-                "print(current_tab(), len(page['items']), page['items'][0]['name'])\n")
-        args = {'code': code, 'timeout_s': 10}
-        hook = authority.pre_tool_call(tool.TOOL_NAME, args, session_id='popup-script', tool_call_id='popup-call')
-        self.assertEqual(hook['action'], 'modify')
-        result = json.loads(handler({**args, **hook['args']}, session_id='popup-script'))
-        self.assertEqual(result['exit_code'], 0, result)
-        self.assertEqual(result['stdout'].strip().splitlines(), ['True 1', '2 1 Original popup'])
-        self.assertTrue(result['execution_complete'], result)
-        self.assertFalse(result['outcome_unknown'], result)
-        self.assertEqual(len([p for method, p in self.runtime_calls
-                              if method == 'shared.run' and p['action'] == 'popup_adopt']), 1)
+        bridge.bind("popup-script", owner=owner, task_id="task", tab_id=1)
+        handler = tool.make_handler(
+            bridge,
+            authority,
+            pathlib.Path(self.fixture.temp.name),
+            lease_error=native_runtime.OwnerLeaseError,
+            bridge_denied=host.BridgeDenied,
+        )
+        code = (
+            "candidate=popup_catalog(tab=1)['candidates'][0]\n"
+            "result=popup_adopt(candidate['candidateRef'], tab=1)\n"
+            "print(result['adopted'], current_tab())\n"
+            "use_tab(candidate['tabId'])\n"
+            "page=read_page(mode='interactive')\n"
+            "print(current_tab(), len(page['items']), page['items'][0]['name'])\n"
+        )
+        args = {"code": code, "timeout_s": 10}
+        hook = authority.pre_tool_call(
+            tool.TOOL_NAME, args, session_id="popup-script", tool_call_id="popup-call"
+        )
+        self.assertEqual(hook["action"], "modify")
+        result = json.loads(handler({**args, **hook["args"]}, session_id="popup-script"))
+        self.assertEqual(result["exit_code"], 0, result)
+        self.assertEqual(result["stdout"].strip().splitlines(), ["True 1", "2 1 Original popup"])
+        self.assertTrue(result["execution_complete"], result)
+        self.assertFalse(result["outcome_unknown"], result)
+        self.assertEqual(
+            len(
+                [
+                    p
+                    for method, p in self.runtime_calls
+                    if method == "shared.run" and p["action"] == "popup_adopt"
+                ]
+            ),
+            1,
+        )
 
     def test_direct_adoption_reads_original_window_without_replay(self):
         candidate, receipt = self.adopt_popup()
-        self.assertTrue(receipt['adopted'])
+        self.assertTrue(receipt["adopted"])
         self.assertEqual(self.session.current_tab(), 1)
-        self.assertEqual(self.session.use_tab(candidate['tabId']), 2)
-        page = self.session.run('semantic_snapshot', {})
-        self.assertEqual(len(page['items']), 1)
-        self.assertEqual(page['items'][0]['name'], 'Original popup')
-        self.assertEqual(page['binding']['taskId'], 'task')
-        self.assertEqual(self.fixture.calls[-1]['params']['tabId'], candidate['tabId'])
-        self.assertEqual(self.fixture.rpc(op='state')['removed'], [])
-        adoption_runs = [p for method, p in self.runtime_calls
-                         if method == 'shared.run' and p['action'] == 'popup_adopt']
+        self.assertEqual(self.session.use_tab(candidate["tabId"]), 2)
+        page = self.session.run("semantic_snapshot", {})
+        self.assertEqual(len(page["items"]), 1)
+        self.assertEqual(page["items"][0]["name"], "Original popup")
+        self.assertEqual(page["binding"]["taskId"], "task")
+        self.assertEqual(self.fixture.calls[-1]["params"]["tabId"], candidate["tabId"])
+        self.assertEqual(self.fixture.rpc(op="state")["removed"], [])
+        adoption_runs = [
+            p
+            for method, p in self.runtime_calls
+            if method == "shared.run" and p["action"] == "popup_adopt"
+        ]
         self.assertEqual(len(adoption_runs), 1)
-
 
 
 class EventReadConcurrencyTests(unittest.TestCase):
     def test_host_event_reads_do_not_wait_for_same_tab_command_or_clear_its_pending_state(self):
         from concurrent.futures import ThreadPoolExecutor
-        path = MODULE.with_name('host_bridge.py')
-        host_spec = importlib.util.spec_from_file_location('event_host_bridge', path)
-        host = importlib.util.module_from_spec(host_spec); host_spec.loader.exec_module(host)
-        started = threading.Event(); release = threading.Event()
+
+        path = MODULE.with_name("host_bridge.py")
+        host_spec = importlib.util.spec_from_file_location("event_host_bridge", path)
+        host = importlib.util.module_from_spec(host_spec)
+        host_spec.loader.exec_module(host)
+        started = threading.Event()
+        release = threading.Event()
         calls = []
+
         class Runtime:
             def call(self, method, params):
                 calls.append((method, dict(params)))
-                if method == 'shared.get':
-                    return {'id': 'task-1', 'state': 'running', 'generation': 1,
-                            'instanceId': 'edge', 'tabIds': [7], 'workTabs': [{'tabId': 7}]}
-                if method == 'shared.run':
-                    if params['action'] == 'js.evaluate':
-                        started.set(); release.wait(2)
-                        return {'value': 1}
-                    return {'events': [{'method': 'Network.loadingFinished', 'params': {'requestId': 'one'}}],
-                            'cursor': 1, 'dropped': 0, 'hasMore': False}
+                if method == "shared.get":
+                    return {
+                        "id": "task-1",
+                        "state": "running",
+                        "generation": 1,
+                        "instanceId": "edge",
+                        "tabIds": [7],
+                        "workTabs": [{"tabId": 7}],
+                    }
+                if method == "shared.run":
+                    if params["action"] == "js.evaluate":
+                        started.set()
+                        release.wait(2)
+                        return {"value": 1}
+                    return {
+                        "events": [
+                            {"method": "Network.loadingFinished", "params": {"requestId": "one"}}
+                        ],
+                        "cursor": 1,
+                        "dropped": 0,
+                        "hasMore": False,
+                    }
                 return {}
-        root = adapter.ActionSession(Runtime(), owner='owner', task_id='task-1')
-        root.install_scope('edge', 1); root.use_tab(7)
-        revoked = threading.Event(); closed = threading.Event()
-        state = {'current': root, 'guard': threading.RLock(), 'roots': {'task-1': root},
-                 'revocations': {'task-1': revoked}}
+
+        root = adapter.ActionSession(Runtime(), owner="owner", task_id="task-1")
+        root.install_scope("edge", 1)
+        root.use_tab(7)
+        revoked = threading.Event()
+        closed = threading.Event()
+        state = {
+            "current": root,
+            "guard": threading.RLock(),
+            "roots": {"task-1": root},
+            "revocations": {"task-1": revoked},
+        }
         resolver = lambda tab: (root, revoked)
+
         def request(action, params):
-            return host.HostBridge._helper_reply({'op': 'run', 'args': [action, params], 'tab': 7},
-                root, revoked, closed, set(), None, state, resolver)
+            return host.HostBridge._helper_reply(
+                {"op": "run", "args": [action, params], "tab": 7},
+                root,
+                revoked,
+                closed,
+                set(),
+                None,
+                state,
+                resolver,
+            )
+
         with ThreadPoolExecutor(max_workers=2) as pool:
-            command = pool.submit(request, 'js.evaluate', {'expression': 'long()'})
+            command = pool.submit(request, "js.evaluate", {"expression": "long()"})
             self.assertTrue(started.wait(1))
             pending = root._tab_sessions[7]._pending
             try:
-                event = pool.submit(request, 'cdp.events', {'cursor': 0, 'max': 500}).result(timeout=0.5)
-                self.assertTrue(event['ok'], event)
-                self.assertEqual(event['value']['cursor'], 1)
+                event = pool.submit(request, "cdp.events", {"cursor": 0, "max": 500}).result(
+                    timeout=0.5
+                )
+                self.assertTrue(event["ok"], event)
+                self.assertEqual(event["value"]["cursor"], 1)
                 self.assertIs(root._tab_sessions[7]._pending, pending)
                 self.assertFalse(command.done())
             finally:
                 release.set()
-            self.assertTrue(command.result(timeout=1)['ok'])
-        self.assertEqual(len([p for method, p in calls if method == 'shared.run']), 2)
+            self.assertTrue(command.result(timeout=1)["ok"])
+        self.assertEqual(len([p for method, p in calls if method == "shared.run"]), 2)
         root._tab_sessions[7]._unknown = True
-        refused = request('cdp.events', {'cursor': 1})
-        self.assertFalse(refused['ok'])
+        refused = request("cdp.events", {"cursor": 1})
+        self.assertFalse(refused["ok"])
         self.assertTrue(root._tab_sessions[7]._unknown)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     unittest.main()

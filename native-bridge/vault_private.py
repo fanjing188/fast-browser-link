@@ -79,9 +79,17 @@ class VaultPrivateService:
         try:
             fd = os.open(self.token_path, os.O_RDWR | getattr(os, "O_NOFOLLOW", 0))
         except FileNotFoundError:
-            fd = os.open(self.token_path, os.O_RDWR | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
+            fd = os.open(
+                self.token_path,
+                os.O_RDWR | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
+                0o600,
+            )
         info = os.fstat(fd)
-        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) != 0o600:
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or info.st_uid != os.getuid()
+            or stat.S_IMODE(info.st_mode) != 0o600
+        ):
             os.close(fd)
             raise RuntimeError("private Vault token is not a same-owner 0600 file")
         with os.fdopen(fd, "r+", encoding="ascii") as handle:
@@ -103,7 +111,12 @@ class VaultPrivateService:
         server.listen(16)
         server.setblocking(False)
         self.server = server
-        threading.Thread(target=self._accept, args=(server, token), name="fast-browser-link-native-vault", daemon=True).start()
+        threading.Thread(
+            target=self._accept,
+            args=(server, token),
+            name="fast-browser-link-native-vault",
+            daemon=True,
+        ).start()
 
     def close(self):
         if self.server:
@@ -135,15 +148,22 @@ class VaultPrivateService:
             conn.settimeout(20)
             reader = conn.makefile("rb")
             hello = _read(reader)
-            if (set(hello) != {"role", "token"} or hello["role"] != "vault-client"
-                    or not isinstance(hello["token"], str)
-                    or not secrets.compare_digest(hello["token"], token)):
+            if (
+                set(hello) != {"role", "token"}
+                or hello["role"] != "vault-client"
+                or not isinstance(hello["token"], str)
+                or not secrets.compare_digest(hello["token"], token)
+            ):
                 return
             request = _read(reader)
             request_id = request.get("id")
-            if (set(request) != {"id", "op", "params"} or not isinstance(request_id, str)
-                    or not re.fullmatch(r"[a-f0-9]{32}", request_id)
-                    or request["op"] not in {"inspect", "fill", "revoke"} or not isinstance(request["params"], dict)):
+            if (
+                set(request) != {"id", "op", "params"}
+                or not isinstance(request_id, str)
+                or not re.fullmatch(r"[a-f0-9]{32}", request_id)
+                or request["op"] not in {"inspect", "fill", "revoke"}
+                or not isinstance(request["params"], dict)
+            ):
                 return
             with self._lock:
                 now = time.monotonic()
@@ -169,23 +189,45 @@ class VaultPrivateService:
             self.daemon._connection_closed(conn)
 
     def _scope(self, scope: Any):
-        keys = {"sessionId", "owner", "taskId", "instanceId", "generation", "modeGeneration", "tabId", "allowedOrigins"}
+        keys = {
+            "sessionId",
+            "owner",
+            "taskId",
+            "instanceId",
+            "generation",
+            "modeGeneration",
+            "tabId",
+            "allowedOrigins",
+        }
         if not isinstance(scope, dict) or set(scope) != keys:
             raise ValueError("invalid Vault scope")
-        if any(not isinstance(scope[key], str) or not scope[key] or len(scope[key]) > 256
-               for key in ("sessionId", "owner", "taskId", "instanceId")):
+        if any(
+            not isinstance(scope[key], str) or not scope[key] or len(scope[key]) > 256
+            for key in ("sessionId", "owner", "taskId", "instanceId")
+        ):
             raise ValueError("invalid Vault identity")
-        if (any(type(scope[key]) is not int or scope[key] < 0 for key in ("generation", "modeGeneration", "tabId"))
-                or not isinstance(scope["allowedOrigins"], list)):
+        if any(
+            type(scope[key]) is not int or scope[key] < 0
+            for key in ("generation", "modeGeneration", "tabId")
+        ) or not isinstance(scope["allowedOrigins"], list):
             raise ValueError("invalid Vault generation")
         daemon = self.daemon
         with daemon.state_lock:
             task = daemon.tasks.get(scope["taskId"])
-            if (not task or task["owner"] != scope["owner"] or task["instanceId"] != scope["instanceId"]
-                    or task["generation"] != scope["generation"] or task["modeGeneration"] != scope["modeGeneration"]
-                    or task["allowedOrigins"] != scope["allowedOrigins"] or task["state"] != "ready"
-                    or (scope["tabId"] not in task.get("agentTabIds", []) and scope["tabId"] not in task.get('adoptedPopupTabIds', []))
-                    or daemon.tab_leases.get((scope["instanceId"], scope["tabId"])) != task["id"]):
+            if (
+                not task
+                or task["owner"] != scope["owner"]
+                or task["instanceId"] != scope["instanceId"]
+                or task["generation"] != scope["generation"]
+                or task["modeGeneration"] != scope["modeGeneration"]
+                or task["allowedOrigins"] != scope["allowedOrigins"]
+                or task["state"] != "ready"
+                or (
+                    scope["tabId"] not in task.get("agentTabIds", [])
+                    and scope["tabId"] not in task.get("adoptedPopupTabIds", [])
+                )
+                or daemon.tab_leases.get((scope["instanceId"], scope["tabId"])) != task["id"]
+            ):
                 raise ValueError("Vault task changed")
             if scope["tabId"] in task.get("scriptedTabs", []):
                 raise ValueError("Vault script execution conflict")
@@ -197,17 +239,35 @@ class VaultPrivateService:
     def _dispatch(self, operation: str, params: dict) -> dict:
         if operation == "revoke":
             if set(params) != {"sessionId", "owner", "taskId"} or any(
-                    not isinstance(params[key], str) or not params[key] or len(params[key]) > 256 for key in params):
+                not isinstance(params[key], str) or not params[key] or len(params[key]) > 256
+                for key in params
+            ):
                 raise ValueError("invalid Vault revocation")
             with self._lock:
                 for key, record in list(self._nonces.items()):
-                    if key[0] == params["sessionId"] and key[1] == params["taskId"] and record["scope"]["owner"] == params["owner"]:
+                    if (
+                        key[0] == params["sessionId"]
+                        and key[1] == params["taskId"]
+                        and record["scope"]["owner"] == params["owner"]
+                    ):
                         self._nonces.pop(key, None)
             return {"revoked": True}
         if operation == "inspect" and set(params) != {"scope"}:
             raise ValueError("invalid inspect")
-        if operation == "fill" and (not {"scope", "nonce", "expectedOrigin", "documentGeneration", "kind", "fills"} <= set(params)
-                                    or set(params) - {"scope", "nonce", "expectedOrigin", "documentGeneration", "kind", "fills", "approval"}):
+        if operation == "fill" and (
+            not {"scope", "nonce", "expectedOrigin", "documentGeneration", "kind", "fills"}
+            <= set(params)
+            or set(params)
+            - {
+                "scope",
+                "nonce",
+                "expectedOrigin",
+                "documentGeneration",
+                "kind",
+                "fills",
+                "approval",
+            }
+        ):
             raise ValueError("invalid fill")
         scope = params["scope"]
         task, extension = self._scope(scope)
@@ -220,85 +280,156 @@ class VaultPrivateService:
 
     def _inspect(self, scope: dict, extension: dict) -> dict:
         nonce = secrets.token_hex(24)
-        result = self.daemon._extension_call(extension, "browser.vault_inspect", {
-            "taskId": scope["taskId"], "instanceId": scope["instanceId"], "generation": scope["generation"],
-            "modeGeneration": scope["modeGeneration"], "tabId": scope["tabId"], "nonce": nonce}, timeout=15)
-        if (not isinstance(result, dict) or set(result) != {"origin", "controls", "documentGeneration"}
-                or result["origin"] not in scope["allowedOrigins"] or not isinstance(result["controls"], list)
-                or len(result["controls"]) > 200
-                or type(result["documentGeneration"]) is not int or result["documentGeneration"] < 0):
+        result = self.daemon._extension_call(
+            extension,
+            "browser.vault_inspect",
+            {
+                "taskId": scope["taskId"],
+                "instanceId": scope["instanceId"],
+                "generation": scope["generation"],
+                "modeGeneration": scope["modeGeneration"],
+                "tabId": scope["tabId"],
+                "nonce": nonce,
+            },
+            timeout=15,
+        )
+        if (
+            not isinstance(result, dict)
+            or set(result) != {"origin", "controls", "documentGeneration"}
+            or result["origin"] not in scope["allowedOrigins"]
+            or not isinstance(result["controls"], list)
+            or len(result["controls"]) > 200
+            or type(result["documentGeneration"]) is not int
+            or result["documentGeneration"] < 0
+        ):
             raise ValueError("invalid Vault inspection")
         allowed = {"index", "type", "name", "label", "autocomplete", "maxLength", "formIndex"}
         indices = set()
         for row in result["controls"]:
-            if (not isinstance(row, dict) or set(row) - allowed or type(row.get("index")) is not int
-                    or row["index"] < 0 or row["index"] in indices
-                    or any(not isinstance(row.get(key), str) or len(row[key]) > 500
-                           for key in ("type", "name", "label", "autocomplete"))):
+            if (
+                not isinstance(row, dict)
+                or set(row) - allowed
+                or type(row.get("index")) is not int
+                or row["index"] < 0
+                or row["index"] in indices
+                or any(
+                    not isinstance(row.get(key), str) or len(row[key]) > 500
+                    for key in ("type", "name", "label", "autocomplete")
+                )
+            ):
                 raise ValueError("invalid Vault control metadata")
             indices.add(row["index"])
         self._scope(scope)
         key = (scope["sessionId"], scope["taskId"], scope["tabId"])
         with self._lock:
-            self._nonces[key] = {"nonce": nonce, "origin": result["origin"],
-                                 "documentGeneration": result["documentGeneration"],
-                                 "scope": dict(scope), "expiresAt": time.monotonic() + 120}
-        return {"taskId": scope["taskId"], "instanceId": scope["instanceId"],
-                "generation": scope["generation"], "modeGeneration": scope["modeGeneration"],
-                "tabId": scope["tabId"], "nonce": nonce, **result}
+            self._nonces[key] = {
+                "nonce": nonce,
+                "origin": result["origin"],
+                "documentGeneration": result["documentGeneration"],
+                "scope": dict(scope),
+                "expiresAt": time.monotonic() + 120,
+            }
+        return {
+            "taskId": scope["taskId"],
+            "instanceId": scope["instanceId"],
+            "generation": scope["generation"],
+            "modeGeneration": scope["modeGeneration"],
+            "tabId": scope["tabId"],
+            "nonce": nonce,
+            **result,
+        }
 
     def _fill(self, scope: dict, params: dict, task: dict, extension: dict) -> dict:
         fills = params["fills"]
-        if (params["kind"] not in {"login", "otp"} or not isinstance(fills, list) or not 1 <= len(fills) <= 8
-                or not isinstance(params["nonce"], str) or not re.fullmatch(r"[a-f0-9]{48}", params["nonce"])
-                or params["expectedOrigin"] not in scope["allowedOrigins"]
-                or type(params["documentGeneration"]) is not int or params["documentGeneration"] < 0):
+        if (
+            params["kind"] not in {"login", "otp"}
+            or not isinstance(fills, list)
+            or not 1 <= len(fills) <= 8
+            or not isinstance(params["nonce"], str)
+            or not re.fullmatch(r"[a-f0-9]{48}", params["nonce"])
+            or params["expectedOrigin"] not in scope["allowedOrigins"]
+            or type(params["documentGeneration"]) is not int
+            or params["documentGeneration"] < 0
+        ):
             raise ValueError("invalid Vault fill")
-        if any(not isinstance(row, dict) or set(row) != {"index", "token", "value"}
-               or type(row["index"]) is not int or row["index"] < 0 or row["token"] not in TOKENS
-               or not isinstance(row["value"], str) or not 1 <= len(row["value"]) <= 4096 for row in fills):
+        if any(
+            not isinstance(row, dict)
+            or set(row) != {"index", "token", "value"}
+            or type(row["index"]) is not int
+            or row["index"] < 0
+            or row["token"] not in TOKENS
+            or not isinstance(row["value"], str)
+            or not 1 <= len(row["value"]) <= 4096
+            for row in fills
+        ):
             raise ValueError("invalid Vault fields")
-        if (len({row["index"] for row in fills}) != len(fills)
-                or {row["token"] for row in fills} != ({"one-time-code"} if params["kind"] == "otp" else {"current-password"})):
+        if len({row["index"] for row in fills}) != len(fills) or {
+            row["token"] for row in fills
+        } != ({"one-time-code"} if params["kind"] == "otp" else {"current-password"}):
             raise ValueError("invalid Vault field kind")
         key = (scope["sessionId"], scope["taskId"], scope["tabId"])
         with self._lock:
             record = self._nonces.pop(key, None)
-        if (record is None or record["scope"] != scope or record["nonce"] != params["nonce"]
-                or record["origin"] != params["expectedOrigin"]
-                or record["documentGeneration"] != params["documentGeneration"]
-                or record["expiresAt"] <= time.monotonic()):
+        if (
+            record is None
+            or record["scope"] != scope
+            or record["nonce"] != params["nonce"]
+            or record["origin"] != params["expectedOrigin"]
+            or record["documentGeneration"] != params["documentGeneration"]
+            or record["expiresAt"] <= time.monotonic()
+        ):
             raise ValueError("Vault inspection expired")
         with self.daemon.state_lock:
             self._scope(scope)
-            if task.get('activeMode') == 'smart':
-                approval = params.get('approval')
-                permit = task.get('vaultPermit')
+            if task.get("activeMode") == "smart":
+                approval = params.get("approval")
+                permit = task.get("vaultPermit")
                 # 中文注释：智能审批凭证绑定任务代次、工作页、操作和句柄摘要，填充前一次性消费。
-                if (not isinstance(approval, dict) or set(approval) != {'requestId', 'handleDigest', 'vaultAction'}
-                        or not isinstance(approval['requestId'], str)
-                        or not isinstance(approval['handleDigest'], str)
-                        or permit is None or permit.get('requestIdHash') != hashlib.sha256(approval['requestId'].encode()).hexdigest()
-                        or permit.get('handleDigest') != approval['handleDigest']
-                        or permit.get('vaultAction') != approval['vaultAction']
-                        or permit.get('tabId') != scope['tabId']
-                        or permit.get('modeGeneration') != task['modeGeneration']
-                        or permit.get('expiresAt', 0) <= time.time()):
-                    raise ValueError('Vault approval missing or stale')
-                task.pop('vaultPermit', None)
+                if (
+                    not isinstance(approval, dict)
+                    or set(approval) != {"requestId", "handleDigest", "vaultAction"}
+                    or not isinstance(approval["requestId"], str)
+                    or not isinstance(approval["handleDigest"], str)
+                    or permit is None
+                    or permit.get("requestIdHash")
+                    != hashlib.sha256(approval["requestId"].encode()).hexdigest()
+                    or permit.get("handleDigest") != approval["handleDigest"]
+                    or permit.get("vaultAction") != approval["vaultAction"]
+                    or permit.get("tabId") != scope["tabId"]
+                    or permit.get("modeGeneration") != task["modeGeneration"]
+                    or permit.get("expiresAt", 0) <= time.time()
+                ):
+                    raise ValueError("Vault approval missing or stale")
+                task.pop("vaultPermit", None)
             tabs = task.setdefault("credentialTabs", [])
             if scope["tabId"] not in tabs:
                 tabs.append(scope["tabId"])
             self.daemon._persist_tasks()
         try:
-            result = self.daemon._extension_call(extension, "browser.vault_fill", {
-                "taskId": scope["taskId"], "instanceId": scope["instanceId"], "generation": scope["generation"],
-                "modeGeneration": scope["modeGeneration"], "tabId": scope["tabId"], "nonce": params["nonce"],
-                "expectedOrigin": params["expectedOrigin"], "documentGeneration": params["documentGeneration"],
-                "kind": params["kind"], "fills": fills}, timeout=15)
-            if (not isinstance(result, dict) or set(result) - {"filled", "refused"}
-                    or type(result.get("filled")) is not int or not 0 <= result["filled"] <= len(fills)
-                    or result.get("refused") not in {None, "origin_changed", "inspection_stale"}):
+            result = self.daemon._extension_call(
+                extension,
+                "browser.vault_fill",
+                {
+                    "taskId": scope["taskId"],
+                    "instanceId": scope["instanceId"],
+                    "generation": scope["generation"],
+                    "modeGeneration": scope["modeGeneration"],
+                    "tabId": scope["tabId"],
+                    "nonce": params["nonce"],
+                    "expectedOrigin": params["expectedOrigin"],
+                    "documentGeneration": params["documentGeneration"],
+                    "kind": params["kind"],
+                    "fills": fills,
+                },
+                timeout=15,
+            )
+            if (
+                not isinstance(result, dict)
+                or set(result) - {"filled", "refused"}
+                or type(result.get("filled")) is not int
+                or not 0 <= result["filled"] <= len(fills)
+                or result.get("refused") not in {None, "origin_changed", "inspection_stale"}
+            ):
                 raise ValueError("invalid Vault fill receipt")
             return result
         finally:

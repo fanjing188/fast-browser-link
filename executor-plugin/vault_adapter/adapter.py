@@ -5,6 +5,7 @@ This module is deliberately not registered as a tool. The trusted host supplies
 private secret-fill port. Secrets are never sent through NativeProfileRuntime,
 ordinary browser RPC/FDs, Python-script helpers, subprocess argv, or tool results.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -15,18 +16,28 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 from urllib.parse import urlsplit
 
 
-TOOLS = frozenset({
-    "browser_vault_list",
-    "browser_vault_unlock",
-    "browser_vault_fill",
-    "browser_vault_save_login",
-    "browser_vault_enter_code",
-})
+TOOLS = frozenset(
+    {
+        "browser_vault_list",
+        "browser_vault_unlock",
+        "browser_vault_fill",
+        "browser_vault_save_login",
+        "browser_vault_enter_code",
+    }
+)
 UNLOCK_BACKENDS = frozenset({"onepassword", "bitwarden"})
 LOGIN_FIELDS = {"password": "current-password"}
-CONTROL_KEYS = frozenset({
-    "index", "type", "name", "label", "autocomplete", "maxLength", "formIndex",
-})
+CONTROL_KEYS = frozenset(
+    {
+        "index",
+        "type",
+        "name",
+        "label",
+        "autocomplete",
+        "maxLength",
+        "formIndex",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -91,19 +102,29 @@ class VaultAdapter:
                 handle = args.get("handle")
                 if not isinstance(handle, str):
                     raise _Refused("invalid_arguments")
-                out = self._fill(scope, handle, self._authorize(scope, 'fill', handle, args.get('request_id')))
+                out = self._fill(
+                    scope, handle, self._authorize(scope, "fill", handle, args.get("request_id"))
+                )
             elif tool == "browser_vault_save_login":
                 scope = self._scope(session_id)
                 label = args.get("label", "")
                 if not isinstance(label, str):
                     raise _Refused("invalid_arguments")
-                out = self._save_login(scope, label, self._authorize(scope, 'save_login', label, args.get('request_id')))
+                out = self._save_login(
+                    scope,
+                    label,
+                    self._authorize(scope, "save_login", label, args.get("request_id")),
+                )
             else:
                 scope = self._scope(session_id)
                 handle = args.get("handle", "")
                 if not isinstance(handle, str):
                     raise _Refused("invalid_arguments")
-                out = self._enter_code(scope, handle, self._authorize(scope, 'enter_code', handle, args.get('request_id')))
+                out = self._enter_code(
+                    scope,
+                    handle,
+                    self._authorize(scope, "enter_code", handle, args.get("request_id")),
+                )
         except _Refused as exc:
             out = self._error(exc.code)
         except Exception:
@@ -124,17 +145,24 @@ class VaultAdapter:
         }[tool]
         if set(args) - fields:
             raise _Refused("invalid_arguments")
-        if 'request_id' in args and not _valid_text(args['request_id'], 128):
-            raise _Refused('invalid_arguments')
+        if "request_id" in args and not _valid_text(args["request_id"], 128):
+            raise _Refused("invalid_arguments")
         if tool == "browser_vault_unlock":
             if args.get("backend") not in UNLOCK_BACKENDS:
                 raise _Refused("invalid_arguments")
         if tool in {"browser_vault_fill", "browser_vault_enter_code"}:
             handle = args.get("handle", "")
-            if (tool == "browser_vault_fill" and not _valid_text(handle, 512)
-                    or tool == "browser_vault_enter_code" and handle != "" and not _valid_text(handle, 512)):
+            if (
+                tool == "browser_vault_fill"
+                and not _valid_text(handle, 512)
+                or tool == "browser_vault_enter_code"
+                and handle != ""
+                and not _valid_text(handle, 512)
+            ):
                 raise _Refused("invalid_arguments")
-        if tool == "browser_vault_save_login" and not _valid_text(args.get("label", ""), 160, allow_empty=True):
+        if tool == "browser_vault_save_login" and not _valid_text(
+            args.get("label", ""), 160, allow_empty=True
+        ):
             raise _Refused("invalid_arguments")
 
     def _list(self) -> dict:
@@ -146,29 +174,43 @@ class VaultAdapter:
         if not isinstance(rows, list):
             rows = []
         allowed = (
-            "handle", "kind", "label", "origin", "allowed_origins", "backend",
-            "identifier", "identifier_type", "available", "two_factor",
+            "handle",
+            "kind",
+            "label",
+            "origin",
+            "allowed_origins",
+            "backend",
+            "identifier",
+            "identifier_type",
+            "available",
+            "two_factor",
         )
         for row in rows:
             if not isinstance(row, dict):
                 continue
-            projected = {key: row[key] for key in allowed if key in row and _safe_metadata(row[key])}
+            projected = {
+                key: row[key] for key in allowed if key in row and _safe_metadata(row[key])
+            }
             # 中文注释：当前接管仅支持登录条目；未验收的支付和地址条目不提供可用句柄。
-            if (isinstance(projected.get("handle"), str)
-                    and projected.get("kind") == "login"):
+            if isinstance(projected.get("handle"), str) and projected.get("kind") == "login":
                 out["items"].append(projected)
         locked = raw.get("locked")
         if isinstance(locked, list):
             out["locked"] = [
-                {key: row[key] for key in ("backend", "display_name", "unlock")
-                 if key in row and _safe_metadata(row[key])}
-                for row in locked if isinstance(row, dict)
+                {
+                    key: row[key]
+                    for key in ("backend", "display_name", "unlock")
+                    if key in row and _safe_metadata(row[key])
+                }
+                for row in locked
+                if isinstance(row, dict)
             ]
         errors = raw.get("errors")
         if isinstance(errors, list):
             out["errors"] = [
                 {"backend": row.get("backend", "unknown"), "error": "backend unavailable"}
-                for row in errors if isinstance(row, dict)
+                for row in errors
+                if isinstance(row, dict)
             ]
         if not out["items"]:
             out["hint"] = "No saved vault items are available."
@@ -202,11 +244,18 @@ class VaultAdapter:
             raise _Refused("binding_denied")
         owner, task_id, instance_id = binding["owner"], binding["task_id"], binding["instance_id"]
         generation, mode_generation, tab_id = (
-            binding["generation"], binding["mode_generation"], binding["tab_id"]
+            binding["generation"],
+            binding["mode_generation"],
+            binding["tab_id"],
         )
-        if (not _valid_text(owner, 256) or not _valid_text(task_id, 256)
-                or not _valid_text(instance_id, 256) or not _nonnegative_int(generation)
-                or not _nonnegative_int(mode_generation) or not _nonnegative_int(tab_id)):
+        if (
+            not _valid_text(owner, 256)
+            or not _valid_text(task_id, 256)
+            or not _valid_text(instance_id, 256)
+            or not _nonnegative_int(generation)
+            or not _nonnegative_int(mode_generation)
+            or not _nonnegative_int(tab_id)
+        ):
             raise _Refused("binding_denied")
         authority = getattr(getattr(self.runtime, "authority", None), "owner_for_session", None)
         if callable(authority) and authority(session_id) != owner:
@@ -216,57 +265,98 @@ class VaultAdapter:
             browsers = self.runtime.call("browser.list", {})
         except Exception:
             raise _Refused("binding_denied")
-        if (not isinstance(task, dict) or task.get("id") != task_id
-                or task.get("state") != "ready" or task.get("instanceId") != instance_id
-                or not _nonnegative_int(task.get("generation")) or task.get("generation") != generation
-                or not _nonnegative_int(task.get("modeGeneration")) or task.get("modeGeneration") != mode_generation
-                or not isinstance(task.get("tabIds"), list) or tab_id not in task["tabIds"]
-                or not isinstance(task.get("workTabs"), list)
-                or (not any(isinstance(row, dict) and row.get("tabId") == tab_id
-                            for row in task["workTabs"]) and tab_id not in task.get('adoptedPopupTabIds', []))
-                or not isinstance(task.get("allowedOrigins"), list)):
+        if (
+            not isinstance(task, dict)
+            or task.get("id") != task_id
+            or task.get("state") != "ready"
+            or task.get("instanceId") != instance_id
+            or not _nonnegative_int(task.get("generation"))
+            or task.get("generation") != generation
+            or not _nonnegative_int(task.get("modeGeneration"))
+            or task.get("modeGeneration") != mode_generation
+            or not isinstance(task.get("tabIds"), list)
+            or tab_id not in task["tabIds"]
+            or not isinstance(task.get("workTabs"), list)
+            or (
+                not any(
+                    isinstance(row, dict) and row.get("tabId") == tab_id for row in task["workTabs"]
+                )
+                and tab_id not in task.get("adoptedPopupTabIds", [])
+            )
+            or not isinstance(task.get("allowedOrigins"), list)
+        ):
             raise _Refused("binding_denied")
-        if task.get('activeMode') not in {'smart', 'full'}:
-            raise _Refused('binding_denied')
-        if (not isinstance(browsers, list) or not any(
-                isinstance(row, dict) and row.get("instanceId") == instance_id
-                and row.get("connected") is True for row in browsers)):
+        if task.get("activeMode") not in {"smart", "full"}:
+            raise _Refused("binding_denied")
+        if not isinstance(browsers, list) or not any(
+            isinstance(row, dict)
+            and row.get("instanceId") == instance_id
+            and row.get("connected") is True
+            for row in browsers
+        ):
             raise _Refused("binding_denied")
         allowed = _canonical_origins(task["allowedOrigins"])
         if not allowed:
             raise _Refused("binding_denied")
         return NativeScope(
-            session_id=session_id, owner=owner, task_id=task_id,
-            instance_id=instance_id, generation=generation,
-            mode_generation=mode_generation, tab_id=tab_id,
+            session_id=session_id,
+            owner=owner,
+            task_id=task_id,
+            instance_id=instance_id,
+            generation=generation,
+            mode_generation=mode_generation,
+            tab_id=tab_id,
             allowed_origins=tuple(allowed),
-            active_mode=task['activeMode'],
+            active_mode=task["activeMode"],
         )
 
-    def _authorize(self, scope: NativeScope, action: str, value: str, client_request_id: str | None = None) -> dict | None:
-        if scope.active_mode == 'full':
+    def _authorize(
+        self, scope: NativeScope, action: str, value: str, client_request_id: str | None = None
+    ) -> dict | None:
+        if scope.active_mode == "full":
             return None
         # 中文注释：智能审批只接收句柄摘要；密码与验证码仍只走私有通道。
         handle_digest = hashlib.sha256(value.encode()).hexdigest()
-        request_id = 'vault-' + hashlib.sha256(
-            f'{scope.task_id}:{scope.session_id}:{action}:{handle_digest}:{client_request_id or ""}'.encode()).hexdigest()
+        request_id = (
+            "vault-"
+            + hashlib.sha256(
+                f"{scope.task_id}:{scope.session_id}:{action}:{handle_digest}:{client_request_id or ''}".encode()
+            ).hexdigest()
+        )
         try:
-            receipt = self.runtime.call('shared.run', {
-                'owner': scope.owner, 'taskId': scope.task_id, 'requestId': request_id,
-                'action': 'vault.authorize', 'tabId': scope.tab_id,
-                'vaultAction': action, 'handleDigest': handle_digest})
+            receipt = self.runtime.call(
+                "shared.run",
+                {
+                    "owner": scope.owner,
+                    "taskId": scope.task_id,
+                    "requestId": request_id,
+                    "action": "vault.authorize",
+                    "tabId": scope.tab_id,
+                    "vaultAction": action,
+                    "handleDigest": handle_digest,
+                },
+            )
         except Exception as exc:
-            if getattr(exc, 'code', None) == 'approval_consumed':
-                raise _Refused('approval_consumed')
-            raise _Refused('approval_unavailable')
-        if isinstance(receipt, dict) and receipt.get('status') in {
-                'approval_required', 'approved', 'executing', 'denied', 'expired', 'revoked'}:
-            code = {'denied': 'approval_denied', 'expired': 'approval_expired',
-                    'revoked': 'approval_revoked'}.get(receipt['status'], 'approval_required')
+            if getattr(exc, "code", None) == "approval_consumed":
+                raise _Refused("approval_consumed")
+            raise _Refused("approval_unavailable")
+        if isinstance(receipt, dict) and receipt.get("status") in {
+            "approval_required",
+            "approved",
+            "executing",
+            "denied",
+            "expired",
+            "revoked",
+        }:
+            code = {
+                "denied": "approval_denied",
+                "expired": "approval_expired",
+                "revoked": "approval_revoked",
+            }.get(receipt["status"], "approval_required")
             raise _Refused(code)
-        if not isinstance(receipt, dict) or receipt.get('authorized') is not True:
-            raise _Refused('approval_unavailable')
-        return {'requestId': request_id, 'handleDigest': handle_digest, 'vaultAction': action}
+        if not isinstance(receipt, dict) or receipt.get("authorized") is not True:
+            raise _Refused("approval_unavailable")
+        return {"requestId": request_id, "handleDigest": handle_digest, "vaultAction": action}
 
     def _inspect(self, scope: NativeScope) -> dict:
         inspector = getattr(self.private_port, "inspect", None)
@@ -281,18 +371,27 @@ class VaultAdapter:
         # Reject value-bearing or unknown inspection fields, rather than
         # attempting to redact page data after it has crossed the boundary.
         allowed_keys = {
-            "taskId", "instanceId", "generation", "modeGeneration", "tabId",
-            "origin", "nonce", "documentGeneration", "controls",
+            "taskId",
+            "instanceId",
+            "generation",
+            "modeGeneration",
+            "tabId",
+            "origin",
+            "nonce",
+            "documentGeneration",
+            "controls",
         }
         if set(receipt) - allowed_keys:
             raise _Refused("scope_changed")
-        if (receipt.get("taskId") != scope.task_id
-                or receipt.get("instanceId") != scope.instance_id
-                or receipt.get("generation") != scope.generation
-                or receipt.get("modeGeneration") != scope.mode_generation
-                or receipt.get("tabId") != scope.tab_id
-                or not _valid_text(receipt.get("nonce"), 128)
-                or not _nonnegative_int(receipt.get("documentGeneration"))):
+        if (
+            receipt.get("taskId") != scope.task_id
+            or receipt.get("instanceId") != scope.instance_id
+            or receipt.get("generation") != scope.generation
+            or receipt.get("modeGeneration") != scope.mode_generation
+            or receipt.get("tabId") != scope.tab_id
+            or not _valid_text(receipt.get("nonce"), 128)
+            or not _nonnegative_int(receipt.get("documentGeneration"))
+        ):
             raise _Refused("scope_changed")
         origin = _canonical_page_origin(receipt.get("origin"))
         if origin is None or origin not in scope.allowed_origins:
@@ -317,7 +416,12 @@ class VaultAdapter:
             raise _Refused("unlock_failed")
         if not isinstance(result, dict) or result.get("success") is not True:
             code = result.get("error_type") if isinstance(result, dict) else None
-            if code in {"unlock_required", "unlock_cancelled", "unlock_unavailable", "unlock_failed"}:
+            if code in {
+                "unlock_required",
+                "unlock_cancelled",
+                "unlock_unavailable",
+                "unlock_failed",
+            }:
                 raise _Refused(code)
             raise _Refused("unlock_failed")
 
@@ -356,7 +460,8 @@ class VaultAdapter:
         if not isinstance(secrets_map, dict):
             raise _Refused("vault_unavailable")
         clean = {
-            field: value for field, value in secrets_map.items()
+            field: value
+            for field, value in secrets_map.items()
             if field in LOGIN_FIELDS and isinstance(value, str) and value
         }
         fills = _make_fills(kind, target_tokens, clean)
@@ -387,7 +492,8 @@ class VaultAdapter:
             if inspected["origin"] not in self._allowed_item_origins(meta):
                 raise _Refused("origin_mismatch")
         code_controls = [
-            control for control in inspected["controls"]
+            control
+            for control in inspected["controls"]
             if "one-time-code" in control["autocomplete"].lower().split()
         ]
         if not code_controls:
@@ -454,15 +560,25 @@ class VaultAdapter:
             raise _Refused("save_declined")
         try:
             identifier_clean = identifier.strip() if isinstance(identifier, str) else ""
-            if (not identifier_clean or len(identifier_clean) > 512
-                    or not isinstance(password, str) or not password):
+            if (
+                not identifier_clean
+                or len(identifier_clean) > 512
+                or not isinstance(password, str)
+                or not password
+            ):
                 raise _Refused("save_declined")
-            id_type = "email" if "@" in identifier_clean else (
-                "phone" if identifier_clean.lstrip("+").isdigit() else "username"
+            id_type = (
+                "email"
+                if "@" in identifier_clean
+                else ("phone" if identifier_clean.lstrip("+").isdigit() else "username")
             )
             self._register_values((password,))
-            handle = save(inspected["origin"], label.strip() or _host_label(inspected["origin"]),
-                          identifier_clean, password)
+            handle = save(
+                inspected["origin"],
+                label.strip() or _host_label(inspected["origin"]),
+                identifier_clean,
+                password,
+            )
             if not _valid_text(handle, 512):
                 raise _Refused("save_failed")
         except _Refused:
@@ -500,14 +616,21 @@ class VaultAdapter:
         if current_scope != scope:
             raise _Refused("scope_changed")
 
-    def _write_private(self, scope: NativeScope, inspected: dict, fills: list, approval: dict | None = None) -> dict:
+    def _write_private(
+        self, scope: NativeScope, inspected: dict, fills: list, approval: dict | None = None
+    ) -> dict:
         writer = getattr(self.private_port, "fill", None)
         if not callable(writer):
             raise _Refused("secure_path_unavailable")
         try:
-            receipt = writer(scope, expected_origin=inspected["origin"], nonce=inspected["nonce"],
-                             document_generation=inspected["document_generation"], fills=fills,
-                             **({'approval': approval} if approval is not None else {}))
+            receipt = writer(
+                scope,
+                expected_origin=inspected["origin"],
+                nonce=inspected["nonce"],
+                document_generation=inspected["document_generation"],
+                fills=fills,
+                **({"approval": approval} if approval is not None else {}),
+            )
         except Exception:
             # The write may already have reached the native extension. Never
             # expose the exception text and never replay an uncertain write.
@@ -538,15 +661,22 @@ def _target_tokens(controls: Sequence[dict]) -> dict:
 def _make_fills(kind: str, targets: Mapping[str, int], values: Mapping[str, str]) -> list:
     # 中文注释：首版只把登录密码交给固定字段类型的私有填写动作。
     password = values.get("password")
-    if kind != "login" or "current-password" not in targets or not isinstance(password, str) or not password:
+    if (
+        kind != "login"
+        or "current-password" not in targets
+        or not isinstance(password, str)
+        or not password
+    ):
         return []
     return [{"index": targets["current-password"], "token": "current-password", "value": password}]
 
 
 def _is_password_control(control: Mapping[str, Any]) -> bool:
     autocomplete = control["autocomplete"].lower().split()
-    return "new-password" not in autocomplete and "one-time-code" not in autocomplete and (
-        control["type"].lower() == "password"
+    return (
+        "new-password" not in autocomplete
+        and "one-time-code" not in autocomplete
+        and (control["type"].lower() == "password")
     )
 
 
@@ -603,7 +733,12 @@ def _canonical_url_origin(value: Any) -> Optional[str]:
     try:
         parsed = urlsplit(value)
         scheme = parsed.scheme.lower()
-        if scheme not in {"http", "https"} or not parsed.hostname or parsed.username is not None or parsed.password is not None:
+        if (
+            scheme not in {"http", "https"}
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+        ):
             return None
         host = parsed.hostname.encode("idna").decode("ascii").lower()
         port = parsed.port

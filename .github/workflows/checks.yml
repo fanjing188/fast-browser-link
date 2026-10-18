@@ -40,7 +40,7 @@ jobs:
       - run: npm ci --ignore-scripts
       # 中文注释：云端站点依赖独立锁文件，只用于离线 SQLite/MCP 验收，不使用个人站点凭据。
       - run: npm ci --ignore-scripts --prefix cloud-link/site
-      - run: python -m pip install uv==0.11.2
+      - run: python -m pip install uv==0.11.2 ruff==0.14.0
       - name: Prepare pinned Hermes test environment
         run: |
           # 中文注释：核心用例保留 Python 3.11；固定 Hermes 锁文件仅支持 3.14。
@@ -52,6 +52,7 @@ jobs:
           TMPDIR: ${{ runner.temp }}
           HERMES_SOURCE: ${{ github.workspace }}/.ci/hermes
           HERMES_PYTHON: ${{ github.workspace }}/.ci/hermes/.venv/bin/python
+      - run: npm run format:check
       - run: npm run lint
       - run: npm run check:js
       - run: npm run check:docs

@@ -1,4 +1,5 @@
 """Independent native-host diagnostics staging closure regression (no browser)."""
+
 from __future__ import annotations
 
 import importlib.util
@@ -15,7 +16,7 @@ SCRATCH = Path.home() / ".hermes" / "cache" / "scratch"
 # 中文注释：固定身份的宿主只接受此来源，不能用旧随机 ID 绕过目标测试的预检。
 EXTENSION_ORIGIN = "chrome-extension://hhnljehnkmhhgjjjmnlhilfpcjhobloc/"
 
-_STAGED_DAEMON_CHECK = r'''
+_STAGED_DAEMON_CHECK = r"""
 import hashlib
 from pathlib import Path
 import sys
@@ -124,7 +125,7 @@ else:
     raise AssertionError("non-private diagnostics directory was accepted")
 
 print("staged diagnostics closure, real dispatcher read, and refusal checks passed")
-'''
+"""
 
 
 def load_installer(path: Path | None = None):
@@ -147,7 +148,9 @@ class StagedDiagnosticsClosureTests(unittest.TestCase):
 
             staged = load_installer().stage(isolated_home, [EXTENSION_ORIGIN])
             host_bin = Path(staged["host"]).parent.resolve()
-            self.assertEqual(host_bin, isolated_home / ".hermes/plugin-data/fast-browser-link-native/host-bin")
+            self.assertEqual(
+                host_bin, isolated_home / ".hermes/plugin-data/fast-browser-link-native/host-bin"
+            )
 
             child_env = {
                 "HOME": str(isolated_home),
@@ -184,7 +187,9 @@ class StagedDiagnosticsClosureTests(unittest.TestCase):
             for name in ("install.py", "host.py", "client.py", "daemon.py", "api_client.py"):
                 shutil.copyfile(ROOT / "native-bridge" / name, bridge_source / name)
             diagnostics_source = source_root / "browser-diagnostics/python/browser_diagnostics"
-            shutil.copytree(ROOT / "browser-diagnostics/python/browser_diagnostics", diagnostics_source)
+            shutil.copytree(
+                ROOT / "browser-diagnostics/python/browser_diagnostics", diagnostics_source
+            )
             projection_source = source_root / "executor-plugin/task_diagnostics.py"
             projection_source.parent.mkdir(parents=True)
             shutil.copyfile(ROOT / "executor-plugin/task_diagnostics.py", projection_source)
@@ -194,29 +199,41 @@ class StagedDiagnosticsClosureTests(unittest.TestCase):
             isolated_home = scratch_root / "synthetic-home"
             with self.assertRaisesRegex(ValueError, "api_client.py"):
                 installer.stage(isolated_home, [EXTENSION_ORIGIN])
-            self.assertFalse(isolated_home.exists(), "missing host closure must fail before creating the destination HOME")
+            self.assertFalse(
+                isolated_home.exists(),
+                "missing host closure must fail before creating the destination HOME",
+            )
 
     def test_stage_refuses_symlinked_targets_before_writing_outside_the_home(self):
         # 中文注释：合成目标里的链接不能让隔离安装覆盖外部目录或已有用户文件。
-        installer = load_installer(ROOT / 'native-bridge/install.py')
-        for relative, directory in (('.hermes', True),
-                ('.hermes/plugin-data/fast-browser-link-native/host-bin/host.py', False),
-                ('Library/Application Support/Google/Chrome/NativeMessagingHosts/com.fast.browser_link.json', False)):
-            with self.subTest(relative=relative), tempfile.TemporaryDirectory(dir='/tmp') as work:
+        installer = load_installer(ROOT / "native-bridge/install.py")
+        for relative, directory in (
+            (".hermes", True),
+            (".hermes/plugin-data/fast-browser-link-native/host-bin/host.py", False),
+            (
+                "Library/Application Support/Google/Chrome/NativeMessagingHosts/com.fast.browser_link.json",
+                False,
+            ),
+        ):
+            with self.subTest(relative=relative), tempfile.TemporaryDirectory(dir="/tmp") as work:
                 root = Path(work).resolve()
-                isolated = root / 'home'
-                outside = root / 'outside'
+                isolated = root / "home"
+                outside = root / "outside"
                 outside.mkdir()
-                kept = outside / 'keep.txt'
-                kept.write_text('must remain unchanged')
+                kept = outside / "keep.txt"
+                kept.write_text("must remain unchanged")
                 target = isolated / relative
                 target.parent.mkdir(parents=True)
                 target.symlink_to(outside if directory else kept)
-                with self.assertRaisesRegex(ValueError, 'symbolic'):
+                with self.assertRaisesRegex(ValueError, "symbolic"):
                     installer.stage(isolated, [EXTENSION_ORIGIN])
-                self.assertEqual(kept.read_text(), 'must remain unchanged')
+                self.assertEqual(kept.read_text(), "must remain unchanged")
                 self.assertEqual(list(outside.iterdir()), [kept])
-                self.assertFalse((isolated / '.hermes/plugin-data/fast-browser-link-native/host-bin/daemon.py').exists())
+                self.assertFalse(
+                    (
+                        isolated / ".hermes/plugin-data/fast-browser-link-native/host-bin/daemon.py"
+                    ).exists()
+                )
 
 
 if __name__ == "__main__":

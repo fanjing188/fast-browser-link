@@ -1,30 +1,35 @@
 // Real Chrome/Edge temporary-profile acceptance for shared native v2.
 import assert from 'node:assert/strict';
-import {createHash} from 'node:crypto';
-import {spawn, execFile} from 'node:child_process';
-import {promisify} from 'node:util';
-import {createServer} from 'node:http';
-import {mkdir, readFile, readdir, writeFile} from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { spawn, execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { createServer } from 'node:http';
+import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import {CdpClient, waitFor, fetchJson} from './cdp-client.mjs';
-import {stageRealSession} from './real-session.mjs';
+import { CdpClient, waitFor, fetchJson } from './cdp-client.mjs';
+import { stageRealSession } from './real-session.mjs';
 
 const exec = promisify(execFile);
 const root = path.resolve(import.meta.dirname, '../..');
-const python = process.env.HERMES_PYTHON || path.join(process.env.HOME, '.hermes/hermes-agent/venv/bin/python');
+const python =
+  process.env.HERMES_PYTHON || path.join(process.env.HOME, '.hermes/hermes-agent/venv/bin/python');
 const helper = path.join(import.meta.dirname, 'real-helper.py');
 const evidenceDir = path.join(import.meta.dirname, 'evidence');
 const choices = {
   chrome: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
   edge: '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
 };
-const packageMode=process.argv.includes('--package');
-const requested = process.argv.find(value => value.startsWith('--browser='))?.split('=')[1] || 'all';
-const directExtension = process.argv.find(value => value.startsWith('--extension-path='))?.slice('--extension-path='.length);
-if(packageMode&&directExtension)throw Error('--package and --extension-path cannot be combined');
+const packageMode = process.argv.includes('--package');
+const requested =
+  process.argv.find((value) => value.startsWith('--browser='))?.split('=')[1] || 'all';
+const directExtension = process.argv
+  .find((value) => value.startsWith('--extension-path='))
+  ?.slice('--extension-path='.length);
+if (packageMode && directExtension)
+  throw Error('--package and --extension-path cannot be combined');
 const browsers = requested === 'all' ? Object.keys(choices) : [requested];
 for (const browser of browsers) if (!choices[browser]) throw Error('Use --browser=chrome|edge|all');
-const sha256 = data => createHash('sha256').update(data).digest('hex');
+const sha256 = (data) => createHash('sha256').update(data).digest('hex');
 
 const page = `<!doctype html><meta charset="utf-8"><title>native-v2-fixture</title>
 <style>
@@ -86,54 +91,108 @@ sourceBox.addEventListener('dragstart',e=>e.dataTransfer.setData('text/plain','f
 targetBox.addEventListener('dragover',e=>e.preventDefault());
 targetBox.addEventListener('drop',e=>{e.preventDefault();document.body.dataset.html5Drop=e.isTrusted?'trusted':'synthetic'});
 </script>`;
-const receivedUploads=[];
-const REPORT_BYTES=Buffer.from('id,value\n1,task-download\n');
-const gated=[];
+const receivedUploads = [];
+const REPORT_BYTES = Buffer.from('id,value\n1,task-download\n');
+const gated = [];
 const server = createServer((req, res) => {
   // 中文注释：下载路由全部是合成数据；gated 路由把并发请求同时放行，用于验证同网址并发下载不被认领。
-  if(req.url==='/download/report.csv'||req.url==='/download/gated.csv'){
-    const send=()=>{res.writeHead(200,{'Content-Type':'text/csv','Content-Disposition':`attachment; filename="${req.url.includes('gated')?'gated':'report'}.csv"`});res.end(REPORT_BYTES);};
-    if(req.url.includes('gated'))gated.push(send);else send();
+  if (req.url === '/download/report.csv' || req.url === '/download/gated.csv') {
+    const send = () => {
+      res.writeHead(200, {
+        'Content-Type': 'text/csv',
+        'Content-Disposition': `attachment; filename="${req.url.includes('gated') ? 'gated' : 'report'}.csv"`,
+      });
+      res.end(REPORT_BYTES);
+    };
+    if (req.url.includes('gated')) gated.push(send);
+    else send();
     return;
   }
-  if(req.url==='/pixel.png'){
-    res.writeHead(200,{'Content-Type':'image/png'});
-    res.end(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==','base64'));return;
+  if (req.url === '/pixel.png') {
+    res.writeHead(200, { 'Content-Type': 'image/png' });
+    res.end(
+      Buffer.from(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+        'base64',
+      ),
+    );
+    return;
   }
-  if(req.url==='/download/release'){for(const send of gated.splice(0))send();res.end('released');return;}
-  if(req.url==='/download/broken'){
-    res.writeHead(200,{'Content-Type':'application/octet-stream','Content-Length':'100000','Content-Disposition':'attachment; filename="broken.bin"'});
-    res.write(Buffer.alloc(1000,1));setTimeout(()=>res.destroy(),300);return;
+  if (req.url === '/download/release') {
+    for (const send of gated.splice(0)) send();
+    res.end('released');
+    return;
   }
-  if(req.url==='/download/slow.bin'){
-    res.writeHead(200,{'Content-Type':'application/octet-stream','Content-Length':String(50*1024*1024),'Content-Disposition':'attachment; filename="slow.bin"'});
-    const timer=setInterval(()=>{if(!res.write(Buffer.alloc(1024,2)))return;},200);
-    res.on('close',()=>clearInterval(timer));return;
+  if (req.url === '/download/broken') {
+    res.writeHead(200, {
+      'Content-Type': 'application/octet-stream',
+      'Content-Length': '100000',
+      'Content-Disposition': 'attachment; filename="broken.bin"',
+    });
+    res.write(Buffer.alloc(1000, 1));
+    setTimeout(() => res.destroy(), 300);
+    return;
   }
-  if(req.url?.startsWith('/upload?')&&req.method==='POST'){
-    const hash=createHash('sha256');let bytes=0;
-    req.on('data',chunk=>{hash.update(chunk);bytes+=chunk.length;});
-    req.on('end',()=>{receivedUploads.push({sha256:hash.digest('hex'),size:bytes,name:new URL(req.url,origin).searchParams.get('name')});res.writeHead(200);res.end('ok');});
+  if (req.url === '/download/slow.bin') {
+    res.writeHead(200, {
+      'Content-Type': 'application/octet-stream',
+      'Content-Length': String(50 * 1024 * 1024),
+      'Content-Disposition': 'attachment; filename="slow.bin"',
+    });
+    const timer = setInterval(() => {
+      if (!res.write(Buffer.alloc(1024, 2))) return;
+    }, 200);
+    res.on('close', () => clearInterval(timer));
+    return;
+  }
+  if (req.url?.startsWith('/upload?') && req.method === 'POST') {
+    const hash = createHash('sha256');
+    let bytes = 0;
+    req.on('data', (chunk) => {
+      hash.update(chunk);
+      bytes += chunk.length;
+    });
+    req.on('end', () => {
+      receivedUploads.push({
+        sha256: hash.digest('hex'),
+        size: bytes,
+        name: new URL(req.url, origin).searchParams.get('name'),
+      });
+      res.writeHead(200);
+      res.end('ok');
+    });
     return;
   }
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.end((req.url==='/child'?'<!doctype html><meta charset="utf-8"><button id="frame-button">Frame Action</button><script>document.querySelector("button").onclick=e=>{document.body.dataset.clicked="yes";document.body.dataset.pointerTrusted=String(e.isTrusted)}</script>':
-    req.url==='/cross-child'?'<!doctype html><meta charset="utf-8"><button id="cross-action">Cross Action</button><button id="cross-pointer">Cross Pointer</button><button id="cross-key">Cross Key</button><button id="load-deep-page">Load Deep Page</button><input id="cross-draft" aria-label="Cross Draft"><input id="cross-check" type="checkbox" aria-label="Cross Check"><select id="cross-choice" aria-label="Cross Choice"><option value="a">甲</option><option value="b">乙</option></select><p id="cross-status">Idle</p><p id="cross-output">Unset</p><p id="pointer-output">No Pointer</p><p id="key-output">No Key</p><iframe id="deep-frame" src="http://deep.test:__PORT__/deep-child"></iframe><script>document.querySelector("#cross-action").onclick=()=>document.querySelector("#cross-status").textContent="Clicked";document.querySelector("#cross-pointer").onclick=e=>document.querySelector("#pointer-output").textContent=e.isTrusted?"Trusted Pointer":"Synthetic Pointer";document.querySelector("#cross-key").onkeydown=e=>document.querySelector("#key-output").textContent=e.isTrusted&&e.key==="ArrowDown"?"Trusted Key":"Wrong Key";document.querySelector("#load-deep-page").onclick=()=>document.querySelector("#deep-frame").src="http://deep.test:__PORT__/deep-secret";document.querySelector("#cross-draft").onchange=e=>document.querySelector("#cross-output").textContent=e.target.value;document.querySelector("#cross-choice").onchange=e=>document.querySelector("#cross-output").textContent=e.target.value</script>':
-    req.url==='/deep-child'?'<!doctype html><meta charset="utf-8"><button id="deep-action">Deep Action</button><button id="deep-pointer">Deep Pointer</button><button id="deep-key">Deep Key</button><input id="deep-draft" aria-label="Deep Draft"><input id="deep-check" type="checkbox" aria-label="Deep Check"><select id="deep-choice" aria-label="Deep Choice"><option value="a">Alpha</option><option value="b">Beta</option></select><p id="deep-status">Idle</p><p id="deep-output">Unset</p><p id="deep-key-output">No Key</p><p id="deep-pointer-output">No Pointer</p><script>document.querySelector("#deep-action").onclick=()=>document.querySelector("#deep-status").textContent="Deep Clicked";document.querySelector("#deep-pointer").onclick=e=>document.querySelector("#deep-pointer-output").textContent=e.isTrusted?"Trusted Deep Pointer":"Synthetic Deep Pointer";document.querySelector("#deep-key").onkeydown=e=>document.querySelector("#deep-key-output").textContent=e.isTrusted&&e.key==="ArrowDown"?"Trusted Deep Key":"Wrong Key";document.querySelector("#deep-draft").onchange=e=>document.querySelector("#deep-output").textContent=e.target.value;document.querySelector("#deep-choice").onchange=e=>document.querySelector("#deep-output").textContent=e.target.value</script>':
-    req.url==='/deep-secret'?'<!doctype html><meta charset="utf-8"><input type="password" value="fixture-secret">':
-    req.url==='/cross-secret'?'<!doctype html><meta charset="utf-8"><input type="password" value="fixture-secret">':
-    page).replaceAll('__PORT__',String(server.address().port)));
+  res.end(
+    (req.url === '/child'
+      ? '<!doctype html><meta charset="utf-8"><button id="frame-button">Frame Action</button><script>document.querySelector("button").onclick=e=>{document.body.dataset.clicked="yes";document.body.dataset.pointerTrusted=String(e.isTrusted)}</script>'
+      : req.url === '/cross-child'
+        ? '<!doctype html><meta charset="utf-8"><button id="cross-action">Cross Action</button><button id="cross-pointer">Cross Pointer</button><button id="cross-key">Cross Key</button><button id="load-deep-page">Load Deep Page</button><input id="cross-draft" aria-label="Cross Draft"><input id="cross-check" type="checkbox" aria-label="Cross Check"><select id="cross-choice" aria-label="Cross Choice"><option value="a">甲</option><option value="b">乙</option></select><p id="cross-status">Idle</p><p id="cross-output">Unset</p><p id="pointer-output">No Pointer</p><p id="key-output">No Key</p><iframe id="deep-frame" src="http://deep.test:__PORT__/deep-child"></iframe><script>document.querySelector("#cross-action").onclick=()=>document.querySelector("#cross-status").textContent="Clicked";document.querySelector("#cross-pointer").onclick=e=>document.querySelector("#pointer-output").textContent=e.isTrusted?"Trusted Pointer":"Synthetic Pointer";document.querySelector("#cross-key").onkeydown=e=>document.querySelector("#key-output").textContent=e.isTrusted&&e.key==="ArrowDown"?"Trusted Key":"Wrong Key";document.querySelector("#load-deep-page").onclick=()=>document.querySelector("#deep-frame").src="http://deep.test:__PORT__/deep-secret";document.querySelector("#cross-draft").onchange=e=>document.querySelector("#cross-output").textContent=e.target.value;document.querySelector("#cross-choice").onchange=e=>document.querySelector("#cross-output").textContent=e.target.value</script>'
+        : req.url === '/deep-child'
+          ? '<!doctype html><meta charset="utf-8"><button id="deep-action">Deep Action</button><button id="deep-pointer">Deep Pointer</button><button id="deep-key">Deep Key</button><input id="deep-draft" aria-label="Deep Draft"><input id="deep-check" type="checkbox" aria-label="Deep Check"><select id="deep-choice" aria-label="Deep Choice"><option value="a">Alpha</option><option value="b">Beta</option></select><p id="deep-status">Idle</p><p id="deep-output">Unset</p><p id="deep-key-output">No Key</p><p id="deep-pointer-output">No Pointer</p><script>document.querySelector("#deep-action").onclick=()=>document.querySelector("#deep-status").textContent="Deep Clicked";document.querySelector("#deep-pointer").onclick=e=>document.querySelector("#deep-pointer-output").textContent=e.isTrusted?"Trusted Deep Pointer":"Synthetic Deep Pointer";document.querySelector("#deep-key").onkeydown=e=>document.querySelector("#deep-key-output").textContent=e.isTrusted&&e.key==="ArrowDown"?"Trusted Deep Key":"Wrong Key";document.querySelector("#deep-draft").onchange=e=>document.querySelector("#deep-output").textContent=e.target.value;document.querySelector("#deep-choice").onchange=e=>document.querySelector("#deep-output").textContent=e.target.value</script>'
+          : req.url === '/deep-secret'
+            ? '<!doctype html><meta charset="utf-8"><input type="password" value="fixture-secret">'
+            : req.url === '/cross-secret'
+              ? '<!doctype html><meta charset="utf-8"><input type="password" value="fixture-secret">'
+              : page
+    ).replaceAll('__PORT__', String(server.address().port)),
+  );
 });
-await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
 const origin = `http://127.0.0.1:${server.address().port}`;
 const crossOrigin = `http://frame.test:${server.address().port}`;
 const deepOrigin = `http://deep.test:${server.address().port}`;
 const offsiteOrigin = `http://offsite.test:${server.address().port}`;
 
 async function helperCall(...args) {
-  const {stdout} = await exec(python, [helper, ...args], {
+  const { stdout } = await exec(python, [helper, ...args], {
     cwd: root,
-    env: {...process.env, HERMES_SOURCE: process.env.HERMES_SOURCE || path.join(process.env.HOME, '.hermes/hermes-agent')},
+    env: {
+      ...process.env,
+      HERMES_SOURCE:
+        process.env.HERMES_SOURCE || path.join(process.env.HOME, '.hermes/hermes-agent'),
+    },
     timeout: 180000,
     maxBuffer: 8 * 1024 * 1024,
   });
@@ -142,113 +201,232 @@ async function helperCall(...args) {
 
 async function run(browser) {
   // 中文注释：复用已验收的短 socket 布局，所有临时产物只写指定 TMPDIR。
-  const fixture = await stageRealSession({browser, packageMode, label:'n', compactScratch: true});
-  const {work, downloadsDir, staged} = fixture;
-  const profile = path.join(work,'profile');
-  const temp = path.join(work,'tmp');
+  const fixture = await stageRealSession({
+    browser,
+    packageMode,
+    label: 'n',
+    compactScratch: true,
+  });
+  const { work, downloadsDir, staged } = fixture;
+  const profile = path.join(work, 'profile');
+  const temp = path.join(work, 'tmp');
   const extensionRoot = directExtension ? path.resolve(directExtension) : fixture.extensionRoot;
-  let proc, cdp, ui, logs = '', report, cleanupError;
+  let proc,
+    cdp,
+    ui,
+    logs = '',
+    report,
+    cleanupError;
   try {
-  const buildDeps = JSON.parse(await readFile(path.join(extensionRoot, 'BUILD-DEPS.json'), 'utf8'));
-  const canonical = {
-    'vendor/page-semantics.mjs': path.join(root, 'page-semantics/index.js'),
-    'vendor/oauth-providers.mjs': path.join(root, 'page-semantics/oauth-providers.mjs'),
-    'vendor/redact.mjs': path.join(root, 'page-semantics/redact.mjs'),
-    'vendor/browser-interactions.mjs': path.join(root, 'browser-interactions/index.mjs'),
-  };
-  for (const [relative, source] of Object.entries(canonical)) {
-    assert.equal(buildDeps.dependencies[relative].sha256, sha256(await readFile(source)));
-    assert.equal(sha256(await readFile(path.join(extensionRoot, relative))), sha256(await readFile(source)));
-  }
+    const buildDeps = JSON.parse(
+      await readFile(path.join(extensionRoot, 'BUILD-DEPS.json'), 'utf8'),
+    );
+    const canonical = {
+      'vendor/page-semantics.mjs': path.join(root, 'page-semantics/index.js'),
+      'vendor/oauth-providers.mjs': path.join(root, 'page-semantics/oauth-providers.mjs'),
+      'vendor/redact.mjs': path.join(root, 'page-semantics/redact.mjs'),
+      'vendor/browser-interactions.mjs': path.join(root, 'browser-interactions/index.mjs'),
+    };
+    for (const [relative, source] of Object.entries(canonical)) {
+      assert.equal(buildDeps.dependencies[relative].sha256, sha256(await readFile(source)));
+      assert.equal(
+        sha256(await readFile(path.join(extensionRoot, relative))),
+        sha256(await readFile(source)),
+      );
+    }
 
-
-  // 中文注释：无 key 的 unpacked 扩展 ID 由规范化路径摘要确定；先登记 Native host 再启动浏览器，消除首次连接竞态。
-  // 中文注释：1.4.0 起扩展 ID 由 manifest key 固定；无 key 时才按加载路径推算。
-  const manifestKey = JSON.parse(await readFile(path.join(extensionRoot, 'manifest.json'), 'utf8')).key;
-  const expectedExtensionId = [...(manifestKey ? sha256(Buffer.from(manifestKey, 'base64')) : sha256(path.resolve(extensionRoot))).slice(0,32)]
-    .map(digit=>String.fromCharCode(97+Number.parseInt(digit,16))).join('');
-  assert.equal(expectedExtensionId, fixture.expectedExtensionId, 'direct extension must match the staged Native host origin');
-  const browserEnv = {
-    // 中文注释：字段必须可静态审阅；浏览器 HOME 不变，compactScratch 的 Hermes home 不能重算。
-    HOME: process.env.HOME,
-    HERMES_HOME: staged.hermesHome,
-    TMPDIR: temp,
-    PATH: process.env.PATH || '/usr/bin:/bin:/usr/sbin:/sbin',
-    LANG: process.env.LANG || 'en_US.UTF-8',
-  };
-  proc = spawn(choices[browser], [
-    '--headless=new', '--use-mock-keychain', '--password-store=basic', '--disable-background-networking', '--disable-sync', '--no-proxy-server',
-    '--site-per-process', '--host-resolver-rules=MAP frame.test 127.0.0.1,MAP deep.test 127.0.0.1,MAP offsite.test 127.0.0.1',
-    `--user-data-dir=${profile}`, '--remote-debugging-address=127.0.0.1', '--remote-debugging-port=0',
-    '--enable-unsafe-extension-debugging', '--no-first-run', '--no-default-browser-check', 'about:blank',
-  ], {stdio: ['ignore', 'ignore', 'pipe'], detached: true, cwd: work, env: browserEnv});
-  proc.stderr.on('data', chunk => { logs += String(chunk); });
+    // 中文注释：无 key 的 unpacked 扩展 ID 由规范化路径摘要确定；先登记 Native host 再启动浏览器，消除首次连接竞态。
+    // 中文注释：1.4.0 起扩展 ID 由 manifest key 固定；无 key 时才按加载路径推算。
+    const manifestKey = JSON.parse(
+      await readFile(path.join(extensionRoot, 'manifest.json'), 'utf8'),
+    ).key;
+    const expectedExtensionId = [
+      ...(manifestKey
+        ? sha256(Buffer.from(manifestKey, 'base64'))
+        : sha256(path.resolve(extensionRoot))
+      ).slice(0, 32),
+    ]
+      .map((digit) => String.fromCharCode(97 + Number.parseInt(digit, 16)))
+      .join('');
+    assert.equal(
+      expectedExtensionId,
+      fixture.expectedExtensionId,
+      'direct extension must match the staged Native host origin',
+    );
+    const browserEnv = {
+      // 中文注释：字段必须可静态审阅；浏览器 HOME 不变，compactScratch 的 Hermes home 不能重算。
+      HOME: process.env.HOME,
+      HERMES_HOME: staged.hermesHome,
+      TMPDIR: temp,
+      PATH: process.env.PATH || '/usr/bin:/bin:/usr/sbin:/sbin',
+      LANG: process.env.LANG || 'en_US.UTF-8',
+    };
+    proc = spawn(
+      choices[browser],
+      [
+        '--headless=new',
+        '--use-mock-keychain',
+        '--password-store=basic',
+        '--disable-background-networking',
+        '--disable-sync',
+        '--no-proxy-server',
+        '--site-per-process',
+        '--host-resolver-rules=MAP frame.test 127.0.0.1,MAP deep.test 127.0.0.1,MAP offsite.test 127.0.0.1',
+        `--user-data-dir=${profile}`,
+        '--remote-debugging-address=127.0.0.1',
+        '--remote-debugging-port=0',
+        '--enable-unsafe-extension-debugging',
+        '--no-first-run',
+        '--no-default-browser-check',
+        'about:blank',
+      ],
+      { stdio: ['ignore', 'ignore', 'pipe'], detached: true, cwd: work, env: browserEnv },
+    );
+    proc.stderr.on('data', (chunk) => {
+      logs += String(chunk);
+    });
     const port = await waitFor(async () => {
-      try { return (await readFile(path.join(profile, 'DevToolsActivePort'), 'utf8')).split('\n')[0]; }
-      catch { return null; }
+      try {
+        return (await readFile(path.join(profile, 'DevToolsActivePort'), 'utf8')).split('\n')[0];
+      } catch {
+        return null;
+      }
     }, 30000);
     const base = `http://127.0.0.1:${port}`;
     const version = await fetchJson(`${base}/json/version`);
     cdp = new CdpClient(version.webSocketDebuggerUrl);
     await cdp.connect();
-    const {id: extensionId} = await cdp.call('Extensions.loadUnpacked', {path: extensionRoot});
-    assert.equal(extensionId,expectedExtensionId,'unpacked extension ID changed after host registration');
+    const { id: extensionId } = await cdp.call('Extensions.loadUnpacked', { path: extensionRoot });
+    assert.equal(
+      extensionId,
+      expectedExtensionId,
+      'unpacked extension ID changed after host registration',
+    );
 
-    await cdp.call('Target.createTarget', {url: `chrome-extension://${extensionId}/popup.html`});
-    const popupTarget = await waitFor(async () => (await fetchJson(`${base}/json/list`)).find(item => item.url === `chrome-extension://${extensionId}/popup.html`));
+    await cdp.call('Target.createTarget', { url: `chrome-extension://${extensionId}/popup.html` });
+    const popupTarget = await waitFor(async () =>
+      (await fetchJson(`${base}/json/list`)).find(
+        (item) => item.url === `chrome-extension://${extensionId}/popup.html`,
+      ),
+    );
     ui = new CdpClient(popupTarget.webSocketDebuggerUrl);
     await ui.connect();
-    const activateExtensionTab=async(client,targetId)=>{
+    const activateExtensionTab = async (client, targetId) => {
       // 中文注释：无头浏览器只向当前窗口的前台扩展页投递指针事件；每次点击前恢复窗口与目标焦点。
-      await client.evaluate('chrome.tabs.getCurrent().then(tab=>chrome.windows.update(tab.windowId,{focused:true}).then(()=>chrome.tabs.update(tab.id,{active:true}))).then(()=>true)');
-      await cdp.call('Target.activateTarget',{targetId});
-      await client.call('Emulation.setFocusEmulationEnabled',{enabled:true});
+      await client.evaluate(
+        'chrome.tabs.getCurrent().then(tab=>chrome.windows.update(tab.windowId,{focused:true}).then(()=>chrome.tabs.update(tab.id,{active:true}))).then(()=>true)',
+      );
+      await cdp.call('Target.activateTarget', { targetId });
+      await client.call('Emulation.setFocusEmulationEnabled', { enabled: true });
     };
-    const click = async selector => {
-      try{
-        await activateExtensionTab(ui,popupTarget.id);
-        const point = await ui.evaluate(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(!e)throw Error('missing '+${JSON.stringify(selector)});e.scrollIntoView({block:'center'});const r=e.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()`);
-        await ui.call('Input.dispatchMouseEvent', {type: 'mousePressed', button: 'left', clickCount: 1, ...point});
-        await ui.call('Input.dispatchMouseEvent', {type: 'mouseReleased', button: 'left', clickCount: 1, ...point});
-      }catch(error){throw Error(`popup click ${selector}: ${error.message}`,{cause:error});}
+    const click = async (selector) => {
+      try {
+        await activateExtensionTab(ui, popupTarget.id);
+        const point = await ui.evaluate(
+          `(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(!e)throw Error('missing '+${JSON.stringify(selector)});e.scrollIntoView({block:'center'});const r=e.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()`,
+        );
+        await ui.call('Input.dispatchMouseEvent', {
+          type: 'mousePressed',
+          button: 'left',
+          clickCount: 1,
+          ...point,
+        });
+        await ui.call('Input.dispatchMouseEvent', {
+          type: 'mouseReleased',
+          button: 'left',
+          clickCount: 1,
+          ...point,
+        });
+      } catch (error) {
+        throw Error(`popup click ${selector}: ${error.message}`, { cause: error });
+      }
     };
     await waitFor(() => ui.evaluate(`document.querySelector('#connection-label')!==null`));
-    if (!await ui.evaluate(`document.querySelector('#connection-label').textContent==='已连接'`)) await click('#connect');
-    await waitFor(() => ui.evaluate(`document.querySelector('#connection-label').textContent==='已连接'`), 35000);
+    if (!(await ui.evaluate(`document.querySelector('#connection-label').textContent==='已连接'`)))
+      await click('#connect');
+    await waitFor(
+      () => ui.evaluate(`document.querySelector('#connection-label').textContent==='已连接'`),
+      35000,
+    );
     // 中文注释：连接本身已授权；只读取状态，不操作已移除的权限开关。
-    await waitFor(()=>ui.evaluate(`chrome.runtime.sendMessage({type:'popup_status'}).then(reply=>reply?.result?.browserFullConsentStatus==='enabled')`));
+    await waitFor(() =>
+      ui.evaluate(
+        `chrome.runtime.sendMessage({type:'popup_status'}).then(reply=>reply?.result?.browserFullConsentStatus==='enabled')`,
+      ),
+    );
 
-    const rpc = (session, suffix, args = {}) => helperCall('rpc', work, session, suffix, JSON.stringify(args));
+    const rpc = (session, suffix, args = {}) =>
+      helperCall('rpc', work, session, suffix, JSON.stringify(args));
     const instances = await waitFor(async () => {
       const found = await rpc('session-a', 'browsers');
-      return Array.isArray(found) && found.some(item => item.browser === browser) ? found : null;
+      return Array.isArray(found) && found.some((item) => item.browser === browser) ? found : null;
     }, 30000);
-    const instance = instances.find(item => item.browser === browser);
-    const userTabId=await ui.evaluate(`chrome.tabs.create({url:${JSON.stringify(origin+'/user')},active:false}).then(tab=>tab.id)`);
-    const task = await rpc('session-a', 'create', {title: `Native v2 ${browser}`, instance_id: instance.instanceId, allowed_origins: [origin,crossOrigin,deepOrigin]});
-    await waitFor(async () => {const current=await rpc('session-a','get',{task_id:task.id});return current.state==='ready'&&current.activeMode==='full';});
-    assert.ok((await rpc('session-b', 'get', {task_id: task.id})).error, 'foreign owner must be denied');
-    const opened=await rpc('session-a','run',{task_id:task.id,request_id:`${browser}-open-work-tab`,action:'new_tab',url:origin+'/fixture'});
-    const tabId=opened.tabId;assert.ok(Number.isInteger(tabId),JSON.stringify(opened));
+    const instance = instances.find((item) => item.browser === browser);
+    const userTabId = await ui.evaluate(
+      `chrome.tabs.create({url:${JSON.stringify(origin + '/user')},active:false}).then(tab=>tab.id)`,
+    );
+    const task = await rpc('session-a', 'create', {
+      title: `Native v2 ${browser}`,
+      instance_id: instance.instanceId,
+      allowed_origins: [origin, crossOrigin, deepOrigin],
+    });
+    await waitFor(async () => {
+      const current = await rpc('session-a', 'get', { task_id: task.id });
+      return current.state === 'ready' && current.activeMode === 'full';
+    });
+    assert.ok(
+      (await rpc('session-b', 'get', { task_id: task.id })).error,
+      'foreign owner must be denied',
+    );
+    const opened = await rpc('session-a', 'run', {
+      task_id: task.id,
+      request_id: `${browser}-open-work-tab`,
+      action: 'new_tab',
+      url: origin + '/fixture',
+    });
+    const tabId = opened.tabId;
+    assert.ok(Number.isInteger(tabId), JSON.stringify(opened));
     // 中文注释：高亮验收要求工作页可见；任务只操作自己创建并持有的工作页。
     await ui.evaluate(`chrome.tabs.update(${tabId},{active:true})`);
 
     let sequence = 0;
-    const run = (action, extra = {}) => rpc('session-a', 'run', {
-      task_id: task.id, request_id: `${browser}-native-v2-${++sequence}`,
-      action, tab_id: tabId, ...extra,
-    });
+    const run = (action, extra = {}) =>
+      rpc('session-a', 'run', {
+        task_id: task.id,
+        request_id: `${browser}-native-v2-${++sequence}`,
+        action,
+        tab_id: tabId,
+        ...extra,
+      });
     const runWithReadback = async (action, extra = {}) => {
-      const args = {task_id: task.id, request_id: `${browser}-native-v2-${++sequence}`, action, tab_id: tabId, ...extra};
+      const args = {
+        task_id: task.id,
+        request_id: `${browser}-native-v2-${++sequence}`,
+        action,
+        tab_id: tabId,
+        ...extra,
+      };
       const result = await rpc('session-a', 'run', args);
-      assert.notEqual(result.status,'approval_required','browser-level consent should have granted task full access');
-      assert.deepEqual(await rpc('session-a', 'run', args), result, 'same request ID must read the result without replay');
+      assert.notEqual(
+        result.status,
+        'approval_required',
+        'browser-level consent should have granted task full access',
+      );
+      assert.deepEqual(
+        await rpc('session-a', 'run', args),
+        result,
+        'same request ID must read the result without replay',
+      );
       return result;
     };
-    const readPage = expression => ui.evaluate(`chrome.debugger.sendCommand({tabId:${tabId}},'Runtime.evaluate',{expression:${JSON.stringify(expression)},returnByValue:true}).then(r=>r.result.value)`);
+    const readPage = (expression) =>
+      ui.evaluate(
+        `chrome.debugger.sendCommand({tabId:${tabId}},'Runtime.evaluate',{expression:${JSON.stringify(expression)},returnByValue:true}).then(r=>r.result.value)`,
+      );
 
     // 中文注释：接管入口已移到页面遮罩，通过真实指针点击闭合影子树中的按钮。
-    const clickOverlay=async action=>ui.evaluate(`(async()=>{
+    const clickOverlay = async (action) =>
+      ui.evaluate(`(async()=>{
       const target={tabId:${tabId}},tree=await chrome.debugger.sendCommand(target,'DOM.getDocument',{depth:-1,pierce:true});
       const find=node=>{const attrs=node.attributes||[];if(attrs.some((name,i)=>name==='data-action'&&attrs[i+1]===${JSON.stringify(action)}))return node;
         for(const child of [...node.children||[],...node.shadowRoots||[]]){const found=find(child);if(found)return found;}};
@@ -258,392 +436,1034 @@ async function run(browser) {
       for(const type of ['mousePressed','mouseReleased'])await chrome.debugger.sendCommand(target,'Input.dispatchMouseEvent',{type,x,y,button:'left',clickCount:1});
     })()`);
     await clickOverlay('takeover');
-    await waitFor(async()=>(await rpc('session-a','get',{task_id:task.id})).state==='paused');
+    await waitFor(
+      async () => (await rpc('session-a', 'get', { task_id: task.id })).state === 'paused',
+    );
     await clickOverlay('resume');
-    await waitFor(async()=>(await rpc('session-a','get',{task_id:task.id})).state==='ready');
+    await waitFor(
+      async () => (await rpc('session-a', 'get', { task_id: task.id })).state === 'ready',
+    );
 
     // 中文注释：V1.3 经过真实 Hermes→daemon→扩展链路验证解析与参数化函数。
-    const parsedV13=await run('page.parse',{options:{sections:['forms'],budget:12000}});
-    assert.equal(parsedV13.schemaVersion,1,JSON.stringify(parsedV13));
-    assert.ok(parsedV13.forms.some(field=>field.label==='Draft'),JSON.stringify(parsedV13));
-    const v13Script=await helperCall('script',work,'session-a',task.id,
-      "assert evaluate('(x)=>x', {'text': '中文参数'}) == {'text': '中文参数'}\n"+
-      "assert wait_for('#confirm', timeout=5)['satisfied']\n"+
-      "result=extract({'record':'#confirm','fields':{'label':{'selector':':scope','required':True}}})\n"+
-      "assert result['records'][0]['fields']['label']=='Confirm'\n"+
-      "with expect_response(timeout=5) as receipt:\n    evaluate('()=>fetch(\"/pixel.png\").then(r=>r.status)')\n"+
-      "assert receipt.result['status']==200\n"+
-      "with expect_navigation(timeout=5) as navigation:\n    evaluate('()=>history.pushState({}, \"\", \"#v13\")')\n"+
-      "assert navigation.result['same_document']\nevaluate('()=>history.replaceState({}, \"\", location.pathname)')\nprint('V13_SCRIPT_OK')");
-    assert.equal(v13Script.exit_code,0,JSON.stringify(v13Script));
-    assert.ok(v13Script.stdout.includes('V13_SCRIPT_OK'),JSON.stringify(v13Script));
+    const parsedV13 = await run('page.parse', { options: { sections: ['forms'], budget: 12000 } });
+    assert.equal(parsedV13.schemaVersion, 1, JSON.stringify(parsedV13));
+    assert.ok(
+      parsedV13.forms.some((field) => field.label === 'Draft'),
+      JSON.stringify(parsedV13),
+    );
+    const v13Script = await helperCall(
+      'script',
+      work,
+      'session-a',
+      task.id,
+      "assert evaluate('(x)=>x', {'text': '中文参数'}) == {'text': '中文参数'}\n" +
+        "assert wait_for('#confirm', timeout=5)['satisfied']\n" +
+        "result=extract({'record':'#confirm','fields':{'label':{'selector':':scope','required':True}}})\n" +
+        "assert result['records'][0]['fields']['label']=='Confirm'\n" +
+        'with expect_response(timeout=5) as receipt:\n    evaluate(\'()=>fetch("/pixel.png").then(r=>r.status)\')\n' +
+        "assert receipt.result['status']==200\n" +
+        'with expect_navigation(timeout=5) as navigation:\n    evaluate(\'()=>history.pushState({}, "", "#v13")\')\n' +
+        "assert navigation.result['same_document']\nevaluate('()=>history.replaceState({}, \"\", location.pathname)')\nprint('V13_SCRIPT_OK')",
+    );
+    assert.equal(v13Script.exit_code, 0, JSON.stringify(v13Script));
+    assert.ok(v13Script.stdout.includes('V13_SCRIPT_OK'), JSON.stringify(v13Script));
 
-    const semantic = await run('semantic_snapshot', {options: {mode: 'interactive', query: 'Confirm', roles: ['button'], viewport: true, budget: 1600}});
+    const semantic = await run('semantic_snapshot', {
+      options: {
+        mode: 'interactive',
+        query: 'Confirm',
+        roles: ['button'],
+        viewport: true,
+        budget: 1600,
+      },
+    });
     assert.equal(semantic.version, 2, JSON.stringify(semantic));
     assert.equal(semantic.items.length, 1);
-    const buttonToken = {binding: semantic.binding, snapshot_id: semantic.snapshotId, ref: semantic.items[0].ref};
-    const clickRequestId = `${browser}-native-v2-${sequence+1}`;
+    const buttonToken = {
+      binding: semantic.binding,
+      snapshot_id: semantic.snapshotId,
+      ref: semantic.items[0].ref,
+    };
+    const clickRequestId = `${browser}-native-v2-${sequence + 1}`;
     const clickResult = await runWithReadback('ref_click', buttonToken);
     assert.equal(clickResult.clicked, true, JSON.stringify(clickResult));
     assert.equal(await readPage('document.body.dataset.clicks'), '1');
 
-    const draft = await run('semantic_snapshot', {options: {mode: 'interactive', query: 'Draft', roles: ['textbox'], budget: 1600}});
-    const filledDraft=await runWithReadback('ref_fill', {binding: draft.binding, snapshot_id: draft.snapshotId, ref: draft.items[0].ref, text: 'native-v2'});
-    assert.equal(filledDraft.filled,true,JSON.stringify(filledDraft));
+    const draft = await run('semantic_snapshot', {
+      options: { mode: 'interactive', query: 'Draft', roles: ['textbox'], budget: 1600 },
+    });
+    const filledDraft = await runWithReadback('ref_fill', {
+      binding: draft.binding,
+      snapshot_id: draft.snapshotId,
+      ref: draft.items[0].ref,
+      text: 'native-v2',
+    });
+    assert.equal(filledDraft.filled, true, JSON.stringify(filledDraft));
     assert.equal(await readPage('document.querySelector("#draft").value'), 'native-v2');
 
-    const uploadBytes=[Buffer.from('person-selected-first'),Buffer.from('person-selected-second')];
-    const uploadStart=receivedUploads.length;
-    const registered=[];
-    for(const [index,bytes] of uploadBytes.entries())registered.push(await helperCall('artifact',work,'session-a',task.id,origin,
-      `selected-${index}.txt`,bytes.toString('base64')));
-    const visibleArtifacts=await rpc('session-a','artifacts',{task_id:task.id});
-    assert.deepEqual(new Set(visibleArtifacts.map(item=>item.id)),new Set(registered.map(item=>item.id)));
-    assert.ok(visibleArtifacts.every(item=>!Object.hasOwn(item,'path')));
+    const uploadBytes = [
+      Buffer.from('person-selected-first'),
+      Buffer.from('person-selected-second'),
+    ];
+    const uploadStart = receivedUploads.length;
+    const registered = [];
+    for (const [index, bytes] of uploadBytes.entries())
+      registered.push(
+        await helperCall(
+          'artifact',
+          work,
+          'session-a',
+          task.id,
+          origin,
+          `selected-${index}.txt`,
+          bytes.toString('base64'),
+        ),
+      );
+    const visibleArtifacts = await rpc('session-a', 'artifacts', { task_id: task.id });
+    assert.deepEqual(
+      new Set(visibleArtifacts.map((item) => item.id)),
+      new Set(registered.map((item) => item.id)),
+    );
+    assert.ok(visibleArtifacts.every((item) => !Object.hasOwn(item, 'path')));
     // 中文注释：多文件选择可能立即触发网站上传，服务器收到的真实摘要才算网站接收证据。
-    const chosen=await runWithReadback('files.upload',{selector:'#upload-input',artifact_ids:registered.map(item=>item.id)});
-    assert.equal(chosen.selectedCount,2,JSON.stringify(chosen));
-    assert.equal(chosen.websiteState,'unverified');
-    try{await waitFor(async()=>receivedUploads.length===uploadStart+2);}catch(error){
+    const chosen = await runWithReadback('files.upload', {
+      selector: '#upload-input',
+      artifact_ids: registered.map((item) => item.id),
+    });
+    assert.equal(chosen.selectedCount, 2, JSON.stringify(chosen));
+    assert.equal(chosen.websiteState, 'unverified');
+    try {
+      await waitFor(async () => receivedUploads.length === uploadStart + 2);
+    } catch (error) {
       // 中文注释：网页选择成功但服务器未收件时保留页面侧状态，便于区分事件与网络故障。
-      error.message+=` uploadState=${JSON.stringify({received:receivedUploads.length,
-        files:await readPage('document.querySelector("#upload-input").files.length').catch(()=>null),
-        pageStatus:await readPage('document.body.dataset.uploaded').catch(()=>null)})}`;
+      error.message += ` uploadState=${JSON.stringify({
+        received: receivedUploads.length,
+        files: await readPage('document.querySelector("#upload-input").files.length').catch(
+          () => null,
+        ),
+        pageStatus: await readPage('document.body.dataset.uploaded').catch(() => null),
+      })}`;
       throw error;
     }
-    assert.deepEqual(receivedUploads.slice(uploadStart,uploadStart+2).map(item=>item.sha256),uploadBytes.map(sha256));
-    const replacement=Buffer.from('person-selected-replacement');
-    const replacementRecord=await helperCall('artifact',work,'session-a',task.id,origin,'replacement.txt',replacement.toString('base64'));
-    const replaced=await runWithReadback('files.upload',{selector:'#upload-input',artifact_ids:[replacementRecord.id]});
-    assert.equal(replaced.selectedCount,1);
-    await waitFor(async()=>receivedUploads.length===uploadStart+3);
-    assert.equal(receivedUploads[uploadStart+2].sha256,sha256(replacement));
-    assert.equal(await readPage('document.querySelector("#upload-input").files.length'),1);
+    assert.deepEqual(
+      receivedUploads.slice(uploadStart, uploadStart + 2).map((item) => item.sha256),
+      uploadBytes.map(sha256),
+    );
+    const replacement = Buffer.from('person-selected-replacement');
+    const replacementRecord = await helperCall(
+      'artifact',
+      work,
+      'session-a',
+      task.id,
+      origin,
+      'replacement.txt',
+      replacement.toString('base64'),
+    );
+    const replaced = await runWithReadback('files.upload', {
+      selector: '#upload-input',
+      artifact_ids: [replacementRecord.id],
+    });
+    assert.equal(replaced.selectedCount, 1);
+    await waitFor(async () => receivedUploads.length === uploadStart + 3);
+    assert.equal(receivedUploads[uploadStart + 2].sha256, sha256(replacement));
+    assert.equal(await readPage('document.querySelector("#upload-input").files.length'), 1);
     // 中文注释：对话给出的绝对路径直接上传，并以测试站点实际收到的摘要验收。
-    const pathBytes=Buffer.from('conversation-local-path-upload');
-    const localPath=path.join(work,'conversation-upload.txt');
-    await writeFile(localPath,pathBytes);
-    const pathSelected=await runWithReadback('files.upload',{selector:'#upload-input',paths:[localPath]});
-    assert.equal(pathSelected.selectedCount,1,JSON.stringify(pathSelected));
-    await waitFor(async()=>receivedUploads.length===uploadStart+4);
-    assert.equal(receivedUploads[uploadStart+3].sha256,sha256(pathBytes));
-    assert.equal(receivedUploads[uploadStart+3].name,'conversation-upload.txt');
+    const pathBytes = Buffer.from('conversation-local-path-upload');
+    const localPath = path.join(work, 'conversation-upload.txt');
+    await writeFile(localPath, pathBytes);
+    const pathSelected = await runWithReadback('files.upload', {
+      selector: '#upload-input',
+      paths: [localPath],
+    });
+    assert.equal(pathSelected.selectedCount, 1, JSON.stringify(pathSelected));
+    await waitFor(async () => receivedUploads.length === uploadStart + 4);
+    assert.equal(receivedUploads[uploadStart + 3].sha256, sha256(pathBytes));
+    assert.equal(receivedUploads[uploadStart + 3].name, 'conversation-upload.txt');
 
     // 中文注释：A01 下载——链接、重名、blob、中断、取消与同网址并发用户下载。
-    const dl=(extra={})=>rpc('session-a','downloads',{task_id:task.id,...extra});
-    const namedRef=async(name,role='link')=>{
-      const snap=await run('semantic_snapshot',{options:{mode:'interactive',query:name,roles:[role],budget:1600}});
-      assert.equal(snap.items?.length,1,JSON.stringify(snap));
-      return {binding:snap.binding,snapshot_id:snap.snapshotId,ref:snap.items[0].ref};
+    const dl = (extra = {}) => rpc('session-a', 'downloads', { task_id: task.id, ...extra });
+    const namedRef = async (name, role = 'link') => {
+      const snap = await run('semantic_snapshot', {
+        options: { mode: 'interactive', query: name, roles: [role], budget: 1600 },
+      });
+      assert.equal(snap.items?.length, 1, JSON.stringify(snap));
+      return { binding: snap.binding, snapshot_id: snap.snapshotId, ref: snap.items[0].ref };
     };
     // 中文注释：同页多次下载需要真实用户手势，否则浏览器拦截“自动多次下载”；这里使用可信指针点击。
-    const clickNamed=async(name,role='link')=>{const clicked=await run('ref_click',{...await namedRef(name,role),clickMode:'pointer'});assert.equal(clicked.clicked,true,JSON.stringify(clicked));return clicked;};
-    const waitDownload=async predicate=>{
-      try{return await waitFor(async()=>(await dl()).downloads?.find(predicate)||null,30000);}
-      catch(error){error.message+=` downloads=${JSON.stringify(await dl())} files=${JSON.stringify(await readdir(downloadsDir,{recursive:true}))}`;throw error;}
+    const clickNamed = async (name, role = 'link') => {
+      const clicked = await run('ref_click', {
+        ...(await namedRef(name, role)),
+        clickMode: 'pointer',
+      });
+      assert.equal(clicked.clicked, true, JSON.stringify(clicked));
+      return clicked;
+    };
+    const waitDownload = async (predicate) => {
+      try {
+        return await waitFor(async () => (await dl()).downloads?.find(predicate) || null, 30000);
+      } catch (error) {
+        error.message += ` downloads=${JSON.stringify(await dl())} files=${JSON.stringify(await readdir(downloadsDir, { recursive: true }))}`;
+        throw error;
+      }
     };
     await clickNamed('Download Report');
-    const firstDownload=await waitDownload(row=>row.state==='complete'&&row.filename==='report.csv');
+    const firstDownload = await waitDownload(
+      (row) => row.state === 'complete' && row.filename === 'report.csv',
+    );
     await clickNamed('Download Report');
-    const secondDownload=await waitDownload(row=>row.state==='complete'&&row.id!==firstDownload.id);
-    assert.notEqual(secondDownload.filename,firstDownload.filename,'same-name download must not overwrite');
-    for(const row of [firstDownload,secondDownload]){
-      const claimedRow=await dl({action:'claim',download_id:row.id});
-      assert.equal(claimedRow.sha256,sha256(REPORT_BYTES),JSON.stringify(claimedRow));
-      assert.equal(sha256(await readFile(claimedRow.localPath)),sha256(REPORT_BYTES));
-      assert.ok(claimedRow.localPath.startsWith(`${staged.hermesHome}${path.sep}`),'claimed file lives in the private store');
+    const secondDownload = await waitDownload(
+      (row) => row.state === 'complete' && row.id !== firstDownload.id,
+    );
+    assert.notEqual(
+      secondDownload.filename,
+      firstDownload.filename,
+      'same-name download must not overwrite',
+    );
+    for (const row of [firstDownload, secondDownload]) {
+      const claimedRow = await dl({ action: 'claim', download_id: row.id });
+      assert.equal(claimedRow.sha256, sha256(REPORT_BYTES), JSON.stringify(claimedRow));
+      assert.equal(sha256(await readFile(claimedRow.localPath)), sha256(REPORT_BYTES));
+      assert.ok(
+        claimedRow.localPath.startsWith(`${staged.hermesHome}${path.sep}`),
+        'claimed file lives in the private store',
+      );
     }
-    await clickNamed('Download Blob','button');
-    const blobDownload=await waitDownload(row=>row.state==='complete'&&row.filename==='blob-report.txt');
-    const blobClaim=await dl({action:'claim',download_id:blobDownload.id});
-    assert.equal(sha256(await readFile(blobClaim.localPath)),sha256(Buffer.from('blob-download-evidence')));
+    await clickNamed('Download Blob', 'button');
+    const blobDownload = await waitDownload(
+      (row) => row.state === 'complete' && row.filename === 'blob-report.txt',
+    );
+    const blobClaim = await dl({ action: 'claim', download_id: blobDownload.id });
+    assert.equal(
+      sha256(await readFile(blobClaim.localPath)),
+      sha256(Buffer.from('blob-download-evidence')),
+    );
     await clickNamed('Broken Download');
-    const broken=await waitDownload(row=>row.filename==='broken.bin'&&row.state!=='in_progress');
-    assert.equal(broken.state,'interrupted',JSON.stringify(broken));
-    const brokenClaim=await dl({action:'claim',download_id:broken.id});
-    assert.equal(brokenClaim.bridgeCode,'download_not_complete',JSON.stringify(brokenClaim));
+    const broken = await waitDownload(
+      (row) => row.filename === 'broken.bin' && row.state !== 'in_progress',
+    );
+    assert.equal(broken.state, 'interrupted', JSON.stringify(broken));
+    const brokenClaim = await dl({ action: 'claim', download_id: broken.id });
+    assert.equal(brokenClaim.bridgeCode, 'download_not_complete', JSON.stringify(brokenClaim));
     await clickNamed('Slow Download');
-    const slow=await waitDownload(row=>row.filename==='slow.bin'&&row.state==='in_progress');
-    const cancelledDownload=await dl({action:'cancel',download_id:slow.id});
-    assert.equal(cancelledDownload.state,'cancelled',JSON.stringify(cancelledDownload));
-    const beforeUser=await dl();
-    const gatedRef=await namedRef('Gated Download');
+    const slow = await waitDownload(
+      (row) => row.filename === 'slow.bin' && row.state === 'in_progress',
+    );
+    const cancelledDownload = await dl({ action: 'cancel', download_id: slow.id });
+    assert.equal(cancelledDownload.state, 'cancelled', JSON.stringify(cancelledDownload));
+    const beforeUser = await dl();
+    const gatedRef = await namedRef('Gated Download');
     // 中文注释：用户下载请求被服务器挂起，不能等待其 Promise；只发起后立即返回。
-    await ui.evaluate(`void chrome.downloads.download({url:${JSON.stringify(origin+'/download/gated.csv')}});true`);
+    await ui.evaluate(
+      `void chrome.downloads.download({url:${JSON.stringify(origin + '/download/gated.csv')}});true`,
+    );
     // 中文注释：点击在服务器放行前不会返回；先发起点击，待两个请求都挂起后同时放行，再读取点击回执。
-    const gatedClick=run('ref_click',{...gatedRef,clickMode:'pointer'});
-    await waitFor(async()=>gated.length===2,10000);
-    await fetch(origin+'/download/release');
-    assert.equal((await gatedClick).clicked,true);
-    await waitFor(async()=>(await readdir(downloadsDir)).filter(name=>name.startsWith('gated')).length===2,20000);
-    const afterUser=await dl();
-    assert.equal(afterUser.downloads.length,beforeUser.downloads.length,'concurrent same-URL download must not be claimed');
-    assert.ok(afterUser.unattributed>beforeUser.unattributed,JSON.stringify(afterUser));
-    const check = await run('semantic_snapshot', {options: {mode: 'interactive', query: 'Check', roles: ['checkbox'], budget: 1600}});
-    const checked = await runWithReadback('ref_set_checked', {binding: check.binding, snapshot_id: check.snapshotId, ref: check.items[0].ref, checked: true});
-    assert.equal(checked.verified, true);assert.equal(await readPage('document.querySelector("#check").checked'), true);
-    const choice = await run('semantic_snapshot', {options: {mode: 'interactive', query: 'Choice', roles: ['combobox'], budget: 1600}});
-    const selected = await runWithReadback('ref_select_option', {binding: choice.binding, snapshot_id: choice.snapshotId, ref: choice.items[0].ref, by: 'value', values: ['b']});
-    assert.equal(selected.verified, true);assert.equal(await readPage('document.querySelector("#choice").value'), 'b');
-    const custom=await run('semantic_snapshot',{options:{mode:'interactive',query:'Custom Select',roles:['combobox'],budget:1600}});
-    const customChoice=await runWithReadback('ref_select_option',{binding:custom.binding,snapshot_id:custom.snapshotId,ref:custom.items[0].ref,
-      by:'value',values:['b']});
-    assert.equal(customChoice.verified,true,JSON.stringify(customChoice));
-    assert.equal(await readPage('document.querySelector("#custom").dataset.selected'),'b');
-    const pointer = await run('semantic_snapshot', {options: {mode: 'interactive', query: 'Pointer Check', roles: ['button'], budget: 1600}});
-    const pointerClick = await runWithReadback('ref_click', {binding: pointer.binding, snapshot_id: pointer.snapshotId, ref: pointer.items[0].ref, clickMode: 'pointer'});
-    assert.equal(pointerClick.delivery, 'confirmed');assert.equal(await readPage('document.body.dataset.pointerClicks'), '1');
+    const gatedClick = run('ref_click', { ...gatedRef, clickMode: 'pointer' });
+    await waitFor(async () => gated.length === 2, 10000);
+    await fetch(origin + '/download/release');
+    assert.equal((await gatedClick).clicked, true);
+    await waitFor(
+      async () =>
+        (await readdir(downloadsDir)).filter((name) => name.startsWith('gated')).length === 2,
+      20000,
+    );
+    const afterUser = await dl();
+    assert.equal(
+      afterUser.downloads.length,
+      beforeUser.downloads.length,
+      'concurrent same-URL download must not be claimed',
+    );
+    assert.ok(afterUser.unattributed > beforeUser.unattributed, JSON.stringify(afterUser));
+    const check = await run('semantic_snapshot', {
+      options: { mode: 'interactive', query: 'Check', roles: ['checkbox'], budget: 1600 },
+    });
+    const checked = await runWithReadback('ref_set_checked', {
+      binding: check.binding,
+      snapshot_id: check.snapshotId,
+      ref: check.items[0].ref,
+      checked: true,
+    });
+    assert.equal(checked.verified, true);
+    assert.equal(await readPage('document.querySelector("#check").checked'), true);
+    const choice = await run('semantic_snapshot', {
+      options: { mode: 'interactive', query: 'Choice', roles: ['combobox'], budget: 1600 },
+    });
+    const selected = await runWithReadback('ref_select_option', {
+      binding: choice.binding,
+      snapshot_id: choice.snapshotId,
+      ref: choice.items[0].ref,
+      by: 'value',
+      values: ['b'],
+    });
+    assert.equal(selected.verified, true);
+    assert.equal(await readPage('document.querySelector("#choice").value'), 'b');
+    const custom = await run('semantic_snapshot', {
+      options: { mode: 'interactive', query: 'Custom Select', roles: ['combobox'], budget: 1600 },
+    });
+    const customChoice = await runWithReadback('ref_select_option', {
+      binding: custom.binding,
+      snapshot_id: custom.snapshotId,
+      ref: custom.items[0].ref,
+      by: 'value',
+      values: ['b'],
+    });
+    assert.equal(customChoice.verified, true, JSON.stringify(customChoice));
+    assert.equal(await readPage('document.querySelector("#custom").dataset.selected'), 'b');
+    const pointer = await run('semantic_snapshot', {
+      options: { mode: 'interactive', query: 'Pointer Check', roles: ['button'], budget: 1600 },
+    });
+    const pointerClick = await runWithReadback('ref_click', {
+      binding: pointer.binding,
+      snapshot_id: pointer.snapshotId,
+      ref: pointer.items[0].ref,
+      clickMode: 'pointer',
+    });
+    assert.equal(pointerClick.delivery, 'confirmed');
+    assert.equal(await readPage('document.body.dataset.pointerClicks'), '1');
     assert.equal(await readPage('document.body.dataset.pointerTrusted'), 'true');
 
-    await waitFor(()=>readPage('document.querySelector("#same-frame")?.contentDocument?.readyState==="complete"'));
-    const shadow = await run('semantic_snapshot', {options: {mode: 'interactive', query: 'Open Shadow', composed: true, budget: 2500}});
-    assert.equal(shadow.items.length,1);assert.ok(shadow.items[0].targetPath.some(step=>step.kind==='shadow'));
-    assert.equal((await runWithReadback('ref_click', {binding: shadow.binding, snapshot_id: shadow.snapshotId, ref: shadow.items[0].ref})).clicked,true);
-    assert.equal(await readPage('document.body.dataset.shadowClicked'),'yes');
-    const shadowPointer=await run('semantic_snapshot',{options:{mode:'interactive',query:'Open Shadow',composed:true,budget:2500}});
-    assert.equal((await runWithReadback('ref_click',{binding:shadowPointer.binding,snapshot_id:shadowPointer.snapshotId,
-      ref:shadowPointer.items[0].ref,clickMode:'pointer'})).delivery,'confirmed');
-    assert.equal(await readPage('document.body.dataset.shadowPointerTrusted'),'true');
-    const frame = await run('semantic_snapshot', {options: {mode: 'interactive', query: 'Frame Action', composed: true, budget: 2500}});
-    assert.equal(frame.items.length,1);assert.ok(frame.items[0].targetPath.some(step=>step.kind==='frame'));
-    assert.equal((await runWithReadback('ref_click', {binding: frame.binding, snapshot_id: frame.snapshotId, ref: frame.items[0].ref})).clicked,true);
-    assert.equal(await readPage('document.querySelector("#same-frame").contentDocument.body.dataset.clicked'),'yes');
-    const framePointer=await run('semantic_snapshot',{options:{mode:'interactive',query:'Frame Action',composed:true,budget:2500}});
-    assert.equal((await runWithReadback('ref_click',{binding:framePointer.binding,snapshot_id:framePointer.snapshotId,
-      ref:framePointer.items[0].ref,clickMode:'pointer'})).delivery,'confirmed');
-    assert.equal(await readPage('document.querySelector("#same-frame").contentDocument.body.dataset.pointerTrusted'),'true');
+    await waitFor(() =>
+      readPage('document.querySelector("#same-frame")?.contentDocument?.readyState==="complete"'),
+    );
+    const shadow = await run('semantic_snapshot', {
+      options: { mode: 'interactive', query: 'Open Shadow', composed: true, budget: 2500 },
+    });
+    assert.equal(shadow.items.length, 1);
+    assert.ok(shadow.items[0].targetPath.some((step) => step.kind === 'shadow'));
+    assert.equal(
+      (
+        await runWithReadback('ref_click', {
+          binding: shadow.binding,
+          snapshot_id: shadow.snapshotId,
+          ref: shadow.items[0].ref,
+        })
+      ).clicked,
+      true,
+    );
+    assert.equal(await readPage('document.body.dataset.shadowClicked'), 'yes');
+    const shadowPointer = await run('semantic_snapshot', {
+      options: { mode: 'interactive', query: 'Open Shadow', composed: true, budget: 2500 },
+    });
+    assert.equal(
+      (
+        await runWithReadback('ref_click', {
+          binding: shadowPointer.binding,
+          snapshot_id: shadowPointer.snapshotId,
+          ref: shadowPointer.items[0].ref,
+          clickMode: 'pointer',
+        })
+      ).delivery,
+      'confirmed',
+    );
+    assert.equal(await readPage('document.body.dataset.shadowPointerTrusted'), 'true');
+    const frame = await run('semantic_snapshot', {
+      options: { mode: 'interactive', query: 'Frame Action', composed: true, budget: 2500 },
+    });
+    assert.equal(frame.items.length, 1);
+    assert.ok(frame.items[0].targetPath.some((step) => step.kind === 'frame'));
+    assert.equal(
+      (
+        await runWithReadback('ref_click', {
+          binding: frame.binding,
+          snapshot_id: frame.snapshotId,
+          ref: frame.items[0].ref,
+        })
+      ).clicked,
+      true,
+    );
+    assert.equal(
+      await readPage('document.querySelector("#same-frame").contentDocument.body.dataset.clicked'),
+      'yes',
+    );
+    const framePointer = await run('semantic_snapshot', {
+      options: { mode: 'interactive', query: 'Frame Action', composed: true, budget: 2500 },
+    });
+    assert.equal(
+      (
+        await runWithReadback('ref_click', {
+          binding: framePointer.binding,
+          snapshot_id: framePointer.snapshotId,
+          ref: framePointer.items[0].ref,
+          clickMode: 'pointer',
+        })
+      ).delivery,
+      'confirmed',
+    );
+    assert.equal(
+      await readPage(
+        'document.querySelector("#same-frame").contentDocument.body.dataset.pointerTrusted',
+      ),
+      'true',
+    );
     const catalog = await run('frame_catalog');
-    const crossFrame = catalog.frames.find(item=>item.origin===crossOrigin);
-    assert.equal(crossFrame?.access,'ready',JSON.stringify(catalog));
-    assert.equal(crossFrame.kind,'out_of_process');
-    const deepFrame=catalog.frames.find(item=>item.origin===deepOrigin);
-    assert.equal(deepFrame?.access,'ready',JSON.stringify(catalog));
-    assert.equal(deepFrame.parentFrameToken,crossFrame.frameToken);
-    const deepSnapshot=await run('semantic_snapshot',{options:{frameToken:deepFrame.frameToken,mode:'interactive',query:'Deep Action',budget:1600}});
-    assert.equal(deepSnapshot.items[0].name,'Deep Action');
-    const remote = await run('semantic_snapshot', {options: {frameToken: crossFrame.frameToken, mode: 'interactive', query: 'Cross Action', budget: 1600}});
-    assert.equal(remote.items.length,1);assert.equal(remote.frameToken,crossFrame.frameToken);
-    assert.ok(remote.items[0].targetPath.some(step=>step.frameToken===crossFrame.frameToken));
-    const childWrite={binding:remote.binding,snapshot_id:remote.snapshotId,ref:remote.items[0].ref,frame_token:crossFrame.frameToken};
-    const deepClicked=await run('ref_click',{binding:deepSnapshot.binding,snapshot_id:deepSnapshot.snapshotId,ref:deepSnapshot.items[0].ref,
-      frame_token:deepFrame.frameToken});
-    assert.equal(deepClicked.clicked,true,JSON.stringify(deepClicked));
-    const deepEffect=await run('semantic_snapshot',{options:{frameToken:deepFrame.frameToken,mode:'content',query:'Deep Clicked',budget:1600}});
-    assert.ok(deepEffect.items.some(item=>item.name==='Deep Clicked'));
-    const deepDraft=await run('semantic_snapshot',{options:{frameToken:deepFrame.frameToken,mode:'interactive',query:'Deep Draft',budget:1600}});
-    assert.equal((await run('ref_fill',{binding:deepDraft.binding,snapshot_id:deepDraft.snapshotId,ref:deepDraft.items[0].ref,
-      frame_token:deepFrame.frameToken,text:'nested-text'})).filled,true);
-    const deepDraftEffect=await run('semantic_snapshot',{options:{frameToken:deepFrame.frameToken,mode:'content',query:'nested-text',budget:1600}});
-    assert.ok(deepDraftEffect.items.some(item=>item.name==='nested-text'));
-    const deepCheck=await run('semantic_snapshot',{options:{frameToken:deepFrame.frameToken,mode:'interactive',query:'Deep Check',budget:1600}});
-    assert.equal((await run('ref_set_checked',{binding:deepCheck.binding,snapshot_id:deepCheck.snapshotId,ref:deepCheck.items[0].ref,
-      frame_token:deepFrame.frameToken,checked:true})).verified,true);
-    const deepCheckEffect=await run('semantic_snapshot',{options:{frameToken:deepFrame.frameToken,mode:'interactive',query:'Deep Check',budget:1600}});
-    assert.equal(deepCheckEffect.items[0].checked,true);
-    const deepChoice=await run('semantic_snapshot',{options:{frameToken:deepFrame.frameToken,mode:'interactive',query:'Deep Choice',budget:1600}});
-    assert.equal((await run('ref_select_option',{binding:deepChoice.binding,snapshot_id:deepChoice.snapshotId,ref:deepChoice.items[0].ref,
-      frame_token:deepFrame.frameToken,by:'value',values:['b']})).verified,true);
-    const deepKey=await run('semantic_snapshot',{options:{frameToken:deepFrame.frameToken,mode:'interactive',query:'Deep Key',budget:1600}});
-    assert.equal((await run('ref_press',{binding:deepKey.binding,snapshot_id:deepKey.snapshotId,ref:deepKey.items[0].ref,
-      frame_token:deepFrame.frameToken,key:'ArrowDown'})).delivery,'cdp-key-events');
-    const deepKeyEffect=await run('semantic_snapshot',{options:{frameToken:deepFrame.frameToken,mode:'content',query:'Trusted Deep Key',budget:1600}});
-    assert.ok(deepKeyEffect.items.some(item=>item.name==='Trusted Deep Key'));
-    const deepPointer=await run('semantic_snapshot',{options:{frameToken:deepFrame.frameToken,mode:'interactive',query:'Deep Pointer',budget:1600}});
-    assert.equal((await run('ref_click',{binding:deepPointer.binding,snapshot_id:deepPointer.snapshotId,ref:deepPointer.items[0].ref,
-      frame_token:deepFrame.frameToken,clickMode:'pointer'})).delivery,'confirmed');
-    const deepPointerEffect=await run('semantic_snapshot',{options:{frameToken:deepFrame.frameToken,mode:'content',query:'Trusted Deep Pointer',budget:1600}});
-    assert.ok(deepPointerEffect.items.some(item=>item.name==='Trusted Deep Pointer'));
-    assert.equal((await run('ref_click',childWrite)).clicked,true);
-    const effect=await run('semantic_snapshot',{options:{frameToken:crossFrame.frameToken,mode:'content',query:'Clicked',budget:1600}});
-    assert.ok(effect.items.some(item=>item.name==='Clicked'),'child page effect must be read back');
-    const crossDraft=await run('semantic_snapshot',{options:{frameToken:crossFrame.frameToken,mode:'interactive',query:'Cross Draft',budget:1600}});
-    assert.equal((await run('ref_fill',{binding:crossDraft.binding,snapshot_id:crossDraft.snapshotId,ref:crossDraft.items[0].ref,
-      frame_token:crossFrame.frameToken,text:'frame-text'})).filled,true);
-    const draftEffect=await run('semantic_snapshot',{options:{frameToken:crossFrame.frameToken,mode:'content',query:'frame-text',budget:1600}});
-    assert.ok(draftEffect.items.some(item=>item.name==='frame-text'));
-    const crossCheck=await run('semantic_snapshot',{options:{frameToken:crossFrame.frameToken,mode:'interactive',query:'Cross Check',budget:1600}});
-    const checkedChild=await run('ref_set_checked',{binding:crossCheck.binding,snapshot_id:crossCheck.snapshotId,ref:crossCheck.items[0].ref,
-      frame_token:crossFrame.frameToken,checked:true});
-    assert.equal(checkedChild.verified,true);
-    const checkEffect=await run('semantic_snapshot',{options:{frameToken:crossFrame.frameToken,mode:'interactive',query:'Cross Check',budget:1600}});
-    assert.equal(checkEffect.items[0].checked,true);
-    const crossChoice=await run('semantic_snapshot',{options:{frameToken:crossFrame.frameToken,mode:'interactive',query:'Cross Choice',budget:1600}});
-    const chosenChild=await run('ref_select_option',{binding:crossChoice.binding,snapshot_id:crossChoice.snapshotId,ref:crossChoice.items[0].ref,
-      frame_token:crossFrame.frameToken,by:'value',values:['b']});
-    assert.equal(chosenChild.verified,true);
-    const choiceEffect=await run('semantic_snapshot',{options:{frameToken:crossFrame.frameToken,mode:'content',query:'b',budget:1600}});
-    assert.ok(choiceEffect.items.some(item=>item.name==='b'));
-    const pointerChild=await run('semantic_snapshot',{options:{frameToken:crossFrame.frameToken,mode:'interactive',query:'Cross Pointer',budget:1600}});
-    const pressedChild=await run('ref_click',{binding:pointerChild.binding,snapshot_id:pointerChild.snapshotId,ref:pointerChild.items[0].ref,
-      frame_token:crossFrame.frameToken,clickMode:'pointer'});
-    assert.equal(pressedChild.delivery,'confirmed');
-    const pointerEffect=await run('semantic_snapshot',{options:{frameToken:crossFrame.frameToken,mode:'content',query:'Trusted Pointer',budget:1600}});
-    assert.ok(pointerEffect.items.some(item=>item.name==='Trusted Pointer'));
+    const crossFrame = catalog.frames.find((item) => item.origin === crossOrigin);
+    assert.equal(crossFrame?.access, 'ready', JSON.stringify(catalog));
+    assert.equal(crossFrame.kind, 'out_of_process');
+    const deepFrame = catalog.frames.find((item) => item.origin === deepOrigin);
+    assert.equal(deepFrame?.access, 'ready', JSON.stringify(catalog));
+    assert.equal(deepFrame.parentFrameToken, crossFrame.frameToken);
+    const deepSnapshot = await run('semantic_snapshot', {
+      options: {
+        frameToken: deepFrame.frameToken,
+        mode: 'interactive',
+        query: 'Deep Action',
+        budget: 1600,
+      },
+    });
+    assert.equal(deepSnapshot.items[0].name, 'Deep Action');
+    const remote = await run('semantic_snapshot', {
+      options: {
+        frameToken: crossFrame.frameToken,
+        mode: 'interactive',
+        query: 'Cross Action',
+        budget: 1600,
+      },
+    });
+    assert.equal(remote.items.length, 1);
+    assert.equal(remote.frameToken, crossFrame.frameToken);
+    assert.ok(remote.items[0].targetPath.some((step) => step.frameToken === crossFrame.frameToken));
+    const childWrite = {
+      binding: remote.binding,
+      snapshot_id: remote.snapshotId,
+      ref: remote.items[0].ref,
+      frame_token: crossFrame.frameToken,
+    };
+    const deepClicked = await run('ref_click', {
+      binding: deepSnapshot.binding,
+      snapshot_id: deepSnapshot.snapshotId,
+      ref: deepSnapshot.items[0].ref,
+      frame_token: deepFrame.frameToken,
+    });
+    assert.equal(deepClicked.clicked, true, JSON.stringify(deepClicked));
+    const deepEffect = await run('semantic_snapshot', {
+      options: {
+        frameToken: deepFrame.frameToken,
+        mode: 'content',
+        query: 'Deep Clicked',
+        budget: 1600,
+      },
+    });
+    assert.ok(deepEffect.items.some((item) => item.name === 'Deep Clicked'));
+    const deepDraft = await run('semantic_snapshot', {
+      options: {
+        frameToken: deepFrame.frameToken,
+        mode: 'interactive',
+        query: 'Deep Draft',
+        budget: 1600,
+      },
+    });
+    assert.equal(
+      (
+        await run('ref_fill', {
+          binding: deepDraft.binding,
+          snapshot_id: deepDraft.snapshotId,
+          ref: deepDraft.items[0].ref,
+          frame_token: deepFrame.frameToken,
+          text: 'nested-text',
+        })
+      ).filled,
+      true,
+    );
+    const deepDraftEffect = await run('semantic_snapshot', {
+      options: {
+        frameToken: deepFrame.frameToken,
+        mode: 'content',
+        query: 'nested-text',
+        budget: 1600,
+      },
+    });
+    assert.ok(deepDraftEffect.items.some((item) => item.name === 'nested-text'));
+    const deepCheck = await run('semantic_snapshot', {
+      options: {
+        frameToken: deepFrame.frameToken,
+        mode: 'interactive',
+        query: 'Deep Check',
+        budget: 1600,
+      },
+    });
+    assert.equal(
+      (
+        await run('ref_set_checked', {
+          binding: deepCheck.binding,
+          snapshot_id: deepCheck.snapshotId,
+          ref: deepCheck.items[0].ref,
+          frame_token: deepFrame.frameToken,
+          checked: true,
+        })
+      ).verified,
+      true,
+    );
+    const deepCheckEffect = await run('semantic_snapshot', {
+      options: {
+        frameToken: deepFrame.frameToken,
+        mode: 'interactive',
+        query: 'Deep Check',
+        budget: 1600,
+      },
+    });
+    assert.equal(deepCheckEffect.items[0].checked, true);
+    const deepChoice = await run('semantic_snapshot', {
+      options: {
+        frameToken: deepFrame.frameToken,
+        mode: 'interactive',
+        query: 'Deep Choice',
+        budget: 1600,
+      },
+    });
+    assert.equal(
+      (
+        await run('ref_select_option', {
+          binding: deepChoice.binding,
+          snapshot_id: deepChoice.snapshotId,
+          ref: deepChoice.items[0].ref,
+          frame_token: deepFrame.frameToken,
+          by: 'value',
+          values: ['b'],
+        })
+      ).verified,
+      true,
+    );
+    const deepKey = await run('semantic_snapshot', {
+      options: {
+        frameToken: deepFrame.frameToken,
+        mode: 'interactive',
+        query: 'Deep Key',
+        budget: 1600,
+      },
+    });
+    assert.equal(
+      (
+        await run('ref_press', {
+          binding: deepKey.binding,
+          snapshot_id: deepKey.snapshotId,
+          ref: deepKey.items[0].ref,
+          frame_token: deepFrame.frameToken,
+          key: 'ArrowDown',
+        })
+      ).delivery,
+      'cdp-key-events',
+    );
+    const deepKeyEffect = await run('semantic_snapshot', {
+      options: {
+        frameToken: deepFrame.frameToken,
+        mode: 'content',
+        query: 'Trusted Deep Key',
+        budget: 1600,
+      },
+    });
+    assert.ok(deepKeyEffect.items.some((item) => item.name === 'Trusted Deep Key'));
+    const deepPointer = await run('semantic_snapshot', {
+      options: {
+        frameToken: deepFrame.frameToken,
+        mode: 'interactive',
+        query: 'Deep Pointer',
+        budget: 1600,
+      },
+    });
+    assert.equal(
+      (
+        await run('ref_click', {
+          binding: deepPointer.binding,
+          snapshot_id: deepPointer.snapshotId,
+          ref: deepPointer.items[0].ref,
+          frame_token: deepFrame.frameToken,
+          clickMode: 'pointer',
+        })
+      ).delivery,
+      'confirmed',
+    );
+    const deepPointerEffect = await run('semantic_snapshot', {
+      options: {
+        frameToken: deepFrame.frameToken,
+        mode: 'content',
+        query: 'Trusted Deep Pointer',
+        budget: 1600,
+      },
+    });
+    assert.ok(deepPointerEffect.items.some((item) => item.name === 'Trusted Deep Pointer'));
+    assert.equal((await run('ref_click', childWrite)).clicked, true);
+    const effect = await run('semantic_snapshot', {
+      options: {
+        frameToken: crossFrame.frameToken,
+        mode: 'content',
+        query: 'Clicked',
+        budget: 1600,
+      },
+    });
+    assert.ok(
+      effect.items.some((item) => item.name === 'Clicked'),
+      'child page effect must be read back',
+    );
+    const crossDraft = await run('semantic_snapshot', {
+      options: {
+        frameToken: crossFrame.frameToken,
+        mode: 'interactive',
+        query: 'Cross Draft',
+        budget: 1600,
+      },
+    });
+    assert.equal(
+      (
+        await run('ref_fill', {
+          binding: crossDraft.binding,
+          snapshot_id: crossDraft.snapshotId,
+          ref: crossDraft.items[0].ref,
+          frame_token: crossFrame.frameToken,
+          text: 'frame-text',
+        })
+      ).filled,
+      true,
+    );
+    const draftEffect = await run('semantic_snapshot', {
+      options: {
+        frameToken: crossFrame.frameToken,
+        mode: 'content',
+        query: 'frame-text',
+        budget: 1600,
+      },
+    });
+    assert.ok(draftEffect.items.some((item) => item.name === 'frame-text'));
+    const crossCheck = await run('semantic_snapshot', {
+      options: {
+        frameToken: crossFrame.frameToken,
+        mode: 'interactive',
+        query: 'Cross Check',
+        budget: 1600,
+      },
+    });
+    const checkedChild = await run('ref_set_checked', {
+      binding: crossCheck.binding,
+      snapshot_id: crossCheck.snapshotId,
+      ref: crossCheck.items[0].ref,
+      frame_token: crossFrame.frameToken,
+      checked: true,
+    });
+    assert.equal(checkedChild.verified, true);
+    const checkEffect = await run('semantic_snapshot', {
+      options: {
+        frameToken: crossFrame.frameToken,
+        mode: 'interactive',
+        query: 'Cross Check',
+        budget: 1600,
+      },
+    });
+    assert.equal(checkEffect.items[0].checked, true);
+    const crossChoice = await run('semantic_snapshot', {
+      options: {
+        frameToken: crossFrame.frameToken,
+        mode: 'interactive',
+        query: 'Cross Choice',
+        budget: 1600,
+      },
+    });
+    const chosenChild = await run('ref_select_option', {
+      binding: crossChoice.binding,
+      snapshot_id: crossChoice.snapshotId,
+      ref: crossChoice.items[0].ref,
+      frame_token: crossFrame.frameToken,
+      by: 'value',
+      values: ['b'],
+    });
+    assert.equal(chosenChild.verified, true);
+    const choiceEffect = await run('semantic_snapshot', {
+      options: { frameToken: crossFrame.frameToken, mode: 'content', query: 'b', budget: 1600 },
+    });
+    assert.ok(choiceEffect.items.some((item) => item.name === 'b'));
+    const pointerChild = await run('semantic_snapshot', {
+      options: {
+        frameToken: crossFrame.frameToken,
+        mode: 'interactive',
+        query: 'Cross Pointer',
+        budget: 1600,
+      },
+    });
+    const pressedChild = await run('ref_click', {
+      binding: pointerChild.binding,
+      snapshot_id: pointerChild.snapshotId,
+      ref: pointerChild.items[0].ref,
+      frame_token: crossFrame.frameToken,
+      clickMode: 'pointer',
+    });
+    assert.equal(pressedChild.delivery, 'confirmed');
+    const pointerEffect = await run('semantic_snapshot', {
+      options: {
+        frameToken: crossFrame.frameToken,
+        mode: 'content',
+        query: 'Trusted Pointer',
+        budget: 1600,
+      },
+    });
+    assert.ok(pointerEffect.items.some((item) => item.name === 'Trusted Pointer'));
     // 中文注释：在首层 OOPIF 的真实 CDP session 中验收受限按键与网页回读。
-    const keyTarget=await run('semantic_snapshot',{options:{frameToken:crossFrame.frameToken,mode:'interactive',query:'Cross Key',budget:1600}});
-    const keyResult=await run('ref_press',{binding:keyTarget.binding,snapshot_id:keyTarget.snapshotId,ref:keyTarget.items[0].ref,
-      frame_token:crossFrame.frameToken,key:'ArrowDown'});
-    assert.equal(keyResult.delivery,'cdp-key-events',JSON.stringify(keyResult));
-    const keyEffect=await run('semantic_snapshot',{options:{frameToken:crossFrame.frameToken,mode:'content',query:'Trusted Key',budget:1600}});
-    assert.ok(keyEffect.items.some(item=>item.name==='Trusted Key'));
+    const keyTarget = await run('semantic_snapshot', {
+      options: {
+        frameToken: crossFrame.frameToken,
+        mode: 'interactive',
+        query: 'Cross Key',
+        budget: 1600,
+      },
+    });
+    const keyResult = await run('ref_press', {
+      binding: keyTarget.binding,
+      snapshot_id: keyTarget.snapshotId,
+      ref: keyTarget.items[0].ref,
+      frame_token: crossFrame.frameToken,
+      key: 'ArrowDown',
+    });
+    assert.equal(keyResult.delivery, 'cdp-key-events', JSON.stringify(keyResult));
+    const keyEffect = await run('semantic_snapshot', {
+      options: {
+        frameToken: crossFrame.frameToken,
+        mode: 'content',
+        query: 'Trusted Key',
+        budget: 1600,
+      },
+    });
+    assert.ok(keyEffect.items.some((item) => item.name === 'Trusted Key'));
 
     const shot = await run('screenshot');
     assert.ok(typeof shot.data === 'string' && shot.data.length > 100, 'ordinary screenshot bytes');
-    const loadDeep=await run('semantic_snapshot',{options:{frameToken:crossFrame.frameToken,mode:'interactive',query:'Load Deep Page',budget:1600}});
-    const deepLoadClick=await run('ref_click',{binding:loadDeep.binding,snapshot_id:loadDeep.snapshotId,ref:loadDeep.items[0].ref,
-      frame_token:crossFrame.frameToken});
-    assert.equal(deepLoadClick.clicked,true,JSON.stringify(deepLoadClick));
-    await waitFor(async()=>{
-      const next=await run('frame_catalog');
-      const child=next.frames.find(item=>item.origin===deepOrigin);
-      return child?.access==='ready'&&child.documentId!==deepFrame.documentId;
+    const loadDeep = await run('semantic_snapshot', {
+      options: {
+        frameToken: crossFrame.frameToken,
+        mode: 'interactive',
+        query: 'Load Deep Page',
+        budget: 1600,
+      },
+    });
+    const deepLoadClick = await run('ref_click', {
+      binding: loadDeep.binding,
+      snapshot_id: loadDeep.snapshotId,
+      ref: loadDeep.items[0].ref,
+      frame_token: crossFrame.frameToken,
+    });
+    assert.equal(deepLoadClick.clicked, true, JSON.stringify(deepLoadClick));
+    await waitFor(async () => {
+      const next = await run('frame_catalog');
+      const child = next.frames.find((item) => item.origin === deepOrigin);
+      return child?.access === 'ready' && child.documentId !== deepFrame.documentId;
     });
     // 中文注释：1.11.0 不因跨源 iframe 拒绝截图；本夹具密码像素为圆点，不要求跨源几何遮罩。
-    const nestedShot=await run('screenshot');
-    assert.equal(nestedShot.error,undefined,JSON.stringify(nestedShot));
-    assert.ok(typeof nestedShot.data==='string'&&nestedShot.data.length>100,'nested cross-origin screenshot bytes');
-    await readPage(`document.querySelector('#cross-frame').src=${JSON.stringify(crossOrigin+'/cross-secret')}`);
-    await waitFor(async()=>{
-      const next=await run('frame_catalog');
-      const child=next.frames.find(item=>item.origin===crossOrigin);
-      return child?.access==='ready'&&child.documentId!==crossFrame.documentId;
+    const nestedShot = await run('screenshot');
+    assert.equal(nestedShot.error, undefined, JSON.stringify(nestedShot));
+    assert.ok(
+      typeof nestedShot.data === 'string' && nestedShot.data.length > 100,
+      'nested cross-origin screenshot bytes',
+    );
+    await readPage(
+      `document.querySelector('#cross-frame').src=${JSON.stringify(crossOrigin + '/cross-secret')}`,
+    );
+    await waitFor(async () => {
+      const next = await run('frame_catalog');
+      const child = next.frames.find((item) => item.origin === crossOrigin);
+      return child?.access === 'ready' && child.documentId !== crossFrame.documentId;
     });
-    assert.ok((await run('semantic_snapshot',{options:{frameToken:crossFrame.frameToken,mode:'interactive',budget:1600}})).error,
-      'old cross-origin frame token cannot survive navigation');
-    assert.ok((await run('semantic_snapshot',{options:{frameToken:deepFrame.frameToken,mode:'interactive',budget:1600}})).error,
-      'old nested frame token cannot survive parent navigation');
+    assert.ok(
+      (
+        await run('semantic_snapshot', {
+          options: { frameToken: crossFrame.frameToken, mode: 'interactive', budget: 1600 },
+        })
+      ).error,
+      'old cross-origin frame token cannot survive navigation',
+    );
+    assert.ok(
+      (
+        await run('semantic_snapshot', {
+          options: { frameToken: deepFrame.frameToken, mode: 'interactive', budget: 1600 },
+        })
+      ).error,
+      'old nested frame token cannot survive parent navigation',
+    );
     // 中文注释：1.11.0 跨源框架覆盖不足不拒绝截图；父导航使旧 frame token 失效的断言仍保留。
-    const crossShot=await run('screenshot');
-    assert.equal(crossShot.error,undefined,JSON.stringify(crossShot));
-    assert.ok(typeof crossShot.data==='string'&&crossShot.data.length>100,'cross-origin screenshot bytes');
+    const crossShot = await run('screenshot');
+    assert.equal(crossShot.error, undefined, JSON.stringify(crossShot));
+    assert.ok(
+      typeof crossShot.data === 'string' && crossShot.data.length > 100,
+      'cross-origin screenshot bytes',
+    );
     // 中文注释：只检查仍未公开的动作；已接入的交互动作通过上面的正向用例验证。
     const deferredActions = [
-      'files.download.start', 'files.download.status',
-      'files.download.wait', 'files.download.cancel', 'files.download.claim',
-      'artifact.register', 'advanced.evaluate', 'advanced.cdp', 'cookies.export',
+      'files.download.start',
+      'files.download.status',
+      'files.download.wait',
+      'files.download.cancel',
+      'files.download.claim',
+      'artifact.register',
+      'advanced.evaluate',
+      'advanced.cdp',
+      'cookies.export',
     ];
     for (const action of deferredActions) {
       const denied = await run(action);
       assert.ok(denied.error, action);
       // 中文注释：1.11.x 公开 action 枚举在工具参数校验处拒绝，当前协议返回 invalid_fields。
       assert.equal(denied.code, 'invalid_fields', action);
-      assert.deepEqual(denied.fields,['action'],action);
-      assert.equal(denied.outcome_unknown,false,action);
+      assert.deepEqual(denied.fields, ['action'], action);
+      assert.equal(denied.outcome_unknown, false, action);
       assert.equal(denied.retryable, false, action);
     }
     assert.equal(await readPage('document.body.dataset.clicks'), '1');
     assert.equal(await readPage('document.body.dataset.html5Drop'), undefined);
     assert.equal(await readPage('document.body.dataset.pointerDrop'), undefined);
 
-    await readPage('document.querySelector("#password").value="native-v2-password-probe-2026";document.querySelector("#password").scrollIntoView({block:"center"})');
+    await readPage(
+      'document.querySelector("#password").value="native-v2-password-probe-2026";document.querySelector("#password").scrollIntoView({block:"center"})',
+    );
     // 中文注释：1.11.0 可见敏感字段遮罩后返回截图；先滚入视口，避免空 masked 被页外位置掩盖。
-    const maskedShot=await run('screenshot');
-    assert.equal(maskedShot.error,undefined,JSON.stringify(maskedShot));
-    assert.ok(typeof maskedShot.data==='string'&&maskedShot.data.length>100,'masked screenshot bytes');
-    assert.ok(maskedShot.masked?.some(row=>row.kind==='sensitive_field'&&row.role==='input'&&row.name==='敏感字段'),
-      'visible password field must appear in masked');
+    const maskedShot = await run('screenshot');
+    assert.equal(maskedShot.error, undefined, JSON.stringify(maskedShot));
+    assert.ok(
+      typeof maskedShot.data === 'string' && maskedShot.data.length > 100,
+      'masked screenshot bytes',
+    );
+    assert.ok(
+      maskedShot.masked?.some(
+        (row) => row.kind === 'sensitive_field' && row.role === 'input' && row.name === '敏感字段',
+      ),
+      'visible password field must appear in masked',
+    );
     // 中文注释：1.11.x 密码值始终不回显；JS 结果也只能返回占位符。
-    const passwordRead=await run('js.evaluate',{expression:'document.querySelector("#password").value'});
-    assert.equal(passwordRead.value,'[password]',JSON.stringify(passwordRead));
+    const passwordRead = await run('js.evaluate', {
+      expression: 'document.querySelector("#password").value',
+    });
+    assert.equal(passwordRead.value, '[password]', JSON.stringify(passwordRead));
     await readPage('document.querySelector("#password").value=""');
     // 中文注释：1.11.0 旧引用可恢复定位；新请求只点击一次，同一请求 ID 的回读不得重放已送达动作。
-    const clicksBefore=Number(await readPage('document.body.dataset.clicks'));
-    const recoveredClick=await runWithReadback('ref_click',buttonToken);
-    assert.equal(recoveredClick.clicked,true,JSON.stringify(recoveredClick));
-    assert.equal(Number(await readPage('document.body.dataset.clicks')),clicksBefore+1,'old reference delivers exactly one new click');
-    const initialClick={task_id:task.id,request_id:clickRequestId,action:'ref_click',tab_id:tabId,...buttonToken};
-    assert.deepEqual(await rpc('session-a','run',initialClick),clickResult,'original request still returns its recorded receipt');
-    assert.equal(Number(await readPage('document.body.dataset.clicks')),clicksBefore+1,'original delivered request must not replay');
+    const clicksBefore = Number(await readPage('document.body.dataset.clicks'));
+    const recoveredClick = await runWithReadback('ref_click', buttonToken);
+    assert.equal(recoveredClick.clicked, true, JSON.stringify(recoveredClick));
+    assert.equal(
+      Number(await readPage('document.body.dataset.clicks')),
+      clicksBefore + 1,
+      'old reference delivers exactly one new click',
+    );
+    const initialClick = {
+      task_id: task.id,
+      request_id: clickRequestId,
+      action: 'ref_click',
+      tab_id: tabId,
+      ...buttonToken,
+    };
+    assert.deepEqual(
+      await rpc('session-a', 'run', initialClick),
+      clickResult,
+      'original request still returns its recorded receipt',
+    );
+    assert.equal(
+      Number(await readPage('document.body.dataset.clicks')),
+      clicksBefore + 1,
+      'original delivered request must not replay',
+    );
 
     // 中文注释：官方工具对应的原生只读动作：图片、控制台（首次读取后收集）与 JS 对话框处理。
-    const images=await run('images');
-    assert.ok(images.images.some(image=>image.alt==='Fixture Pixel'&&image.width===1),JSON.stringify(images));
+    const images = await run('images');
+    assert.ok(
+      images.images.some((image) => image.alt === 'Fixture Pixel' && image.width === 1),
+      JSON.stringify(images),
+    );
     // 中文注释：开启 Log 域会回放浏览器已有的日志条目；首次读取时清空，之后只看新输出。
-    assert.ok(Array.isArray((await run('console',{clear:true})).messages));
+    assert.ok(Array.isArray((await run('console', { clear: true })).messages));
     await readPage('console.warn("console-probe-1")');
-    const consoleRead=await waitFor(async()=>{const reply=await run('console',{clear:true});return reply.messages?.some(row=>row.text==='console-probe-1')?reply:null;});
-    assert.equal(consoleRead.messages.find(row=>row.text==='console-probe-1').type,'warning');
-    await readPage('setTimeout(()=>{document.body.dataset.confirmed=String(confirm("Proceed?"))},0)');
-    const blocked=await waitFor(async()=>{const reply=await run('semantic_snapshot',{options:{mode:'interactive',budget:1600}});return reply.bridgeCode==='dialog_open'?reply:null;});
-    assert.equal(blocked.outcome_unknown,false);
-    const handledDialog=await run('dialog',{accept:true});
-    assert.equal(handledDialog.dialog.message,'Proceed?',JSON.stringify(handledDialog));
-    assert.equal(await readPage('document.body.dataset.confirmed'),'true');
-    assert.equal((await run('dialog',{accept:false})).bridgeCode,'no_dialog');
+    const consoleRead = await waitFor(async () => {
+      const reply = await run('console', { clear: true });
+      return reply.messages?.some((row) => row.text === 'console-probe-1') ? reply : null;
+    });
+    assert.equal(
+      consoleRead.messages.find((row) => row.text === 'console-probe-1').type,
+      'warning',
+    );
+    await readPage(
+      'setTimeout(()=>{document.body.dataset.confirmed=String(confirm("Proceed?"))},0)',
+    );
+    const blocked = await waitFor(async () => {
+      const reply = await run('semantic_snapshot', {
+        options: { mode: 'interactive', budget: 1600 },
+      });
+      return reply.bridgeCode === 'dialog_open' ? reply : null;
+    });
+    assert.equal(blocked.outcome_unknown, false);
+    const handledDialog = await run('dialog', { accept: true });
+    assert.equal(handledDialog.dialog.message, 'Proceed?', JSON.stringify(handledDialog));
+    assert.equal(await readPage('document.body.dataset.confirmed'), 'true');
+    assert.equal((await run('dialog', { accept: false })).bridgeCode, 'no_dialog');
     // 中文注释：全部访问直接执行 JS、原始 CDP 和主上下文脚本。
-    assert.equal((await run('js.evaluate',{expression:'1'})).value,1);
-    assert.equal((await rpc('session-a','get',{task_id:task.id})).activeMode,'full');
-    const isolated=await run('js.evaluate',{expression:'document.querySelector("#confirm").textContent'});
-    assert.equal(isolated.value,'Confirm',JSON.stringify(isolated));assert.equal(isolated.world,'isolated');
+    assert.equal((await run('js.evaluate', { expression: '1' })).value, 1);
+    assert.equal((await rpc('session-a', 'get', { task_id: task.id })).activeMode, 'full');
+    const isolated = await run('js.evaluate', {
+      expression: 'document.querySelector("#confirm").textContent',
+    });
+    assert.equal(isolated.value, 'Confirm', JSON.stringify(isolated));
+    assert.equal(isolated.world, 'isolated');
     await readPage('window.__pageSecret="main-world-value"');
-    assert.equal((await run('js.evaluate',{expression:'typeof window.__pageSecret'})).value,'undefined','isolated world does not see page globals');
-    assert.equal((await run('js.evaluate',{expression:'window.__pageSecret',world:'main'})).value,'main-world-value');
-    const nodeResult=await run('js.evaluate',{expression:'document.body'});
-    assert.equal(nodeResult.serializable,false);assert.equal(nodeResult.subtype,'node');
-    const cyclic=await run('js.evaluate',{expression:'(()=>{const a={};a.self=a;return a})()'});
-    assert.equal(cyclic.serializable,false,JSON.stringify(cyclic));
-    assert.equal((await run('js.evaluate',{expression:'(()=>{throw new Error("boom")})()'})).ok,false);
-    assert.deepEqual((await run('js.evaluate',{expression:'new Promise(r=>setTimeout(()=>r({n:3}),50))'})).value,{n:3});
-    const hung=await run('js.evaluate',{expression:'new Promise(()=>{})',timeout_ms:500});
-    assert.equal(hung.bridgeCode,'js_timeout',JSON.stringify(hung));assert.equal(hung.outcome_unknown,true);
+    assert.equal(
+      (await run('js.evaluate', { expression: 'typeof window.__pageSecret' })).value,
+      'undefined',
+      'isolated world does not see page globals',
+    );
+    assert.equal(
+      (await run('js.evaluate', { expression: 'window.__pageSecret', world: 'main' })).value,
+      'main-world-value',
+    );
+    const nodeResult = await run('js.evaluate', { expression: 'document.body' });
+    assert.equal(nodeResult.serializable, false);
+    assert.equal(nodeResult.subtype, 'node');
+    const cyclic = await run('js.evaluate', {
+      expression: '(()=>{const a={};a.self=a;return a})()',
+    });
+    assert.equal(cyclic.serializable, false, JSON.stringify(cyclic));
+    assert.equal(
+      (await run('js.evaluate', { expression: '(()=>{throw new Error("boom")})()' })).ok,
+      false,
+    );
+    assert.deepEqual(
+      (await run('js.evaluate', { expression: 'new Promise(r=>setTimeout(()=>r({n:3}),50))' }))
+        .value,
+      { n: 3 },
+    );
+    const hung = await run('js.evaluate', { expression: 'new Promise(()=>{})', timeout_ms: 500 });
+    assert.equal(hung.bridgeCode, 'js_timeout', JSON.stringify(hung));
+    assert.equal(hung.outcome_unknown, true);
     // 中文注释：旧 CDP 黑名单已移除；在合成页面检查凭据读取命令确实派发。
-    const cookieCommand=await run('cdp.send',{method:'Network.getAllCookies'});
-    assert.equal(cookieCommand.bridgeCode,undefined,JSON.stringify(cookieCommand));
+    const cookieCommand = await run('cdp.send', { method: 'Network.getAllCookies' });
+    assert.equal(cookieCommand.bridgeCode, undefined, JSON.stringify(cookieCommand));
     // 中文注释：1.11.0 同一工作页允许跨站导航；使用不在 allowed_origins 内的本地合成来源并回到夹具页。
     assert.ok(!task.allowedOrigins.includes(offsiteOrigin));
-    const offsiteNavigation=await run('cdp.send',{method:'Page.navigate',cdp_params:{url:`${offsiteOrigin}/fixture`}});
-    assert.equal(offsiteNavigation.error,undefined,JSON.stringify(offsiteNavigation));
-    assert.equal(offsiteNavigation.errorText,undefined,JSON.stringify(offsiteNavigation));
-    await waitFor(()=>readPage(`location.origin===${JSON.stringify(offsiteOrigin)}&&document.readyState==='complete'`));
-    const returned=await run('navigate',{url:`${origin}/fixture`});
-    assert.equal(returned.url,`${origin}/fixture`,JSON.stringify(returned));
-    await waitFor(()=>readPage('location.pathname==="/fixture"&&document.querySelector("#same-frame")?.contentDocument?.readyState==="complete"'));
-    assert.equal((await run('cdp.send',{method:'DOM.getDocument',cdp_params:{depth:1}})).root.nodeName,'#document');
-    const sharedDocument=await run('cdp.send',{method:'DOM.getDocument',cdp_params:{depth:1},timeout_ms:5000});
-    assert.equal(sharedDocument.root.nodeName,'#document');
-    // 中文注释：内部密码扫描不能重置外部客户端持有的节点编号，否则后续 Browser Use 上传会失效。
-    const sharedFile=await run('cdp.send',{method:'DOM.querySelector',cdp_params:{nodeId:sharedDocument.root.nodeId,selector:'#upload-input'}});
-    assert.ok(sharedFile.nodeId>0,JSON.stringify(sharedFile));
-    const sharedNode=await run('cdp.send',{method:'DOM.describeNode',cdp_params:{nodeId:sharedFile.nodeId}});
-    assert.equal(sharedNode.node.nodeName,'INPUT');
-    // 中文注释：原始 Target 列表按浏览器结果返回；显式 target_id 与 frame_token 仍逐次核对任务归属。
-    const rawTargets=await run('cdp.send',{method:'Target.getTargets'});
-    assert.notEqual(rawTargets.bridgeCode,'cdp_method_denied',JSON.stringify(rawTargets));
-    const ownPage=await ui.evaluate(`chrome.debugger.getTargets().then(rows=>rows.find(item=>item.type==='page'&&item.tabId===${tabId}))`);
-    assert.ok(ownPage?.id||ownPage?.targetId,JSON.stringify(ownPage));
-    assert.equal((await run('cdp.send',{method:'DOM.getDocument',target_id:ownPage.id||ownPage.targetId,cdp_params:{depth:1}})).root.nodeName,'#document');
-    const foreignTarget=await run('cdp.send',{method:'DOM.getDocument',target_id:'foreign-target'});
-    assert.equal(foreignTarget.bridgeCode,'target_not_owned',JSON.stringify(foreignTarget));
-    // 中文注释：1.11.0 跨站导航返回后重扫框架；加载完成仍无 frame 才是真问题，保留 token 归属断言。
-    const cdpFrames=await waitFor(async()=>{
-      const next=await run('frame_catalog');
-      return next.frames?.some(item=>item.origin===crossOrigin&&item.access==='ready')?next:null;
+    const offsiteNavigation = await run('cdp.send', {
+      method: 'Page.navigate',
+      cdp_params: { url: `${offsiteOrigin}/fixture` },
     });
-    const currentCross=cdpFrames.frames.find(item=>item.origin===crossOrigin&&item.access==='ready');
-    assert.ok(currentCross?.frameToken,JSON.stringify(cdpFrames));
-    assert.equal((await run('cdp.send',{method:'DOM.getDocument',frame_token:currentCross.frameToken,
-      cdp_params:{depth:1}})).root.nodeName,'#document');
-    await run('cdp.send',{method:'Runtime.enable'});
+    assert.equal(offsiteNavigation.error, undefined, JSON.stringify(offsiteNavigation));
+    assert.equal(offsiteNavigation.errorText, undefined, JSON.stringify(offsiteNavigation));
+    await waitFor(() =>
+      readPage(
+        `location.origin===${JSON.stringify(offsiteOrigin)}&&document.readyState==='complete'`,
+      ),
+    );
+    const returned = await run('navigate', { url: `${origin}/fixture` });
+    assert.equal(returned.url, `${origin}/fixture`, JSON.stringify(returned));
+    await waitFor(() =>
+      readPage(
+        'location.pathname==="/fixture"&&document.querySelector("#same-frame")?.contentDocument?.readyState==="complete"',
+      ),
+    );
+    assert.equal(
+      (await run('cdp.send', { method: 'DOM.getDocument', cdp_params: { depth: 1 } })).root
+        .nodeName,
+      '#document',
+    );
+    const sharedDocument = await run('cdp.send', {
+      method: 'DOM.getDocument',
+      cdp_params: { depth: 1 },
+      timeout_ms: 5000,
+    });
+    assert.equal(sharedDocument.root.nodeName, '#document');
+    // 中文注释：内部密码扫描不能重置外部客户端持有的节点编号，否则后续 Browser Use 上传会失效。
+    const sharedFile = await run('cdp.send', {
+      method: 'DOM.querySelector',
+      cdp_params: { nodeId: sharedDocument.root.nodeId, selector: '#upload-input' },
+    });
+    assert.ok(sharedFile.nodeId > 0, JSON.stringify(sharedFile));
+    const sharedNode = await run('cdp.send', {
+      method: 'DOM.describeNode',
+      cdp_params: { nodeId: sharedFile.nodeId },
+    });
+    assert.equal(sharedNode.node.nodeName, 'INPUT');
+    // 中文注释：原始 Target 列表按浏览器结果返回；显式 target_id 与 frame_token 仍逐次核对任务归属。
+    const rawTargets = await run('cdp.send', { method: 'Target.getTargets' });
+    assert.notEqual(rawTargets.bridgeCode, 'cdp_method_denied', JSON.stringify(rawTargets));
+    const ownPage = await ui.evaluate(
+      `chrome.debugger.getTargets().then(rows=>rows.find(item=>item.type==='page'&&item.tabId===${tabId}))`,
+    );
+    assert.ok(ownPage?.id || ownPage?.targetId, JSON.stringify(ownPage));
+    assert.equal(
+      (
+        await run('cdp.send', {
+          method: 'DOM.getDocument',
+          target_id: ownPage.id || ownPage.targetId,
+          cdp_params: { depth: 1 },
+        })
+      ).root.nodeName,
+      '#document',
+    );
+    const foreignTarget = await run('cdp.send', {
+      method: 'DOM.getDocument',
+      target_id: 'foreign-target',
+    });
+    assert.equal(foreignTarget.bridgeCode, 'target_not_owned', JSON.stringify(foreignTarget));
+    // 中文注释：1.11.0 跨站导航返回后重扫框架；加载完成仍无 frame 才是真问题，保留 token 归属断言。
+    const cdpFrames = await waitFor(async () => {
+      const next = await run('frame_catalog');
+      return next.frames?.some((item) => item.origin === crossOrigin && item.access === 'ready')
+        ? next
+        : null;
+    });
+    const currentCross = cdpFrames.frames.find(
+      (item) => item.origin === crossOrigin && item.access === 'ready',
+    );
+    assert.ok(currentCross?.frameToken, JSON.stringify(cdpFrames));
+    assert.equal(
+      (
+        await run('cdp.send', {
+          method: 'DOM.getDocument',
+          frame_token: currentCross.frameToken,
+          cdp_params: { depth: 1 },
+        })
+      ).root.nodeName,
+      '#document',
+    );
+    await run('cdp.send', { method: 'Runtime.enable' });
     // 中文注释：前面的网络/导航矩阵已有大量事件，先显式消费旧缓冲再观察本次日志。
-    await run('cdp.events',{max:500});
+    await run('cdp.events', { max: 500 });
     // 中文注释：1.11.0 CDP 事件原样返回，普通 Bearer 文本不再过滤；只保留密码输入值不回显的保护。
-    await run('js.evaluate',{expression:'document.querySelector("#password").value="native-v2-event-password-2026";console.log("fast-console-probe","Bearer synthetic-event-token",document.querySelector("#password").value)',world:'main'});
-    const drained=await waitFor(async()=>{const reply=await run('cdp.events',{max:200});return reply.events?.some(e=>e.method==='Runtime.consoleAPICalled'&&JSON.stringify(e.params).includes('fast-console-probe'))?reply:null;});
-    const eventText=JSON.stringify(drained.events);
-    assert.ok(eventText.includes('Bearer synthetic-event-token'),'ordinary event text must remain readable');
-    assert.ok(eventText.includes('[password]'),'password event value must be replaced');
-    assert.ok(!eventText.includes('native-v2-event-password-2026'),'password event value must not escape');
+    await run('js.evaluate', {
+      expression:
+        'document.querySelector("#password").value="native-v2-event-password-2026";console.log("fast-console-probe","Bearer synthetic-event-token",document.querySelector("#password").value)',
+      world: 'main',
+    });
+    const drained = await waitFor(async () => {
+      const reply = await run('cdp.events', { max: 200 });
+      return reply.events?.some(
+        (e) =>
+          e.method === 'Runtime.consoleAPICalled' &&
+          JSON.stringify(e.params).includes('fast-console-probe'),
+      )
+        ? reply
+        : null;
+    });
+    const eventText = JSON.stringify(drained.events);
+    assert.ok(
+      eventText.includes('Bearer synthetic-event-token'),
+      'ordinary event text must remain readable',
+    );
+    assert.ok(eventText.includes('[password]'), 'password event value must be replaced');
+    assert.ok(
+      !eventText.includes('native-v2-event-password-2026'),
+      'password event value must not escape',
+    );
     await readPage('document.querySelector("#password").value=""');
     // 中文注释：单独的临时任务先核实官方 about:blank 创建，避免与后续 CLI 批处理混淆结果。
-    const blankTask=await rpc('blank-session','create',{title:`Blank probe ${browser}`,instance_id:instance.instanceId,allowed_origins:[origin]});
-    await waitFor(async()=>{const current=await rpc('blank-session','get',{task_id:blankTask.id});return current.state==='ready'&&current.activeMode==='full';});
-    try{
-      const blankProbe=await helperCall('official_blank_probe',work,'blank-session',blankTask.id);
-      assert.ok(Number.isInteger(blankProbe.tabId),JSON.stringify(blankProbe));
-    }finally{await rpc('blank-session','close',{task_id:blankTask.id});}
+    const blankTask = await rpc('blank-session', 'create', {
+      title: `Blank probe ${browser}`,
+      instance_id: instance.instanceId,
+      allowed_origins: [origin],
+    });
+    await waitFor(async () => {
+      const current = await rpc('blank-session', 'get', { task_id: blankTask.id });
+      return current.state === 'ready' && current.activeMode === 'full';
+    });
+    try {
+      const blankProbe = await helperCall(
+        'official_blank_probe',
+        work,
+        'blank-session',
+        blankTask.id,
+      );
+      assert.ok(Number.isInteger(blankProbe.tabId), JSON.stringify(blankProbe));
+    } finally {
+      await rpc('blank-session', 'close', { task_id: blankTask.id });
+    }
     // 中文注释：真实 Browser Use CLI 经 browser_exec 适配器连接任务网关，逐项验证 harness helper。
-    const uploadBefore=receivedUploads.length;
-    const harnessScript=`import json, os, pathlib
+    const uploadBefore = receivedUploads.length;
+    const harnessScript = `import json, os, pathlib
 out = {}
 out['tabs'] = [t['url'] for t in list_tabs()]
 out['info'] = page_info()
@@ -674,107 +1494,242 @@ assert wait_for_load(), 'return fixture did not finish loading'
 assert js("location.origin") == ${JSON.stringify(origin)}
 frame = iframe_target('frame.test')
 out['framePath'] = js("location.pathname", target_id=frame) if frame else None
-tid = new_tab(${JSON.stringify(origin+'/fixture')})
+tid = new_tab(${JSON.stringify(origin + '/fixture')})
 wait_for_load()
 out['newTabUrl'] = page_info()['url']
 close_tab(tid)
 out['afterClose'] = len(list_tabs())
 print('RESULT=' + json.dumps(out))`;
     await ui.evaluate(`chrome.tabs.update(${tabId},{active:true}).then(()=>true)`);
-    const execResult=await helperCall('browser_exec',work,'session-a',task.id,harnessScript,`acceptance-${browser}`);
-    try{
-      if(execResult.success!==true){
-        const current=await rpc('session-a','get',{task_id:task.id}).catch(()=>({state:'readback_unavailable'}));
-        assert.fail(JSON.stringify({execResult,task:{state:current.state,generation:current.generation,
-          cleanupState:current.cleanupState,cleanupReason:current.cleanupReason,tabIds:current.tabIds,officialBlankTabs:current.officialBlankTabs}}));
+    const execResult = await helperCall(
+      'browser_exec',
+      work,
+      'session-a',
+      task.id,
+      harnessScript,
+      `acceptance-${browser}`,
+    );
+    try {
+      if (execResult.success !== true) {
+        const current = await rpc('session-a', 'get', { task_id: task.id }).catch(() => ({
+          state: 'readback_unavailable',
+        }));
+        assert.fail(
+          JSON.stringify({
+            execResult,
+            task: {
+              state: current.state,
+              generation: current.generation,
+              cleanupState: current.cleanupState,
+              cleanupReason: current.cleanupReason,
+              tabIds: current.tabIds,
+              officialBlankTabs: current.officialBlankTabs,
+            },
+          }),
+        );
       }
-      const harness=JSON.parse(execResult.output.split('RESULT=').at(-1));
-      assert.deepEqual(harness.tabs.map(url=>new URL(url).origin),[origin],'harness only sees the task page');
-      assert.equal(harness.clickDelta,1,JSON.stringify(harness));assert.equal(harness.typed,'typed-by-harness');
-      assert.ok(harness.shotBytes>1000);assert.equal(harness.uploadFiles,1);
+      const harness = JSON.parse(execResult.output.split('RESULT=').at(-1));
+      assert.deepEqual(
+        harness.tabs.map((url) => new URL(url).origin),
+        [origin],
+        'harness only sees the task page',
+      );
+      assert.equal(harness.clickDelta, 1, JSON.stringify(harness));
+      assert.equal(harness.typed, 'typed-by-harness');
+      assert.ok(harness.shotBytes > 1000);
+      assert.equal(harness.uploadFiles, 1);
       // 中文注释：1.11.0 CLI 的跨站来源须实读成功；返回新夹具后框架恢复为 cross-child。
-      assert.deepEqual([harness.cookies,harness.privateFile],['allowed','allowed']);
-      assert.equal(harness.offsiteOrigin,offsiteOrigin,JSON.stringify(harness));
-      assert.equal(harness.framePath,'/cross-child','iframe_target reaches the reloaded cross-origin frame session');
-      assert.equal(new URL(harness.newTabUrl).origin,origin);assert.equal(harness.afterClose,1);
-      await waitFor(async()=>receivedUploads.slice(uploadBefore).some(item=>item.sha256===sha256(Buffer.from('uploaded-by-harness'))));
-    }finally{if(execResult.harness)await helperCall('harness_stop',work,execResult.harness).catch(()=>{});}
+      assert.deepEqual([harness.cookies, harness.privateFile], ['allowed', 'allowed']);
+      assert.equal(harness.offsiteOrigin, offsiteOrigin, JSON.stringify(harness));
+      assert.equal(
+        harness.framePath,
+        '/cross-child',
+        'iframe_target reaches the reloaded cross-origin frame session',
+      );
+      assert.equal(new URL(harness.newTabUrl).origin, origin);
+      assert.equal(harness.afterClose, 1);
+      await waitFor(async () =>
+        receivedUploads
+          .slice(uploadBefore)
+          .some((item) => item.sha256 === sha256(Buffer.from('uploaded-by-harness'))),
+      );
+    } finally {
+      if (execResult.harness)
+        await helperCall('harness_stop', work, execResult.harness).catch(() => {});
+    }
     // 中文注释：另建未触达 JS/CDP 的临时任务页验收合成 Vault 密码。
-    const vaultTask=await rpc('vault-session','create',{title:`Vault fixture ${browser}`,instance_id:instance.instanceId,allowed_origins:[origin]});
-    await waitFor(async()=>{const current=await rpc('vault-session','get',{task_id:vaultTask.id});return current.state==='ready'&&current.activeMode==='full';});
-    const vaultOpened=await rpc('vault-session','run',{task_id:vaultTask.id,request_id:`${browser}-vault-tab`,action:'new_tab',url:origin+'/fixture'});
-    const vaultTabId=vaultOpened.tabId;assert.ok(Number.isInteger(vaultTabId),JSON.stringify(vaultOpened));
+    const vaultTask = await rpc('vault-session', 'create', {
+      title: `Vault fixture ${browser}`,
+      instance_id: instance.instanceId,
+      allowed_origins: [origin],
+    });
+    await waitFor(async () => {
+      const current = await rpc('vault-session', 'get', { task_id: vaultTask.id });
+      return current.state === 'ready' && current.activeMode === 'full';
+    });
+    const vaultOpened = await rpc('vault-session', 'run', {
+      task_id: vaultTask.id,
+      request_id: `${browser}-vault-tab`,
+      action: 'new_tab',
+      url: origin + '/fixture',
+    });
+    const vaultTabId = vaultOpened.tabId;
+    assert.ok(Number.isInteger(vaultTabId), JSON.stringify(vaultOpened));
     await ui.evaluate(`chrome.tabs.update(${vaultTabId},{active:true})`);
-    const vaultItem=await helperCall('vault_seed',work,origin);
+    const vaultItem = await helperCall('vault_seed', work, origin);
     assert.ok(vaultItem.handle.startsWith('vault_'));
-    const vaultResult=await helperCall('vault',work,'vault-session',vaultTask.id,String(vaultTabId),vaultItem.handle);
-    assert.equal(vaultResult.success,true,JSON.stringify(vaultResult));
-    assert.equal(vaultResult.filled_fields,1);
+    const vaultResult = await helperCall(
+      'vault',
+      work,
+      'vault-session',
+      vaultTask.id,
+      String(vaultTabId),
+      vaultItem.handle,
+    );
+    assert.equal(vaultResult.success, true, JSON.stringify(vaultResult));
+    assert.equal(vaultResult.filled_fields, 1);
     assert.ok(!JSON.stringify(vaultResult).includes('synthetic-vault-password-2026'));
-    const vaultPageValue=await ui.evaluate(`chrome.debugger.sendCommand({tabId:${vaultTabId}},'Runtime.evaluate',{expression:'document.querySelector("#password").value',returnByValue:true}).then(r=>r.result.value)`);
-    assert.equal(vaultPageValue,'synthetic-vault-password-2026');
+    const vaultPageValue = await ui.evaluate(
+      `chrome.debugger.sendCommand({tabId:${vaultTabId}},'Runtime.evaluate',{expression:'document.querySelector("#password").value',returnByValue:true}).then(r=>r.result.value)`,
+    );
+    assert.equal(vaultPageValue, 'synthetic-vault-password-2026');
     // 中文注释：1.11.1 凭据页在派发前排斥任意 JS/CDP；拒绝后密码值仍须保持不变。
-    for(const [action,extra] of [['js.evaluate',{expression:'document.querySelector("#password").value="changed-by-script"'}],
-      ['cdp.send',{method:'Runtime.evaluate',cdp_params:{expression:'document.querySelector("#password").value="changed-by-cdp"'}}]]){
-      const denied=await rpc('vault-session','run',{task_id:vaultTask.id,request_id:`${browser}-vault-denied-${action}`,action,tab_id:vaultTabId,...extra});
-      assert.equal(denied.bridgeCode,'credential_mode_conflict',JSON.stringify(denied));
-      assert.equal(denied.outcome_unknown,false,JSON.stringify(denied));
+    for (const [action, extra] of [
+      [
+        'js.evaluate',
+        { expression: 'document.querySelector("#password").value="changed-by-script"' },
+      ],
+      [
+        'cdp.send',
+        {
+          method: 'Runtime.evaluate',
+          cdp_params: { expression: 'document.querySelector("#password").value="changed-by-cdp"' },
+        },
+      ],
+    ]) {
+      const denied = await rpc('vault-session', 'run', {
+        task_id: vaultTask.id,
+        request_id: `${browser}-vault-denied-${action}`,
+        action,
+        tab_id: vaultTabId,
+        ...extra,
+      });
+      assert.equal(denied.bridgeCode, 'credential_mode_conflict', JSON.stringify(denied));
+      assert.equal(denied.outcome_unknown, false, JSON.stringify(denied));
       assert.ok(!JSON.stringify(denied).includes('synthetic-vault-password-2026'));
     }
-    assert.equal(await ui.evaluate(`chrome.debugger.sendCommand({tabId:${vaultTabId}},'Runtime.evaluate',{expression:'document.querySelector("#password").value',returnByValue:true}).then(r=>r.result.value)`),
-      'synthetic-vault-password-2026','denied scripts must not change the credential');
-    const vaultClosed=await rpc('vault-session','close',{task_id:vaultTask.id});
-    assert.equal(vaultClosed.state,'closed');
+    assert.equal(
+      await ui.evaluate(
+        `chrome.debugger.sendCommand({tabId:${vaultTabId}},'Runtime.evaluate',{expression:'document.querySelector("#password").value',returnByValue:true}).then(r=>r.result.value)`,
+      ),
+      'synthetic-vault-password-2026',
+      'denied scripts must not change the credential',
+    );
+    const vaultClosed = await rpc('vault-session', 'close', { task_id: vaultTask.id });
+    assert.equal(vaultClosed.state, 'closed');
     // 中文注释：敏感字段保护在连接授权的全部访问下仍须生效。
-    const password = await run('semantic_snapshot', {options: {mode: 'interactive', query: 'Password', roles: ['textbox'], budget: 1600}});
+    const password = await run('semantic_snapshot', {
+      options: { mode: 'interactive', query: 'Password', roles: ['textbox'], budget: 1600 },
+    });
     // 中文注释：1.11.x 敏感字段只公开字段种类和人工/Vault 要求，不提供直接写入动作。
-    assert.equal(password.items.length,1,JSON.stringify(password));
-    assert.equal(password.items[0].fieldKind,'password');
-    assert.equal(password.items[0].inputRequired,'vault_or_user');
-    assert.deepEqual(password.items[0].actions,[]);
-    const sensitive = await run('ref_fill', {binding: password.binding, snapshot_id: password.snapshotId, ref: password.items[0].ref, text: 'fixture'});
-    assert.equal(sensitive.status, 'user_input_required', 'sensitive ref fill must request human input');
+    assert.equal(password.items.length, 1, JSON.stringify(password));
+    assert.equal(password.items[0].fieldKind, 'password');
+    assert.equal(password.items[0].inputRequired, 'vault_or_user');
+    assert.deepEqual(password.items[0].actions, []);
+    const sensitive = await run('ref_fill', {
+      binding: password.binding,
+      snapshot_id: password.snapshotId,
+      ref: password.items[0].ref,
+      text: 'fixture',
+    });
+    assert.equal(
+      sensitive.status,
+      'user_input_required',
+      'sensitive ref fill must request human input',
+    );
     // 中文注释：语义按键也必须先识别密码字段，不得把 Enter 派发给敏感输入框。
-    const sensitiveKey=await run('ref_press',{binding:password.binding,snapshot_id:password.snapshotId,ref:password.items[0].ref,key:'Enter'});
-    assert.equal(sensitiveKey.status,'user_input_required','sensitive ref press must request human input');
-    assert.equal(await readPage('document.querySelector("#password").value'), '', 'agent did not fill the sensitive field');
-
+    const sensitiveKey = await run('ref_press', {
+      binding: password.binding,
+      snapshot_id: password.snapshotId,
+      ref: password.items[0].ref,
+      key: 'Enter',
+    });
+    assert.equal(
+      sensitiveKey.status,
+      'user_input_required',
+      'sensitive ref press must request human input',
+    );
+    assert.equal(
+      await readPage('document.querySelector("#password").value'),
+      '',
+      'agent did not fill the sensitive field',
+    );
 
     // 中文注释：真实取消撤销任务，旧 JS、子框架写入和已完成请求均不能再派发。
-    const closed = await rpc('session-a', 'cancel', {task_id: task.id});
+    const closed = await rpc('session-a', 'cancel', { task_id: task.id });
     assert.equal(closed.state, 'cancelled');
-    assert.equal(closed.cleanupState,'succeeded',JSON.stringify(closed));
-    assert.equal((await run('js.evaluate',{expression:'1'})).bridgeCode,'task_closed');
-    assert.equal((await run('ref_click',childWrite)).bridgeCode,'task_closed');
-    const oldClick={task_id:task.id,request_id:clickRequestId,action:'ref_click',tab_id:tabId,...buttonToken};
-    assert.equal((await rpc('session-a','run',oldClick)).bridgeCode,'task_closed','ended task cannot return or replay an old action');
-    const remaining=await waitFor(async()=>{
-      const ids=await ui.evaluate('chrome.tabs.query({}).then(t=>t.map(x=>x.id))');
-      return ids.includes(userTabId)&&!ids.includes(tabId)?ids:null;
+    assert.equal(closed.cleanupState, 'succeeded', JSON.stringify(closed));
+    assert.equal((await run('js.evaluate', { expression: '1' })).bridgeCode, 'task_closed');
+    assert.equal((await run('ref_click', childWrite)).bridgeCode, 'task_closed');
+    const oldClick = {
+      task_id: task.id,
+      request_id: clickRequestId,
+      action: 'ref_click',
+      tab_id: tabId,
+      ...buttonToken,
+    };
+    assert.equal(
+      (await rpc('session-a', 'run', oldClick)).bridgeCode,
+      'task_closed',
+      'ended task cannot return or replay an old action',
+    );
+    const remaining = await waitFor(async () => {
+      const ids = await ui.evaluate('chrome.tabs.query({}).then(t=>t.map(x=>x.id))');
+      return ids.includes(userTabId) && !ids.includes(tabId) ? ids : null;
     });
-    assert.ok(remaining.includes(userTabId),'user tab retained');
+    assert.ok(remaining.includes(userTabId), 'user tab retained');
     const installed = await helperCall('inspect', work);
     // 中文注释：包模式必须来自包内已安装插件；源码模式可来自隔离 host-bin 或临时安装的插件副本。
-    if(packageMode)assert.equal(installed.daemonPath,path.join(staged.plugin,'native_bridge/daemon.py'));
-    else assert.ok([path.join(staged.hermesHome,'plugin-data/fast-browser-link-native/host-bin/daemon.py'),
-      path.join(staged.hermesHome,'plugins/fast-browser-link/native_bridge/daemon.py')].includes(installed.daemonPath),installed.daemonPath);
-    if(packageMode)assert.equal(installed.pluginPath, staged.plugin);
-    else assert.ok([staged.plugin,path.join(staged.hermesHome,'plugins/fast-browser-link')].includes(installed.pluginPath),installed.pluginPath);
+    if (packageMode)
+      assert.equal(installed.daemonPath, path.join(staged.plugin, 'native_bridge/daemon.py'));
+    else
+      assert.ok(
+        [
+          path.join(staged.hermesHome, 'plugin-data/fast-browser-link-native/host-bin/daemon.py'),
+          path.join(staged.hermesHome, 'plugins/fast-browser-link/native_bridge/daemon.py'),
+        ].includes(installed.daemonPath),
+        installed.daemonPath,
+      );
+    if (packageMode) assert.equal(installed.pluginPath, staged.plugin);
+    else
+      assert.ok(
+        [staged.plugin, path.join(staged.hermesHome, 'plugins/fast-browser-link')].includes(
+          installed.pluginPath,
+        ),
+        installed.pluginPath,
+      );
 
     report = {
-      timestamp: new Date().toISOString(), browser, browserVersion: version.Browser,
-      extensionId, instanceId: instance.instanceId, tabId,
+      timestamp: new Date().toISOString(),
+      browser,
+      browserVersion: version.Browser,
+      extensionId,
+      instanceId: instance.instanceId,
+      tabId,
       directExtensionPath: directExtension ? extensionRoot : null,
-      packageFirst:packageMode,
-      transport:packageMode?
-       'verified current package -> scratch install -> real Chrome/Edge Native Messaging -> installed daemon/plugin -> real Hermes pre_tool_call dispatcher':
-       'real temporary-profile Chrome/Edge Native Messaging -> staged host/daemon -> UDS -> temporary source-staged plugin -> real Hermes pre_tool_call dispatcher',
+      packageFirst: packageMode,
+      transport: packageMode
+        ? 'verified current package -> scratch install -> real Chrome/Edge Native Messaging -> installed daemon/plugin -> real Hermes pre_tool_call dispatcher'
+        : 'real temporary-profile Chrome/Edge Native Messaging -> staged host/daemon -> UDS -> temporary source-staged plugin -> real Hermes pre_tool_call dispatcher',
       sourceHashes: buildDeps.dependencies,
       staged: installed,
       passed: [
-        'Hermes trusted hook owner lease', 'browser-level consent and task-owned tab',
+        'Hermes trusted hook owner lease',
+        'browser-level consent and task-owned tab',
         'task/tab/generation/lease checks',
-        'semantic snapshot exact ref click/fill', 'old ref recovered and delivered request IDs never replayed', 'sensitive ref fill/press routed to human input',
+        'semantic snapshot exact ref click/fill',
+        'old ref recovered and delivered request IDs never replayed',
+        'sensitive ref fill/press routed to human input',
         'native checkbox/select and asynchronous custom combobox state readback',
         'semantic pointer click trusted and dispatched once',
         'open Shadow and same-origin iframe target paths with click readback',
@@ -794,37 +1749,73 @@ print('RESULT=' + json.dumps(out))`;
         'official about:blank creation and later task-owned close preserve the task connection',
         'registered Hermes browser_vault_list/fill from temporary encrypted Vault through trusted hook and private socket with page readback',
         'credential-filled page rejects JS/CDP before changing the password',
-        'ordinary screenshot bytes', 'unlisted download and cookie run actions denied',
-        'deferred actions have no fixture DOM effects', 'visible password screenshot masked and password JS value omitted',
-        'foreign owner denied', 'user tab retained and task-owned tab closed', 'staged dependency hashes verified',
+        'ordinary screenshot bytes',
+        'unlisted download and cookie run actions denied',
+        'deferred actions have no fixture DOM effects',
+        'visible password screenshot masked and password JS value omitted',
+        'foreign owner denied',
+        'user tab retained and task-owned tab closed',
+        'staged dependency hashes verified',
         'V1.3 page parser and parameterized evaluate/conditional wait/response observation through real script lane',
         'V1.3 popup takeover and return controls confirmed by daemon',
-        ...(packageMode?['package hashes verified before isolated installation; browser uses installed files']:[]),
+        ...(packageMode
+          ? ['package hashes verified before isolated installation; browser uses installed files']
+          : []),
       ],
-      notClaimed: [...(packageMode?[]:['package-first acceptance']), 'cross-origin sensitive screenshot geometry masking', 'nested OOPIF scale and transform edge cases', 'coordinate interaction and drag/drop', 'downloads initiated inside cross-process child frames', 'masked Vault save/unlock prompt and external password managers', 'credential export beyond current same-origin page request checks'],
+      notClaimed: [
+        ...(packageMode ? [] : ['package-first acceptance']),
+        'cross-origin sensitive screenshot geometry masking',
+        'nested OOPIF scale and transform edge cases',
+        'coordinate interaction and drag/drop',
+        'downloads initiated inside cross-process child frames',
+        'masked Vault save/unlock prompt and external password managers',
+        'credential export beyond current same-origin page request checks',
+      ],
     };
   } catch (error) {
     console.error('popup:', await ui?.evaluate('document.body.innerText').catch(() => ''));
-    console.error('native status:', await ui?.evaluate(`chrome.runtime.sendMessage({type:'status'}).then(reply=>({connected:reply?.result?.connected,lastError:reply?.result?.lastError}))`).catch(() => null));
-    console.error(logs.split('\n').filter(line => /native|Traceback|Error|denied/.test(line)).join('\n'));
+    console.error(
+      'native status:',
+      await ui
+        ?.evaluate(
+          `chrome.runtime.sendMessage({type:'status'}).then(reply=>({connected:reply?.result?.connected,lastError:reply?.result?.lastError}))`,
+        )
+        .catch(() => null),
+    );
+    console.error(
+      logs
+        .split('\n')
+        .filter((line) => /native|Traceback|Error|denied/.test(line))
+        .join('\n'),
+    );
     throw error;
   } finally {
-    cleanupError=await helperCall('cleanup',work).then(()=>null,error=>error);
+    cleanupError = await helperCall('cleanup', work).then(
+      () => null,
+      (error) => error,
+    );
     ui?.close();
     cdp?.close();
-    try { if(proc)process.kill(-proc.pid, 'SIGTERM'); } catch {}
-    await new Promise(resolve => setTimeout(resolve, 500));
-    try { if(proc)process.kill(-proc.pid, 'SIGKILL'); } catch {}
+    try {
+      if (proc) process.kill(-proc.pid, 'SIGTERM');
+    } catch {}
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    try {
+      if (proc) process.kill(-proc.pid, 'SIGKILL');
+    } catch {}
     // 中文注释：默认销毁临时配置；显式调试开关只保留文件，仍会停止测试 daemon 与浏览器。
-    if(process.env.KEEP_NATIVE_V2_SCRATCH==='1')console.error('retained fixture:',work);
+    if (process.env.KEEP_NATIVE_V2_SCRATCH === '1') console.error('retained fixture:', work);
     else await fixture.dispose();
   }
-  if(cleanupError)throw cleanupError;
+  if (cleanupError) throw cleanupError;
   // 中文注释：仅在业务链路和隔离清理都完成后写入通过证据。
-  await mkdir(evidenceDir,{recursive:true});
-  const evidence=path.join(evidenceDir,`native-v2-${browser}${packageMode?'-package':''}.json`);
-  await writeFile(evidence,JSON.stringify(report,null,2)+'\n');
-  console.log(JSON.stringify({...report,evidence}));
+  await mkdir(evidenceDir, { recursive: true });
+  const evidence = path.join(
+    evidenceDir,
+    `native-v2-${browser}${packageMode ? '-package' : ''}.json`,
+  );
+  await writeFile(evidence, JSON.stringify(report, null, 2) + '\n');
+  console.log(JSON.stringify({ ...report, evidence }));
   return report;
 }
 

@@ -10,30 +10,38 @@
 // that lives in tests/v1.1-highlight-*.
 export const OVERLAY_CONTEXT_ID = 9001;
 
-export function withSyntheticOverlay(debuggerApi, {calls = null} = {}) {
+export function withSyntheticOverlay(debuggerApi, { calls = null } = {}) {
   const listeners = new Set();
   const sendCommand = debuggerApi.sendCommand;
   return {
     ...debuggerApi,
-    onEvent: {addListener: fn => listeners.add(fn), removeListener: fn => listeners.delete(fn)},
+    onEvent: {
+      addListener: (fn) => listeners.add(fn),
+      removeListener: (fn) => listeners.delete(fn),
+    },
     overlayListeners: listeners,
     sendCommand: async (target, method, params = {}) => {
       if (method === 'Page.createIsolatedWorld' && params.worldName === 'fast-automation-overlay') {
         calls?.push(['overlay.createIsolatedWorld']);
-        return {executionContextId: OVERLAY_CONTEXT_ID};
+        return { executionContextId: OVERLAY_CONTEXT_ID };
       }
-      if (method === 'Runtime.addBinding' && params.executionContextId === OVERLAY_CONTEXT_ID) return {};
+      if (method === 'Runtime.addBinding' && params.executionContextId === OVERLAY_CONTEXT_ID)
+        return {};
       if (method === 'Runtime.callFunctionOn' && params.executionContextId === OVERLAY_CONTEXT_ID) {
         const declaration = String(params.functionDeclaration || '');
-        if (declaration.includes('createAutomationOverlay')) return {result: {value: true}};
+        if (declaration.includes('createAutomationOverlay')) return { result: { value: true } };
         const op = params.arguments?.[0]?.value;
         if (declaration.startsWith('function interactionHighlightCommand')) {
           calls?.push(['overlay.highlight', op]);
-          return {result: {value: {ok: true}}};
+          return { result: { value: { ok: true } } };
         }
-        if (declaration.startsWith('function(op,scope){const state=globalThis.__fastAutomationOverlay')) {
+        if (
+          declaration.startsWith(
+            'function(op,scope){const state=globalThis.__fastAutomationOverlay',
+          )
+        ) {
           calls?.push(['overlay', op]);
-          return {result: {value: true}};
+          return { result: { value: true } };
         }
         // Production reuses the overlay world for semantic calls; those stay
         // with the wrapped fixture.

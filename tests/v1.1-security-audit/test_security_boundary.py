@@ -2,6 +2,7 @@
 
 No browser, installer, real account, credential material, or user profile is used.
 """
+
 from __future__ import annotations
 
 import importlib.util
@@ -84,7 +85,9 @@ class SecurityBoundaryTests(unittest.TestCase):
         self.daemon._persist_tasks = lambda: None
         self.daemon._notify_tasks_changed = lambda _instance: None
         self.daemon.extensions["browser-A"] = {
-            "instanceId": "browser-A", "browser": "chrome", "version": "synthetic"
+            "instanceId": "browser-A",
+            "browser": "chrome",
+            "version": "synthetic",
         }
         self.extension_calls = []
         self.executed = threading.Event()
@@ -120,13 +123,24 @@ class SecurityBoundaryTests(unittest.TestCase):
     def _seed_task(self, task_id, owner, tab_id):
         now = time.time()
         task = {
-            "id": task_id, "owner": owner, "title": "synthetic task",
-            "instanceId": "browser-A", "browser": "chrome", "state": "ready",
-            "generation": 1, "modeGeneration": 1, "activeMode": "smart",
+            "id": task_id,
+            "owner": owner,
+            "title": "synthetic task",
+            "instanceId": "browser-A",
+            "browser": "chrome",
+            "state": "ready",
+            "generation": 1,
+            "modeGeneration": 1,
+            "activeMode": "smart",
             "allowedOrigins": ["https://fixture.test"],
-            "tabIds": [tab_id], "agentTabIds": [],
-            "workTabs": [], "workspaceState": "ready", "requestHistory": [],
-            "createdAt": now, "updatedAt": now, "isolation": "shared-profile",
+            "tabIds": [tab_id],
+            "agentTabIds": [],
+            "workTabs": [],
+            "workspaceState": "ready",
+            "requestHistory": [],
+            "createdAt": now,
+            "updatedAt": now,
+            "isolation": "shared-profile",
         }
         self.daemon.tasks[task_id] = task
         self.daemon.task_locks[task_id] = threading.RLock()
@@ -138,16 +152,25 @@ class SecurityBoundaryTests(unittest.TestCase):
     def synthetic_extension_call(self, _extension, method, params, **_kwargs):
         self.extension_calls.append((method, dict(params)))
         if method == "browser.release":
-            return {"released": True, "cleanupState": "succeeded",
-                    "remainingTabIds": [], "preservedTabIds": [], "unknownTabIds": []}
+            return {
+                "released": True,
+                "cleanupState": "succeeded",
+                "remainingTabIds": [],
+                "preservedTabIds": [],
+                "unknownTabIds": [],
+            }
         if method == "browser.assess":
             return {"targetAssessment": "ordinary"}
         if method == "browser.execute":
             self.executed.set()
             action = params.get("action")
             if action == "official.new_tab":
-                return {"targetId": "synthetic-chrome-target-73", "tabId": 73,
-                        "groupId": 7, "windowId": 8}
+                return {
+                    "targetId": "synthetic-chrome-target-73",
+                    "tabId": 73,
+                    "groupId": 7,
+                    "windowId": 8,
+                }
             if action == "official.ready_state":
                 return {"readyState": "interactive"}
             return {"clicked": True, "tabId": params.get("tabId")}
@@ -160,9 +183,7 @@ class SecurityBoundaryTests(unittest.TestCase):
         if not decision or decision.get("action") != "modify":
             return {"hook": decision}, None
         patched = {**args, **decision["args"]}
-        raw = self.context.tools[name]["handler"](
-            patched, session_id=session, tool_call_id=call_id
-        )
+        raw = self.context.tools[name]["handler"](patched, session_id=session, tool_call_id=call_id)
         return json.loads(raw), patched
 
     def get_task(self, task_id="task-A", *, session="session-A"):
@@ -176,8 +197,11 @@ class SecurityBoundaryTests(unittest.TestCase):
         self.assertEqual(type(bridge).__name__, "HostBridge")
         self.assertIn("fast_browser_script", self.context.tools)
         launch = bridge.prepare(
-            session_id=session, tool_call_id=call_id or "fd-call-" + uuid.uuid4().hex,
-            task_id=task_id, workspace=str(SCRATCH), code="pass",
+            session_id=session,
+            tool_call_id=call_id or "fd-call-" + uuid.uuid4().hex,
+            task_id=task_id,
+            workspace=str(SCRATCH),
+            code="pass",
         )
         self.launches.append(launch)
         return launch
@@ -206,22 +230,33 @@ class SecurityBoundaryTests(unittest.TestCase):
 
         # Reuse a trusted one-shot lease from session-A under session-B.
         hook = self.context.hooks["pre_tool_call"]
-        issued = hook("fast_browser_get", {"task_id": "task-A"},
-                      session_id="session-A", tool_call_id="cross-session")
+        issued = hook(
+            "fast_browser_get",
+            {"task_id": "task-A"},
+            session_id="session-A",
+            tool_call_id="cross-session",
+        )
         patched = {"task_id": "task-A", **issued["args"]}
-        replayed_cross_session = json.loads(self.context.tools["fast_browser_get"]["handler"](
-            patched, session_id="session-B"))
+        replayed_cross_session = json.loads(
+            self.context.tools["fast_browser_get"]["handler"](patched, session_id="session-B")
+        )
         self.assertEqual(replayed_cross_session["code"], "owner_denied")
-        replayed = json.loads(self.context.tools["fast_browser_get"]["handler"](
-            patched, session_id="session-A"))
+        replayed = json.loads(
+            self.context.tools["fast_browser_get"]["handler"](patched, session_id="session-A")
+        )
         self.assertEqual(replayed["code"], "owner_denied")
 
         # A same-session lease cannot be retargeted to another task after the hook.
-        issued = hook("fast_browser_get", {"task_id": "task-A"},
-                      session_id="session-A", tool_call_id="retarget-task")
+        issued = hook(
+            "fast_browser_get",
+            {"task_id": "task-A"},
+            session_id="session-A",
+            tool_call_id="retarget-task",
+        )
         mutated = {"task_id": "task-B", **issued["args"]}
-        retargeted = json.loads(self.context.tools["fast_browser_get"]["handler"](
-            mutated, session_id="session-A"))
+        retargeted = json.loads(
+            self.context.tools["fast_browser_get"]["handler"](mutated, session_id="session-A")
+        )
         self.assertEqual(retargeted["code"], "owner_denied")
 
         foreign_task = self.get_task("task-B")
@@ -232,13 +267,22 @@ class SecurityBoundaryTests(unittest.TestCase):
         self.assertEqual(self.get_task()["sessionBinding"], "ready")
         # Simulate the explicit browser-extension full-mode decision; this test
         # is about FD/task/generation fencing, not smart-mode confirmation.
-        self.daemon._dispatch_extension("browser-A", "extension.mode", {
-            "taskId": "task-A", "mode": "full", "generation": 1, "modeGeneration": 1,
-        })
-        launch = self.prepare_fd(task_id="task-B")  # Model/task argument cannot retarget host binding.
-        opened = self.fd_request(launch, {
-            "op": "official.new_tab", "args": ["https://fixture.test/work"]
-        })
+        self.daemon._dispatch_extension(
+            "browser-A",
+            "extension.mode",
+            {
+                "taskId": "task-A",
+                "mode": "full",
+                "generation": 1,
+                "modeGeneration": 1,
+            },
+        )
+        launch = self.prepare_fd(
+            task_id="task-B"
+        )  # Model/task argument cannot retarget host binding.
+        opened = self.fd_request(
+            launch, {"op": "official.new_tab", "args": ["https://fixture.test/work"]}
+        )
         self.assertTrue(opened["ok"], opened)
         self.assertEqual(opened["value"], "synthetic-chrome-target-73")
         ready = self.fd_request(launch, {"op": "official.ready_state", "args": []})
@@ -252,45 +296,79 @@ class SecurityBoundaryTests(unittest.TestCase):
         resumed, _ = self.tool("fast_browser_resume", {"task_id": "task-A"})
         self.assertEqual(resumed["generation"], 2)
         self.assertEqual(resumed["state"], "pending_approval")
-        self.daemon._dispatch_extension("browser-A", "extension.approve", {
-            "taskId": "task-A", "tabIds": [71],
-            "allowedOrigins": ["https://fixture.test"],
-        })
+        self.daemon._dispatch_extension(
+            "browser-A",
+            "extension.approve",
+            {
+                "taskId": "task-A",
+                "tabIds": [71],
+                "allowedOrigins": ["https://fixture.test"],
+            },
+        )
         before = len([p for method, p in self.extension_calls if method == "browser.execute"])
         stale_fd = self.fd_request(launch, {"op": "official.ready_state", "args": []})
         self.assertFalse(stale_fd["ok"])
         # 中文注释：只返回固定文案，不含内部异常原文。
-        self.assertIn(stale_fd["error"], {'浏览器操作结果不确定；不要自动重放。', '浏览器操作未执行，可重新读取页面后重试。'})
+        self.assertIn(
+            stale_fd["error"],
+            {"浏览器操作结果不确定；不要自动重放。", "浏览器操作未执行，可重新读取页面后重试。"},
+        )
         after = len([p for method, p in self.extension_calls if method == "browser.execute"])
         self.assertEqual(after, before, "revoked generation reached the extension")
 
     def test_model_cannot_forge_authority_and_actions_are_scoped_and_one_shot(self):
         self.assertEqual(self.get_task()["sessionBinding"], "ready")
         launch = self.prepare_fd()
-        malicious = self.fd_request(launch, {
-            "op": "extension.decide",
-            "args": [{"taskId": "task-A", "nonce": "model-nonce",
-                      "digest": "model-digest", "approve": True}],
-        })
+        malicious = self.fd_request(
+            launch,
+            {
+                "op": "extension.decide",
+                "args": [
+                    {
+                        "taskId": "task-A",
+                        "nonce": "model-nonce",
+                        "digest": "model-digest",
+                        "approve": True,
+                    }
+                ],
+            },
+        )
         self.assertFalse(malicious["ok"])
         before_calls = sum(method == "shared.run" for method, _ in self.profile._client.calls)
 
-        click = {"task_id": "task-A", "request_id": "click-v1", "action": "click",
-                 "tab_id": 71, "selector": "#synthetic"}
+        click = {
+            "task_id": "task-A",
+            "request_id": "click-v1",
+            "action": "click",
+            "tab_id": 71,
+            "selector": "#synthetic",
+        }
         pending, _ = self.tool("fast_browser_run", click)
         self.assertTrue(pending["clicked"])
         self.assertTrue(self.executed.is_set())
-        forged, _ = self.tool("fast_browser_run", {**click, "approval": {
-            "nonce": "model-nonce", "digest": "model-digest"}})
+        forged, _ = self.tool(
+            "fast_browser_run",
+            {**click, "approval": {"nonce": "model-nonce", "digest": "model-digest"}},
+        )
         self.assertEqual(forged["code"], "invalid_fields")
         self.assertEqual(forged["fields"], ["approval"])
-        self.assertEqual(sum(method == "shared.run" for method, _ in self.profile._client.calls), before_calls + 1)
+        self.assertEqual(
+            sum(method == "shared.run" for method, _ in self.profile._client.calls),
+            before_calls + 1,
+        )
         with self.assertRaises(ProtocolError) as direct_self_approval:
-            self.daemon._dispatch_client("shared.run", {
-                "owner": self.owner_a, "taskId": "task-A", "requestId": "direct-forged",
-                "action": "click", "tabId": 71, "selector": "#synthetic",
-                "approval": {"nonce": "model-nonce", "digest": "model-digest"},
-            })
+            self.daemon._dispatch_client(
+                "shared.run",
+                {
+                    "owner": self.owner_a,
+                    "taskId": "task-A",
+                    "requestId": "direct-forged",
+                    "action": "click",
+                    "tabId": 71,
+                    "selector": "#synthetic",
+                    "approval": {"nonce": "model-nonce", "digest": "model-digest"},
+                },
+            )
         self.assertEqual(direct_self_approval.exception.code, "invalid_params")
 
         # Revoke generation 1 through the registered tool, then resume as gen 2.
@@ -298,22 +376,43 @@ class SecurityBoundaryTests(unittest.TestCase):
         self.assertEqual(cancelled["state"], "cancelled")
         resumed, _ = self.tool("fast_browser_resume", {"task_id": "task-A"})
         self.assertEqual(resumed["generation"], 2)
-        self.daemon._dispatch_extension("browser-A", "extension.approve", {
-            "taskId": "task-A", "tabIds": [71],
-            "allowedOrigins": ["https://fixture.test"],
-        })
+        self.daemon._dispatch_extension(
+            "browser-A",
+            "extension.approve",
+            {
+                "taskId": "task-A",
+                "tabIds": [71],
+                "allowedOrigins": ["https://fixture.test"],
+            },
+        )
 
         click_v2 = {**click, "request_id": "click-v2"}
         pending_v2, _ = self.tool("fast_browser_run", click_v2)
         self.assertTrue(pending_v2["clicked"])
         self.assertEqual(self.daemon.action_approvals, {})
-        self.assertEqual(len([1 for method, p in self.extension_calls
-                              if method == "browser.execute" and p.get("requestId") == "click-v2"]), 1)
+        self.assertEqual(
+            len(
+                [
+                    1
+                    for method, p in self.extension_calls
+                    if method == "browser.execute" and p.get("requestId") == "click-v2"
+                ]
+            ),
+            1,
+        )
 
         # Identical tool request returns its cached result, never a second write.
         self.tool("fast_browser_run", click_v2)
-        self.assertEqual(len([1 for method, p in self.extension_calls
-                              if method == "browser.execute" and p.get("requestId") == "click-v2"]), 1)
+        self.assertEqual(
+            len(
+                [
+                    1
+                    for method, p in self.extension_calls
+                    if method == "browser.execute" and p.get("requestId") == "click-v2"
+                ]
+            ),
+            1,
+        )
         changed, _ = self.tool("fast_browser_run", {**click_v2, "selector": "#changed"})
         self.assertEqual(changed["bridgeCode"], "request_id_conflict")
 
@@ -327,7 +426,10 @@ class SecurityBoundaryTests(unittest.TestCase):
         residual_fd = self.fd_request(launch, {"op": "official.ready_state", "args": []})
         self.assertFalse(residual_fd["ok"])
         # 中文注释：只返回固定文案，不含内部异常原文。
-        self.assertIn(residual_fd["error"], {'浏览器操作结果不确定；不要自动重放。', '浏览器操作未执行，可重新读取页面后重试。'})
+        self.assertIn(
+            residual_fd["error"],
+            {"浏览器操作结果不确定；不要自动重放。", "浏览器操作未执行，可重新读取页面后重试。"},
+        )
         self.assertEqual(
             len([p for method, p in self.extension_calls if method == "browser.execute"]),
             calls_before,

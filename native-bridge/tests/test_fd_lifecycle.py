@@ -1,4 +1,5 @@
 """Deterministically schedule FD reuse at the atomic-writer ownership boundary."""
+
 import os
 from pathlib import Path
 import socket
@@ -15,8 +16,8 @@ class AtomicWriterLifecycleTests(unittest.TestCase):
     def test_atomic_write_does_not_close_reused_connection_fd(self):
         scratch = Path(tempfile.gettempdir())
         scratch.mkdir(parents=True, exist_ok=True)
-        with tempfile.TemporaryDirectory(prefix='fd-reg-', dir=scratch) as work:
-            target = Path(work) / 'tasks.json'
+        with tempfile.TemporaryDirectory(prefix="fd-reg-", dir=scratch) as work:
+            target = Path(work) / "tasks.json"
             original_mkstemp = tempfile.mkstemp
             original_replace = os.replace
             allocated = []
@@ -33,15 +34,18 @@ class AtomicWriterLifecycleTests(unittest.TestCase):
                 result = original_replace(source, destination)
                 left, right = socket.socketpair()
                 sockets.extend([left, right])
-                self.assertEqual(left.fileno(), allocated[0], 'schedule must reuse the released FD')
+                self.assertEqual(left.fileno(), allocated[0], "schedule must reuse the released FD")
                 return result
 
             try:
-                with patch.object(daemon.tempfile, 'mkstemp', allocate), patch.object(daemon.os, 'replace', replace_and_accept):
-                    daemon._atomic_write_private(target, b'{}')
-                sockets[1].sendall(b'health\n')
-                self.assertEqual(sockets[0].recv(7), b'health\n')
-                self.assertEqual(target.read_bytes(), b'{}')
+                with (
+                    patch.object(daemon.tempfile, "mkstemp", allocate),
+                    patch.object(daemon.os, "replace", replace_and_accept),
+                ):
+                    daemon._atomic_write_private(target, b"{}")
+                sockets[1].sendall(b"health\n")
+                self.assertEqual(sockets[0].recv(7), b"health\n")
+                self.assertEqual(target.read_bytes(), b"{}")
             finally:
                 for sock in sockets:
                     try:
@@ -54,31 +58,48 @@ class AtomicWriterLifecycleTests(unittest.TestCase):
 class DownloadDescriptorTests(unittest.TestCase):
     def test_claim_destination_failure_closes_source(self):
         import downloads
+
         with tempfile.TemporaryDirectory(prefix="download-fd-", dir="/tmp") as work:
             root = Path(work).resolve()
             source = root / "fast-browser-tasks" / "0123456789abcdef" / "sample.txt"
             source.parent.mkdir(parents=True)
             source.write_bytes(b"sample")
             registry = downloads.DownloadRegistry(root / "home")
-            row = {"id": "01234567-89ab-cdef-0123-456789abcdef", "key": "0123456789abcdef", "filename": "sample.txt",
-                   "state": "complete", "path": str(source), "bytesReceived": 6}
+            row = {
+                "id": "01234567-89ab-cdef-0123-456789abcdef",
+                "key": "0123456789abcdef",
+                "filename": "sample.txt",
+                "state": "complete",
+                "path": str(source),
+                "bytesReceived": 6,
+            }
             task = {"id": "t", "generation": 1, "downloads": [row]}
             original = downloads._open_staged
             for mode in ("directory", "file"):
                 with self.subTest(mode=mode):
                     opened = []
+
                     def record(path):
                         fd = original(path)
                         opened.append(fd)
                         return fd
+
                     destination = root / "claimed"
                     destination.mkdir(exist_ok=True)
                     existing = destination / "sample.txt"
                     existing.write_bytes(b"keep")
                     try:
-                        with patch.object(downloads, "_open_staged", record), patch.object(
-                                registry, "_claim_dir", side_effect=PermissionError("拒绝创建目录") if mode == "directory" else None,
-                                return_value=destination):
+                        with (
+                            patch.object(downloads, "_open_staged", record),
+                            patch.object(
+                                registry,
+                                "_claim_dir",
+                                side_effect=PermissionError("拒绝创建目录")
+                                if mode == "directory"
+                                else None,
+                                return_value=destination,
+                            ),
+                        ):
                             with self.assertRaises(OSError):
                                 registry.claim(task, row["id"])
                         self.assertEqual(existing.read_bytes(), b"keep")
@@ -96,7 +117,7 @@ class DownloadDescriptorTests(unittest.TestCase):
 class NonRegularFileTests(unittest.TestCase):
     def test_fifo_is_rejected_without_waiting_for_a_writer(self):
         # 中文注释：隔离子进程保证回归即使阻塞也能被终止，不污染并行审计的 daemon 或测试线程。
-        script = '''
+        script = """
 import os, sys
 from pathlib import Path
 sys.path.insert(0, sys.argv[1])
@@ -121,14 +142,18 @@ except (ArtifactError, DownloadError) as error:
     assert str(error) in {'PATH_DENIED', 'ARTIFACT_CHANGED', 'DOWNLOAD_CHANGED'}
 else:
     raise AssertionError('FIFO accepted as a regular file')
-'''
+"""
         bridge = str(Path(__file__).resolve().parents[1])
-        for operation in ('upload', 'manifest', 'download'):
-            with self.subTest(operation=operation), tempfile.TemporaryDirectory(dir='/tmp') as work:
-                result = subprocess.run([sys.executable, '-c', script, bridge, str(Path(work).resolve()), operation],
-                                        capture_output=True, text=True, timeout=2)
+        for operation in ("upload", "manifest", "download"):
+            with self.subTest(operation=operation), tempfile.TemporaryDirectory(dir="/tmp") as work:
+                result = subprocess.run(
+                    [sys.executable, "-c", script, bridge, str(Path(work).resolve()), operation],
+                    capture_output=True,
+                    text=True,
+                    timeout=2,
+                )
                 self.assertEqual(result.returncode, 0, result.stderr)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

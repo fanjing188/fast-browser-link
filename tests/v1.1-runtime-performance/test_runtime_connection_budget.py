@@ -1,4 +1,5 @@
 """Scratch-only measurements for NativeProfileRuntime's UDS setup path."""
+
 from __future__ import annotations
 
 import importlib.util
@@ -17,7 +18,7 @@ import types
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / 'native-bridge'))
+sys.path.insert(0, str(ROOT / "native-bridge"))
 from tests.support import temporary_bridge_home
 
 SCRATCH = Path(os.environ.get("TMPDIR", tempfile.gettempdir())).resolve()
@@ -213,16 +214,23 @@ class ScratchExtensionPeer:
         self.socket.connect(str(data_dir / "bridge.sock"))
         self.reader = self.socket.makefile("rb")
         self.write_lock = threading.Lock()
-        self._send({"role": "extension", "token": (data_dir / "token").read_text(encoding="ascii").strip(),
-                    "origin": "chrome-extension://scratch/"})
-        result = self.request("extension.hello", {
-            "instanceId": instance_id, "browser": "chrome", "version": "test"
-        })
+        self._send(
+            {
+                "role": "extension",
+                "token": (data_dir / "token").read_text(encoding="ascii").strip(),
+                "origin": "chrome-extension://scratch/",
+            }
+        )
+        result = self.request(
+            "extension.hello", {"instanceId": instance_id, "browser": "chrome", "version": "test"}
+        )
         if result != {"connected": True}:
             raise AssertionError("scratch extension registration failed")
 
     def _send(self, value):
-        payload = json.dumps(value, separators=(",", ":"), ensure_ascii=False).encode("utf-8") + b"\n"
+        payload = (
+            json.dumps(value, separators=(",", ":"), ensure_ascii=False).encode("utf-8") + b"\n"
+        )
         with self.write_lock:
             self.socket.sendall(payload)
 
@@ -239,7 +247,9 @@ class ScratchExtensionPeer:
             message = self._next()
             if message.get("id") == request_id:
                 if "error" in message:
-                    raise AssertionError("scratch extension request failed: " + str(message["error"].get("code")))
+                    raise AssertionError(
+                        "scratch extension request failed: " + str(message["error"].get("code"))
+                    )
                 return message.get("result")
             if "id" in message:
                 raise AssertionError("unexpected response while waiting for extension request")
@@ -284,14 +294,20 @@ class NativeRuntimeConnectionBudgetTests(unittest.TestCase):
         # 中文注释：测试持有自己创建的 Popen，不依赖系统进程扫描，也不终止其他 daemon。
         self.processes = []
         self.original_spawn = self.client_module._spawn_detached
+
         def spawn_owned(argv):
-            process = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+            process = subprocess.Popen(
+                argv,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
             self.processes.append(process)
+
         self.client_module._spawn_detached = spawn_owned
         self.monitor = ConnectionMonitor(self.client_module)
-        self.profile = self.runtime_module.NativeProfileRuntime(
-            self.home, ROOT / "executor-plugin"
-        )
+        self.profile = self.runtime_module.NativeProfileRuntime(self.home, ROOT / "executor-plugin")
         self.profile._client_module = self.client_module
 
     def tearDown(self):
@@ -309,13 +325,15 @@ class NativeRuntimeConnectionBudgetTests(unittest.TestCase):
         except (OSError, ValueError):
             self.fail("scratch daemon pid file is unreadable; refusing broad process cleanup")
         process = next((process for process in self.processes if process.pid == pid), None)
-        self.assertIsNotNone(process, 'only a fixture-owned process may be stopped')
+        self.assertIsNotNone(process, "only a fixture-owned process may be stopped")
         process.terminate()
         process.wait(timeout=5)
         deadline = time.monotonic() + 5
         while time.monotonic() < deadline and pid_path.exists():
             time.sleep(0.02)
-        self.assertFalse(pid_path.exists(), "scratch daemon did not remove its pid file on shutdown")
+        self.assertFalse(
+            pid_path.exists(), "scratch daemon did not remove its pid file on shutdown"
+        )
 
     def test_first_call_starts_a_cold_scratch_daemon(self):
         result = self.profile.call("health", {})
@@ -354,18 +372,24 @@ class NativeRuntimeConnectionBudgetTests(unittest.TestCase):
         bridge = FaultingScratchBridge(self.home, "disconnect")
         try:
             with self.assertRaises(self.client_module.BridgeError) as caught:
-                self.profile.call("shared.run", {
-                    "owner": "scratch-owner",
-                    "taskId": "scratch-task",
-                    "requestId": "one-write-only",
-                    "action": "click",
-                    "tabId": 1,
-                    "selector": "#submit",
-                })
+                self.profile.call(
+                    "shared.run",
+                    {
+                        "owner": "scratch-owner",
+                        "taskId": "scratch-task",
+                        "requestId": "one-write-only",
+                        "action": "click",
+                        "tabId": 1,
+                        "selector": "#submit",
+                    },
+                )
 
             self.assertEqual(caught.exception.code, "outcome_unknown")
-            dispatched = [item["request"] for item in bridge.requests
-                          if item["request"].get("method") == "shared.run"]
+            dispatched = [
+                item["request"]
+                for item in bridge.requests
+                if item["request"].get("method") == "shared.run"
+            ]
             self.assertEqual(len(dispatched), 1)
             self.assertEqual(bridge.errors, [])
         finally:
@@ -388,17 +412,23 @@ class NativeRuntimeConnectionBudgetTests(unittest.TestCase):
     def test_daemon_still_rejects_a_foreign_owner(self):
         peer = ScratchExtensionPeer(self.home, self.client_module, "owner-scope-instance")
         try:
-            task = self.profile.call("shared.create", {
-                "owner": "trusted-owner",
-                "title": "scratch owner check",
-                "instanceId": "owner-scope-instance",
-                "allowedOrigins": ["https://example.test"],
-            })
+            task = self.profile.call(
+                "shared.create",
+                {
+                    "owner": "trusted-owner",
+                    "title": "scratch owner check",
+                    "instanceId": "owner-scope-instance",
+                    "allowedOrigins": ["https://example.test"],
+                },
+            )
             with self.assertRaises(self.client_module.BridgeError) as caught:
-                self.profile.call("shared.get", {
-                    "owner": "foreign-owner",
-                    "taskId": task["id"],
-                })
+                self.profile.call(
+                    "shared.get",
+                    {
+                        "owner": "foreign-owner",
+                        "taskId": task["id"],
+                    },
+                )
 
             self.assertEqual(caught.exception.code, "forbidden")
         finally:
@@ -408,39 +438,52 @@ class NativeRuntimeConnectionBudgetTests(unittest.TestCase):
         peer = ScratchExtensionPeer(self.home, self.client_module, "cancel-instance")
         try:
             origins = ["https://example.test"]
-            task = self.profile.call("shared.create", {
-                "owner": "cancel-owner",
-                "title": "scratch concurrent cancellation",
-                "instanceId": "cancel-instance",
-                "allowedOrigins": origins,
-            })
-            approved = peer.request("extension.approve", {
-                "taskId": task["id"], "tabIds": [21], "allowedOrigins": origins
-            })
+            task = self.profile.call(
+                "shared.create",
+                {
+                    "owner": "cancel-owner",
+                    "title": "scratch concurrent cancellation",
+                    "instanceId": "cancel-instance",
+                    "allowedOrigins": origins,
+                },
+            )
+            approved = peer.request(
+                "extension.approve",
+                {"taskId": task["id"], "tabIds": [21], "allowedOrigins": origins},
+            )
             self.assertEqual(approved["state"], "ready")
-            mode = peer.request("extension.mode", {
-                "taskId": task["id"], "mode": "full", "generation": 1, "modeGeneration": 1
-            })
+            mode = peer.request(
+                "extension.mode",
+                {"taskId": task["id"], "mode": "full", "generation": 1, "modeGeneration": 1},
+            )
             self.assertEqual(mode["activeMode"], "full")
             self.monitor.reset()
 
             with ThreadPoolExecutor(max_workers=2) as pool:
-                running = pool.submit(self.profile.call, "shared.run", {
-                    "owner": "cancel-owner",
-                    "taskId": task["id"],
-                    "requestId": "one-in-flight-write",
-                    "action": "new_tab",
-                    "url": "https://example.test/new",
-                })
+                running = pool.submit(
+                    self.profile.call,
+                    "shared.run",
+                    {
+                        "owner": "cancel-owner",
+                        "taskId": task["id"],
+                        "requestId": "one-in-flight-write",
+                        "action": "new_tab",
+                        "url": "https://example.test/new",
+                    },
+                )
                 execute = peer.receive_request("browser.execute")
-                cancelling = pool.submit(self.profile.call, "shared.cancel", {
-                    "owner": "cancel-owner", "taskId": task["id"]
-                })
+                cancelling = pool.submit(
+                    self.profile.call,
+                    "shared.cancel",
+                    {"owner": "cancel-owner", "taskId": task["id"]},
+                )
                 release = peer.receive_request("browser.release")
                 self.assertTrue(release["params"]["closeAgentTabs"])
                 peer.respond(release, {"released": True})
                 self.assertEqual(cancelling.result(timeout=3)["state"], "cancelled")
-                self.assertFalse(running.done(), "in-flight write unexpectedly completed before its response")
+                self.assertFalse(
+                    running.done(), "in-flight write unexpectedly completed before its response"
+                )
 
                 peer.respond(execute, {"tabId": 99, "url": "https://example.test/new"})
                 late_cleanup = peer.receive_request("browser.release")
@@ -458,26 +501,54 @@ class NativeRuntimeConnectionBudgetTests(unittest.TestCase):
 
     def test_javascript_client_deadline_exceeds_daemon_deadline_then_resets(self):
         # 中文注释：用真实 socket 核对长脚本期限，无需实际等待 60 秒；普通调用必须恢复原期限。
-        peer = ScratchExtensionPeer(self.home, self.client_module, 'js-deadline')
+        peer = ScratchExtensionPeer(self.home, self.client_module, "js-deadline")
         try:
-            origins = ['https://example.test']
-            task = self.profile.call('shared.create', {'owner': 'js-owner', 'title': 'deadline',
-                'instanceId': 'js-deadline', 'allowedOrigins': origins})
-            peer.request('extension.approve', {'taskId': task['id'], 'tabIds': [21], 'allowedOrigins': origins})
-            peer.request('extension.mode', {'taskId': task['id'], 'mode': 'full', 'generation': 1, 'modeGeneration': 1})
+            origins = ["https://example.test"]
+            task = self.profile.call(
+                "shared.create",
+                {
+                    "owner": "js-owner",
+                    "title": "deadline",
+                    "instanceId": "js-deadline",
+                    "allowedOrigins": origins,
+                },
+            )
+            peer.request(
+                "extension.approve",
+                {"taskId": task["id"], "tabIds": [21], "allowedOrigins": origins},
+            )
+            peer.request(
+                "extension.mode",
+                {"taskId": task["id"], "mode": "full", "generation": 1, "modeGeneration": 1},
+            )
             with ThreadPoolExecutor(max_workers=1) as pool:
-                running = pool.submit(self.profile.call, 'shared.run', {'owner': 'js-owner', 'taskId': task['id'],
-                    'requestId': 'long-js', 'action': 'js.evaluate', 'tabId': 21,
-                    'expression': '1', 'timeoutMs': 60000})
-                execute = peer.receive_request('browser.execute')
+                running = pool.submit(
+                    self.profile.call,
+                    "shared.run",
+                    {
+                        "owner": "js-owner",
+                        "taskId": task["id"],
+                        "requestId": "long-js",
+                        "action": "js.evaluate",
+                        "tabId": 21,
+                        "expression": "1",
+                        "timeoutMs": 60000,
+                    },
+                )
+                execute = peer.receive_request("browser.execute")
                 try:
-                    client = next(client for thread, client in self.profile._thread_clients.items()
-                                  if thread is not threading.current_thread())
+                    client = next(
+                        client
+                        for thread, client in self.profile._thread_clients.items()
+                        if thread is not threading.current_thread()
+                    )
                     self.assertGreater(client._socket.gettimeout(), 75)
                 finally:
-                    peer.respond(execute, {'value': 1})
+                    peer.respond(execute, {"value": 1})
                     running.result(timeout=3)
-                self.assertEqual(pool.submit(self.profile.call, 'health', {}).result(timeout=3), HEALTH_RESULT)
+                self.assertEqual(
+                    pool.submit(self.profile.call, "health", {}).result(timeout=3), HEALTH_RESULT
+                )
                 self.assertEqual(client._socket.gettimeout(), 35)
         finally:
             peer.close()

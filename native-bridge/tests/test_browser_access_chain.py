@@ -1,4 +1,5 @@
 """Production daemon/client access request roundtrip with a synthetic extension."""
+
 import os
 from pathlib import Path
 import sys
@@ -43,37 +44,49 @@ class BrowserAccessChainTests(unittest.TestCase):
             self.peer.respond(status_request, {"consentStatus": "enabled"})
             rows = listed.result(timeout=5)
 
-        self.assertEqual(rows, [{
-            "instanceId": "target-browser",
-            "browser": "chrome",
-            "version": "0.1.0",
-            # 中文注释：未声明能力时返回空能力列表，不推断浏览器支持情况。
-            "features": [],
-            "connected": True,
-            "consentStatus": "enabled",
-            "primary": False,
-            "accessRequestSupported": True,
-        }])
+        self.assertEqual(
+            rows,
+            [
+                {
+                    "instanceId": "target-browser",
+                    "browser": "chrome",
+                    "version": "0.1.0",
+                    # 中文注释：未声明能力时返回空能力列表，不推断浏览器支持情况。
+                    "features": [],
+                    "connected": True,
+                    "consentStatus": "enabled",
+                    "primary": False,
+                    "accessRequestSupported": True,
+                }
+            ],
+        )
 
         with ThreadPoolExecutor(max_workers=1) as pool:
-            requested = pool.submit(self.client.call, "browser.access_request", {"instanceId": "target-browser"})
+            requested = pool.submit(
+                self.client.call, "browser.access_request", {"instanceId": "target-browser"}
+            )
             message = self.peer.receive_request("extension.access_request")
             params = message["params"]
             self.assertEqual(params["instanceId"], "target-browser")
             self.assertEqual(params["connectionGeneration"], self.peer.connection_generation)
             self.assertTrue(params["requestId"])
-            self.peer.respond(message, {
-                "requestId": params["requestId"],
-                "instanceId": params["instanceId"],
-                "connectionGeneration": params["connectionGeneration"],
-                "status": "opened",
-            })
+            self.peer.respond(
+                message,
+                {
+                    "requestId": params["requestId"],
+                    "instanceId": params["instanceId"],
+                    "connectionGeneration": params["connectionGeneration"],
+                    "status": "opened",
+                },
+            )
             first = requested.result(timeout=5)
 
         self.assertEqual(first["status"], "confirmation_requested")
         self.assertNotIn("enabled", first)
         duplicate = self.client.call("browser.access_request", {"instanceId": "target-browser"})
-        self.assertEqual(duplicate, {"requestId": first["requestId"], "status": "already_requested"})
+        self.assertEqual(
+            duplicate, {"requestId": first["requestId"], "status": "already_requested"}
+        )
 
         with ThreadPoolExecutor(max_workers=1) as pool:
             refreshed = pool.submit(self.client.call, "browser.list", {})

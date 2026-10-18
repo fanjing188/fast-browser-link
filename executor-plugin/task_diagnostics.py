@@ -3,6 +3,7 @@
 Only persisted, schema-validated events are projected; no log history is
 fabricated or backfilled by this module.
 """
+
 from __future__ import annotations
 
 import fcntl
@@ -17,16 +18,33 @@ from browser_diagnostics import UnsafeDiagnosticField, make_event, validate_even
 
 _HASH_RE = re.compile(r"^[a-f0-9]{64}$")
 _OPAQUE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
-_EVENT_FIELDS = ("timestamp", "component", "event_type", "status", "duration_ms", "error_code", "action")
+_EVENT_FIELDS = (
+    "timestamp",
+    "component",
+    "event_type",
+    "status",
+    "duration_ms",
+    "error_code",
+    "action",
+)
 _ACTIVE_NAME = "events.jsonl"
 _LOCK_NAME = ".browser-diagnostics.lock"
 _ROTATED_RE = re.compile(r"^events\.(\d{6})\.jsonl$")
 _MAX_STORE_BYTES = 100 * 1024 * 1024
 _MAX_EVENT_LINE_BYTES = 64 * 1024
 # 中文注释：接管中的 paused 是有效任务状态。
-_EXECUTION_STATES = frozenset({
-    "pending_approval", "running", "ready", "paused", "cancelled", "closed", "failed", "needs_sync"
-})
+_EXECUTION_STATES = frozenset(
+    {
+        "pending_approval",
+        "running",
+        "ready",
+        "paused",
+        "cancelled",
+        "closed",
+        "failed",
+        "needs_sync",
+    }
+)
 _CLEANUP_STATES = frozenset({"succeeded", "pending", "unknown", "failed"})
 
 
@@ -46,15 +64,29 @@ class TaskDiagnosticProjection:
     """Bind opaque request correlations and expose redacted task diagnostics."""
 
     def __init__(self, sink: Any, *, max_bindings: int = 2048, max_page_size: int = 100):
-        if isinstance(max_bindings, bool) or not isinstance(max_bindings, int) or not 1 <= max_bindings <= 100_000:
+        if (
+            isinstance(max_bindings, bool)
+            or not isinstance(max_bindings, int)
+            or not 1 <= max_bindings <= 100_000
+        ):
             raise ValueError("max_bindings must be between 1 and 100000")
-        if isinstance(max_page_size, bool) or not isinstance(max_page_size, int) or not 1 <= max_page_size <= 100:
+        if (
+            isinstance(max_page_size, bool)
+            or not isinstance(max_page_size, int)
+            or not 1 <= max_page_size <= 100
+        ):
             raise ValueError("max_page_size must be between 1 and 100")
         sink_max_bytes = getattr(sink, "max_bytes", None)
         sink_max_files = getattr(sink, "max_files", None)
-        if (isinstance(sink_max_bytes, bool) or not isinstance(sink_max_bytes, int) or sink_max_bytes < 512
-                or isinstance(sink_max_files, bool) or not isinstance(sink_max_files, int)
-                or not 1 <= sink_max_files <= 100 or sink_max_bytes * sink_max_files > _MAX_STORE_BYTES):
+        if (
+            isinstance(sink_max_bytes, bool)
+            or not isinstance(sink_max_bytes, int)
+            or sink_max_bytes < 512
+            or isinstance(sink_max_files, bool)
+            or not isinstance(sink_max_files, int)
+            or not 1 <= sink_max_files <= 100
+            or sink_max_bytes * sink_max_files > _MAX_STORE_BYTES
+        ):
             raise ValueError("diagnostics sink limits exceed the bounded projection capacity")
         self.sink = sink
         self._store_max_bytes = sink_max_bytes * sink_max_files
@@ -98,7 +130,8 @@ class TaskDiagnosticProjection:
         if not isinstance(history, list):
             return set()
         return {
-            item["requestIdHash"] for item in history
+            item["requestIdHash"]
+            for item in history
             if isinstance(item, Mapping)
             and isinstance(item.get("requestIdHash"), str)
             and _HASH_RE.fullmatch(item["requestIdHash"])
@@ -152,8 +185,14 @@ class TaskDiagnosticProjection:
         if request_id is not None and not self._opaque(request_id):
             raise UnsafeDiagnosticField("request_id must be an opaque identifier")
         if request_id_hash is not None:
-            if request_id is None or not isinstance(request_id_hash, str) or not _HASH_RE.fullmatch(request_id_hash):
-                raise UnsafeDiagnosticField("request correlation requires a SHA-256 digest and opaque id")
+            if (
+                request_id is None
+                or not isinstance(request_id_hash, str)
+                or not _HASH_RE.fullmatch(request_id_hash)
+            ):
+                raise UnsafeDiagnosticField(
+                    "request correlation requires a SHA-256 digest and opaque id"
+                )
             if request_id_hash not in self._request_hashes(task):
                 raise DiagnosticTaskNotFound("task diagnostics unavailable")
         event_request_id = request_id_hash if request_id_hash is not None else request_id
@@ -256,26 +295,43 @@ class TaskDiagnosticProjection:
                     event_fd = os.open(name, os.O_RDONLY | nofollow, dir_fd=root_fd)
                     try:
                         event_info = os.fstat(event_fd)
-                        if not stat.S_ISREG(event_info.st_mode) or stat.S_IMODE(event_info.st_mode) & 0o077:
+                        if (
+                            not stat.S_ISREG(event_info.st_mode)
+                            or stat.S_IMODE(event_info.st_mode) & 0o077
+                        ):
                             raise DiagnosticStorageError("diagnostics event file is not private")
                         file_bytes = 0
                         with os.fdopen(event_fd, "rb", closefd=False) as stream:
                             while True:
-                                raw_line = stream.readline(min(self._max_file_bytes, _MAX_EVENT_LINE_BYTES) + 1)
+                                raw_line = stream.readline(
+                                    min(self._max_file_bytes, _MAX_EVENT_LINE_BYTES) + 1
+                                )
                                 if not raw_line:
                                     break
                                 file_bytes += len(raw_line)
                                 bytes_read += len(raw_line)
-                                if file_bytes > self._max_file_bytes or bytes_read > self._store_max_bytes:
-                                    raise DiagnosticStorageError("diagnostics store exceeds its configured bound")
+                                if (
+                                    file_bytes > self._max_file_bytes
+                                    or bytes_read > self._store_max_bytes
+                                ):
+                                    raise DiagnosticStorageError(
+                                        "diagnostics store exceeds its configured bound"
+                                    )
                                 if len(raw_line) > _MAX_EVENT_LINE_BYTES:
-                                    raise DiagnosticStorageError("diagnostic event line exceeds its hard bound")
+                                    raise DiagnosticStorageError(
+                                        "diagnostic event line exceeds its hard bound"
+                                    )
                                 if not raw_line.endswith(b"\n"):
                                     continue
                                 try:
                                     decoded = json.loads(raw_line.decode("utf-8"))
                                     validated = validate_event(decoded)
-                                except (UnicodeDecodeError, json.JSONDecodeError, UnsafeDiagnosticField, TypeError):
+                                except (
+                                    UnicodeDecodeError,
+                                    json.JSONDecodeError,
+                                    UnsafeDiagnosticField,
+                                    TypeError,
+                                ):
                                     continue
                                 yield validated
                     finally:
@@ -310,7 +366,11 @@ class TaskDiagnosticProjection:
                 raise ValueError("request_id_hash must be a SHA-256 digest")
             if request_id_hash not in self._request_hashes(task):
                 raise DiagnosticTaskNotFound("task diagnostics unavailable")
-        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= self.max_page_size:
+        if (
+            isinstance(limit, bool)
+            or not isinstance(limit, int)
+            or not 1 <= limit <= self.max_page_size
+        ):
             raise DiagnosticCapacityError("diagnostic page limit is outside the allowed range")
         if isinstance(cursor, bool) or not isinstance(cursor, int) or cursor < 0:
             raise ValueError("diagnostic cursor must be a non-negative integer")
@@ -350,8 +410,12 @@ class TaskDiagnosticProjection:
         cleanup_state = task.get("cleanupState")
         return {
             "events": page,
-            "execution_state": execution_state if isinstance(execution_state, str) and execution_state in _EXECUTION_STATES else "unknown",
-            "cleanup_state": cleanup_state if isinstance(cleanup_state, str) and cleanup_state in _CLEANUP_STATES else "unknown",
+            "execution_state": execution_state
+            if isinstance(execution_state, str) and execution_state in _EXECUTION_STATES
+            else "unknown",
+            "cleanup_state": cleanup_state
+            if isinstance(cleanup_state, str) and cleanup_state in _CLEANUP_STATES
+            else "unknown",
             "has_more": next_cursor is not None,
             "next_cursor": next_cursor,
         }

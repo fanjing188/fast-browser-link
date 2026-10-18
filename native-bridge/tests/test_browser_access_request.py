@@ -1,4 +1,5 @@
 """Focused consent-status and access-request protocol tests."""
+
 import tempfile
 import time
 import unittest
@@ -49,7 +50,9 @@ class BrowserAccessRequestTests(unittest.TestCase):
     def test_missing_or_invalid_fresh_status_is_unknown_not_disabled(self):
         self.extension["consentStatusSupported"] = False
         self.extension["accessRequestSupported"] = False
-        self.daemon._extension_call = lambda *_args, **_kwargs: self.fail("legacy extension must not receive RPC")
+        self.daemon._extension_call = lambda *_args, **_kwargs: self.fail(
+            "legacy extension must not receive RPC"
+        )
         rows = self.daemon._dispatch_client("browser.list", {})
         self.assertEqual(rows[0]["consentStatus"], "unknown")
         self.assertFalse(rows[0]["accessRequestSupported"])
@@ -111,6 +114,7 @@ class BrowserAccessRequestTests(unittest.TestCase):
                 "connectionGeneration": "connection-a",
                 "status": "opened",
             }
+
         return extension_call
 
     def test_explicit_request_after_expiry_opens_a_fresh_prompt_in_the_same_call(self):
@@ -124,7 +128,9 @@ class BrowserAccessRequestTests(unittest.TestCase):
                 }
                 opened = []
                 self.daemon._extension_call = self._opening_call(opened)
-                result = self.daemon._dispatch_client("browser.access_request", {"instanceId": "browser-a"})
+                result = self.daemon._dispatch_client(
+                    "browser.access_request", {"instanceId": "browser-a"}
+                )
                 self.assertEqual(result["status"], "confirmation_requested")
                 self.assertNotEqual(result["requestId"], "expired-request")
                 self.assertEqual(opened, ["extension.access_request"])
@@ -137,7 +143,9 @@ class BrowserAccessRequestTests(unittest.TestCase):
             "initialConsentStatus": "disabled",
             "expiresAt": time.monotonic() + 60,
         }
-        self.daemon._extension_call = lambda *_a, **_k: self.fail("unknown prompt must not be replayed")
+        self.daemon._extension_call = lambda *_a, **_k: self.fail(
+            "unknown prompt must not be replayed"
+        )
         result = self.daemon._dispatch_client("browser.access_request", {"instanceId": "browser-a"})
         self.assertEqual(result, {"requestId": "uncertain", "status": "unknown"})
 
@@ -147,8 +155,11 @@ class BrowserAccessRequestTests(unittest.TestCase):
         first = self.daemon._dispatch_client("browser.access_request", {"instanceId": "browser-a"})
         self.assertEqual(first["status"], "confirmation_requested")
 
-        closed = self.daemon._dispatch_extension("browser-a", "extension.access_request_closed", {
-            "requestId": first["requestId"], "connectionGeneration": "connection-a"})
+        closed = self.daemon._dispatch_extension(
+            "browser-a",
+            "extension.access_request_closed",
+            {"requestId": first["requestId"], "connectionGeneration": "connection-a"},
+        )
         self.assertEqual(closed, {"closed": True})
         self.assertIsNone(self.extension["accessRequest"])
 
@@ -165,26 +176,46 @@ class BrowserAccessRequestTests(unittest.TestCase):
             {"requestId": live["requestId"], "connectionGeneration": "connection-old"},
         ):
             self.assertEqual(
-                self.daemon._dispatch_extension("browser-a", "extension.access_request_closed", params),
-                {"closed": False})
+                self.daemon._dispatch_extension(
+                    "browser-a", "extension.access_request_closed", params
+                ),
+                {"closed": False},
+            )
         self.assertEqual(
-            self.daemon._dispatch_extension("browser-b", "extension.access_request_closed",
-                                            {"requestId": live["requestId"], "connectionGeneration": "connection-a"}),
-            {"closed": False})
+            self.daemon._dispatch_extension(
+                "browser-b",
+                "extension.access_request_closed",
+                {"requestId": live["requestId"], "connectionGeneration": "connection-a"},
+            ),
+            {"closed": False},
+        )
         with self.assertRaises(ProtocolError):
-            self.daemon._dispatch_extension("browser-a", "extension.access_request_closed",
-                                            {"requestId": live["requestId"], "connectionGeneration": "connection-a",
-                                             "consentStatus": "enabled"})
+            self.daemon._dispatch_extension(
+                "browser-a",
+                "extension.access_request_closed",
+                {
+                    "requestId": live["requestId"],
+                    "connectionGeneration": "connection-a",
+                    "consentStatus": "enabled",
+                },
+            )
         self.assertEqual(self.extension["accessRequest"]["requestId"], live["requestId"])
         again = self.daemon._dispatch_client("browser.access_request", {"instanceId": "browser-a"})
         self.assertEqual(again, {"requestId": live["requestId"], "status": "already_requested"})
 
     def test_close_reported_while_opening_retires_the_prompt_once_acknowledged(self):
         def extension_call(_extension, _method, params, **_):
-            self.daemon._dispatch_extension("browser-a", "extension.access_request_closed", {
-                "requestId": params["requestId"], "connectionGeneration": "connection-a"})
-            return {"requestId": params["requestId"], "instanceId": "browser-a",
-                    "connectionGeneration": "connection-a", "status": "opened"}
+            self.daemon._dispatch_extension(
+                "browser-a",
+                "extension.access_request_closed",
+                {"requestId": params["requestId"], "connectionGeneration": "connection-a"},
+            )
+            return {
+                "requestId": params["requestId"],
+                "instanceId": "browser-a",
+                "connectionGeneration": "connection-a",
+                "status": "opened",
+            }
 
         self.daemon._extension_call = extension_call
         result = self.daemon._dispatch_client("browser.access_request", {"instanceId": "browser-a"})
@@ -194,8 +225,11 @@ class BrowserAccessRequestTests(unittest.TestCase):
     def test_close_report_carries_no_consent_and_list_readback_stays_authoritative(self):
         self.daemon._extension_call = self._opening_call([])
         live = self.daemon._dispatch_client("browser.access_request", {"instanceId": "browser-a"})
-        self.daemon._dispatch_extension("browser-a", "extension.access_request_closed", {
-            "requestId": live["requestId"], "connectionGeneration": "connection-a"})
+        self.daemon._dispatch_extension(
+            "browser-a",
+            "extension.access_request_closed",
+            {"requestId": live["requestId"], "connectionGeneration": "connection-a"},
+        )
         self.daemon._extension_call = lambda *_a, **_k: {"consentStatus": "disabled"}
         rows = self.daemon._dispatch_client("browser.list", {})
         self.assertEqual(rows[0]["consentStatus"], "disabled")
@@ -207,13 +241,21 @@ class BrowserAccessRequestTests(unittest.TestCase):
         self.daemon.extensions["browser-a"] = replacement
         # A late close from the old connection cannot touch the new one.
         self.assertEqual(
-            self.daemon._dispatch_extension("browser-a", "extension.access_request_closed", {
-                "requestId": old["requestId"], "connectionGeneration": "connection-a"}),
-            {"closed": False})
+            self.daemon._dispatch_extension(
+                "browser-a",
+                "extension.access_request_closed",
+                {"requestId": old["requestId"], "connectionGeneration": "connection-a"},
+            ),
+            {"closed": False},
+        )
 
         def new_generation_call(_extension, _method, params, **_):
-            return {"requestId": params["requestId"], "instanceId": "browser-a",
-                    "connectionGeneration": "connection-b", "status": "opened"}
+            return {
+                "requestId": params["requestId"],
+                "instanceId": "browser-a",
+                "connectionGeneration": "connection-b",
+                "status": "opened",
+            }
 
         self.daemon._extension_call = new_generation_call
         fresh = self.daemon._dispatch_client("browser.access_request", {"instanceId": "browser-a"})
@@ -239,11 +281,15 @@ class BrowserAccessRequestTests(unittest.TestCase):
         self.assertEqual(opened, ["extension.access_request"] * 2)
 
     def test_access_request_requires_supported_connected_target_and_exact_params(self):
-        self.daemon._extension_call = lambda *_args, **_kwargs: self.fail("must reject before extension RPC")
+        self.daemon._extension_call = lambda *_args, **_kwargs: self.fail(
+            "must reject before extension RPC"
+        )
         with self.assertRaises(ProtocolError):
             self.daemon._dispatch_client("browser.access_request", {})
         with self.assertRaises(ProtocolError):
-            self.daemon._dispatch_client("browser.access_request", {"instanceId": "browser-a", "enabled": True})
+            self.daemon._dispatch_client(
+                "browser.access_request", {"instanceId": "browser-a", "enabled": True}
+            )
 
         self.extension["accessRequestSupported"] = False
         with self.assertRaises(ProtocolError) as caught:
@@ -269,7 +315,9 @@ class BrowserAccessRequestTests(unittest.TestCase):
         result = self.daemon._dispatch_client("browser.access_request", {"instanceId": "browser-a"})
         self.assertEqual(result["requestId"], self.extension["accessRequest"]["requestId"])
         self.assertEqual(result["status"], "unknown")
-        self.assertNotEqual(self.daemon.extensions["browser-a"]["connectionGeneration"], "connection-a")
+        self.assertNotEqual(
+            self.daemon.extensions["browser-a"]["connectionGeneration"], "connection-a"
+        )
 
 
 if __name__ == "__main__":

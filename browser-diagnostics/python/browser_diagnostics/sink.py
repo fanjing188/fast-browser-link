@@ -52,7 +52,11 @@ class JsonlDiagnosticSink:
     def __init__(self, root: PathLike, *, max_bytes: int = 1_048_576, max_files: int = 5):
         if isinstance(max_bytes, bool) or not isinstance(max_bytes, int) or max_bytes < 512:
             raise ValueError("max_bytes must be an integer of at least 512")
-        if isinstance(max_files, bool) or not isinstance(max_files, int) or not 1 <= max_files <= 100:
+        if (
+            isinstance(max_files, bool)
+            or not isinstance(max_files, int)
+            or not 1 <= max_files <= 100
+        ):
             raise ValueError("max_files must be between 1 and 100")
         self.root = Path(root)
         self.max_bytes = max_bytes
@@ -130,13 +134,19 @@ class JsonlDiagnosticSink:
 
     @staticmethod
     def _owned_data_name(name: str) -> bool:
-        return name == _ACTIVE_NAME or bool(_ROTATED_RE.fullmatch(name)) or bool(_CORRUPT_RE.fullmatch(name))
+        return (
+            name == _ACTIVE_NAME
+            or bool(_ROTATED_RE.fullmatch(name))
+            or bool(_CORRUPT_RE.fullmatch(name))
+        )
 
     def _assert_owned_paths_safe_locked(self) -> None:
         for entry in self.root.iterdir():
             if entry.name == _LOCK_NAME or self._owned_data_name(entry.name):
                 if not _is_regular_no_symlink(entry):
-                    raise UnsafeLogPath(f"owned diagnostics path is not a regular file: {entry.name}")
+                    raise UnsafeLogPath(
+                        f"owned diagnostics path is not a regular file: {entry.name}"
+                    )
                 os.chmod(entry, 0o600, follow_symlinks=False)
 
     def _next_serial_locked(self) -> int:
@@ -180,7 +190,12 @@ class JsonlDiagnosticSink:
     @staticmethod
     def _serialize_event(event: Mapping[str, Any]) -> bytes:
         validated = validate_event(event)
-        return json.dumps(validated, ensure_ascii=True, separators=(",", ":"), sort_keys=True).encode("ascii") + b"\n"
+        return (
+            json.dumps(validated, ensure_ascii=True, separators=(",", ":"), sort_keys=True).encode(
+                "ascii"
+            )
+            + b"\n"
+        )
 
     def _append_line_locked(self, line: bytes) -> None:
         self._rotate_if_needed_locked(len(line))
@@ -278,7 +293,9 @@ class JsonlDiagnosticSink:
                             continue
             return records
 
-    def export_bundle(self, output_dir: PathLike, bundle_name: str = "browser-diagnostics-export.zip") -> Path:
+    def export_bundle(
+        self, output_dir: PathLike, bundle_name: str = "browser-diagnostics-export.zip"
+    ) -> Path:
         if not isinstance(bundle_name, str) or not _EXPORT_RE.fullmatch(bundle_name):
             raise UnsafeLogPath("bundle_name must be a plain safe .zip filename")
         destination_dir = Path(output_dir)
@@ -288,7 +305,10 @@ class JsonlDiagnosticSink:
             raise UnsafeLogPath("refusing to overwrite export bundle")
         events = self.read_validated_events()
         jsonl = b"".join(
-            json.dumps(event, ensure_ascii=True, separators=(",", ":"), sort_keys=True).encode("ascii") + b"\n"
+            json.dumps(event, ensure_ascii=True, separators=(",", ":"), sort_keys=True).encode(
+                "ascii"
+            )
+            + b"\n"
             for event in events
         )
         manifest = json.dumps(

@@ -2,6 +2,7 @@
 
 No browser, Hermes process, installed package, or personal diagnostics are used.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -98,7 +99,7 @@ class DiagnosticsDaemonIntegrationTests(unittest.TestCase):
             "activeMode": "full",
             "modeGeneration": 1,
             "allowedOrigins": ["https://example.com"],
-                        "tabIds": [7],
+            "tabIds": [7],
             "agentTabIds": [],
             "requestHistory": [],
             "createdAt": 1.0,
@@ -168,9 +169,11 @@ class DiagnosticsDaemonIntegrationTests(unittest.TestCase):
     def assert_only_activity_changed(self, daemon, before):
         # 中文注释：诊断查询会刷新活动时间；其他任务字段与持久化日志必须保持不变。
         after = self.task_file_snapshot(daemon)
-        self.assertEqual(len(after['tasks']), 1)
-        self.assertGreaterEqual(after['tasks'][0]['lastActivityAt'], before['tasks'][0]['lastActivityAt'])
-        after['tasks'][0]['lastActivityAt'] = before['tasks'][0]['lastActivityAt']
+        self.assertEqual(len(after["tasks"]), 1)
+        self.assertGreaterEqual(
+            after["tasks"][0]["lastActivityAt"], before["tasks"][0]["lastActivityAt"]
+        )
+        after["tasks"][0]["lastActivityAt"] = before["tasks"][0]["lastActivityAt"]
         self.assertEqual(after, before)
 
     def test_route_reads_real_daemon_request_events_with_bounded_pagination(self):
@@ -197,21 +200,36 @@ class DiagnosticsDaemonIntegrationTests(unittest.TestCase):
 
         calls = [params for method, params in self.rpc.calls if method == "shared.diagnostics"]
         self.assertEqual(len(calls), 2)
-        self.assertEqual(calls[0], {
-            "owner": self.owner,
-            "taskId": TASK_ID,
-            "limit": 1,
-            "cursor": 0,
-        })
+        self.assertEqual(
+            calls[0],
+            {
+                "owner": self.owner,
+                "taskId": TASK_ID,
+                "limit": 1,
+                "cursor": 0,
+            },
+        )
         for response in (first, second):
             self.assertNotIn(self.owner, response.text)
             self.assertNotIn("private-request-one", response.text)
             self.assertNotIn("private-request-two", response.text)
             # 中文注释：诊断只增加白名单动作字段，仍严格拒绝多余字段和请求正文。
-            self.assertTrue(all(set(row) == {
-                "timestamp", "component", "event_type", "status", "duration_ms", "error_code", "action"
-            } for row in response.json()["events"]))
-            self.assertTrue(all(row['action'] == 'snapshot' for row in response.json()['events']))
+            self.assertTrue(
+                all(
+                    set(row)
+                    == {
+                        "timestamp",
+                        "component",
+                        "event_type",
+                        "status",
+                        "duration_ms",
+                        "error_code",
+                        "action",
+                    }
+                    for row in response.json()["events"]
+                )
+            )
+            self.assertTrue(all(row["action"] == "snapshot" for row in response.json()["events"]))
         self.assertEqual(self.event_files_snapshot(), before_logs)
         self.assert_only_activity_changed(self.daemon, before_tasks)
 
@@ -227,22 +245,31 @@ class DiagnosticsDaemonIntegrationTests(unittest.TestCase):
         self.assertEqual(len(response.json()["events"]), 1)
         self.assertNotIn(request_hash, response.text)
         self.assertNotIn(request_id, response.text)
-        self.assertEqual(self.rpc.calls[-1], ("shared.diagnostics", {
-            "owner": self.owner,
-            "taskId": TASK_ID,
-            "limit": 50,
-            "cursor": 0,
-            "requestIdHash": request_hash,
-        }))
+        self.assertEqual(
+            self.rpc.calls[-1],
+            (
+                "shared.diagnostics",
+                {
+                    "owner": self.owner,
+                    "taskId": TASK_ID,
+                    "limit": 50,
+                    "cursor": 0,
+                    "requestIdHash": request_hash,
+                },
+            ),
+        )
 
         with self.assertRaises(ProtocolError) as missing_hash:
-            self.daemon._dispatch_client("shared.diagnostics", {
-                "owner": self.owner,
-                "taskId": TASK_ID,
-                "requestIdHash": "f" * 64,
-                "limit": 50,
-                "cursor": 0,
-            })
+            self.daemon._dispatch_client(
+                "shared.diagnostics",
+                {
+                    "owner": self.owner,
+                    "taskId": TASK_ID,
+                    "requestIdHash": "f" * 64,
+                    "limit": 50,
+                    "cursor": 0,
+                },
+            )
         self.assertEqual(missing_hash.exception.code, "not_found")
 
     def test_daemon_rejects_forged_owner_unknown_fields_and_invalid_pagination(self):
@@ -267,9 +294,7 @@ class DiagnosticsDaemonIntegrationTests(unittest.TestCase):
                 self.assertEqual(caught.exception.code, expected_code)
 
         calls_before = list(self.rpc.calls)
-        response = self.client.get(
-            f"{PREFIX}/{TASK_ID}/diagnostics?owner=script-asserted-owner"
-        )
+        response = self.client.get(f"{PREFIX}/{TASK_ID}/diagnostics?owner=script-asserted-owner")
         self.assertEqual(response.status_code, 422)
         self.assertNotIn("script-asserted-owner", response.text)
         self.assertEqual(self.rpc.calls, calls_before)
@@ -279,7 +304,10 @@ class DiagnosticsDaemonIntegrationTests(unittest.TestCase):
         with self.assertRaises(ProtocolError):
             self.run_snapshot(request_id, fail=True, write=True)
         request_hash = hashlib.sha256(request_id.encode("utf-8")).hexdigest()
-        raw_logs = "\n".join(path.read_text(encoding="ascii") for path in self.diagnostic_path().glob("events*.jsonl"))
+        raw_logs = "\n".join(
+            path.read_text(encoding="ascii")
+            for path in self.diagnostic_path().glob("events*.jsonl")
+        )
         self.assertNotIn(request_id, raw_logs)
         self.assertNotIn(SECRET_URL, raw_logs)
         self.assertNotIn(SECRET_ERROR, raw_logs)
@@ -292,7 +320,7 @@ class DiagnosticsDaemonIntegrationTests(unittest.TestCase):
         self.assertEqual(event["status"], "unknown")
         # 中文注释：固定协议错误码保留具体原因，不能退回会丢失原因的通用 TIMEOUT。
         self.assertEqual(event["error_code"], "extension_timeout")
-        self.assertEqual(event['action'], 'click')
+        self.assertEqual(event["action"], "click")
         self.assertNotIn(SECRET_URL, response.text)
         self.assertNotIn(SECRET_ERROR, response.text)
 
@@ -311,7 +339,7 @@ class DiagnosticsDaemonIntegrationTests(unittest.TestCase):
         self.assertEqual(event["status"], "failed")
         # 中文注释：只读超时仍是已知失败；具体码和动作与写入诊断分别核对。
         self.assertEqual(event["error_code"], "extension_timeout")
-        self.assertEqual(event['action'], 'snapshot')
+        self.assertEqual(event["action"], "snapshot")
         self.assertNotIn(SECRET_URL, response.text)
         self.assertNotIn(SECRET_ERROR, response.text)
 
@@ -350,10 +378,13 @@ class DiagnosticsDaemonIntegrationTests(unittest.TestCase):
             "unknownTabIds": [],
         }
 
-        cancelled = self.daemon._dispatch_client("shared.cancel", {
-            "owner": self.owner,
-            "taskId": TASK_ID,
-        })
+        cancelled = self.daemon._dispatch_client(
+            "shared.cancel",
+            {
+                "owner": self.owner,
+                "taskId": TASK_ID,
+            },
+        )
         response = self.client.get(f"{PREFIX}/{TASK_ID}/diagnostics")
 
         self.assertEqual(cancelled["state"], "cancelled")
@@ -370,7 +401,9 @@ class DiagnosticsDaemonIntegrationTests(unittest.TestCase):
             f"{PREFIX}/{TASK_ID}/diagnostics", params={"requestIdHash": request_hash}
         )
         self.assertEqual(filtered.status_code, 200, filtered.text)
-        self.assertEqual([event["event_type"] for event in filtered.json()["events"]], ["request_state"])
+        self.assertEqual(
+            [event["event_type"] for event in filtered.json()["events"]], ["request_state"]
+        )
 
     def test_read_after_daemon_restart_uses_existing_logs_without_writer_recovery(self):
         self.run_snapshot("persisted-request")

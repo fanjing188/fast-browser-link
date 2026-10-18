@@ -22,23 +22,47 @@ _MAX_MESSAGE = 1024 * 1024
 
 def record_exit(data_dir, direction, error):
     """中文注释：只记固定分类，不把 Native 正文或异常内容写入诊断。"""
-    reason = ('peer_closed' if isinstance(error, EOFError) else
-              'parse_failed' if isinstance(error, json.JSONDecodeError) else
-              'message_too_large' if isinstance(error, ValueError) and 'exceeds limit' in str(error) else
-              'frame_rejected' if isinstance(error, ValueError) else
-              'transport_error' if isinstance(error,OSError) else 'unexpected_exception')
+    reason = (
+        "peer_closed"
+        if isinstance(error, EOFError)
+        else "parse_failed"
+        if isinstance(error, json.JSONDecodeError)
+        else "message_too_large"
+        if isinstance(error, ValueError) and "exceeds limit" in str(error)
+        else "frame_rejected"
+        if isinstance(error, ValueError)
+        else "transport_error"
+        if isinstance(error, OSError)
+        else "unexpected_exception"
+    )
     try:
-        directory = data_dir / 'diagnostics'
+        directory = data_dir / "diagnostics"
         if any(path.is_symlink() for path in (directory, *directory.parents)):
             return
         directory.mkdir(mode=0o700, exist_ok=True)
-        fd = os.open(directory / 'host-exits.jsonl', os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW, 0o600)
-        with os.fdopen(fd, 'ab') as stream:
+        fd = os.open(
+            directory / "host-exits.jsonl",
+            os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW,
+            0o600,
+        )
+        with os.fdopen(fd, "ab") as stream:
             fcntl.flock(stream, fcntl.LOCK_EX)
             if os.fstat(stream.fileno()).st_size > 65536:
                 stream.truncate(0)
-            stream.write((json.dumps({'time': time.time(), 'component': 'native_host', 'direction': direction,
-                                      'reason': reason, 'error_type': type(error).__name__}) + '\n').encode())
+            stream.write(
+                (
+                    json.dumps(
+                        {
+                            "time": time.time(),
+                            "component": "native_host",
+                            "direction": direction,
+                            "reason": reason,
+                            "error_type": type(error).__name__,
+                        }
+                    )
+                    + "\n"
+                ).encode()
+            )
     except OSError:
         pass
 
@@ -119,7 +143,7 @@ def _read_json_line(reader) -> Dict[str, Any]:
     if not line:
         raise EOFError
     if len(line) > _MAX_MESSAGE:
-        raise ValueError('bridge frame exceeds limit')
+        raise ValueError("bridge frame exceeds limit")
     if not line.endswith(b"\n"):
         raise ValueError("invalid bridge frame")
     value = json.loads(line)
@@ -176,7 +200,8 @@ def main() -> int:
             while not stopped.is_set():
                 _write_json_line(bridge, read_native_message(native_input), socket_write_lock)
         except Exception as error:
-            if not stopped.is_set():record_exit(data_dir, 'browser_to_daemon', error)
+            if not stopped.is_set():
+                record_exit(data_dir, "browser_to_daemon", error)
         finally:
             stopped.set()
             try:
@@ -187,9 +212,12 @@ def main() -> int:
     def bridge_to_native() -> None:
         try:
             while not stopped.is_set():
-                write_native_message(native_output, _read_json_line(bridge_reader), native_write_lock)
+                write_native_message(
+                    native_output, _read_json_line(bridge_reader), native_write_lock
+                )
         except Exception as error:
-            if not stopped.is_set():record_exit(data_dir, 'daemon_to_browser', error)
+            if not stopped.is_set():
+                record_exit(data_dir, "daemon_to_browser", error)
         finally:
             stopped.set()
 
@@ -205,7 +233,11 @@ def main() -> int:
             input_thread.start()
             output_thread.start()
             try:
-                _write_json_line(bridge, {"role": "extension", "token": token, "origin": origin}, socket_write_lock)
+                _write_json_line(
+                    bridge,
+                    {"role": "extension", "token": token, "origin": origin},
+                    socket_write_lock,
+                )
             except OSError:
                 stopped.set()
         stopped.wait()

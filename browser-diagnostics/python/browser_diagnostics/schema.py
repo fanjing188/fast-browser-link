@@ -24,8 +24,53 @@ ALLOWED_EVENT_KEYS = frozenset(
     }
 )
 # 中文注释：与扩展共用固定枚举，拒绝内容字段。
-_ACTIONS = (None, 'tabs', 'new_tab', 'navigate', 'snapshot', 'click', 'fill', 'press', 'screenshot', 'page.parse', 'semantic_snapshot', 'frame_catalog', 'ref_click', 'ref_fill', 'ref_press', 'ref_set_checked', 'ref_select_option', 'files.upload', 'interaction.capture', 'interaction.bounds', 'interaction.click', 'interaction.drag_coordinates', 'interaction.drag_elements', 'official.ready_state', 'official.goto_url', 'official.new_tab', 'scroll', 'back', 'js.evaluate', 'cdp.send', 'cdp.events', 'network.inspect', 'images', 'console', 'dialog')
-_STAGES = (None, 'queue_wait', 'settle_wait', 'overlay', 'target_settle', 'highlight', 'dispatch', 'post_check')
+_ACTIONS = (
+    None,
+    "tabs",
+    "new_tab",
+    "navigate",
+    "snapshot",
+    "click",
+    "fill",
+    "press",
+    "screenshot",
+    "page.parse",
+    "semantic_snapshot",
+    "frame_catalog",
+    "ref_click",
+    "ref_fill",
+    "ref_press",
+    "ref_set_checked",
+    "ref_select_option",
+    "files.upload",
+    "interaction.capture",
+    "interaction.bounds",
+    "interaction.click",
+    "interaction.drag_coordinates",
+    "interaction.drag_elements",
+    "official.ready_state",
+    "official.goto_url",
+    "official.new_tab",
+    "scroll",
+    "back",
+    "js.evaluate",
+    "cdp.send",
+    "cdp.events",
+    "network.inspect",
+    "images",
+    "console",
+    "dialog",
+)
+_STAGES = (
+    None,
+    "queue_wait",
+    "settle_wait",
+    "overlay",
+    "target_settle",
+    "highlight",
+    "dispatch",
+    "post_check",
+)
 _COMPONENTS = frozenset({"native_bridge", "mv3_background", "mv3_content", "diagnostics"})
 _EVENT_TYPES = frozenset(
     {
@@ -120,7 +165,10 @@ def validate_event(event: Mapping[str, Any]) -> Dict[str, Any]:
 
     error_code = event["error_code"]
     # 中文注释：协议错误保留具体小写码；固定长度与字符集阻止异常文字进入诊断。
-    if error_code is not None and not (isinstance(error_code, str) and (error_code in _ERROR_CODES or re.fullmatch(r'[a-z][a-z0-9_]{0,63}', error_code))):
+    if error_code is not None and not (
+        isinstance(error_code, str)
+        and (error_code in _ERROR_CODES or re.fullmatch(r"[a-z][a-z0-9_]{0,63}", error_code))
+    ):
         raise UnsafeDiagnosticField("error_code is not allowlisted")
 
     if event["action"] not in _ACTIONS or event["stage"] not in _STAGES:

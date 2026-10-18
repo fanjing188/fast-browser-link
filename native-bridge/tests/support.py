@@ -23,15 +23,15 @@ def temporary_bridge_home():
     root = Path(tempfile.gettempdir()).resolve()
     for _ in range(100):
         home = root / uuid.uuid4().hex[:3]
-        if len(os.fsencode(home / 'plugin-data/fast-browser-link-native/bridge.sock')) > 103:
-            raise ValueError('TMPDIR is too long for a fixture bridge socket')
+        if len(os.fsencode(home / "plugin-data/fast-browser-link-native/bridge.sock")) > 103:
+            raise ValueError("TMPDIR is too long for a fixture bridge socket")
         try:
             home.mkdir(mode=0o700)
             break
         except FileExistsError:
             continue
     else:
-        raise RuntimeError('could not allocate a private fixture home')
+        raise RuntimeError("could not allocate a private fixture home")
     try:
         yield home
     finally:
@@ -56,12 +56,19 @@ def stop_fixture_daemon(home: Path, extra_daemons=()):
         return
     raw = pid_path.read_text(encoding="ascii").strip()
     pid = int(raw)
-    command = subprocess.run(["ps", "-p", str(pid), "-o", "command="], capture_output=True, text=True)
-    candidates = (Path(__file__).resolve().parents[1] / "daemon.py",
-                  Path(home) / "plugins/fast-browser-link/native_bridge/daemon.py",
-                  data_dir / "host-bin/daemon.py", *map(Path, extra_daemons))
-    expected = any(command.stdout.strip().endswith(f" {candidate} --home {Path(home).resolve()}")
-                   for candidate in candidates)
+    command = subprocess.run(
+        ["ps", "-p", str(pid), "-o", "command="], capture_output=True, text=True
+    )
+    candidates = (
+        Path(__file__).resolve().parents[1] / "daemon.py",
+        Path(home) / "plugins/fast-browser-link/native_bridge/daemon.py",
+        data_dir / "host-bin/daemon.py",
+        *map(Path, extra_daemons),
+    )
+    expected = any(
+        command.stdout.strip().endswith(f" {candidate} --home {Path(home).resolve()}")
+        for candidate in candidates
+    )
     # 中文注释：PID 文件只含数字；认证探活和完整启动命令均匹配后才允许清理临时 daemon。
     if command.returncode != 0 or not expected or not _probe(Path(home)):
         raise RuntimeError("refusing to stop unverified fixture daemon")
@@ -87,7 +94,11 @@ class ExtensionPeer:
         self.write_lock = threading.Lock()
         token = (data_dir / "token").read_text().strip()
         self.send({"role": "extension", "token": token, "origin": "chrome-extension://test/"})
-        hello_params: dict[str, Any] = {"instanceId": instance_id, "browser": browser, "version": "0.1.0"}
+        hello_params: dict[str, Any] = {
+            "instanceId": instance_id,
+            "browser": browser,
+            "version": "0.1.0",
+        }
         if capabilities is not None:
             hello_params["capabilities"] = dict(capabilities)
         result = self.request("extension.hello", hello_params)

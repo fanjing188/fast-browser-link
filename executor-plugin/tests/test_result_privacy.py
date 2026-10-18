@@ -3,6 +3,7 @@
 This boundary is structured-data minimization, NOT arbitrary-text/image DLP.
 Unlabelled secrets in page prose, URLs or pixels require producer-side controls.
 """
+
 import importlib.util
 import json
 import sys
@@ -11,13 +12,13 @@ from pathlib import Path
 from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
-CANARY = 'SYNTHETIC_CREDENTIAL_CANARY'
+CANARY = "SYNTHETIC_CREDENTIAL_CANARY"
 
 
 def load(name):
-    key = 'privacy_test_' + name
+    key = "privacy_test_" + name
     if key not in sys.modules:
-        spec = importlib.util.spec_from_file_location(key, ROOT / (name + '.py'))
+        spec = importlib.util.spec_from_file_location(key, ROOT / (name + ".py"))
         module = importlib.util.module_from_spec(spec)
         sys.modules[key] = module
         spec.loader.exec_module(module)
@@ -26,568 +27,1208 @@ def load(name):
 
 class ResultPrivacyTests(unittest.TestCase):
     def test_semantic_wire_invalid_params_keeps_bridge_code_and_gives_model_field_hint(self):
-        module=load('native_tools')
-        error=RuntimeError(CANARY)
-        error.code='invalid_params'
-        error.data={'outcomeUnknown':False,'fields':['sections',CANARY,{}]}
-        profile=SimpleNamespace(authority=SimpleNamespace(consume=lambda *a,**kw:SimpleNamespace(owner='tool:synthetic',tool_call_id='call-1')),
-            call=lambda *a,**kw:(_ for _ in ()).throw(error))
-        handler=module.make_tool_handler('fast_browser_run',profile)
-        output=json.loads(handler({'task_id':'t','tab_id':1,'action':'semantic_snapshot','options':{'mode':'content'}},session_id='test'))
-        self.assertEqual(output['bridgeCode'],'invalid_params')
-        self.assertEqual(output['code'],'invalid_semantic_options')
-        self.assertEqual(output['fields'],['sections'])
-        self.assertIn('page.parse',output['error'])
-        self.assertFalse(output['outcome_unknown'])
-        self.assertNotIn(CANARY,json.dumps(output))
-        other=json.loads(handler({'task_id':'t','tab_id':1,'action':'snapshot'},session_id='test'))
-        self.assertNotEqual(other['code'],'invalid_semantic_options')
-        self.assertNotIn('fields',other)
+        module = load("native_tools")
+        error = RuntimeError(CANARY)
+        error.code = "invalid_params"
+        error.data = {"outcomeUnknown": False, "fields": ["sections", CANARY, {}]}
+        profile = SimpleNamespace(
+            authority=SimpleNamespace(
+                consume=lambda *a, **kw: SimpleNamespace(
+                    owner="tool:synthetic", tool_call_id="call-1"
+                )
+            ),
+            call=lambda *a, **kw: (_ for _ in ()).throw(error),
+        )
+        handler = module.make_tool_handler("fast_browser_run", profile)
+        output = json.loads(
+            handler(
+                {
+                    "task_id": "t",
+                    "tab_id": 1,
+                    "action": "semantic_snapshot",
+                    "options": {"mode": "content"},
+                },
+                session_id="test",
+            )
+        )
+        self.assertEqual(output["bridgeCode"], "invalid_params")
+        self.assertEqual(output["code"], "invalid_semantic_options")
+        self.assertEqual(output["fields"], ["sections"])
+        self.assertIn("page.parse", output["error"])
+        self.assertFalse(output["outcome_unknown"])
+        self.assertNotIn(CANARY, json.dumps(output))
+        other = json.loads(
+            handler({"task_id": "t", "tab_id": 1, "action": "snapshot"}, session_id="test")
+        )
+        self.assertNotEqual(other["code"], "invalid_semantic_options")
+        self.assertNotIn("fields", other)
 
     def test_connection_popup_description_adopts_non_provider_without_confirmation(self):
-        description=load('native_tools').TOOL_SCHEMAS['fast_browser_run']['description']
-        self.assertIn('smart/full',description)
-        self.assertIn('白名单外',description)
-        self.assertIn('白名单外及已发现的现有登录弹窗同样无需确认',description)
-        self.assertIn('popup_adopt 直接接管',description)
-        self.assertNotIn('全部访问也必须明确确认',description)
-        self.assertNotIn('非 smart 模式',description)
+        description = load("native_tools").TOOL_SCHEMAS["fast_browser_run"]["description"]
+        self.assertIn("smart/full", description)
+        self.assertIn("白名单外", description)
+        self.assertIn("白名单外及已发现的现有登录弹窗同样无需确认", description)
+        self.assertIn("popup_adopt 直接接管", description)
+        self.assertNotIn("全部访问也必须明确确认", description)
+        self.assertNotIn("非 smart 模式", description)
 
     def test_semantic_parse_options_report_exact_fields_without_rpc_or_values(self):
-        output,calls=self.invoke(True,'run',{'task_id':'t','tab_id':1,'action':'semantic_snapshot',
-            'options':{'mode':'content','sections':['blocks'],'composed':True}}, {})
-        self.assertEqual(output['code'],'invalid_semantic_options')
-        self.assertEqual(output['fields'],['sections'])
-        self.assertIn('page.parse',output['error'])
-        self.assertEqual(calls,[])
-        self.assertFalse(output['outcome_unknown'])
-        parsed,calls=self.invoke(True,'run',{'task_id':'t','tab_id':1,'action':'page.parse',
-            'options':{'sections':['blocks'],'composed':True}}, {})
-        self.assertNotIn('error',parsed)
+        output, calls = self.invoke(
+            True,
+            "run",
+            {
+                "task_id": "t",
+                "tab_id": 1,
+                "action": "semantic_snapshot",
+                "options": {"mode": "content", "sections": ["blocks"], "composed": True},
+            },
+            {},
+        )
+        self.assertEqual(output["code"], "invalid_semantic_options")
+        self.assertEqual(output["fields"], ["sections"])
+        self.assertIn("page.parse", output["error"])
+        self.assertEqual(calls, [])
+        self.assertFalse(output["outcome_unknown"])
+        parsed, calls = self.invoke(
+            True,
+            "run",
+            {
+                "task_id": "t",
+                "tab_id": 1,
+                "action": "page.parse",
+                "options": {"sections": ["blocks"], "composed": True},
+            },
+            {},
+        )
+        self.assertNotIn("error", parsed)
         self.assertTrue(calls)
-        schema=load('native_tools').TOOL_SCHEMAS['fast_browser_run']['parameters']
-        rule=next(row for row in schema['allOf'] if row.get('if',{}).get('properties',{}).get('action',{}).get('const')=='semantic_snapshot')
-        self.assertNotIn('sections',rule['then']['properties']['options']['properties'])
+        schema = load("native_tools").TOOL_SCHEMAS["fast_browser_run"]["parameters"]
+        rule = next(
+            row
+            for row in schema["allOf"]
+            if row.get("if", {}).get("properties", {}).get("action", {}).get("const")
+            == "semantic_snapshot"
+        )
+        self.assertNotIn("sections", rule["then"]["properties"]["options"]["properties"])
 
     def test_click_navigation_receipt_survives_without_extra_page_content(self):
-        raw = {'clicked': True, 'delivery': 'confirmed', 'navigation': {'kind': 'document', 'origin': 'https://fixture.test', 'private': CANARY},
-               'postCheck': {'status': 'new_read_required', 'private': CANARY}, 'private': CANARY}
-        output, _ = self.invoke(True, 'run', {'action': 'ref_click', 'task_id': 't', 'tab_id': 1,
-            'binding': {'taskId': 't', 'documentId': 'd', 'leaseId': 'l'}, 'snapshot_id': 's', 'ref': 'r'}, raw)
-        self.assertEqual(output['navigation'], {'kind': 'document', 'origin': 'https://fixture.test'})
-        self.assertEqual(output['postCheck'], {'status': 'new_read_required'})
+        raw = {
+            "clicked": True,
+            "delivery": "confirmed",
+            "navigation": {"kind": "document", "origin": "https://fixture.test", "private": CANARY},
+            "postCheck": {"status": "new_read_required", "private": CANARY},
+            "private": CANARY,
+        }
+        output, _ = self.invoke(
+            True,
+            "run",
+            {
+                "action": "ref_click",
+                "task_id": "t",
+                "tab_id": 1,
+                "binding": {"taskId": "t", "documentId": "d", "leaseId": "l"},
+                "snapshot_id": "s",
+                "ref": "r",
+            },
+            raw,
+        )
+        self.assertEqual(
+            output["navigation"], {"kind": "document", "origin": "https://fixture.test"}
+        )
+        self.assertEqual(output["postCheck"], {"status": "new_read_required"})
         self.assertNotIn(CANARY, json.dumps(output))
 
     def test_confirmed_click_protection_rejection_keeps_fact_without_page_data(self):
-        spec = importlib.util.spec_from_file_location('receipt_bridge_client', ROOT.parent / 'native-bridge/client.py')
+        spec = importlib.util.spec_from_file_location(
+            "receipt_bridge_client", ROOT.parent / "native-bridge/client.py"
+        )
         client = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(client)
-        error = client.BridgeError('content_shield_stale', CANARY, {'outcomeUnknown': False, 'actionConfirmed': True, 'private': CANARY})
-        module = load('native_tools')
-        profile = SimpleNamespace(authority=SimpleNamespace(consume=lambda *a, **kw: SimpleNamespace(owner='tool:synthetic', tool_call_id='c')),
-            call=lambda *a, **kw: (_ for _ in ()).throw(error))
-        result = json.loads(module.make_tool_handler('fast_browser_run', profile)({'task_id': 't', 'tab_id': 1, 'action': 'ref_click',
-            'binding': {'taskId': 't', 'documentId': 'd', 'leaseId': 'l'}, 'snapshot_id': 's', 'ref': 'r'}, session_id='test'))
-        self.assertEqual(result['code'], 'content_shield_stale'); self.assertIs(result['action_confirmed'], True)
-        self.assertIs(result['outcome_unknown'], False); self.assertIs(result['retryable'], False)
+        error = client.BridgeError(
+            "content_shield_stale",
+            CANARY,
+            {"outcomeUnknown": False, "actionConfirmed": True, "private": CANARY},
+        )
+        module = load("native_tools")
+        profile = SimpleNamespace(
+            authority=SimpleNamespace(
+                consume=lambda *a, **kw: SimpleNamespace(owner="tool:synthetic", tool_call_id="c")
+            ),
+            call=lambda *a, **kw: (_ for _ in ()).throw(error),
+        )
+        result = json.loads(
+            module.make_tool_handler("fast_browser_run", profile)(
+                {
+                    "task_id": "t",
+                    "tab_id": 1,
+                    "action": "ref_click",
+                    "binding": {"taskId": "t", "documentId": "d", "leaseId": "l"},
+                    "snapshot_id": "s",
+                    "ref": "r",
+                },
+                session_id="test",
+            )
+        )
+        self.assertEqual(result["code"], "content_shield_stale")
+        self.assertIs(result["action_confirmed"], True)
+        self.assertIs(result["outcome_unknown"], False)
+        self.assertIs(result["retryable"], False)
         self.assertNotIn(CANARY, json.dumps(result))
 
     def test_partial_delivery_result_becomes_explicit_unknown_error_without_replay(self):
-        output, calls = self.invoke(True, 'run', {'action': 'ref_click', 'task_id': 't', 'tab_id': 1,
-            'binding': {'taskId': 't', 'documentId': 'd', 'leaseId': 'l'}, 'snapshot_id': 's', 'ref': 'r'},
-            {'clicked': False, 'delivery': 'partial', 'outcomeUnknown': True, 'private': CANARY})
-        self.assertEqual(output['code'], 'operation_outcome_unknown')
-        self.assertIs(output['outcome_unknown'], True); self.assertIs(output['retryable'], False)
-        self.assertNotIn(CANARY, json.dumps(output)); self.assertEqual(len(calls), 1)
+        output, calls = self.invoke(
+            True,
+            "run",
+            {
+                "action": "ref_click",
+                "task_id": "t",
+                "tab_id": 1,
+                "binding": {"taskId": "t", "documentId": "d", "leaseId": "l"},
+                "snapshot_id": "s",
+                "ref": "r",
+            },
+            {"clicked": False, "delivery": "partial", "outcomeUnknown": True, "private": CANARY},
+        )
+        self.assertEqual(output["code"], "operation_outcome_unknown")
+        self.assertIs(output["outcome_unknown"], True)
+        self.assertIs(output["retryable"], False)
+        self.assertNotIn(CANARY, json.dumps(output))
+        self.assertEqual(len(calls), 1)
 
     def test_cookie_mirror_metadata_tool_projection_and_fixed_errors(self):
         # 中文注释：恶意附加值、载荷、错误文本和原因字段不能越过新工具结果边界。
-        secret = '_'.join(('SECRET', 'COOKIE', 'VALUE', 'xyz'))
-        raw = {'status': 'completed', 'count': 1, 'success': 1, 'failed': 0, 'matched': 1, 'missing': 0,
-            'cookies': [secret], 'cookie': secret, 'value': secret, 'errorText': secret,
-            'source': secret, 'target': secret, 'transferId': secret,
-            'sites': [{'site': 'example.com', 'count': 1, 'cookie': secret, 'value': secret,
-                       'reasons': {secret: 1, 'write_failed': 0}}, {'site': secret, 'count': secret}]}
-        for action, args in [('list_sites', {'source': 's'}), ('request_mirror', {'source': 's', 'target': 't', 'sites': ['example.com']}),
-                             ('status', {'transfer_id': 'a' * 32})]:
-            output, calls = self.invoke(True, 'cookie_mirror', {'action': action, **args}, raw)
+        secret = "_".join(("SECRET", "COOKIE", "VALUE", "xyz"))
+        raw = {
+            "status": "completed",
+            "count": 1,
+            "success": 1,
+            "failed": 0,
+            "matched": 1,
+            "missing": 0,
+            "cookies": [secret],
+            "cookie": secret,
+            "value": secret,
+            "errorText": secret,
+            "source": secret,
+            "target": secret,
+            "transferId": secret,
+            "sites": [
+                {
+                    "site": "example.com",
+                    "count": 1,
+                    "cookie": secret,
+                    "value": secret,
+                    "reasons": {secret: 1, "write_failed": 0},
+                },
+                {"site": secret, "count": secret},
+            ],
+        }
+        for action, args in [
+            ("list_sites", {"source": "s"}),
+            ("request_mirror", {"source": "s", "target": "t", "sites": ["example.com"]}),
+            ("status", {"transfer_id": "a" * 32}),
+        ]:
+            output, calls = self.invoke(True, "cookie_mirror", {"action": action, **args}, raw)
             self.assertNotIn(secret, json.dumps(output))
-            self.assertEqual(calls[0][0], 'browser.cookie_mirror')
-        module = load('native_tools')
+            self.assertEqual(calls[0][0], "browser.cookie_mirror")
+        module = load("native_tools")
         error = RuntimeError(secret)
-        error.code = 'cookie_mirror_denied'
-        error.data = {'cookie': secret}
-        profile = SimpleNamespace(authority=SimpleNamespace(consume=lambda *a, **k: SimpleNamespace(owner='o', tool_call_id='c')),
-                                  call=lambda *a: (_ for _ in ()).throw(error))
-        result = module.make_tool_handler('fast_browser_cookie_mirror', profile)({'action': 'list_sites', 'source': 's'})
+        error.code = "cookie_mirror_denied"
+        error.data = {"cookie": secret}
+        profile = SimpleNamespace(
+            authority=SimpleNamespace(
+                consume=lambda *a, **k: SimpleNamespace(owner="o", tool_call_id="c")
+            ),
+            call=lambda *a: (_ for _ in ()).throw(error),
+        )
+        result = module.make_tool_handler("fast_browser_cookie_mirror", profile)(
+            {"action": "list_sites", "source": "s"}
+        )
         self.assertNotIn(secret, result)
-        self.assertIn('cookie_mirror_denied', result)
+        self.assertIn("cookie_mirror_denied", result)
 
     def test_upload_readback_exposes_names_but_not_local_paths(self):
         # 中文注释：只公开浏览器文件输入读回的文件名，不公开任务私有副本路径。
-        projected = load('runtime')._project_tool_result('fast_browser_run', {'action': 'files.upload'},
-            {'selectedCount': 1, 'selectedFiles': ['logo.png'], 'selectionState': 'applied',
-             'localPath': '/private/task/secret/logo.png'})
-        self.assertEqual(projected['selectedFiles'], ['logo.png'])
-        self.assertNotIn('localPath', projected)
+        projected = load("runtime")._project_tool_result(
+            "fast_browser_run",
+            {"action": "files.upload"},
+            {
+                "selectedCount": 1,
+                "selectedFiles": ["logo.png"],
+                "selectionState": "applied",
+                "localPath": "/private/task/secret/logo.png",
+            },
+        )
+        self.assertEqual(projected["selectedFiles"], ["logo.png"])
+        self.assertNotIn("localPath", projected)
 
     def test_complex_ui_fields_reach_public_tool_without_sensitive_values(self):
         # 中文注释：合成扩展回执穿过公共工具投影，逐字段检查且拒绝输入值和额外属性。
-        semantic = {'version': 2, 'snapshotId': 's', 'binding': {'taskId': 't', 'documentId': 'd', 'leaseId': 'l'},
-                    'items': [{'ref': 'r', 'role': 'button', 'name': '保存', 'inferred': True,
-                               'value': CANARY, 'attributes': {'title': CANARY}}],
-                    'coverage': {'unsupportedCanvas': 1, 'complete': True, 'pageError': CANARY}}
-        result, _ = self.invoke(True, 'run', {'task_id': 't', 'tab_id': 1, 'action': 'semantic_snapshot'}, semantic)
-        self.assertIs(result['items'][0]['inferred'], True)
-        self.assertEqual(result['coverage']['unsupportedCanvas'], 1)
+        semantic = {
+            "version": 2,
+            "snapshotId": "s",
+            "binding": {"taskId": "t", "documentId": "d", "leaseId": "l"},
+            "items": [
+                {
+                    "ref": "r",
+                    "role": "button",
+                    "name": "保存",
+                    "inferred": True,
+                    "value": CANARY,
+                    "attributes": {"title": CANARY},
+                }
+            ],
+            "coverage": {"unsupportedCanvas": 1, "complete": True, "pageError": CANARY},
+        }
+        result, _ = self.invoke(
+            True, "run", {"task_id": "t", "tab_id": 1, "action": "semantic_snapshot"}, semantic
+        )
+        self.assertIs(result["items"][0]["inferred"], True)
+        self.assertEqual(result["coverage"]["unsupportedCanvas"], 1)
         self.assertNotIn(CANARY, json.dumps(result))
-        for action in ('ref_click', 'ref_fill', 'ref_press', 'ref_set_checked', 'ref_select_option'):
+        for action in (
+            "ref_click",
+            "ref_fill",
+            "ref_press",
+            "ref_set_checked",
+            "ref_select_option",
+        ):
             with self.subTest(action=action):
-                projected = load('runtime')._project_tool_result('fast_browser_run', {'action': action},
-                                                                {'relocated': True, 'value': CANARY})
-                self.assertEqual(projected, {'relocated': True})
+                projected = load("runtime")._project_tool_result(
+                    "fast_browser_run", {"action": action}, {"relocated": True, "value": CANARY}
+                )
+                self.assertEqual(projected, {"relocated": True})
 
     # 中文注释：新字段通过公共投影，嵌套 value、属性及 AX 原始节点仍全部丢弃。
     def test_semantic_context_states_and_ax_coverage_survive_closed_projection(self):
-        semantic = {'version': 2, 'snapshotId': 's', 'binding': {'taskId': 't', 'documentId': 'd', 'leaseId': 'l'},
-                    'items': [{'ref': 'r', 'role': 'button', 'name': '保存', 'nameSource': 'accessibility',
-                               'expanded': False, 'selected': True, 'required': True, 'parentRef': 'row', 'actions': ['click', CANARY, {'value': CANARY}, 'press', 'click'],
-                               'context': [{'ref': 'row', 'role': 'row', 'name': '设备', 'index': 51, 'value': CANARY}],
-                               'value': CANARY, 'axNodes': [CANARY]}],
-                    'coverage': {'complete': False, 'axDiscoveryComplete': True, 'axEnriched': 1, 'axOmitted': 1},
-                    'contentFilter': {'enabled': True, 'unreadFrames': 1}}
-        result, _ = self.invoke(True, 'run', {'task_id': 't', 'tab_id': 1, 'action': 'semantic_snapshot'}, semantic)
-        self.assertEqual(result['items'][0]['nameSource'], 'accessibility')
-        self.assertEqual(result['items'][0]['actions'], ['click', 'press'])
-        self.assertFalse(result['items'][0]['expanded'])
-        self.assertEqual(result['items'][0]['context'][0]['index'], 51)
-        self.assertEqual(result['coverage']['axEnriched'], 1)
-        self.assertEqual(result['contentFilter']['unreadFrames'], 1)
+        semantic = {
+            "version": 2,
+            "snapshotId": "s",
+            "binding": {"taskId": "t", "documentId": "d", "leaseId": "l"},
+            "items": [
+                {
+                    "ref": "r",
+                    "role": "button",
+                    "name": "保存",
+                    "nameSource": "accessibility",
+                    "expanded": False,
+                    "selected": True,
+                    "required": True,
+                    "parentRef": "row",
+                    "actions": ["click", CANARY, {"value": CANARY}, "press", "click"],
+                    "context": [
+                        {"ref": "row", "role": "row", "name": "设备", "index": 51, "value": CANARY}
+                    ],
+                    "value": CANARY,
+                    "axNodes": [CANARY],
+                }
+            ],
+            "coverage": {
+                "complete": False,
+                "axDiscoveryComplete": True,
+                "axEnriched": 1,
+                "axOmitted": 1,
+            },
+            "contentFilter": {"enabled": True, "unreadFrames": 1},
+        }
+        result, _ = self.invoke(
+            True, "run", {"task_id": "t", "tab_id": 1, "action": "semantic_snapshot"}, semantic
+        )
+        self.assertEqual(result["items"][0]["nameSource"], "accessibility")
+        self.assertEqual(result["items"][0]["actions"], ["click", "press"])
+        self.assertFalse(result["items"][0]["expanded"])
+        self.assertEqual(result["items"][0]["context"][0]["index"], 51)
+        self.assertEqual(result["coverage"]["axEnriched"], 1)
+        self.assertEqual(result["contentFilter"]["unreadFrames"], 1)
         self.assertNotIn(CANARY, json.dumps(result))
 
     def test_r10_frame_and_restriction_diagnostics_survive_closed_projection(self):
-        page = {'items': [], 'coverage': {'complete': False, 'coveredScopeComplete': True},
-                'skippedFrames': [{'origin': 'https://frame.test', 'x': 500, 'y': 500,
-                                   'width': 2, 'height': 2, 'body': CANARY}],
-                'contentFilter': {'enabled': True, 'notice': '这是页面声明',
-                                  'restrictionMatches': [{'rule': 1, 'location': 'p', 'length': 30, 'text': CANARY}]}}
-        result, _ = self.invoke(True, 'run', {'task_id': 't', 'tab_id': 1, 'action': 'semantic_snapshot'}, page)
-        self.assertTrue(result['coverage']['coveredScopeComplete'])
-        self.assertEqual(result['skippedFrames'][0]['origin'], 'https://frame.test')
-        self.assertEqual(result['contentFilter']['restrictionMatches'][0]['location'], 'p')
+        page = {
+            "items": [],
+            "coverage": {"complete": False, "coveredScopeComplete": True},
+            "skippedFrames": [
+                {
+                    "origin": "https://frame.test",
+                    "x": 500,
+                    "y": 500,
+                    "width": 2,
+                    "height": 2,
+                    "body": CANARY,
+                }
+            ],
+            "contentFilter": {
+                "enabled": True,
+                "notice": "这是页面声明",
+                "restrictionMatches": [{"rule": 1, "location": "p", "length": 30, "text": CANARY}],
+            },
+        }
+        result, _ = self.invoke(
+            True, "run", {"task_id": "t", "tab_id": 1, "action": "semantic_snapshot"}, page
+        )
+        self.assertTrue(result["coverage"]["coveredScopeComplete"])
+        self.assertEqual(result["skippedFrames"][0]["origin"], "https://frame.test")
+        self.assertEqual(result["contentFilter"]["restrictionMatches"][0]["location"], "p")
         self.assertNotIn(CANARY, json.dumps(result))
 
     def test_login_fields_and_surfaces_survive_without_values(self):
         # 中文注释：用途和浮层归属穿过公共投影，任意字段值和原始属性仍拒绝。
-        field = {'ref': 'r', 'role': 'textbox', 'name': '密码', 'inputType': 'password',
-                 'fieldKind': 'password', 'inputRequired': 'vault_or_user', 'actions': [],
-                 'value': CANARY, 'autocomplete': CANARY,
-                 'context': [{'ref': 'layer', 'role': 'dialog', 'name': '登录', 'surfaceKind': 'modal', 'value': CANARY}]}
-        output, _ = self.invoke(True, 'run', {'task_id': 't', 'tab_id': 1, 'action': 'semantic_snapshot'}, {'items': [field]})
-        self.assertEqual(output['items'][0]['fieldKind'], 'password')
-        self.assertEqual(output['items'][0]['context'][0]['surfaceKind'], 'modal')
+        field = {
+            "ref": "r",
+            "role": "textbox",
+            "name": "密码",
+            "inputType": "password",
+            "fieldKind": "password",
+            "inputRequired": "vault_or_user",
+            "actions": [],
+            "value": CANARY,
+            "autocomplete": CANARY,
+            "context": [
+                {
+                    "ref": "layer",
+                    "role": "dialog",
+                    "name": "登录",
+                    "surfaceKind": "modal",
+                    "value": CANARY,
+                }
+            ],
+        }
+        output, _ = self.invoke(
+            True,
+            "run",
+            {"task_id": "t", "tab_id": 1, "action": "semantic_snapshot"},
+            {"items": [field]},
+        )
+        self.assertEqual(output["items"][0]["fieldKind"], "password")
+        self.assertEqual(output["items"][0]["context"][0]["surfaceKind"], "modal")
         self.assertNotIn(CANARY, json.dumps(output))
-        parsed = {'regions': [{'sourceRef': 'layer', 'surfaceKind': 'floating', 'value': CANARY}],
-                  'forms': [{**field, 'sourceRef': 'field', 'surfaceRef': 'layer'}]}
-        output, _ = self.invoke(True, 'run', {'task_id': 't', 'tab_id': 1, 'action': 'page.parse'}, parsed)
-        self.assertEqual(output['regions'][0]['surfaceKind'], 'floating')
-        self.assertEqual(output['forms'][0]['surfaceRef'], 'layer')
-        self.assertEqual(output['forms'][0]['inputRequired'], 'vault_or_user')
-        self.assertEqual(output['forms'][0]['actions'], [])
+        parsed = {
+            "regions": [{"sourceRef": "layer", "surfaceKind": "floating", "value": CANARY}],
+            "forms": [{**field, "sourceRef": "field", "surfaceRef": "layer"}],
+        }
+        output, _ = self.invoke(
+            True, "run", {"task_id": "t", "tab_id": 1, "action": "page.parse"}, parsed
+        )
+        self.assertEqual(output["regions"][0]["surfaceKind"], "floating")
+        self.assertEqual(output["forms"][0]["surfaceRef"], "layer")
+        self.assertEqual(output["forms"][0]["inputRequired"], "vault_or_user")
+        self.assertEqual(output["forms"][0]["actions"], [])
         self.assertNotIn(CANARY, json.dumps(output))
 
     def test_click_continuity_keeps_identity_but_excludes_url_and_approval_data(self):
-        opened = {'candidateRef': 'ref', 'origin': 'https://accounts.google.com', 'windowType': 'normal',
-                  'tabId': 2, 'url': CANARY, 'approval': CANARY}
-        arguments = {'click': {'selector': '#login'},
-                     'ref_click': {'binding': {'taskId': 't', 'documentId': 'd', 'leaseId': 'l'}, 'snapshot_id': 's', 'ref': 'r'},
-                     'interaction.click': {'screenshot_id': 's', 'point': {'x': 1, 'y': 2}, 'expected_ref': 'r'}}
+        opened = {
+            "candidateRef": "ref",
+            "origin": "https://accounts.google.com",
+            "windowType": "normal",
+            "tabId": 2,
+            "url": CANARY,
+            "approval": CANARY,
+        }
+        arguments = {
+            "click": {"selector": "#login"},
+            "ref_click": {
+                "binding": {"taskId": "t", "documentId": "d", "leaseId": "l"},
+                "snapshot_id": "s",
+                "ref": "r",
+            },
+            "interaction.click": {
+                "screenshot_id": "s",
+                "point": {"x": 1, "y": 2},
+                "expected_ref": "r",
+            },
+        }
         for action, fields in arguments.items():
-            output, _ = self.invoke(True, 'run', {'task_id': 't', 'tab_id': 1, 'action': action, **fields},
-                {'clicked': True, 'popupOpened': opened, 'popupNextStep': '选择登录页', 'popupClosed': {'returnedTo': 1}})
-            self.assertEqual(output['popupOpened']['tabId'], 2)
-            self.assertEqual(output['popupClosed'], {'returnedTo': 1})
+            output, _ = self.invoke(
+                True,
+                "run",
+                {"task_id": "t", "tab_id": 1, "action": action, **fields},
+                {
+                    "clicked": True,
+                    "popupOpened": opened,
+                    "popupNextStep": "选择登录页",
+                    "popupClosed": {"returnedTo": 1},
+                },
+            )
+            self.assertEqual(output["popupOpened"]["tabId"], 2)
+            self.assertEqual(output["popupClosed"], {"returnedTo": 1})
             self.assertNotIn(CANARY, json.dumps(output))
 
     def test_popup_results_keep_candidate_identity_without_authority_or_oauth_url(self):
-        candidate = {'candidateRef': 'popup-ref', 'tabId': 2, 'windowId': 8, 'openerTabId': 1,
-                     'origin': 'https://accounts.example.test', 'windowType': 'popup', 'url': CANARY, 'nonce': CANARY}
-        raw = {'sourceTabId': 1, 'observationMs': 30000, 'candidates': [candidate], 'adoptedPopupTabIds': [2], 'adoptedPopups': [candidate], 'scope': CANARY}
-        output, _ = self.invoke(True, 'run', {'task_id': 't', 'tab_id': 1, 'action': 'popup_catalog'}, raw)
-        self.assertEqual(output['candidates'][0]['candidateRef'], 'popup-ref')
-        self.assertEqual(output['adoptedPopupTabIds'], [2])
-        self.assertEqual(output['adoptedPopups'][0]['origin'], 'https://accounts.example.test')
+        candidate = {
+            "candidateRef": "popup-ref",
+            "tabId": 2,
+            "windowId": 8,
+            "openerTabId": 1,
+            "origin": "https://accounts.example.test",
+            "windowType": "popup",
+            "url": CANARY,
+            "nonce": CANARY,
+        }
+        raw = {
+            "sourceTabId": 1,
+            "observationMs": 30000,
+            "candidates": [candidate],
+            "adoptedPopupTabIds": [2],
+            "adoptedPopups": [candidate],
+            "scope": CANARY,
+        }
+        output, _ = self.invoke(
+            True, "run", {"task_id": "t", "tab_id": 1, "action": "popup_catalog"}, raw
+        )
+        self.assertEqual(output["candidates"][0]["candidateRef"], "popup-ref")
+        self.assertEqual(output["adoptedPopupTabIds"], [2])
+        self.assertEqual(output["adoptedPopups"][0]["origin"], "https://accounts.example.test")
         self.assertNotIn(CANARY, json.dumps(output))
-        output, _ = self.invoke(True, 'run', {'task_id': 't', 'tab_id': 1, 'action': 'popup_adopt', 'candidate_ref': 'popup-ref'},
-                                {'adopted': True, **candidate, 'sourceTabId': 1, 'cleanupOwned': False})
-        self.assertEqual(output['tabId'], 2)
-        self.assertIs(output['cleanupOwned'], False)
+        output, _ = self.invoke(
+            True,
+            "run",
+            {"task_id": "t", "tab_id": 1, "action": "popup_adopt", "candidate_ref": "popup-ref"},
+            {"adopted": True, **candidate, "sourceTabId": 1, "cleanupOwned": False},
+        )
+        self.assertEqual(output["tabId"], 2)
+        self.assertIs(output["cleanupOwned"], False)
         self.assertNotIn(CANARY, json.dumps(output))
-        task = load('runtime')._project_tool_result('fast_browser_get', {},
-                                                   {'id': 't', 'adoptedPopupTabIds': [2], 'agentTabIds': [1]})
-        self.assertEqual(task['adoptedPopupTabIds'], [2])
-        self.assertNotIn('agentTabIds', task)
+        task = load("runtime")._project_tool_result(
+            "fast_browser_get", {}, {"id": "t", "adoptedPopupTabIds": [2], "agentTabIds": [1]}
+        )
+        self.assertEqual(task["adoptedPopupTabIds"], [2])
+        self.assertNotIn("agentTabIds", task)
 
     def test_complex_ui_error_summaries_reach_public_tool(self):
         # 中文注释：模拟 daemon 异常，检查 Hermes JSON 只含固定码与脱敏摘要。
-        module = load('native_tools')
-        binding = {'taskId': 't', 'documentId': 'd', 'leaseId': 'l'}
+        module = load("native_tools")
+        binding = {"taskId": "t", "documentId": "d", "leaseId": "l"}
         cases = {
-            'reference_target_missing': {'candidates': [{'role': 'button', 'name': '保存', 'value': CANARY}]},
-            'reference_target_ambiguous': {'candidates': [{'role': 'button', 'name': '保存', 'value': CANARY}]},
-            'target_occluded': {'obstruction': {'role': 'dialog', 'name': '遮挡层', 'value': CANARY,
-                'closeButton': {'binding': binding, 'snapshotId': 's', 'ref': 'r', 'name': '关闭', 'value': CANARY}}},
-            **{code: {} for code in ('popup_stale', 'target_disabled', 'target_hidden', 'target_zero_size',
-                                    'target_out_of_viewport', 'closed_shadow_unavailable',
-                                    'cross_origin_frame_unavailable')},
+            "reference_target_missing": {
+                "candidates": [{"role": "button", "name": "保存", "value": CANARY}]
+            },
+            "reference_target_ambiguous": {
+                "candidates": [{"role": "button", "name": "保存", "value": CANARY}]
+            },
+            "target_occluded": {
+                "obstruction": {
+                    "role": "dialog",
+                    "name": "遮挡层",
+                    "value": CANARY,
+                    "closeButton": {
+                        "binding": binding,
+                        "snapshotId": "s",
+                        "ref": "r",
+                        "name": "关闭",
+                        "value": CANARY,
+                    },
+                }
+            },
+            **{
+                code: {}
+                for code in (
+                    "popup_stale",
+                    "target_disabled",
+                    "target_hidden",
+                    "target_zero_size",
+                    "target_out_of_viewport",
+                    "closed_shadow_unavailable",
+                    "cross_origin_frame_unavailable",
+                )
+            },
         }
         for code, detail in cases.items():
             with self.subTest(code=code):
                 error = RuntimeError(CANARY)
                 error.code = code
-                error.data = {'outcomeUnknown': False, **detail, 'pageException': CANARY}
-                profile = SimpleNamespace(authority=SimpleNamespace(
-                    consume=lambda *a, **kw: SimpleNamespace(owner='tool:synthetic', tool_call_id='c')),
-                    call=lambda *a, **kw: (_ for _ in ()).throw(error))
-                result = json.loads(module.make_tool_handler('fast_browser_run', profile)(
-                    {'task_id': 't', 'tab_id': 1, 'action': 'ref_click',
-                     'binding': binding, 'snapshot_id': 's', 'ref': 'r'}, session_id='test'))
-                self.assertEqual(result['code'], 'stale_reference' if code.startswith('reference_target_') else code)
-                self.assertFalse(result['outcome_unknown'])
+                error.data = {"outcomeUnknown": False, **detail, "pageException": CANARY}
+                profile = SimpleNamespace(
+                    authority=SimpleNamespace(
+                        consume=lambda *a, **kw: SimpleNamespace(
+                            owner="tool:synthetic", tool_call_id="c"
+                        )
+                    ),
+                    call=lambda *a, **kw: (_ for _ in ()).throw(error),
+                )
+                result = json.loads(
+                    module.make_tool_handler("fast_browser_run", profile)(
+                        {
+                            "task_id": "t",
+                            "tab_id": 1,
+                            "action": "ref_click",
+                            "binding": binding,
+                            "snapshot_id": "s",
+                            "ref": "r",
+                        },
+                        session_id="test",
+                    )
+                )
+                self.assertEqual(
+                    result["code"],
+                    "stale_reference" if code.startswith("reference_target_") else code,
+                )
+                self.assertFalse(result["outcome_unknown"])
                 self.assertNotIn(CANARY, json.dumps(result))
-                if code.startswith('reference_'):
-                    self.assertEqual(result['candidates'], [{'role': 'button', 'name': '保存'}])
-                if code == 'target_occluded':
-                    self.assertEqual(result['obstruction']['closeButton']['binding'], binding)
+                if code.startswith("reference_"):
+                    self.assertEqual(result["candidates"], [{"role": "button", "name": "保存"}])
+                if code == "target_occluded":
+                    self.assertEqual(result["obstruction"]["closeButton"]["binding"], binding)
 
     def test_redirected_out_of_scope_reaches_shared_run(self):
         # 中文注释：new_tab/navigate 跨站跳转应保留固定码与来源，而不是改写成结果不确定。
-        module = load('native_tools')
-        for action in ('new_tab', 'navigate'):
+        module = load("native_tools")
+        for action in ("new_tab", "navigate"):
             with self.subTest(action=action):
                 error = RuntimeError(CANARY)
-                error.code = 'redirected_out_of_scope'
-                error.data = {'outcomeUnknown': False, 'finalOrigin': 'https://other.example', 'pageException': CANARY}
-                profile = SimpleNamespace(authority=SimpleNamespace(
-                    consume=lambda *a, **kw: SimpleNamespace(owner='tool:synthetic', tool_call_id='c')),
-                    call=lambda *a, **kw: (_ for _ in ()).throw(error))
-                args = {'task_id': 't', 'action': action, 'url': 'https://example.test/'}
-                if action == 'navigate':
-                    args['tab_id'] = 1
-                result = json.loads(module.make_tool_handler('fast_browser_run', profile)(args, session_id='test'))
-                self.assertEqual(result['bridgeCode'], 'redirected_out_of_scope')
-                self.assertEqual(result['finalOrigin'], 'https://other.example')
-                self.assertFalse(result['outcome_unknown'])
+                error.code = "redirected_out_of_scope"
+                error.data = {
+                    "outcomeUnknown": False,
+                    "finalOrigin": "https://other.example",
+                    "pageException": CANARY,
+                }
+                profile = SimpleNamespace(
+                    authority=SimpleNamespace(
+                        consume=lambda *a, **kw: SimpleNamespace(
+                            owner="tool:synthetic", tool_call_id="c"
+                        )
+                    ),
+                    call=lambda *a, **kw: (_ for _ in ()).throw(error),
+                )
+                args = {"task_id": "t", "action": action, "url": "https://example.test/"}
+                if action == "navigate":
+                    args["tab_id"] = 1
+                result = json.loads(
+                    module.make_tool_handler("fast_browser_run", profile)(args, session_id="test")
+                )
+                self.assertEqual(result["bridgeCode"], "redirected_out_of_scope")
+                self.assertEqual(result["finalOrigin"], "https://other.example")
+                self.assertFalse(result["outcome_unknown"])
                 self.assertNotIn(CANARY, json.dumps(result))
 
     def test_sign_in_page_asks_user_instead_of_navigating_back(self):
         # 中文注释：工作页停在第三方登录页时，提示用户亲自登录并等待，不能建议导航回原站打断登录。
-        module = load('native_tools')
-        cases = (('tab_out_of_scope', 'currentOrigin', 'https://accounts.google.com', True),
-                 ('redirected_out_of_scope', 'finalOrigin', 'https://tenant.okta.com', True),
-                 ('tab_out_of_scope', 'currentOrigin', 'https://other.example', False),
-                 ('tab_out_of_scope', 'currentOrigin', 'http://accounts.google.com', False))
+        module = load("native_tools")
+        cases = (
+            ("tab_out_of_scope", "currentOrigin", "https://accounts.google.com", True),
+            ("redirected_out_of_scope", "finalOrigin", "https://tenant.okta.com", True),
+            ("tab_out_of_scope", "currentOrigin", "https://other.example", False),
+            ("tab_out_of_scope", "currentOrigin", "http://accounts.google.com", False),
+        )
         for code, key, origin, sign_in in cases:
             with self.subTest(code=code, origin=origin):
                 error = RuntimeError(CANARY)
                 error.code = code
-                error.data = {'outcomeUnknown': False, key: origin}
-                profile = SimpleNamespace(authority=SimpleNamespace(
-                    consume=lambda *a, **kw: SimpleNamespace(owner='tool:synthetic', tool_call_id='c')),
-                    call=lambda *a, **kw: (_ for _ in ()).throw(error))
-                result = json.loads(module.make_tool_handler('fast_browser_run', profile)(
-                    {'task_id': 't', 'tab_id': 1, 'action': 'semantic_snapshot'}, session_id='test'))
-                self.assertEqual(result['bridgeCode'], code)
-                self.assertEqual(result.get('user_action_required'), 'sign_in' if sign_in else None)
-                self.assertEqual('不要 navigate 回原网站' in result['error'], sign_in)
+                error.data = {"outcomeUnknown": False, key: origin}
+                profile = SimpleNamespace(
+                    authority=SimpleNamespace(
+                        consume=lambda *a, **kw: SimpleNamespace(
+                            owner="tool:synthetic", tool_call_id="c"
+                        )
+                    ),
+                    call=lambda *a, **kw: (_ for _ in ()).throw(error),
+                )
+                result = json.loads(
+                    module.make_tool_handler("fast_browser_run", profile)(
+                        {"task_id": "t", "tab_id": 1, "action": "semantic_snapshot"},
+                        session_id="test",
+                    )
+                )
+                self.assertEqual(result["bridgeCode"], code)
+                self.assertEqual(result.get("user_action_required"), "sign_in" if sign_in else None)
+                self.assertEqual("不要 navigate 回原网站" in result["error"], sign_in)
                 self.assertNotIn(CANARY, json.dumps(result))
 
     def test_pre_dispatch_url_rejection_is_not_unknown(self):
         # 中文注释：导航前的网址校验拒绝未派发，不应标记为结果不确定；显式 unknown 仍保留。
-        module = load('native_tools')
-        for code in ('origin_denied', 'invalid_url'):
+        module = load("native_tools")
+        for code in ("origin_denied", "invalid_url"):
             for reported, expected in ((None, False), (True, True)):
                 with self.subTest(code=code, reported=reported):
                     error = RuntimeError(CANARY)
                     error.code = code
-                    error.data = {} if reported is None else {'outcomeUnknown': reported}
-                    profile = SimpleNamespace(authority=SimpleNamespace(
-                        consume=lambda *a, **kw: SimpleNamespace(owner='tool:synthetic', tool_call_id='c')),
-                        call=lambda *a, **kw: (_ for _ in ()).throw(error))
-                    result = json.loads(module.make_tool_handler('fast_browser_run', profile)(
-                        {'task_id': 't', 'tab_id': 1, 'action': 'navigate', 'url': 'https://other.example/'}, session_id='test'))
-                    self.assertIs(result['outcome_unknown'], expected)
+                    error.data = {} if reported is None else {"outcomeUnknown": reported}
+                    profile = SimpleNamespace(
+                        authority=SimpleNamespace(
+                            consume=lambda *a, **kw: SimpleNamespace(
+                                owner="tool:synthetic", tool_call_id="c"
+                            )
+                        ),
+                        call=lambda *a, **kw: (_ for _ in ()).throw(error),
+                    )
+                    result = json.loads(
+                        module.make_tool_handler("fast_browser_run", profile)(
+                            {
+                                "task_id": "t",
+                                "tab_id": 1,
+                                "action": "navigate",
+                                "url": "https://other.example/",
+                            },
+                            session_id="test",
+                        )
+                    )
+                    self.assertIs(result["outcome_unknown"], expected)
 
     def test_content_shield_rejection_keeps_code_and_dispatch_fact(self):
         # 中文注释：保护拒绝是明确失败，不能丢失错误码或把未派发的原始截图误报成未知写入。
-        module = load('native_tools')
-        for code in ('content_shield_unsupported', 'content_shield_unavailable'):
+        module = load("native_tools")
+        for code in ("content_shield_unsupported", "content_shield_unavailable"):
             for unknown in (False, True):
                 with self.subTest(code=code, unknown=unknown):
                     error = RuntimeError(CANARY)
                     error.code = code
-                    error.data = {'outcomeUnknown': unknown, 'retryable': False}
-                    profile = SimpleNamespace(authority=SimpleNamespace(
-                        consume=lambda *a, **kw: SimpleNamespace(owner='tool:synthetic', tool_call_id='c')),
-                        call=lambda *a, **kw: (_ for _ in ()).throw(error))
-                    result = json.loads(module.make_tool_handler('fast_browser_run', profile)(
-                        {'task_id': 't', 'tab_id': 1, 'action': 'cdp.send', 'method': 'Page.captureScreenshot'}, session_id='test'))
-                    self.assertEqual(result['code'], code)
-                    self.assertIs(result['outcome_unknown'], unknown)
+                    error.data = {"outcomeUnknown": unknown, "retryable": False}
+                    profile = SimpleNamespace(
+                        authority=SimpleNamespace(
+                            consume=lambda *a, **kw: SimpleNamespace(
+                                owner="tool:synthetic", tool_call_id="c"
+                            )
+                        ),
+                        call=lambda *a, **kw: (_ for _ in ()).throw(error),
+                    )
+                    result = json.loads(
+                        module.make_tool_handler("fast_browser_run", profile)(
+                            {
+                                "task_id": "t",
+                                "tab_id": 1,
+                                "action": "cdp.send",
+                                "method": "Page.captureScreenshot",
+                            },
+                            session_id="test",
+                        )
+                    )
+                    self.assertEqual(result["code"], code)
+                    self.assertIs(result["outcome_unknown"], unknown)
                     self.assertNotIn(CANARY, json.dumps(result))
 
     def test_navigation_state_survives_public_tool_projection(self):
         # 中文注释：导航未就绪与离开授权范围必须保留，未声明的字段仍不能穿过公共工具边界。
-        for action in ('navigate', 'new_tab'):
+        for action in ("navigate", "new_tab"):
             with self.subTest(action=action):
-                args = {'task_id': 't', 'action': action, 'url': 'https://example.test/'}
-                if action == 'navigate':
-                    args['tab_id'] = 1
-                result, _ = self.invoke(True, 'run', args,
-                    {'tabId': 1, 'url': 'https://example.test/', 'ready': False, 'debug': CANARY})
+                args = {"task_id": "t", "action": action, "url": "https://example.test/"}
+                if action == "navigate":
+                    args["tab_id"] = 1
+                result, _ = self.invoke(
+                    True,
+                    "run",
+                    args,
+                    {"tabId": 1, "url": "https://example.test/", "ready": False, "debug": CANARY},
+                )
                 # 中文注释：1.3.6 起 navigate 固定带精简摘要字段（未就绪时为 None）。
-                self.assertEqual({k: v for k, v in result.items() if not (k == 'summary' and v is None)},
-                                 {'tabId': 1, 'url': 'https://example.test/', 'ready': False})
-        result, _ = self.invoke(True, 'run', {'task_id': 't', 'action': 'tabs'},
-            [{'id': 1, 'outOfScope': True, 'debug': CANARY}])
-        self.assertEqual(result, [{'id': 1, 'outOfScope': True}])
+                self.assertEqual(
+                    {k: v for k, v in result.items() if not (k == "summary" and v is None)},
+                    {"tabId": 1, "url": "https://example.test/", "ready": False},
+                )
+        result, _ = self.invoke(
+            True,
+            "run",
+            {"task_id": "t", "action": "tabs"},
+            [{"id": 1, "outOfScope": True, "debug": CANARY}],
+        )
+        self.assertEqual(result, [{"id": 1, "outOfScope": True}])
 
     def test_completed_click_keeps_navigation_metadata(self):
         # 中文注释：C 的点击回执不能被旧结果白名单丢弃，调用者需知道已跳出任务范围。
-        for action, target in [('click', {'selector': '#leave'}), ('ref_click', {
-                'binding': {'taskId': 't', 'documentId': 'd', 'leaseId': 'l'},
-                'snapshot_id': 's', 'ref': 'r'})]:
+        for action, target in [
+            ("click", {"selector": "#leave"}),
+            (
+                "ref_click",
+                {
+                    "binding": {"taskId": "t", "documentId": "d", "leaseId": "l"},
+                    "snapshot_id": "s",
+                    "ref": "r",
+                },
+            ),
+        ]:
             with self.subTest(action=action):
-                result, _ = self.invoke(True, 'run', {'task_id': 't', 'tab_id': 1,
-                    'action': action, **target}, {'clicked': True, 'documentChanged': True,
-                    'outOfScope': True, 'debug': CANARY})
-                self.assertEqual(result, {'clicked': True, 'documentChanged': True, 'outOfScope': True})
+                result, _ = self.invoke(
+                    True,
+                    "run",
+                    {"task_id": "t", "tab_id": 1, "action": action, **target},
+                    {"clicked": True, "documentChanged": True, "outOfScope": True, "debug": CANARY},
+                )
+                self.assertEqual(
+                    result, {"clicked": True, "documentChanged": True, "outOfScope": True}
+                )
 
     def test_removed_content_filter_metadata_is_not_a_screenshot_contract(self):
         # 中文注释：截图结果不再声明内容过滤字段；已有正文结构化投影仍丢弃未知字段。
-        runtime = load('runtime')
+        runtime = load("runtime")
         # 中文注释：站点禁止声明 true 与普通提示注入 false 都必须原样保留。
         for restricted in (True, False):
-            for action in ('snapshot', 'semantic_snapshot', 'page.parse', 'screenshot', 'interaction.capture'):
+            for action in (
+                "snapshot",
+                "semantic_snapshot",
+                "page.parse",
+                "screenshot",
+                "interaction.capture",
+            ):
                 with self.subTest(action=action, restricted=restricted):
-                    metadata = {'enabled': True, 'removedSegments': 2, 'siteAutomationRestricted': restricted}
-                    result = runtime._project_tool_result('fast_browser_run', {'action': action}, {
-                        'contentFilter': {**metadata, 'private': CANARY},
-                    })
-                    if action in ('screenshot', 'interaction.capture'):
-                        self.assertNotIn('contentFilter', result)
+                    metadata = {
+                        "enabled": True,
+                        "removedSegments": 2,
+                        "siteAutomationRestricted": restricted,
+                    }
+                    result = runtime._project_tool_result(
+                        "fast_browser_run",
+                        {"action": action},
+                        {
+                            "contentFilter": {**metadata, "private": CANARY},
+                        },
+                    )
+                    if action in ("screenshot", "interaction.capture"):
+                        self.assertNotIn("contentFilter", result)
                         self.assertNotIn(CANARY, json.dumps(result))
                     else:
-                        self.assertEqual(result['contentFilter'], metadata)
+                        self.assertEqual(result["contentFilter"], metadata)
                         self.assertNotIn(CANARY, json.dumps(result))
 
     def invoke(self, shared, suffix, args, result):
-        module = load('native_tools')
+        module = load("native_tools")
         calls = []
+
         def call(method, params):
             calls.append((method, params))
-            if method == 'task.get' and suffix == 'run':
-                return {'generation': 1}
+            if method == "task.get" and suffix == "run":
+                return {"generation": 1}
             return result
-        profile = SimpleNamespace(authority=SimpleNamespace(
-            consume=lambda *a, **kw: SimpleNamespace(owner='tool:synthetic', tool_call_id='call-1')),
-            call=call)
-        tool = 'fast_browser_' + suffix
-        output = json.loads(module.make_tool_handler(tool, profile)(args, session_id='test'))
+
+        profile = SimpleNamespace(
+            authority=SimpleNamespace(
+                consume=lambda *a, **kw: SimpleNamespace(
+                    owner="tool:synthetic", tool_call_id="call-1"
+                )
+            ),
+            call=call,
+        )
+        tool = "fast_browser_" + suffix
+        output = json.loads(module.make_tool_handler(tool, profile)(args, session_id="test"))
         return output, calls
 
     def test_handler_result_envelopes_and_api_top_level_fields(self):
         for shared in (True,):
             with self.subTest(shared=shared):
-                task, _ = self.invoke(shared, 'get', {'task_id': 't'},
-                    {'id': 't', 'generation': 3, 'title': 'task', 'state': 'ready',
-                     'debug': CANARY, 'owner': CANARY})
-                self.assertEqual(task, {'id': 't', 'generation': 3, 'title': 'task', 'state': 'ready'})
-                args = {'task_id': 't', 'action': 'snapshot'}
+                task, _ = self.invoke(
+                    shared,
+                    "get",
+                    {"task_id": "t"},
+                    {
+                        "id": "t",
+                        "generation": 3,
+                        "title": "task",
+                        "state": "ready",
+                        "debug": CANARY,
+                        "owner": CANARY,
+                    },
+                )
+                self.assertEqual(
+                    task, {"id": "t", "generation": 3, "title": "task", "state": "ready"}
+                )
+                args = {"task_id": "t", "action": "snapshot"}
                 if shared:
-                    args['tab_id'] = 1
-                snap, calls = self.invoke(shared, 'run', args,
-                    {'text': 'business text', 'title': 'page', 'debug': CANARY,
-                     'elements': [{'tag': 'BUTTON', 'text': 'buy', 'sensitive': False,
-                                   'password': CANARY}]})
+                    args["tab_id"] = 1
+                snap, calls = self.invoke(
+                    shared,
+                    "run",
+                    args,
+                    {
+                        "text": "business text",
+                        "title": "page",
+                        "debug": CANARY,
+                        "elements": [
+                            {"tag": "BUTTON", "text": "buy", "sensitive": False, "password": CANARY}
+                        ],
+                    },
+                )
                 self.assertNotIn(CANARY, json.dumps(snap))
-                self.assertEqual(snap['text'], 'business text')
-                self.assertEqual(snap['elements'][0]['text'], 'buy')
-                self.assertEqual(sum(m.endswith('.run') for m, _ in calls), 1)
-        result, _ = self.invoke(True, 'run', {'task_id': 't', 'action': 'api_request',
-            'tab_id': 1, 'url': 'https://example.com/api', 'fields': ['rows', 'count']},
-            {'status': 200, 'headers': {'Set-Cookie': CANARY}, 'debug': CANARY,
-             'data': {'rows': [{'name': 'coffee', 'value': 4, 'key': 'sku',
-                               'access_token': CANARY}], 'count': 1, 'extra': CANARY}})
-        self.assertEqual(result, {'status': 200, 'data': {
-            'rows': [{'name': 'coffee', 'value': 4, 'key': 'sku'}], 'count': 1}})
+                self.assertEqual(snap["text"], "business text")
+                self.assertEqual(snap["elements"][0]["text"], "buy")
+                self.assertEqual(sum(m.endswith(".run") for m, _ in calls), 1)
+        result, _ = self.invoke(
+            True,
+            "run",
+            {
+                "task_id": "t",
+                "action": "api_request",
+                "tab_id": 1,
+                "url": "https://example.com/api",
+                "fields": ["rows", "count"],
+            },
+            {
+                "status": 200,
+                "headers": {"Set-Cookie": CANARY},
+                "debug": CANARY,
+                "data": {
+                    "rows": [{"name": "coffee", "value": 4, "key": "sku", "access_token": CANARY}],
+                    "count": 1,
+                    "extra": CANARY,
+                },
+            },
+        )
+        self.assertEqual(
+            result,
+            {
+                "status": 200,
+                "data": {"rows": [{"name": "coffee", "value": 4, "key": "sku"}], "count": 1},
+            },
+        )
 
     def test_semantic_and_action_compatibility(self):
-        semantic = {'version': 2, 'binding': {'taskId': 't', 'documentId': 'd', 'leaseId': 'l'},
-            'snapshotId': 's', 'kind': 'delta', 'mode': 'table', 'baselineId': 'old',
-            'items': [{'ref': 'r', 'role': 'row', 'name': 'normal', 'cells': ['a', 'b'],
-                       'disabled': False, 'checked': True, 'omittedCells': 0}],
-            'removed': ['r0'], 'order': ['r'], 'nextCursor': 'c', 'resync': None,
-            'coverage': {'scanned': 2, 'matched': 1, 'returned': 1, 'omitted': 0,
-                         'complete': True, 'traversalComplete': True, 'scope': 'light-dom'},
-            'budget': {'kind': 'estimated', 'method': 'chars/4', 'limit': 512}}
+        semantic = {
+            "version": 2,
+            "binding": {"taskId": "t", "documentId": "d", "leaseId": "l"},
+            "snapshotId": "s",
+            "kind": "delta",
+            "mode": "table",
+            "baselineId": "old",
+            "items": [
+                {
+                    "ref": "r",
+                    "role": "row",
+                    "name": "normal",
+                    "cells": ["a", "b"],
+                    "disabled": False,
+                    "checked": True,
+                    "omittedCells": 0,
+                }
+            ],
+            "removed": ["r0"],
+            "order": ["r"],
+            "nextCursor": "c",
+            "resync": None,
+            "coverage": {
+                "scanned": 2,
+                "matched": 1,
+                "returned": 1,
+                "omitted": 0,
+                "complete": True,
+                "traversalComplete": True,
+                "scope": "light-dom",
+            },
+            "budget": {"kind": "estimated", "method": "chars/4", "limit": 512},
+        }
         for shared in (True,):
-            args = {'task_id': 't', 'action': 'semantic_snapshot'}
+            args = {"task_id": "t", "action": "semantic_snapshot"}
             if shared:
-                args['tab_id'] = 1
-            output, _ = self.invoke(shared, 'run', args, {**semantic, 'debug': CANARY})
+                args["tab_id"] = 1
+            output, _ = self.invoke(shared, "run", args, {**semantic, "debug": CANARY})
             self.assertEqual(output, semantic)
             for action, params, expected in [
-                ('ref_click', {'binding': semantic['binding'],
-                  ('snapshot_id' if shared else 'snapshotId'): 's', 'ref': 'r'},
-                  {'clicked': True, 'kind': 'trusted-input', 'delivery': 'confirmed'}),
-                ('ref_click', {'binding': semantic['binding'],
-                  ('snapshot_id' if shared else 'snapshotId'): 's', 'ref': 'r'},
-                  {'clicked': True, 'kind': 'dom-synthetic', 'delivery': 'confirmed',
-                   'fallbackReason': 'background_tab_input_unreliable'}),
+                (
+                    "ref_click",
+                    {
+                        "binding": semantic["binding"],
+                        ("snapshot_id" if shared else "snapshotId"): "s",
+                        "ref": "r",
+                    },
+                    {"clicked": True, "kind": "trusted-input", "delivery": "confirmed"},
+                ),
+                (
+                    "ref_click",
+                    {
+                        "binding": semantic["binding"],
+                        ("snapshot_id" if shared else "snapshotId"): "s",
+                        "ref": "r",
+                    },
+                    {
+                        "clicked": True,
+                        "kind": "dom-synthetic",
+                        "delivery": "confirmed",
+                        "fallbackReason": "background_tab_input_unreliable",
+                    },
+                ),
                 # 中文注释：只公开最终选中的值、标签和索引，不泄露下拉框其他选项或调试字段。
-                ('ref_select_option', {'binding': semantic['binding'],
-                  ('snapshot_id' if shared else 'snapshotId'): 's', 'ref': 'r',
-                  'by': 'label', 'values': ['甲']},
-                  {'changed': True, 'verified': True, 'kind': 'native-select',
-                   'selectedCount': 1, 'selectedOptions': [{'value': 'a', 'label': '甲', 'index': 0}]}),
+                (
+                    "ref_select_option",
+                    {
+                        "binding": semantic["binding"],
+                        ("snapshot_id" if shared else "snapshotId"): "s",
+                        "ref": "r",
+                        "by": "label",
+                        "values": ["甲"],
+                    },
+                    {
+                        "changed": True,
+                        "verified": True,
+                        "kind": "native-select",
+                        "selectedCount": 1,
+                        "selectedOptions": [{"value": "a", "label": "甲", "index": 0}],
+                    },
+                ),
             ]:
-                call_args = {**args, 'action': action, **params}
-                output, _ = self.invoke(shared, 'run', call_args, {**expected, 'debug': CANARY})
+                call_args = {**args, "action": action, **params}
+                output, _ = self.invoke(shared, "run", call_args, {**expected, "debug": CANARY})
                 self.assertEqual(output, expected)
-        tabs, _ = self.invoke(True, 'run', {'task_id': 't', 'action': 'tabs'},
-                              [{'id': 1, 'url': 'https://example.com', 'title': 'normal', 'debug': CANARY}])
-        self.assertEqual(tabs, [{'id': 1, 'url': 'https://example.com', 'title': 'normal'}])
+        tabs, _ = self.invoke(
+            True,
+            "run",
+            {"task_id": "t", "action": "tabs"},
+            [{"id": 1, "url": "https://example.com", "title": "normal", "debug": CANARY}],
+        )
+        self.assertEqual(tabs, [{"id": 1, "url": "https://example.com", "title": "normal"}])
 
     def test_errors_are_fixed_and_unknown_is_never_retryable(self):
         for shared in (True,):
-            module = load('native_tools')
+            module = load("native_tools")
             owner_error = module._runtime.OwnerLeaseError
             for error in (owner_error(CANARY), RuntimeError(CANARY)):
-                profile = SimpleNamespace(authority=SimpleNamespace(
-                    consume=lambda *a, **kw: SimpleNamespace(owner='tool:test', tool_call_id='c')))
+                profile = SimpleNamespace(
+                    authority=SimpleNamespace(
+                        consume=lambda *a, **kw: SimpleNamespace(
+                            owner="tool:test", tool_call_id="c"
+                        )
+                    )
+                )
+
                 def call(*a, **kw):
                     raise error
+
                 profile.call = call
-                tool = 'fast_browser_list'
-                out = json.loads(module.make_tool_handler(tool, profile)({}, session_id='test'))
+                tool = "fast_browser_list"
+                out = json.loads(module.make_tool_handler(tool, profile)({}, session_id="test"))
                 self.assertNotIn(CANARY, json.dumps(out))
-                self.assertIs(out.get('retryable'), False)
-            result, calls = self.invoke(shared, 'get', {'task_id': 't'},
-                {'id': 't', 'state': 'needs_sync', 'lastError': CANARY})
+                self.assertIs(out.get("retryable"), False)
+            result, calls = self.invoke(
+                shared,
+                "get",
+                {"task_id": "t"},
+                {"id": "t", "state": "needs_sync", "lastError": CANARY},
+            )
             self.assertNotIn(CANARY, json.dumps(result))
-            self.assertEqual(result['state'], 'needs_sync')
+            self.assertEqual(result["state"], "needs_sync")
             self.assertEqual(len(calls), 1)
-            result, _ = self.invoke(shared, 'run',
-                {'task_id': 't', 'action': 'snapshot', **({'tab_id': 1} if shared else {})},
-                {'error': {'message': CANARY}, 'code': CANARY, 'retryable': True})
+            result, _ = self.invoke(
+                shared,
+                "run",
+                {"task_id": "t", "action": "snapshot", **({"tab_id": 1} if shared else {})},
+                {"error": {"message": CANARY}, "code": CANARY, "retryable": True},
+            )
             self.assertNotIn(CANARY, json.dumps(result))
-            self.assertIn('error', result)
-            self.assertIs(result.get('outcome_unknown'), True)
-            self.assertIs(result.get('retryable'), False)
+            self.assertIn("error", result)
+            self.assertIs(result.get("outcome_unknown"), True)
+            self.assertIs(result.get("retryable"), False)
 
     def test_screenshot_artifact_and_tab_metadata_are_not_lost(self):
-        runtime = load('runtime')
-        tab = {'tabId': 'tab', 'url': 'https://example.com', 'title': 'page', 'selected': True}
-        self.assertEqual(runtime._project_tool_result('fast_browser_run', {'action': 'tabs'},
-                                                     [tab]), [tab])
-        artifact = {'id': 'artifact', 'taskId': 't', 'mimeType': 'text/plain',
-                    'size': 3, 'sha256': 'a' * 64}
-        result, _ = self.invoke(True, 'run', {'task_id': 't', 'action': 'screenshot', 'tab_id': 1},
-                                {'tabId': 'tab', 'data': 'AA==', 'artifact': artifact, 'debug': CANARY})
-        self.assertEqual(result, {'tabId': 'tab', 'data': 'AA==', 'artifact': artifact})
+        runtime = load("runtime")
+        tab = {"tabId": "tab", "url": "https://example.com", "title": "page", "selected": True}
+        self.assertEqual(
+            runtime._project_tool_result("fast_browser_run", {"action": "tabs"}, [tab]), [tab]
+        )
+        artifact = {
+            "id": "artifact",
+            "taskId": "t",
+            "mimeType": "text/plain",
+            "size": 3,
+            "sha256": "a" * 64,
+        }
+        result, _ = self.invoke(
+            True,
+            "run",
+            {"task_id": "t", "action": "screenshot", "tab_id": 1},
+            {"tabId": "tab", "data": "AA==", "artifact": artifact, "debug": CANARY},
+        )
+        self.assertEqual(result, {"tabId": "tab", "data": "AA==", "artifact": artifact})
         self.assertNotIn(CANARY, json.dumps(result))
         # 中文注释：遮罩摘要通过公共工具投影，但任意页面值仍被剔除。
-        projected = runtime._project_tool_result('fast_browser_run', {'action': 'screenshot'},
-            {'data': 'AA==', 'masked': [{'kind': 'sensitive_field', 'role': 'input', 'name': '敏感字段', 'value': CANARY}]})
-        self.assertEqual(projected, {'data': 'AA==', 'masked': [{'kind': 'sensitive_field', 'role': 'input', 'name': '敏感字段'}]})
+        projected = runtime._project_tool_result(
+            "fast_browser_run",
+            {"action": "screenshot"},
+            {
+                "data": "AA==",
+                "masked": [
+                    {
+                        "kind": "sensitive_field",
+                        "role": "input",
+                        "name": "敏感字段",
+                        "value": CANARY,
+                    }
+                ],
+            },
+        )
+        self.assertEqual(
+            projected,
+            {
+                "data": "AA==",
+                "masked": [{"kind": "sensitive_field", "role": "input", "name": "敏感字段"}],
+            },
+        )
 
     def test_capture_errors_keep_specific_codes_without_page_text(self):
         # 中文注释：截图失败码跨到工具回执，错误原文和输入值不进入输出。
-        module = load('native_tools')
-        for code in ('capture_sensitive_blocked', 'capture_frame_uninspectable'):
+        module = load("native_tools")
+        for code in ("capture_sensitive_blocked", "capture_frame_uninspectable"):
             error = RuntimeError(CANARY)
-            error.code, error.data = code, {'outcomeUnknown': False, 'fieldValue': CANARY}
-            profile = SimpleNamespace(authority=SimpleNamespace(
-                consume=lambda *a, **kw: SimpleNamespace(owner='tool:synthetic', tool_call_id='c')),
-                call=lambda *a, **kw: (_ for _ in ()).throw(error))
-            result = json.loads(module.make_tool_handler('fast_browser_run', profile)(
-                {'task_id': 't', 'tab_id': 1, 'action': 'screenshot'}, session_id='test'))
-            self.assertEqual(result['code'], code)
+            error.code, error.data = code, {"outcomeUnknown": False, "fieldValue": CANARY}
+            profile = SimpleNamespace(
+                authority=SimpleNamespace(
+                    consume=lambda *a, **kw: SimpleNamespace(
+                        owner="tool:synthetic", tool_call_id="c"
+                    )
+                ),
+                call=lambda *a, **kw: (_ for _ in ()).throw(error),
+            )
+            result = json.loads(
+                module.make_tool_handler("fast_browser_run", profile)(
+                    {"task_id": "t", "tab_id": 1, "action": "screenshot"}, session_id="test"
+                )
+            )
+            self.assertEqual(result["code"], code)
             self.assertNotIn(CANARY, json.dumps(result))
 
     def test_additional_credential_spellings_are_not_business_fields(self):
-        keys = ['session_token', 'csrfToken', 'x-auth-token', 'client_secret', 'aws_secret_access_key',
-                'accessKey', 'accessKeyId', 'secretAccessKey', 'Cookie', 'Set-Cookie', 'Authorization']
-        for projector in (load('runtime')._strip_owner, load('native_tools')._public):
-            result = projector({'rows': [{**dict.fromkeys(keys, CANARY),
-                                'keyboard': 'normal', 'tokenCount': 3, 'secretary': 'normal'}]})
+        keys = [
+            "session_token",
+            "csrfToken",
+            "x-auth-token",
+            "client_secret",
+            "aws_secret_access_key",
+            "accessKey",
+            "accessKeyId",
+            "secretAccessKey",
+            "Cookie",
+            "Set-Cookie",
+            "Authorization",
+        ]
+        for projector in (load("runtime")._strip_owner, load("native_tools")._public):
+            result = projector(
+                {
+                    "rows": [
+                        {
+                            **dict.fromkeys(keys, CANARY),
+                            "keyboard": "normal",
+                            "tokenCount": 3,
+                            "secretary": "normal",
+                        }
+                    ]
+                }
+            )
             self.assertNotIn(CANARY, json.dumps(result))
-            self.assertEqual(result['rows'][0], {'keyboard': 'normal', 'tokenCount': 3, 'secretary': 'normal'})
+            self.assertEqual(
+                result["rows"][0], {"keyboard": "normal", "tokenCount": 3, "secretary": "normal"}
+            )
 
     def test_api_business_state_is_not_a_task_and_schema_coverage_is_complete(self):
-        tools, runtime = load('native_tools'), load('runtime')
-        shared_actions = set(tools.TOOL_SCHEMAS['fast_browser_run']['parameters']['properties']['action']['enum'])
+        tools, runtime = load("native_tools"), load("runtime")
+        shared_actions = set(
+            tools.TOOL_SCHEMAS["fast_browser_run"]["parameters"]["properties"]["action"]["enum"]
+        )
         # 中文注释：JS/CDP 经智能审批或全部访问后按既有体积限制返回，其余动作使用封闭投影。
-        self.assertFalse(shared_actions - set(runtime._RESULT_ACTIONS) - {'api_request', 'js.evaluate', 'cdp.send', 'cdp.events'})
-        rows = [{'name': 'business', 'state': 'pending_approval', 'value': 1}]
-        output, _ = self.invoke(True, 'run', {'task_id': 't', 'action': 'api_request', 'tab_id': 1,
-            'url': 'https://example.com/api', 'fields': ['rows']}, {'status': 200, 'data': {'rows': rows}})
-        self.assertEqual(output, {'status': 200, 'data': {'rows': rows}})
+        self.assertFalse(
+            shared_actions
+            - set(runtime._RESULT_ACTIONS)
+            - {"api_request", "js.evaluate", "cdp.send", "cdp.events"}
+        )
+        rows = [{"name": "business", "state": "pending_approval", "value": 1}]
+        output, _ = self.invoke(
+            True,
+            "run",
+            {
+                "task_id": "t",
+                "action": "api_request",
+                "tab_id": 1,
+                "url": "https://example.com/api",
+                "fields": ["rows"],
+            },
+            {"status": 200, "data": {"rows": rows}},
+        )
+        self.assertEqual(output, {"status": 200, "data": {"rows": rows}})
 
     def test_approval_health_and_list_envelopes(self):
-        output, _ = self.invoke(True, 'health', {}, {'ok': True, 'protocolVersion': 1, 'debug': CANARY})
-        self.assertEqual(output, {'ok': True, 'protocolVersion': 1})
-        output, _ = self.invoke(True, 'browsers', {}, [{'instanceId': 'i', 'browser': 'edge',
-            'version': '1', 'connected': True, 'credentials': CANARY}])
-        self.assertEqual(output, [{'instanceId': 'i', 'browser': 'edge', 'version': '1', 'connected': True}])
-        output, calls = self.invoke(True, 'run', {'task_id': 't', 'action': 'click', 'tab_id': 1,
-            'selector': '#buy', 'request_id': 'r'}, {'status': 'approval_required', 'requestId': 'r',
-                'digest': 'd', 'expiresAt': 42, 'message': CANARY, 'nonce': CANARY})
-        self.assertEqual(output['status'], 'approval_required')
-        self.assertEqual(output['requestId'], 'r')
+        output, _ = self.invoke(
+            True, "health", {}, {"ok": True, "protocolVersion": 1, "debug": CANARY}
+        )
+        self.assertEqual(output, {"ok": True, "protocolVersion": 1})
+        output, _ = self.invoke(
+            True,
+            "browsers",
+            {},
+            [
+                {
+                    "instanceId": "i",
+                    "browser": "edge",
+                    "version": "1",
+                    "connected": True,
+                    "credentials": CANARY,
+                }
+            ],
+        )
+        self.assertEqual(
+            output, [{"instanceId": "i", "browser": "edge", "version": "1", "connected": True}]
+        )
+        output, calls = self.invoke(
+            True,
+            "run",
+            {"task_id": "t", "action": "click", "tab_id": 1, "selector": "#buy", "request_id": "r"},
+            {
+                "status": "approval_required",
+                "requestId": "r",
+                "digest": "d",
+                "expiresAt": 42,
+                "message": CANARY,
+                "nonce": CANARY,
+            },
+        )
+        self.assertEqual(output["status"], "approval_required")
+        self.assertEqual(output["requestId"], "r")
         self.assertNotIn(CANARY, json.dumps(output))
         self.assertEqual(len(calls), 1)
-        self.assertEqual(calls[0][1]['requestId'], 'r')
+        self.assertEqual(calls[0][1]["requestId"], "r")
         for shared in (True,):
-            output, _ = self.invoke(shared, 'list', {}, [{'id': 't', 'state': 'ready',
-                    'title': {'debug': CANARY}, 'lastError': CANARY}])
-            self.assertEqual(output[0]['id'], 't')
+            output, _ = self.invoke(
+                shared,
+                "list",
+                {},
+                [{"id": "t", "state": "ready", "title": {"debug": CANARY}, "lastError": CANARY}],
+            )
+            self.assertEqual(output[0]["id"], "t")
             self.assertNotIn(CANARY, json.dumps(output))
 
     def test_unknown_result_flags_cannot_be_dropped_or_made_retryable(self):
         for shared in (True,):
-            result, calls = self.invoke(shared, 'run', {'task_id': 't', 'action': 'snapshot',
-                **({'tab_id': 1} if shared else {})},
-                {'status': 'outcome_unknown', 'retryable': True, 'message': CANARY})
-            self.assertIs(result.get('outcome_unknown'), True)
-            self.assertIs(result.get('retryable'), False)
+            result, calls = self.invoke(
+                shared,
+                "run",
+                {"task_id": "t", "action": "snapshot", **({"tab_id": 1} if shared else {})},
+                {"status": "outcome_unknown", "retryable": True, "message": CANARY},
+            )
+            self.assertIs(result.get("outcome_unknown"), True)
+            self.assertIs(result.get("retryable"), False)
             self.assertNotIn(CANARY, json.dumps(result))
-            self.assertEqual(sum(m.endswith('.run') for m, _ in calls), 1)
-            result, _ = self.invoke(shared, 'get', {'task_id': 't'}, {'id': 't', 'state': 'needs_sync'})
-            self.assertEqual(result['id'], 't')
-            self.assertIs(result.get('outcome_unknown'), True)
-            self.assertIs(result.get('retryable'), False)
+            self.assertEqual(sum(m.endswith(".run") for m, _ in calls), 1)
+            result, _ = self.invoke(
+                shared, "get", {"task_id": "t"}, {"id": "t", "state": "needs_sync"}
+            )
+            self.assertEqual(result["id"], "t")
+            self.assertIs(result.get("outcome_unknown"), True)
+            self.assertIs(result.get("retryable"), False)
 
     def test_both_audit_projectors_block_recursive_credentials(self):
-        payload = {'owner': CANARY, 'cookies': [{'value': CANARY}],
-                   'headers': {'Authorization': 'Bearer ' + CANARY},
-                   'items': [{'business': {'SeT-CoOkIe': CANARY, 'accessToken': CANARY,
-                              'refresh_token': CANARY, 'api-key': CANARY,
-                              'clientSecret': CANARY, 'password': CANARY,
-                              'storageState': CANARY, 'private_key': CANARY},
-                              'name': 'ordinary', 'tokenCount': 17, 'key': 'Enter',
-                              'leaseId': 'semantic-binding'}]}
-        for projector in (load('runtime')._strip_owner, load('native_tools')._public):
+        payload = {
+            "owner": CANARY,
+            "cookies": [{"value": CANARY}],
+            "headers": {"Authorization": "Bearer " + CANARY},
+            "items": [
+                {
+                    "business": {
+                        "SeT-CoOkIe": CANARY,
+                        "accessToken": CANARY,
+                        "refresh_token": CANARY,
+                        "api-key": CANARY,
+                        "clientSecret": CANARY,
+                        "password": CANARY,
+                        "storageState": CANARY,
+                        "private_key": CANARY,
+                    },
+                    "name": "ordinary",
+                    "tokenCount": 17,
+                    "key": "Enter",
+                    "leaseId": "semantic-binding",
+                }
+            ],
+        }
+        for projector in (load("runtime")._strip_owner, load("native_tools")._public):
             with self.subTest(projector=projector.__name__):
                 result = projector(payload)
                 self.assertNotIn(CANARY, json.dumps(result))
-                self.assertEqual(result['items'][0]['name'], 'ordinary')
-                self.assertEqual(result['items'][0]['tokenCount'], 17)
-                self.assertEqual(result['items'][0]['key'], 'Enter')
-                self.assertEqual(result['items'][0]['leaseId'], 'semantic-binding')
-        self.assertEqual(payload['owner'], CANARY)  # Never mutate backend/cache.
+                self.assertEqual(result["items"][0]["name"], "ordinary")
+                self.assertEqual(result["items"][0]["tokenCount"], 17)
+                self.assertEqual(result["items"][0]["key"], "Enter")
+                self.assertEqual(result["items"][0]["leaseId"], "semantic-binding")
+        self.assertEqual(payload["owner"], CANARY)  # Never mutate backend/cache.
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

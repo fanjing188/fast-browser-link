@@ -37,18 +37,22 @@ class NativeHostFixture(unittest.TestCase):
         server.listen(1)
         server.settimeout(2)
         # 中文注释：只连接测试套接字，绝不启动或重启用户的 Hermes daemon。
-        script = "\n".join((
-            "import faulthandler, signal, sys",
-            "faulthandler.register(signal.SIGUSR1, all_threads=True)",
-            "sys.path.insert(0, sys.argv.pop(1))",
-            "import host",
-            "host.ensure_service = lambda home: None",
-            self.bootstrap,
-            "raise SystemExit(host.main())",
-        ))
+        script = "\n".join(
+            (
+                "import faulthandler, signal, sys",
+                "faulthandler.register(signal.SIGUSR1, all_threads=True)",
+                "sys.path.insert(0, sys.argv.pop(1))",
+                "import host",
+                "host.ensure_service = lambda home: None",
+                self.bootstrap,
+                "raise SystemExit(host.main())",
+            )
+        )
         self.process = subprocess.Popen(
             [sys.executable, "-c", script, str(BRIDGE_DIR), ORIGIN],
-            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             env={**os.environ, "HERMES_HOME": str(home), "PYTHONDONTWRITEBYTECODE": "1"},
         )
         self.addCleanup(self._cleanup_process)
@@ -89,7 +93,9 @@ class NativeHostFixture(unittest.TestCase):
             # 中文注释：faulthandler 会分多段写入，沿用 50ms 上限收齐片段，再终止超时夹具。
             deadline = time.monotonic() + 0.05
             while time.monotonic() < deadline:
-                if not select.select([error_stream], [], [], max(0, deadline - time.monotonic()))[0]:
+                if not select.select([error_stream], [], [], max(0, deadline - time.monotonic()))[
+                    0
+                ]:
                     break
                 chunk = os.read(error_stream.fileno(), 64 * 1024)
                 if not chunk:
@@ -240,24 +246,50 @@ class NativeHostHistoryIntegrationTests(unittest.TestCase):
     def test_large_history_cleanup_over_real_host_and_daemon_keeps_connection_open(self):
         sys.path.insert(0, str(BRIDGE_DIR))
         from client import ensure_service
+
         home = self.enterContext(temporary_bridge_home())
         data = home / "plugin-data" / "fast-browser-link-native"
         data.mkdir(parents=True, mode=0o700)
-        operation = {"action": "snapshot", "state": "succeeded", "startedAt": 1, "completedAt": 2, "durationMs": 1000}
-        tasks = [{"id": f"history-{index}", "owner": "fixture-owner", "instanceId": "fixture-browser",
-                  "title": "fixture-history", "browser": "chrome", "state": "closed", "generation": 1,
-                  "allowedOrigins": ["https://example.test"], "tabIds": [], "agentTabIds": [],
-                  "createdAt": 1, "updatedAt": 2, "cleanupState": "succeeded", "workspaceState": "closed",
-                  "operationTimeline": [operation] * 32} for index in range(500)]
+        operation = {
+            "action": "snapshot",
+            "state": "succeeded",
+            "startedAt": 1,
+            "completedAt": 2,
+            "durationMs": 1000,
+        }
+        tasks = [
+            {
+                "id": f"history-{index}",
+                "owner": "fixture-owner",
+                "instanceId": "fixture-browser",
+                "title": "fixture-history",
+                "browser": "chrome",
+                "state": "closed",
+                "generation": 1,
+                "allowedOrigins": ["https://example.test"],
+                "tabIds": [],
+                "agentTabIds": [],
+                "createdAt": 1,
+                "updatedAt": 2,
+                "cleanupState": "succeeded",
+                "workspaceState": "closed",
+                "operationTimeline": [operation] * 32,
+            }
+            for index in range(500)
+        ]
         path = data / "tasks.json"
         path.write_text(json.dumps({"version": 1, "tasks": tasks}))
         path.chmod(0o600)
         (data / "host-config.json").write_text(json.dumps({"allowedOrigins": [ORIGIN]}))
         ensure_service(home)
         self.addCleanup(stop_fixture_daemon, home)
-        process = subprocess.Popen([sys.executable, str(BRIDGE_DIR / "host.py"), ORIGIN],
-                                   stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                   env={**os.environ, "HERMES_HOME": str(home), "PYTHONDONTWRITEBYTECODE": "1"})
+        process = subprocess.Popen(
+            [sys.executable, str(BRIDGE_DIR / "host.py"), ORIGIN],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env={**os.environ, "HERMES_HOME": str(home), "PYTHONDONTWRITEBYTECODE": "1"},
+        )
 
         def cleanup_process():
             if process.poll() is None:
@@ -277,7 +309,11 @@ class NativeHostHistoryIntegrationTests(unittest.TestCase):
             def read_exact(size):
                 result = bytearray()
                 while len(result) < size:
-                    self.assertTrue(select.select([process.stdout], [], [], max(0, deadline - time.monotonic()))[0])
+                    self.assertTrue(
+                        select.select(
+                            [process.stdout], [], [], max(0, deadline - time.monotonic())
+                        )[0]
+                    )
                     chunk = os.read(process.stdout.fileno(), size - len(result))
                     self.assertTrue(chunk)
                     result.extend(chunk)
@@ -287,19 +323,29 @@ class NativeHostHistoryIntegrationTests(unittest.TestCase):
                 size = struct.unpack("<I", read_exact(4))[0]
                 self.assertLess(size, 1024 * 1024)
                 response = json.loads(read_exact(size))
-                if response.get('method') == 'tasks.changed':
+                if response.get("method") == "tasks.changed":
                     continue
-                self.assertEqual(response['id'], request_id)
-                return response['result']
+                self.assertEqual(response["id"], request_id)
+                return response["result"]
 
-        hello = request("hello", "extension.hello", {"instanceId": "fixture-browser", "browser": "edge", "version": "fixture"})
-        self.assertTrue(hello['connected'])
+        hello = request(
+            "hello",
+            "extension.hello",
+            {"instanceId": "fixture-browser", "browser": "edge", "version": "fixture"},
+        )
+        self.assertTrue(hello["connected"])
         records = request("cleanup", "extension.tasks", {"includeClosed": True})
         self.assertEqual(len(records), 500)
-        self.assertTrue(all(set(row) == {'id', 'instanceId', 'generation', 'state', 'tabIds'} for row in records))
+        self.assertTrue(
+            all(
+                set(row) == {"id", "instanceId", "generation", "state", "tabIds"} for row in records
+            )
+        )
         self.assertEqual(request("normal-read", "extension.tasks", {}), [])
         # 中文注释：清理响应后连接仍可用，磁盘上的完整历史详情没有被裁剪。
-        self.assertEqual(json.loads(path.read_text())['tasks'][0]['operationTimeline'], [operation] * 32)
+        self.assertEqual(
+            json.loads(path.read_text())["tasks"][0]["operationTimeline"], [operation] * 32
+        )
         process.stdin.close()
         self.assertEqual(process.wait(timeout=0.8), 0)
         self.assertEqual(process.stderr.read(), b"")

@@ -1,4 +1,5 @@
 """Isolated source-package helper for shared native v2 real-browser acceptance."""
+
 from __future__ import annotations
 
 import importlib.util
@@ -35,22 +36,33 @@ def paths(work: Path):
     home = work / "h"
     config_path = work / "fixture-paths.json"
     config = json.loads(config_path.read_text()) if config_path.is_file() else {}
-    hermes = compact_home(work, Path(config["hermesHome"])) if config.get("hermesHome") else home / ".hermes"
+    hermes = (
+        compact_home(work, Path(config["hermesHome"]))
+        if config.get("hermesHome")
+        else home / ".hermes"
+    )
     installed = hermes / "plugins" / "fast-browser-link"
     return {
         "work": work,
         "home": home,
         "hermes": hermes,
         "plugin": installed if installed.is_dir() else work / "plugin" / "fast-browser-link",
-        "extension": work / "package/native-extension" if config.get("packageMode") else work / "dist-native",
+        "extension": work / "package/native-extension"
+        if config.get("packageMode")
+        else work / "dist-native",
     }
 
 
 def compact_home(work: Path, home: Path):
     # 中文注释：只接受 runner 在同一 scratch 下独占创建的短目录，不允许链接到个人配置。
     work = work.expanduser().resolve()
-    if (home.is_symlink() or home.resolve() != home or home.parent != work.parent
-            or not re.fullmatch(r"[a-f0-9]{4}", home.name) or not home.is_dir()):
+    if (
+        home.is_symlink()
+        or home.resolve() != home
+        or home.parent != work.parent
+        or not re.fullmatch(r"[a-f0-9]{4}", home.name)
+        or not home.is_dir()
+    ):
         raise ValueError("compact Hermes home must be a private scratch sibling")
     if len(os.fsencode(home / "plugin-data/fast-browser-link-native/bridge.sock")) > 103:
         raise ValueError("compact fixture socket path is too long")
@@ -72,8 +84,16 @@ def stage(work: Path, origins: list[str], hermes_home: Path | None = None):
     if value["plugin"].exists():
         raise FileExistsError("fixture plugin already exists")
     value["plugin"].parent.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(ROOT / "executor-plugin", value["plugin"], ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
-    shutil.copytree(ROOT / "native-bridge", value["plugin"] / "native_bridge", ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "tests"))
+    shutil.copytree(
+        ROOT / "executor-plugin",
+        value["plugin"],
+        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+    )
+    shutil.copytree(
+        ROOT / "native-bridge",
+        value["plugin"] / "native_bridge",
+        ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "tests"),
+    )
     installer = load(ROOT / "native-bridge/install.py", "native_v2_installer_" + uuid.uuid4().hex)
     staged = installer.stage(value["home"], origins)
     if hermes_home is not None:
@@ -83,7 +103,9 @@ def stage(work: Path, origins: list[str], hermes_home: Path | None = None):
             shutil.move(str(entry), value["hermes"] / entry.name)
         original.rmdir()
         host = value["hermes"] / Path(staged["host"]).relative_to(original)
-        host.write_text(host.read_text().replace(str(original), str(value["hermes"])), encoding="utf-8")
+        host.write_text(
+            host.read_text().replace(str(original), str(value["hermes"])), encoding="utf-8"
+        )
         for filename in staged["manifests"]:
             manifest_path = Path(filename)
             manifest = json.loads(manifest_path.read_text())
@@ -107,13 +129,25 @@ def stage_package(work: Path, package: Path, origins: list[str], hermes_home: Pa
     package = package.expanduser().resolve()
     # 中文注释：跨平台离线夹具调用真实安装事务验证 macOS 文件布局；公开 CLI 仍只允许 macOS。
     # runpy 不在待验包内写入 __pycache__，所有包摘要与路径检查仍由 install 执行。
-    code = ("import json,runpy,sys; from pathlib import Path; "
-            "installer=runpy.run_path(sys.argv[1]); "
-            "print(json.dumps(installer['install'](Path(sys.argv[2]),Path(sys.argv[3]),"
-            "Path(sys.argv[4]),json.loads(sys.argv[5]),apply=True)))")
-    command = [sys.executable, '-c', code, str(package / "install-executor.py"),
-               str(package), str(value["home"]), str(value["hermes"]), json.dumps(origins)]
-    installed = json.loads(subprocess.run(command, check=True, capture_output=True, text=True).stdout)
+    code = (
+        "import json,runpy,sys; from pathlib import Path; "
+        "installer=runpy.run_path(sys.argv[1]); "
+        "print(json.dumps(installer['install'](Path(sys.argv[2]),Path(sys.argv[3]),"
+        "Path(sys.argv[4]),json.loads(sys.argv[5]),apply=True)))"
+    )
+    command = [
+        sys.executable,
+        "-c",
+        code,
+        str(package / "install-executor.py"),
+        str(package),
+        str(value["home"]),
+        str(value["hermes"]),
+        json.dumps(origins),
+    ]
+    installed = json.loads(
+        subprocess.run(command, check=True, capture_output=True, text=True).stdout
+    )
     if installed.get("status") != "installed_disabled":
         raise RuntimeError("package-first installation was not confirmed")
     return {
@@ -132,7 +166,9 @@ def rpc(work: Path, session: str, suffix: str, args: dict):
     value = paths(work)
     os.environ["HOME"] = str(value["home"])
     os.environ["HERMES_HOME"] = str(value["hermes"])
-    hermes_source = Path(os.environ.get("HERMES_SOURCE", str(Path.home() / ".hermes/hermes-agent"))).resolve()
+    hermes_source = Path(
+        os.environ.get("HERMES_SOURCE", str(Path.home() / ".hermes/hermes-agent"))
+    ).resolve()
     sys.path.insert(0, str(hermes_source))
     try:
         from hermes_cli import plugins
@@ -147,7 +183,9 @@ def rpc(work: Path, session: str, suffix: str, args: dict):
         try:
             return original_call(method, params)
         except Exception as exc:
-            diagnostic.update({"method": method, "code": getattr(exc, "code", None), "message": str(exc)})
+            diagnostic.update(
+                {"method": method, "code": getattr(exc, "code", None), "message": str(exc)}
+            )
             raise
 
     profile.call = recorded_call
@@ -177,7 +215,9 @@ def batch(work: Path, session: str, kind: str, args: dict):
     value = paths(work)
     os.environ["HOME"] = str(value["home"])
     os.environ["HERMES_HOME"] = str(value["hermes"])
-    hermes_source = Path(os.environ.get("HERMES_SOURCE", str(Path.home() / ".hermes/hermes-agent"))).resolve()
+    hermes_source = Path(
+        os.environ.get("HERMES_SOURCE", str(Path.home() / ".hermes/hermes-agent"))
+    ).resolve()
     sys.path.insert(0, str(hermes_source))
     try:
         from hermes_cli import plugins
@@ -193,7 +233,9 @@ def batch(work: Path, session: str, kind: str, args: dict):
             return original_call(method, params)
         except Exception as exc:
             diagnostic.clear()
-            diagnostic.update({"method": method, "code": getattr(exc, "code", None), "message": str(exc)})
+            diagnostic.update(
+                {"method": method, "code": getattr(exc, "code", None), "message": str(exc)}
+            )
             raise
 
     profile.call = recorded_call
@@ -205,8 +247,11 @@ def batch(work: Path, session: str, kind: str, args: dict):
         nonlocal sequence
         sequence += 1
         payload = {
-            "task_id": args["task_id"], "request_id": f"{args['request_prefix']}-{sequence}",
-            "action": action, "tab_id": args["tab_id"], **extra,
+            "task_id": args["task_id"],
+            "request_id": f"{args['request_prefix']}-{sequence}",
+            "action": action,
+            "tab_id": args["tab_id"],
+            **extra,
         }
         result = _invoke(plugins, tools, profile, "fast_browser_run", payload, session)
         if result.get("error"):
@@ -217,27 +262,60 @@ def batch(work: Path, session: str, kind: str, args: dict):
         with patch.object(plugins, "_delivery_manager", return_value=manager):
             if kind == "click":
                 shot = run("interaction.capture")
-                bounds = run("interaction.bounds", screenshot_id=shot["id"], selector=args["selector"])
-                clicked = run("interaction.click", screenshot_id=shot["id"], point=bounds["imageCenter"], expected_ref=bounds["ref"])
-                replay = _invoke(plugins, tools, profile, "fast_browser_run", {
-                    "task_id": args["task_id"], "request_id": f"{args['request_prefix']}-replay",
-                    "action": "interaction.click", "tab_id": args["tab_id"],
-                    "screenshot_id": shot["id"], "point": bounds["imageCenter"], "expected_ref": bounds["ref"],
-                }, session)
+                bounds = run(
+                    "interaction.bounds", screenshot_id=shot["id"], selector=args["selector"]
+                )
+                clicked = run(
+                    "interaction.click",
+                    screenshot_id=shot["id"],
+                    point=bounds["imageCenter"],
+                    expected_ref=bounds["ref"],
+                )
+                replay = _invoke(
+                    plugins,
+                    tools,
+                    profile,
+                    "fast_browser_run",
+                    {
+                        "task_id": args["task_id"],
+                        "request_id": f"{args['request_prefix']}-replay",
+                        "action": "interaction.click",
+                        "tab_id": args["tab_id"],
+                        "screenshot_id": shot["id"],
+                        "point": bounds["imageCenter"],
+                        "expected_ref": bounds["ref"],
+                    },
+                    session,
+                )
                 return {"shot": shot, "bounds": bounds, "result": clicked, "replay": replay}
             if kind == "drag_elements":
                 shot = run("interaction.capture")
-                result = run("interaction.drag_elements", screenshot_id=shot["id"], source=args["source"],
-                             target=args["target"], mode=args.get("mode", "pointer"))
+                result = run(
+                    "interaction.drag_elements",
+                    screenshot_id=shot["id"],
+                    source=args["source"],
+                    target=args["target"],
+                    mode=args.get("mode", "pointer"),
+                )
                 return {"shot": shot, "result": result}
             if kind == "drag_coordinates":
                 shot = run("interaction.capture")
-                source = run("interaction.bounds", screenshot_id=shot["id"], selector=args["source"])
-                target = run("interaction.bounds", screenshot_id=shot["id"], selector=args["target"])
-                result = run("interaction.drag_coordinates", screenshot_id=shot["id"],
-                             **{"from": {"point": source["imageCenter"], "expectedRef": source["ref"]},
-                                "to": {"point": target["imageCenter"], "expectedRef": target["ref"]},
-                                "mode": "pointer", "steps": args.get("steps", 8)})
+                source = run(
+                    "interaction.bounds", screenshot_id=shot["id"], selector=args["source"]
+                )
+                target = run(
+                    "interaction.bounds", screenshot_id=shot["id"], selector=args["target"]
+                )
+                result = run(
+                    "interaction.drag_coordinates",
+                    screenshot_id=shot["id"],
+                    **{
+                        "from": {"point": source["imageCenter"], "expectedRef": source["ref"]},
+                        "to": {"point": target["imageCenter"], "expectedRef": target["ref"]},
+                        "mode": "pointer",
+                        "steps": args.get("steps", 8),
+                    },
+                )
                 return {"shot": shot, "source": source, "target": target, "result": result}
             raise ValueError("unknown batch kind")
     finally:
@@ -250,13 +328,19 @@ def inspect(work: Path):
     if not pid_path.is_file():
         raise RuntimeError("fixture daemon is not running")
     pid = int(pid_path.read_text())
-    command = subprocess.run(["ps", "-p", str(pid), "-o", "command="], check=True, capture_output=True, text=True).stdout.strip()
+    command = subprocess.run(
+        ["ps", "-p", str(pid), "-o", "command="], check=True, capture_output=True, text=True
+    ).stdout.strip()
     # 中文注释：源码阶段使用隔离 host-bin；正式包阶段必须核实 daemon 来自包内已安装的插件。
     installed_daemon = value["plugin"] / "native_bridge/daemon.py"
     host_daemon = value["hermes"] / "plugin-data/fast-browser-link-native/host-bin/daemon.py"
     # 中文注释：源码阶段 daemon 可由隔离 host-bin 或临时安装的插件拉起，二者都必须在本次临时目录内。
-    candidates = [path for path in (installed_daemon, host_daemon) if path.is_file() and
-                  (path.is_relative_to(value["work"]) or path.is_relative_to(value["hermes"]))]
+    candidates = [
+        path
+        for path in (installed_daemon, host_daemon)
+        if path.is_file()
+        and (path.is_relative_to(value["work"]) or path.is_relative_to(value["hermes"]))
+    ]
     expected = next((path for path in candidates if str(path) in command), None)
     if expected is None or str(value["hermes"]) not in command:
         raise RuntimeError("daemon is not using staged bridge code")
@@ -270,16 +354,22 @@ def inspect(work: Path):
     }
 
 
-def register_fixture_artifact(work: Path, session: str, task_id: str, origin: str,
-                              filename: str, encoded: str):
+def register_fixture_artifact(
+    work: Path, session: str, task_id: str, origin: str, filename: str, encoded: str
+):
     value = paths(work)
-    tools = load(value["plugin"] / "native_tools.py", "native_v2_artifact_tools_" + uuid.uuid4().hex)
+    tools = load(
+        value["plugin"] / "native_tools.py", "native_v2_artifact_tools_" + uuid.uuid4().hex
+    )
     profile = tools.runtime_module().NativeProfileRuntime(value["hermes"], value["plugin"])
     try:
         owner = profile.authority.owner_for_session(session)
         task = profile.call("shared.get", {"owner": owner, "taskId": task_id})
         data = base64.b64decode(encoded, validate=True)
-        module = load(value["plugin"] / "native_bridge/artifacts.py", "native_v2_artifacts_" + uuid.uuid4().hex)
+        module = load(
+            value["plugin"] / "native_bridge/artifacts.py",
+            "native_v2_artifacts_" + uuid.uuid4().hex,
+        )
 
         class SelectedFile:
             content_type = "text/plain"
@@ -288,13 +378,16 @@ def register_fixture_artifact(work: Path, session: str, task_id: str, origin: st
                 self.filename, self.offset = filename, 0
 
             async def read(self, size):
-                chunk = data[self.offset:self.offset + size]
+                chunk = data[self.offset : self.offset + size]
                 self.offset += len(chunk)
                 return chunk
 
         # 中文注释：只向临时任务登记合成文件，测试不读取个人文件路径。
-        return asyncio.run(module.ArtifactStore(value["hermes"]).register(
-            task=task, owner=owner, origin=origin, file=SelectedFile()))
+        return asyncio.run(
+            module.ArtifactStore(value["hermes"]).register(
+                task=task, owner=owner, origin=origin, file=SelectedFile()
+            )
+        )
     finally:
         profile.close()
 
@@ -308,10 +401,18 @@ def seed_fixture_vault(work: Path, origin: str):
     sys.path.insert(0, str(source))
     try:
         from agent.vault_store import get_vault_store
+
         # 中文注释：Fernet 文件仅落在本次隔离 HERMES_HOME；合成密码不经过 argv 或普通 RPC。
-        item = get_vault_store().add_item("login", "Synthetic fixture",
-                                          {"identifier_type": "username", "identifier": "fixture-user",
-                                           "password": "synthetic-vault-password-2026"}, origin=origin)
+        item = get_vault_store().add_item(
+            "login",
+            "Synthetic fixture",
+            {
+                "identifier_type": "username",
+                "identifier": "fixture-user",
+                "password": "synthetic-vault-password-2026",
+            },
+            origin=origin,
+        )
         return {"handle": item.id, "origin": origin}
     finally:
         sys.path.remove(str(source))
@@ -327,7 +428,9 @@ def fill_fixture_vault(work: Path, session: str, task_id: str, tab_id: int, hand
     installed = value["hermes"] / "plugins" / "fast-browser-link"
     installed.parent.mkdir(parents=True, exist_ok=True)
     if value["plugin"] != installed:
-        shutil.copytree(value["plugin"], installed, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+        shutil.copytree(
+            value["plugin"], installed, ignore=shutil.ignore_patterns("__pycache__", "*.pyc")
+        )
     # 中文注释：仅临时 Hermes 配置启用覆盖权限与 Vault；不改个人配置或外部密码管理器。
     (value["hermes"] / "config.yaml").write_text(
         "plugins:\n  enabled: [fast-browser-link]\n  entries:\n    fast-browser-link:\n"
@@ -337,6 +440,7 @@ def fill_fixture_vault(work: Path, session: str, task_id: str, tab_id: int, hand
     try:
         from hermes_cli import plugins
         from tools.registry import registry
+
         # 中文注释：使用 Hermes 自己的全局插件管理器；另建管理器会在视觉路径导入 model_tools 时重复加载插件。
         manager = plugins.get_plugin_manager()
         manager.discover_and_load()
@@ -348,21 +452,28 @@ def fill_fixture_vault(work: Path, session: str, task_id: str, tab_id: int, hand
             def invoke(name, args):
                 # 中文注释：真实 pre_tool_call 生成一次性 owner lease，模型参数不含 owner 或密码。
                 block, bounded = plugins._dispatch_pre_tool_call_hooks(
-                    name, args, session_id=session, tool_call_id="vault-fixture-" + uuid.uuid4().hex)
+                    name, args, session_id=session, tool_call_id="vault-fixture-" + uuid.uuid4().hex
+                )
                 if block:
                     raise RuntimeError("official Vault hook denied")
                 entry = registry.get_entry(name, scope=manager.scope_key)
-                vault_tool = name.startswith('browser_vault_')
-                expected_toolset = 'browser' if vault_tool else 'fast-browser-link'
-                if (entry is None or entry.toolset != expected_toolset
-                        or (vault_tool and 'vault_integration_' not in entry.handler.__module__)):
+                vault_tool = name.startswith("browser_vault_")
+                expected_toolset = "browser" if vault_tool else "fast-browser-link"
+                if (
+                    entry is None
+                    or entry.toolset != expected_toolset
+                    or (vault_tool and "vault_integration_" not in entry.handler.__module__)
+                ):
                     raise RuntimeError("official Vault override is unavailable")
                 return json.loads(entry.handler(bounded, session_id=session))
 
             with patch.object(plugins, "_delivery_manager", return_value=manager):
                 bound = invoke("fast_browser_get", {"task_id": task_id})
-                if (bound.get("sessionBinding") != "ready" or bound.get("activeMode") != "full"
-                        or tab_id not in bound.get("tabIds", [])):
+                if (
+                    bound.get("sessionBinding") != "ready"
+                    or bound.get("activeMode") != "full"
+                    or tab_id not in bound.get("tabIds", [])
+                ):
                     raise RuntimeError("official Vault session binding unavailable")
                 listed = invoke("browser_vault_list", {})
                 if handle not in {item.get("handle") for item in listed.get("items", [])}:
@@ -387,7 +498,9 @@ def official_calls(work: Path, session: str, task_id: str, calls: str, options: 
     installed = value["hermes"] / "plugins" / "fast-browser-link"
     installed.parent.mkdir(parents=True, exist_ok=True)
     if value["plugin"] != installed and not installed.exists():
-        shutil.copytree(value["plugin"], installed, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+        shutil.copytree(
+            value["plugin"], installed, ignore=shutil.ignore_patterns("__pycache__", "*.pyc")
+        )
     (value["hermes"] / "config.yaml").write_text(
         "plugins:\n  enabled: [fast-browser-link]\n  entries:\n    fast-browser-link:\n"
         "      allow_tool_override: true\n      settings:\n        vault_tools:\n          enabled: true\n",
@@ -399,13 +512,21 @@ def official_calls(work: Path, session: str, task_id: str, calls: str, options: 
         from tools.registry import registry
         from agent.vault_store import get_vault_store
         from agent.vault_backends import unlock
+
         seeded = {}
         for key, item in (opts.get("seed") or {}).items():
-            secret = {"identifier_type": "username", "identifier": item.get("identifier", "fixture-user"),
-                      "password": item["password"]}
+            secret = {
+                "identifier_type": "username",
+                "identifier": item.get("identifier", "fixture-user"),
+                "password": item["password"],
+            }
             if item.get("otp_secret"):
                 secret["otp_secret"] = item["otp_secret"]
-            seeded[key] = get_vault_store().add_item("login", item.get("label", key), secret, origin=item["origin"]).id
+            seeded[key] = (
+                get_vault_store()
+                .add_item("login", item.get("label", key), secret, origin=item["origin"])
+                .id
+            )
         prompts = opts.get("prompts") or {}
         if prompts:
             # 中文注释：测试只替换 Hermes 公开的遮盖输入回调位，插件与 Vault 链路保持真实。
@@ -425,15 +546,22 @@ def official_calls(work: Path, session: str, task_id: str, calls: str, options: 
 
             def invoke(name, args):
                 block, bounded = plugins._dispatch_pre_tool_call_hooks(
-                    name, args, session_id=session, tool_call_id="official-" + uuid.uuid4().hex)
+                    name, args, session_id=session, tool_call_id="official-" + uuid.uuid4().hex
+                )
                 if block:
                     return {"hookBlocked": str(block)[:200]}
                 entry = registry.get_entry(name, scope=manager.scope_key)
                 # 中文注释：官方覆盖保留原 toolset；只要求注册表条目来自本插件模块。
-                if entry is None or "browser" not in getattr(entry.handler, "__module__", "") + getattr(entry.handler, "__qualname__", ""):
+                if entry is None or "browser" not in getattr(
+                    entry.handler, "__module__", ""
+                ) + getattr(entry.handler, "__qualname__", ""):
                     return {"notRouted": name}
                 raw = entry.handler(bounded, session_id=session)
-                return json.loads(raw) if isinstance(raw, str) else {"multimodal": True, "meta": raw.get("meta", {})}
+                return (
+                    json.loads(raw)
+                    if isinstance(raw, str)
+                    else {"multimodal": True, "meta": raw.get("meta", {})}
+                )
 
             with patch.object(plugins, "_delivery_manager", return_value=manager):
                 results.append(invoke("fast_browser_get", {"task_id": task_id}))
@@ -470,12 +598,21 @@ def official_blank_probe(work: Path, session: str, task_id: str):
     profile = tools.runtime_module().NativeProfileRuntime(value["hermes"], value["plugin"])
     try:
         owner = profile.authority.owner_for_session(session)
-        return profile.call("shared.run", {"owner": owner, "taskId": task_id,
-                                           "requestId": "blank-probe-" + uuid.uuid4().hex,
-                                           "action": "official.new_tab", "url": "about:blank"})
+        return profile.call(
+            "shared.run",
+            {
+                "owner": owner,
+                "taskId": task_id,
+                "requestId": "blank-probe-" + uuid.uuid4().hex,
+                "action": "official.new_tab",
+                "url": "about:blank",
+            },
+        )
     except Exception as error:
-        return {"errorCode": str(getattr(error, "code", "unclassified")),
-                "outcomeUnknown": (getattr(error, "data", None) or {}).get("outcomeUnknown")}
+        return {
+            "errorCode": str(getattr(error, "code", "unclassified")),
+            "outcomeUnknown": (getattr(error, "data", None) or {}).get("outcomeUnknown"),
+        }
     finally:
         profile.close()
 
@@ -483,6 +620,7 @@ def official_blank_probe(work: Path, session: str, task_id: str):
 def _real_cli():
     import pwd
     import shutil
+
     home = pwd.getpwuid(os.getuid()).pw_dir
     # 中文注释：优先使用已安装的 uv 工具副本，避免验收时 uvx 临时下载。
     installed = Path(home) / ".local/share/uv/tools/browser-use/bin/browser-use"
@@ -497,6 +635,7 @@ def _real_cli():
 
 def browser_exec_run(work: Path, session: str, task_id: str, code: str, label: str):
     import threading
+
     value = paths(work)
     cli = _real_cli()
     os.environ["HOME"] = str(value["home"])
@@ -507,16 +646,27 @@ def browser_exec_run(work: Path, session: str, task_id: str, code: str, label: s
     profile = tools.runtime_module().NativeProfileRuntime(value["hermes"], value["plugin"])
     try:
         owner = profile.authority.owner_for_session(session)
-        module = load(value["plugin"] / "single_tool_adapter" / "browser_exec.py", "native_v2_exec_" + uuid.uuid4().hex)
+        module = load(
+            value["plugin"] / "single_tool_adapter" / "browser_exec.py",
+            "native_v2_exec_" + uuid.uuid4().hex,
+        )
 
         class Bridge:
             _guard = threading.RLock()
             _bindings = {session: (owner, task_id, None, None, None, threading.Event())}
 
         # 中文注释：真实 Browser Use CLI 经插件适配器连接任务网关；HOME 指向临时目录，守护进程文件不落在用户目录。
-        adapter = module.BrowserExecAdapter(profile, Bridge(), value["hermes"], cli_finder=lambda: cli)
-        return json.loads(adapter.run({"code": code, "timeout_s": 180}, owner=owner, native_task=task_id,
-                                      hermes_task=label))
+        adapter = module.BrowserExecAdapter(
+            profile, Bridge(), value["hermes"], cli_finder=lambda: cli
+        )
+        return json.loads(
+            adapter.run(
+                {"code": code, "timeout_s": 180},
+                owner=owner,
+                native_task=task_id,
+                hermes_task=label,
+            )
+        )
     finally:
         profile.close()
 
@@ -530,16 +680,26 @@ def script_run(work: Path, session: str, task_id: str, code: str, checkpoint: st
     runtime = tools.runtime_module()
     profile = runtime.NativeProfileRuntime(value["hermes"], value["plugin"])
     try:
-        bridge_module = runtime.load_module(value["plugin"] / "script_lane" / "host_bridge.py", "native_v2_script_bridge_")
-        tool = runtime.load_module(value["plugin"] / "script_lane" / "tool.py", "native_v2_script_tool_")
+        bridge_module = runtime.load_module(
+            value["plugin"] / "script_lane" / "host_bridge.py", "native_v2_script_bridge_"
+        )
+        tool = runtime.load_module(
+            value["plugin"] / "script_lane" / "tool.py", "native_v2_script_tool_"
+        )
         bridge = bridge_module.HostBridge(profile, value["plugin"])
         owner = profile.authority.owner_for_session(session)
         bridge.bind(session, owner=owner, task_id=task_id)
         try:
-            return tool.run_script(bridge, session_id=session, tool_call_id="script-" + uuid.uuid4().hex,
-                                   workspace=tool.workspace_for(value["hermes"], owner), code=code, timeout_s=180,
-                                   resume_checkpoint=json.loads(checkpoint) if checkpoint else None,
-                                   export_roots=os.environ.get("FAST_BROWSER_EXPORT_ROOTS", ""))
+            return tool.run_script(
+                bridge,
+                session_id=session,
+                tool_call_id="script-" + uuid.uuid4().hex,
+                workspace=tool.workspace_for(value["hermes"], owner),
+                code=code,
+                timeout_s=180,
+                resume_checkpoint=json.loads(checkpoint) if checkpoint else None,
+                export_roots=os.environ.get("FAST_BROWSER_EXPORT_ROOTS", ""),
+            )
         finally:
             bridge.close()
     finally:
@@ -554,7 +714,10 @@ def shared_run(work: Path, session: str, params: str):
     tools = load(value["plugin"] / "native_tools.py", "native_v2_shared_tools_" + uuid.uuid4().hex)
     profile = tools.runtime_module().NativeProfileRuntime(value["hermes"], value["plugin"])
     try:
-        return profile.call("shared.run", {"owner": profile.authority.owner_for_session(session), **json.loads(params)})
+        return profile.call(
+            "shared.run",
+            {"owner": profile.authority.owner_for_session(session), **json.loads(params)},
+        )
     except Exception as error:
         return {"errorCode": str(getattr(error, "code", "unclassified"))}
     finally:
@@ -563,9 +726,17 @@ def shared_run(work: Path, session: str, params: str):
 
 def harness_stop(work: Path, name: str):
     value = paths(work)
-    env = {**os.environ, "HOME": str(value["home"]), "BU_NAME": name, "BH_RUNTIME_DIR": str(value["work"] / "r"),
-           "ANONYMIZED_TELEMETRY": "false", "BH_TELEMETRY": "0"}
-    result = subprocess.run([*_real_cli(), "--reload"], env=env, capture_output=True, text=True, timeout=60)
+    env = {
+        **os.environ,
+        "HOME": str(value["home"]),
+        "BU_NAME": name,
+        "BH_RUNTIME_DIR": str(value["work"] / "r"),
+        "ANONYMIZED_TELEMETRY": "false",
+        "BH_TELEMETRY": "0",
+    }
+    result = subprocess.run(
+        [*_real_cli(), "--reload"], env=env, capture_output=True, text=True, timeout=60
+    )
     return {"returncode": result.returncode}
 
 
@@ -575,11 +746,24 @@ def cleanup(work: Path):
     if not pid_path.is_file():
         return {}
     pid = int(pid_path.read_text())
-    command = subprocess.run(["ps", "-p", str(pid), "-o", "command="], capture_output=True, text=True)
+    command = subprocess.run(
+        ["ps", "-p", str(pid), "-o", "command="], capture_output=True, text=True
+    )
     # 中文注释：daemon 可能由 Native host（host-bin）或插件客户端（插件内 native_bridge）拉起，二者都在本次临时目录内。
-    candidates = (value["plugin"] / "native_bridge/daemon.py", value["hermes"] / "plugin-data/fast-browser-link-native/host-bin/daemon.py")
-    expected = [str(path) for path in candidates if path.is_relative_to(value["work"]) or path.is_relative_to(value["hermes"])]
-    if command.returncode == 0 and any(path in command.stdout for path in expected) and str(value["hermes"]) in command.stdout:
+    candidates = (
+        value["plugin"] / "native_bridge/daemon.py",
+        value["hermes"] / "plugin-data/fast-browser-link-native/host-bin/daemon.py",
+    )
+    expected = [
+        str(path)
+        for path in candidates
+        if path.is_relative_to(value["work"]) or path.is_relative_to(value["hermes"])
+    ]
+    if (
+        command.returncode == 0
+        and any(path in command.stdout for path in expected)
+        and str(value["hermes"]) in command.stdout
+    ):
         # 中文注释：daemon 被测试终止后可能由临时插件目录内的客户端重新拉起，该路径也在本次临时目录内。
         stop_fixture_daemon(value["hermes"], extra_daemons=[path for path in expected])
     else:
@@ -603,9 +787,16 @@ def main():
     mode = sys.argv[1]
     work = Path(sys.argv[2])
     if mode == "stage":
-        result = stage(work, json.loads(sys.argv[3]), Path(sys.argv[4]) if len(sys.argv) > 4 else None)
+        result = stage(
+            work, json.loads(sys.argv[3]), Path(sys.argv[4]) if len(sys.argv) > 4 else None
+        )
     elif mode == "stage_package":
-        result = stage_package(work, Path(sys.argv[3]), json.loads(sys.argv[4]), Path(sys.argv[5]) if len(sys.argv) > 5 else None)
+        result = stage_package(
+            work,
+            Path(sys.argv[3]),
+            json.loads(sys.argv[4]),
+            Path(sys.argv[5]) if len(sys.argv) > 5 else None,
+        )
     elif mode == "rpc":
         result = rpc(work, sys.argv[3], sys.argv[4], json.loads(sys.argv[5]))
     elif mode == "batch":
@@ -613,7 +804,9 @@ def main():
     elif mode == "inspect":
         result = inspect(work)
     elif mode == "artifact":
-        result = register_fixture_artifact(work, sys.argv[3], sys.argv[4], sys.argv[5], sys.argv[6], sys.argv[7])
+        result = register_fixture_artifact(
+            work, sys.argv[3], sys.argv[4], sys.argv[5], sys.argv[6], sys.argv[7]
+        )
     elif mode == "vault":
         result = fill_fixture_vault(work, sys.argv[3], sys.argv[4], int(sys.argv[5]), sys.argv[6])
     elif mode == "vault_seed":
@@ -623,11 +816,15 @@ def main():
     elif mode == "browser_exec":
         result = browser_exec_run(work, sys.argv[3], sys.argv[4], sys.argv[5], sys.argv[6])
     elif mode == "official_calls":
-        result = official_calls(work, sys.argv[3], sys.argv[4], sys.argv[5], sys.argv[6] if len(sys.argv) > 6 else "")
+        result = official_calls(
+            work, sys.argv[3], sys.argv[4], sys.argv[5], sys.argv[6] if len(sys.argv) > 6 else ""
+        )
     elif mode == "shared_run":
         result = shared_run(work, sys.argv[3], sys.argv[4])
     elif mode == "script":
-        result = script_run(work, sys.argv[3], sys.argv[4], sys.argv[5], sys.argv[6] if len(sys.argv) > 6 else "")
+        result = script_run(
+            work, sys.argv[3], sys.argv[4], sys.argv[5], sys.argv[6] if len(sys.argv) > 6 else ""
+        )
     elif mode == "harness_stop":
         result = harness_stop(work, sys.argv[3])
     elif mode == "cleanup":

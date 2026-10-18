@@ -1,4 +1,5 @@
 """用户选取文件的任务级私有登记；普通工具结果不包含本地路径。"""
+
 from __future__ import annotations
 
 import hashlib
@@ -14,11 +15,19 @@ MAX_FILE_BYTES = 100 * 1024 * 1024
 MAX_TASK_FILES = 10
 _ID = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 _UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
-_TYPES = frozenset({"text/plain", "application/json", "application/pdf", "image/png", "application/octet-stream"})
+_TYPES = frozenset(
+    {"text/plain", "application/json", "application/pdf", "image/png", "application/octet-stream"}
+)
 # 中文注释：用户在对话中给出的本地路径登记为本任务“不限来源”的文件，上传时由扩展按当前任务页来源核对。
 LOCAL_PATH_ORIGIN = "*"
-_SUFFIX_TYPES = {".txt": "text/plain", ".csv": "text/plain", ".md": "text/plain", ".json": "application/json",
-                 ".pdf": "application/pdf", ".png": "image/png"}
+_SUFFIX_TYPES = {
+    ".txt": "text/plain",
+    ".csv": "text/plain",
+    ".md": "text/plain",
+    ".json": "application/json",
+    ".pdf": "application/pdf",
+    ".png": "image/png",
+}
 
 
 class ArtifactError(ValueError):
@@ -42,16 +51,26 @@ def _name(value: str) -> str:
     if not isinstance(value, str):
         raise ArtifactError("INVALID_FILENAME")
     name = value.replace("\\", "/").split("/")[-1].strip()
-    if name in {"", ".", ".."} or len(name.encode("utf-8")) > 240 or any(ord(char) < 32 for char in name):
+    if (
+        name in {"", ".", ".."}
+        or len(name.encode("utf-8")) > 240
+        or any(ord(char) < 32 for char in name)
+    ):
         raise ArtifactError("INVALID_FILENAME")
     return name
 
 
 def _task_scope(task: dict, owner: str) -> tuple[str, int]:
     task_id, generation = task.get("id"), task.get("generation")
-    if (not isinstance(task_id, str) or not _ID.fullmatch(task_id)
-            or type(generation) is not int or generation < 1
-            or task.get("state") != "ready" or not isinstance(owner, str) or not owner):
+    if (
+        not isinstance(task_id, str)
+        or not _ID.fullmatch(task_id)
+        or type(generation) is not int
+        or generation < 1
+        or task.get("state") != "ready"
+        or not isinstance(owner, str)
+        or not owner
+    ):
         raise ArtifactError("ARTIFACT_SCOPE_DENIED")
     return task_id, generation
 
@@ -92,7 +111,16 @@ def _read_manifest(path: Path) -> dict:
     except (UnicodeError, ValueError):
         raise ArtifactError("ARTIFACT_CHANGED") from None
     if not isinstance(record, dict) or set(record) != {
-            "id", "owner", "taskId", "generation", "filename", "mimeType", "size", "sha256", "origin"}:
+        "id",
+        "owner",
+        "taskId",
+        "generation",
+        "filename",
+        "mimeType",
+        "size",
+        "sha256",
+        "origin",
+    }:
         raise ArtifactError("ARTIFACT_CHANGED")
     return record
 
@@ -121,7 +149,9 @@ class ArtifactStore:
         digest = hashlib.sha256()
         size = 0
         try:
-            fd = os.open(blob, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
+            fd = os.open(
+                blob, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600
+            )
             with os.fdopen(fd, "wb") as output:
                 while chunk := await file.read(1024 * 1024):
                     size += len(chunk)
@@ -138,10 +168,20 @@ class ArtifactStore:
                 raise ArtifactError("TYPE_MISMATCH")
             if mime == "image/png" and prefix != b"\x89PNG\r\n\x1a\n":
                 raise ArtifactError("TYPE_MISMATCH")
-            record = {"id": artifact_id, "owner": owner, "taskId": task_id,
-                      "generation": generation, "filename": filename, "mimeType": mime,
-                      "size": size, "sha256": digest.hexdigest(), "origin": origin}
-            fd = os.open(manifest, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
+            record = {
+                "id": artifact_id,
+                "owner": owner,
+                "taskId": task_id,
+                "generation": generation,
+                "filename": filename,
+                "mimeType": mime,
+                "size": size,
+                "sha256": digest.hexdigest(),
+                "origin": origin,
+            }
+            fd = os.open(
+                manifest, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600
+            )
             with os.fdopen(fd, "wb") as output:
                 output.write(json.dumps(record, ensure_ascii=False).encode())
                 output.flush()
@@ -192,7 +232,9 @@ class ArtifactStore:
                     raise ArtifactError("SIZE_LIMIT")
                 mime = _SUFFIX_TYPES.get(source.suffix.lower(), "application/octet-stream")
                 digest, size = hashlib.sha256(), 0
-                out = os.open(blob, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
+                out = os.open(
+                    blob, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600
+                )
                 with os.fdopen(out, "wb") as output:
                     while chunk := reader.read(1024 * 1024):
                         size += len(chunk)
@@ -204,17 +246,30 @@ class ArtifactStore:
                     os.fsync(output.fileno())
             sha256 = digest.hexdigest()
             for existing in self.list(task=task, owner=owner):
-                if (existing["origin"] == LOCAL_PATH_ORIGIN and existing["sha256"] == sha256
-                        and existing["filename"] == filename):
+                if (
+                    existing["origin"] == LOCAL_PATH_ORIGIN
+                    and existing["sha256"] == sha256
+                    and existing["filename"] == filename
+                ):
                     blob.unlink(missing_ok=True)
                     blob_dir.rmdir()
                     return existing
             if len(list(directory.glob("*.json"))) >= MAX_TASK_FILES:
                 raise ArtifactError("ARTIFACT_LIMIT")
-            record = {"id": artifact_id, "owner": owner, "taskId": task_id, "generation": generation,
-                      "filename": filename, "mimeType": mime, "size": size, "sha256": sha256,
-                      "origin": LOCAL_PATH_ORIGIN}
-            out = os.open(manifest, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
+            record = {
+                "id": artifact_id,
+                "owner": owner,
+                "taskId": task_id,
+                "generation": generation,
+                "filename": filename,
+                "mimeType": mime,
+                "size": size,
+                "sha256": sha256,
+                "origin": LOCAL_PATH_ORIGIN,
+            }
+            out = os.open(
+                manifest, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600
+            )
             with os.fdopen(out, "wb") as output:
                 output.write(json.dumps(record, ensure_ascii=False).encode())
                 output.flush()
@@ -234,29 +289,44 @@ class ArtifactStore:
         if directory.is_symlink() or not directory.is_dir():
             raise ArtifactError("STORAGE_UNAVAILABLE")
         result = []
-        for path in sorted(directory.glob("*.json"))[:MAX_TASK_FILES + 1]:
+        for path in sorted(directory.glob("*.json"))[: MAX_TASK_FILES + 1]:
             record = _read_manifest(path)
-            if record.get("owner") != owner or record.get("taskId") != task_id or record.get("generation") != generation:
+            if (
+                record.get("owner") != owner
+                or record.get("taskId") != task_id
+                or record.get("generation") != generation
+            ):
                 raise ArtifactError("ARTIFACT_SCOPE_DENIED")
             result.append(_safe_record(record))
         if len(result) > MAX_TASK_FILES:
             raise ArtifactError("ARTIFACT_LIMIT")
         return result
 
-    def resolve(self, *, task: dict, owner: str, origin: str, artifact_id: str) -> tuple[dict, Path]:
-        task_id, generation = (_task_scope(task, owner) if origin == LOCAL_PATH_ORIGIN else _scope(task, owner, origin))
+    def resolve(
+        self, *, task: dict, owner: str, origin: str, artifact_id: str
+    ) -> tuple[dict, Path]:
+        task_id, generation = (
+            _task_scope(task, owner) if origin == LOCAL_PATH_ORIGIN else _scope(task, owner, origin)
+        )
         if not isinstance(artifact_id, str) or not _UUID.fullmatch(artifact_id):
             raise ArtifactError("INVALID_ARTIFACT")
         directory = self._directory(task_id, generation)
         if directory.is_symlink() or not directory.is_dir():
             raise ArtifactError("STORAGE_UNAVAILABLE")
         record = _read_manifest(directory / f"{artifact_id}.json")
-        if (record.get("id") != artifact_id or record.get("owner") != owner
-                or record.get("taskId") != task_id or record.get("generation") != generation
-                or record.get("origin") != origin or record.get("mimeType") not in _TYPES
-                or record.get("filename") != _name(record.get("filename"))
-                or type(record.get("size")) is not int or not 0 <= record["size"] <= MAX_FILE_BYTES
-                or not isinstance(record.get("sha256"), str) or not re.fullmatch(r"[a-f0-9]{64}", record["sha256"])):
+        if (
+            record.get("id") != artifact_id
+            or record.get("owner") != owner
+            or record.get("taskId") != task_id
+            or record.get("generation") != generation
+            or record.get("origin") != origin
+            or record.get("mimeType") not in _TYPES
+            or record.get("filename") != _name(record.get("filename"))
+            or type(record.get("size")) is not int
+            or not 0 <= record["size"] <= MAX_FILE_BYTES
+            or not isinstance(record.get("sha256"), str)
+            or not re.fullmatch(r"[a-f0-9]{64}", record["sha256"])
+        ):
             raise ArtifactError("ARTIFACT_SCOPE_DENIED")
         blob_dir = directory / artifact_id
         if blob_dir.is_symlink() or not blob_dir.is_dir():

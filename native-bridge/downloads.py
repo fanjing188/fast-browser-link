@@ -1,4 +1,5 @@
 """任务下载登记与领取；本地路径只留在 daemon 私有状态，普通结果只含元信息。"""
+
 from __future__ import annotations
 
 import hashlib
@@ -17,10 +18,35 @@ MAX_TASK_DOWNLOADS = 50
 STAGING_TTL_SECONDS = 24 * 3600
 _KEY = re.compile(r"^[0-9a-f]{16}$")
 _ID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
-_STATES = frozenset({"in_progress", "unknown", "complete", "interrupted", "cancelled", "rejected_size",
-                     "rejected_limit", "claimed", "expired", "missing"})
-_PUBLIC = ("id", "filename", "state", "mimeType", "bytesReceived", "totalBytes", "origin",
-           "startedAt", "completedAt", "claimedAt", "sha256", "size", "reason")
+_STATES = frozenset(
+    {
+        "in_progress",
+        "unknown",
+        "complete",
+        "interrupted",
+        "cancelled",
+        "rejected_size",
+        "rejected_limit",
+        "claimed",
+        "expired",
+        "missing",
+    }
+)
+_PUBLIC = (
+    "id",
+    "filename",
+    "state",
+    "mimeType",
+    "bytesReceived",
+    "totalBytes",
+    "origin",
+    "startedAt",
+    "completedAt",
+    "claimedAt",
+    "sha256",
+    "size",
+    "reason",
+)
 
 
 class DownloadError(ValueError):
@@ -43,6 +69,7 @@ def public_record(record: dict) -> dict:
 
 def _origin(url) -> str | None:
     from urllib.parse import urlsplit
+
     if not isinstance(url, str):
         return None
     target = url[5:] if url.startswith("blob:") else url
@@ -98,7 +125,11 @@ class DownloadRegistry:
         for row in self.rows(task):
             if download_id is not None and row.get("id") == download_id:
                 return row
-            if ref is not None and row.get("ref") == ref and row.get("generation") == task.get("generation"):
+            if (
+                ref is not None
+                and row.get("ref") == ref
+                and row.get("generation") == task.get("generation")
+            ):
                 return row
         return None
 
@@ -126,11 +157,20 @@ class DownloadRegistry:
             if origin is None or origin not in task.get("allowedOrigins", ()):
                 # 中文注释：来源不在授权范围的下载不登记为任务文件。
                 raise DownloadError("DOWNLOAD_SCOPE_DENIED")
-            row = {"id": str(uuid.uuid4()), "ref": ref, "generation": task["generation"], "key": key,
-                   "tabId": params.get("tabId"), "filename": safe_name(params.get("filename")),
-                   "mimeType": str(params.get("mimeType") or "")[:128], "origin": origin,
-                   "state": "in_progress", "bytesReceived": 0,
-                   "totalBytes": _int(params.get("totalBytes")), "startedAt": now}
+            row = {
+                "id": str(uuid.uuid4()),
+                "ref": ref,
+                "generation": task["generation"],
+                "key": key,
+                "tabId": params.get("tabId"),
+                "filename": safe_name(params.get("filename")),
+                "mimeType": str(params.get("mimeType") or "")[:128],
+                "origin": origin,
+                "state": "in_progress",
+                "bytesReceived": 0,
+                "totalBytes": _int(params.get("totalBytes")),
+                "startedAt": now,
+            }
             self.rows(task).append(row)
             return row
         # 中文注释：同代次可信的迟到完成回执仍可澄清未知状态，未知不等于浏览器已取消。
@@ -141,7 +181,11 @@ class DownloadRegistry:
             row["totalBytes"] = _int(params.get("totalBytes"), row.get("totalBytes", -1))
             return row
         if event == "complete":
-            size = params.get("fileSize") if type(params.get("fileSize")) is int else params.get("bytesReceived")
+            size = (
+                params.get("fileSize")
+                if type(params.get("fileSize")) is int
+                else params.get("bytesReceived")
+            )
             danger = params.get("danger")
             try:
                 path = _staged_path(params.get("path"), key)
@@ -154,8 +198,14 @@ class DownloadRegistry:
             if danger not in {"safe", "accepted"}:
                 row.update(state="interrupted", reason="danger", completedAt=now)
                 return row
-            row.update(state="complete", path=str(path), filename=safe_name(path.name), bytesReceived=size,
-                       totalBytes=size, completedAt=now)
+            row.update(
+                state="complete",
+                path=str(path),
+                filename=safe_name(path.name),
+                bytesReceived=size,
+                totalBytes=size,
+                completedAt=now,
+            )
             row.pop("reason", None)
             return row
         if event in {"interrupted", "cancelled", "rejected_size", "rejected_limit"}:
@@ -191,7 +241,11 @@ class DownloadRegistry:
         size = 0
         with os.fdopen(_open_staged(source), "rb") as reader:
             destination = self._claim_dir(task, row) / row["filename"]
-            out = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
+            out = os.open(
+                destination,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
+                0o600,
+            )
             try:
                 with os.fdopen(out, "wb") as writer:
                     while chunk := reader.read(1024 * 1024):
@@ -212,8 +266,13 @@ class DownloadRegistry:
             source.unlink()
         except OSError:
             pass
-        row.update(state="claimed", claimedAt=self.clock(), sha256=digest.hexdigest(), size=size,
-                   claimedPath=str(destination))
+        row.update(
+            state="claimed",
+            claimedAt=self.clock(),
+            sha256=digest.hexdigest(),
+            size=size,
+            claimedPath=str(destination),
+        )
         row.pop("path", None)
         return public_record(row), str(destination)
 
@@ -225,11 +284,15 @@ class DownloadRegistry:
         for row in self.rows(task):
             # 中文注释：扩展已失去任务或代次时不猜测下载结果，也不取消或删除用户仍在进行的下载。
             if row.get("state") == "in_progress" and (
-                    task.get("state") not in {"ready", "running", "paused"}
-                    or row.get("generation") != task.get("generation")):
+                task.get("state") not in {"ready", "running", "paused"}
+                or row.get("generation") != task.get("generation")
+            ):
                 row.update(state="unknown", reason="tracking_lost")
                 changed += 1
-            if row.get("state") != "complete" or now - float(row.get("completedAt", now)) < STAGING_TTL_SECONDS:
+            if (
+                row.get("state") != "complete"
+                or now - float(row.get("completedAt", now)) < STAGING_TTL_SECONDS
+            ):
                 continue
             try:
                 source = _staged_path(row.get("path"), row.get("key", ""))

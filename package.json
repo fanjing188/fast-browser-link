@@ -42,7 +42,9 @@
     "check:public": "bash scripts/check-public-release.sh",
     "version:set": "node scripts/version-set.mjs",
     "check:version": "node scripts/package-version.mjs",
-    "package:agent": "python3 scripts/package-agent.py"
+    "package:agent": "python3 scripts/package-agent.py",
+    "format": "prettier --write \"**/*.{js,mjs}\" && ruff format .",
+    "format:check": "prettier --check \"**/*.{js,mjs}\" && ruff format --check ."
   },
   "engines": {
     "node": ">=22.12.0"
@@ -54,6 +56,7 @@
     "eslint-plugin-security": "^4.0.1",
     "jsdom": "^30.0.1",
     "linkedom": "0.18.12",
+    "prettier": "3.6.2",
     "react": "19.2.7",
     "react-dom": "19.2.7"
   }

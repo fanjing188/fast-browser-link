@@ -80,8 +80,11 @@ class HardeningTests(unittest.TestCase):
         writer, reader = socket.socketpair()
         self.addCleanup(writer.close)
         self.addCleanup(reader.close)
-        daemon.extensions[task["instanceId"]] = {"instanceId": task["instanceId"],
-                                                "sendLock": threading.Lock(), "socket": writer}
+        daemon.extensions[task["instanceId"]] = {
+            "instanceId": task["instanceId"],
+            "sendLock": threading.Lock(),
+            "socket": writer,
+        }
         self.direct_daemons.append(daemon)
         return daemon, task
 
@@ -131,7 +134,9 @@ class HardeningTests(unittest.TestCase):
                 "allowedOrigins": ["https://example.com"],
             },
         )
-        restored._extension_call = lambda *_args, **_kwargs: self.fail("replayed request reached extension")
+        restored._extension_call = lambda *_args, **_kwargs: self.fail(
+            "replayed request reached extension"
+        )
         with self.assertRaises(ProtocolError) as replay:
             restored._run_task(first)
         self.assertEqual(replay.exception.code, "request_outcome_unavailable")
@@ -149,17 +154,22 @@ class HardeningTests(unittest.TestCase):
             return {"released": True}
 
         daemon._extension_call = extension_call
-        params = {"owner": "owner-1", "taskId": "task-1", "requestId": "timeout-1",
-                  "action": "snapshot", "tabId": 7}
+        params = {
+            "owner": "owner-1",
+            "taskId": "task-1",
+            "requestId": "timeout-1",
+            "action": "snapshot",
+            "tabId": 7,
+        }
         with self.assertRaises(ProtocolError) as timed_out:
             daemon._run_task(params)
         self.assertEqual(timed_out.exception.code, "extension_timeout")
         self.assertEqual(task["state"], "ready")
         self.assertEqual(task["tabIds"], [7])
-        self.assertEqual(daemon.tab_leases[("instance-1", 7)], task['id'])
+        self.assertEqual(daemon.tab_leases[("instance-1", 7)], task["id"])
         with self.assertRaises(ProtocolError) as replay:
             daemon._run_task(params)
-        self.assertEqual(replay.exception.code, 'extension_timeout')
+        self.assertEqual(replay.exception.code, "extension_timeout")
         self.assertEqual([method for method, _params in calls], ["browser.execute"])
 
     def test_extension_error_is_deduplicated_without_reexecution(self):
@@ -222,9 +232,7 @@ class HardeningTests(unittest.TestCase):
             extension.respond(release, {"released": True})
             self.assertEqual(cancelling.result(timeout=2)["state"], "cancelled")
 
-        resumed = client.call(
-            "shared.resume", {"owner": "owner-c", "taskId": task["id"]}
-        )
+        resumed = client.call("shared.resume", {"owner": "owner-c", "taskId": task["id"]})
         self.assertEqual(resumed["state"], "pending_approval")
         self.assertEqual(resumed["generation"], 2)
         self.assertEqual(resumed["tabIds"], [])
@@ -278,9 +286,7 @@ class HardeningTests(unittest.TestCase):
             },
         )
         self.assertEqual(denied["error"]["code"], "origin_denied")
-        revoked = client.call(
-            "shared.get", {"owner": "owner-nav-a", "taskId": first["id"]}
-        )
+        revoked = client.call("shared.get", {"owner": "owner-nav-a", "taskId": first["id"]})
         self.assertEqual(revoked["state"], "needs_sync")
         self.assertEqual(revoked["tabIds"], [])
 
@@ -331,7 +337,9 @@ class HardeningTests(unittest.TestCase):
         except subprocess.TimeoutExpired:
             process.kill()
             stdout, stderr = process.communicate(timeout=2)
-            self.fail(f"daemon kept running despite socket collision: {stderr.decode(errors='replace')}")
+            self.fail(
+                f"daemon kept running despite socket collision: {stderr.decode(errors='replace')}"
+            )
         # Preserve the original safe rejection rather than accepting any crash
         # (e.g. an import failure) as evidence of collision protection.
         sys.stderr.write(stderr.decode(errors="replace"))
@@ -341,11 +349,13 @@ class HardeningTests(unittest.TestCase):
         self.assertTrue(collision.is_file())
         self.assertEqual(collision.read_text(encoding="ascii"), "unrelated-file")
 
-
     def test_daemon_restarts_after_crash_leaves_stale_sockets(self):
         # 中文注释：旧 daemon 被 SIGKILL 后遗留套接字；新 daemon 持锁后应清理无人监听的套接字并重新服务。
-        first = subprocess.Popen([sys.executable, str(BRIDGE_DIR / "daemon.py"), "--home", str(self.home)],
-                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        first = subprocess.Popen(
+            [sys.executable, str(BRIDGE_DIR / "daemon.py"), "--home", str(self.home)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
         data_dir = self.home / "plugin-data" / "fast-browser-link-native"
         deadline = time.monotonic() + 5
         while not (data_dir / "daemon.pid").exists() and time.monotonic() < deadline:
@@ -353,15 +363,27 @@ class HardeningTests(unittest.TestCase):
         first.kill()
         first.wait(timeout=5)
         self.assertTrue((data_dir / "bridge.sock").exists())
-        second = subprocess.Popen([sys.executable, str(BRIDGE_DIR / "daemon.py"), "--home", str(self.home)],
-                                  stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        second = subprocess.Popen(
+            [sys.executable, str(BRIDGE_DIR / "daemon.py"), "--home", str(self.home)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+        )
         try:
             deadline = time.monotonic() + 5
             while time.monotonic() < deadline:
-                pid = (data_dir / "daemon.pid").read_text(encoding="ascii") if (data_dir / "daemon.pid").exists() else ""
+                pid = (
+                    (data_dir / "daemon.pid").read_text(encoding="ascii")
+                    if (data_dir / "daemon.pid").exists()
+                    else ""
+                )
                 if pid == str(second.pid):
                     break
-                self.assertIsNone(second.poll(), second.stderr.read().decode(errors="replace") if second.poll() is not None else "")
+                self.assertIsNone(
+                    second.poll(),
+                    second.stderr.read().decode(errors="replace")
+                    if second.poll() is not None
+                    else "",
+                )
                 time.sleep(0.05)
             self.assertEqual((data_dir / "daemon.pid").read_text(encoding="ascii"), str(second.pid))
             probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)

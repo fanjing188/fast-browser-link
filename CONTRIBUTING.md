@@ -5,7 +5,7 @@ Thanks for your interest in Fast-browser-link. Bug reports, fixes, tests and doc
 ## Before you start
 
 - For anything larger than a small fix, open an issue first so we can agree on the approach.
-- Read [docs/architecture.md](docs/architecture.md) — most changes touch a trust boundary, and it explains which side owns what.
+- Read [docs/design/architecture.md](docs/design/architecture.md) — most changes touch a trust boundary, and it explains which side owns what.
 - Security problems: do **not** open a public issue; follow [SECURITY.md](SECURITY.md).
 
 ## Development setup

@@ -105,13 +105,7 @@ export async function verifyReleaseVersions(source) {
     for (const match of matches)
       expectVersion(file, text, match.index, match[0], version, 'document version');
     const required = file.startsWith('README')
-      ? [
-          `**${version} —`,
-          `https://github.com/fanjing188/fast-browser-link/releases/download/v${version}/fast-browser-link-${version}.zip`,
-          `-o fast-browser-link-${version}.zip`,
-          `unzip fast-browser-link-${version}.zip`,
-          `cd fast-browser-link-${version}`,
-        ]
+      ? [`Unreleased (${version} candidate)`, 'docs/installation']
       : [
           `artifacts/public-source-${version}`,
           `--release ${version} --output out/fast-browser-link-${version}`,
@@ -133,7 +127,7 @@ export async function verifyReleaseVersions(source) {
     version,
     'top release section',
   );
-  const releaseFile = `docs/release-${version}.md`,
+  const releaseFile = `docs/releases/release-${version}.md`,
     release = await sourceText(source, releaseFile);
   const title = /^# Fast-browser-link (\S+)$/m.exec(release);
   expectVersion(releaseFile, release, title?.index, title?.[1], version, 'release title');

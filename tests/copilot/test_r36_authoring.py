@@ -170,6 +170,103 @@ class Authoring(unittest.TestCase):
         (self.pack / "escape").symlink_to(self.root)
         self.assertFalse(check_pack(self.pack)["ok"])
 
+    def test_trigger_scenarios_and_unknown_next_reference(self):
+        def run():
+            return check_pack(
+                self.pack,
+                command_runner=lambda *args: {
+                    "records": [{"case_id": "CS-1001"}],
+                    "source": "synthetic",
+                },
+            )
+
+        source = ROOT / "docs/examples/adapter-pack"
+        shutil.rmtree(self.pack)
+        shutil.copytree(source, self.pack)
+        result = run()
+        self.assertTrue(result["ok"], result)
+        package = json.loads((self.pack / "package.json").read_text())
+        package["flows"]["support_materials"]["triggers"] = [
+            {"table_columns": {"all": ["Case", "Status"]}},
+            {"selection": {"object": "case_id"}},
+            {"dwell_seconds": 20},
+        ]
+        (self.pack / "package.json").write_text(json.dumps(package))
+        scenarios = self.pack / "tests/scenarios.json"
+        scenarios.write_text(
+            json.dumps(
+                [
+                    {
+                        "url": "https://support.example.test/cases?q=CS-1001",
+                        "expect_absent": ["support_materials"],
+                    },
+                    {
+                        "url": "https://support.example.test/cases",
+                        "table_columns": ["Case", "Status"],
+                        "table_rows": [["CS-1001", "open"]],
+                        "expect": ["support_materials"],
+                    },
+                    {
+                        "url": "https://support.example.test/cases",
+                        "selection": "CS-1001",
+                        "expect": ["support_materials"],
+                    },
+                    {
+                        "url": "https://support.example.test/cases?q=CS-1001",
+                        "dwell_seconds": 20,
+                        "expect": ["support_materials"],
+                    },
+                    {
+                        "url": "https://support.example.test/cases?q=CS-1001",
+                        "table_columns": ["Case"],
+                        "table_rows": [["CS-1001"]],
+                        "selection": "invalid",
+                        "expect_absent": ["support_materials"],
+                    },
+                ]
+            )
+        )
+        result = run()
+        self.assertTrue(result["ok"], result)
+        package["flows"]["support_reply_draft"]["triggers"] = [
+            {"after": {"flow": "support_materials", "status": "completed"}}
+        ]
+        package["flows"]["support_materials"]["next"] = []
+        (self.pack / "package.json").write_text(json.dumps(package))
+        scenarios = self.pack / "tests/scenarios.json"
+        scenarios.write_text(
+            json.dumps(
+                [
+                    {
+                        "url": "https://support.example.test/cases?q=CS-1001",
+                        "follow_completed": [
+                            {
+                                "flow": "support_materials",
+                                "status": status,
+                                "object": "CS-1001",
+                                "records": [],
+                            }
+                        ],
+                        "expect" if status == "completed" else "expect_absent": [
+                            "support_reply_draft"
+                        ],
+                    }
+                    for status in ("completed", "failed", "stopped", "partial")
+                ]
+            )
+        )
+        result = run()
+        self.assertTrue(result["ok"], result)
+        package["flows"]["support_materials"]["next"] = [
+            {
+                "flow": "missing_flow",
+                "when": {"field": "status", "records": "all", "equals": "open"},
+            }
+        ]
+        (self.pack / "package.json").write_text(json.dumps(package))
+        with self.assertRaisesRegex(ValueError, "invalid next workflow"):
+            static_check(self.pack)
+
     def test_scenarios_outputs_failure_and_missing_sandbox(self):
         fixture = json.loads((self.pack / "tests/fixtures/job-tracker-local.json").read_text())[0]
         runner = Mock(return_value=fixture["expect"])

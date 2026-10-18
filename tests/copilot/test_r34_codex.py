@@ -55,6 +55,33 @@ class CodexTests(unittest.TestCase):
     def frames(self):
         return [json.loads(line) for line in self.record.read_text().splitlines()]
 
+    def test_economy_model_from_catalog_explicit_and_execution_unchanged(self):
+        for selected, execution, expected in [
+            ("", False, "future-mini"),
+            ("my-choice", False, "my-choice"),
+            ("", True, "fixture-one"),
+        ]:
+            runtime = self.runtime(execution=execution)
+            runtime.config["exec_model" if execution else "inference_model"] = selected
+            original = runtime.call
+
+            def call(method, params):
+                if method == "model/list":
+                    return {
+                        "data": [
+                            {"model": "future-premium", "isDefault": True},
+                            {"model": "future-luna"},
+                            {"model": "future-mini"},
+                            {"model": "notmini"},
+                        ]
+                    }
+                return original(method, params)
+
+            runtime.call = call
+            runtime.start()
+            self.assertEqual(runtime.active_model, expected)
+            runtime.close()
+
     def test_normal_policy_usage_model_selection_and_private_cleanup(self):
         runtime = self.runtime()
         private = Path(runtime.temporary.name)

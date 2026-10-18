@@ -2,7 +2,7 @@
 
 Start with work you already repeat. A pack gives Assist a name for your objects,
 a way to obtain data, and a repeatable flow with a useful result. You can start
-without a model decision. The [field reference](adapter-packs.zh-CN.md) and
+without a model decision. The [field reference](design/adapter-packs.zh-CN.md) and
 [package schema](fbl-pack.schema.json) describe the complete contract; this guide
 walks through one task.
 
@@ -80,14 +80,10 @@ Add customer, missing materials and status to both the record schema and columns
 when ready. The result table already supports sorting, searching, selecting,
 copying and CSV export.
 
-For **next action**, first write down “ask a person to collect materials”. Stage
-35 introduces `triggers` and conditional `next` flow links. This authoring branch
-is based on stages 32–34: it preserves those draft fields but does not implement
-or certify their recommendation semantics. Until the stage 35 contract is merged,
-leave `next` out of an executable pack and put the human handoff in `when`:
+For **triggers and next action**, add the following to `support_materials`. Trigger clauses are OR; keys within one clause are AND. Headers must come from one captured table; selection must fully match the object's regex. The target `support_reply_draft` must exist, retain object type `case_id`, and be included in the page's `flows`. Give it `triggers: []` to propose continuation only when materials are complete. This does not execute it or send a reply; the complete example includes read-only steps.
 
 ```json
-{"when":{"en":"Review missing materials, then ask a person to collect them.","zh":"核对缺失材料后，请人工收集。"}}
+{"triggers":[{"table_columns":{"all":["Case","Status"]}},{"selection":{"object":"case_id"}}],"next":[{"flow":"support_reply_draft","when":{"field":"missing_materials","records":"all","empty":true}}]}
 ```
 
 Use the [complete runnable support package](examples/adapter-pack/package.json)
@@ -144,6 +140,8 @@ containment. Add `tests/scenarios.json` (a list):
 [{"url":"https://support.example.test/cases?q=CS-1001","expect":["support_materials"]},{"url":"https://other.example.test/cases?q=CS-1001","expect_absent":["support_materials"]},{"url":"https://support.example.test/cases","table_columns":["Case"],"table_rows":[["CS-1001"]],"selection":"","expect":["support_materials"]}]
 ```
 
+Scenarios also accept `follow_completed: [{"flow":"support_materials","status":"completed","object":"CS-1001","records":[{"missing_materials":[]}]}]` and `dwell_seconds`. Use these with `table_columns`, `table_rows` and `selection` to test triggers and conditional next suggestions. Static checks reject unknown next-flow references. See the complete [scenario list](examples/adapter-pack/tests/scenarios.json).
+
 These call the existing deterministic recommendation path, without a model.
 For each zero-risk, `local_only` command add
 `tests/fixtures/<binding-id>.json`, a list of `{"input": {...}, "expect": {...}}`.
@@ -174,4 +172,4 @@ shows the draft path and test command. Review the draft before installing it.
   and outputs with schemas, and preserve unknown values as unknown.
 
 Read the [security policy](../SECURITY.md), [capability reference](fbl-packs.md)
-and [adapter rules](adapter-packs.zh-CN.md) before connecting real sources.
+and [adapter rules](design/adapter-packs.zh-CN.md) before connecting real sources.

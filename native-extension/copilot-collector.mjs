@@ -95,7 +95,7 @@ export async function start() {
         }
       },
     });
-    selection.setEnabled(response.result.selection_popup !== false);
+    selection.setEnabled(!response.result.local_only && response.result.selection_popup !== false);
     const annotations = new AnnotationLayer(document, {
       language,
       enabled: response.result.page_annotations !== false,
@@ -112,6 +112,15 @@ export async function start() {
       },
     });
     cleanups.push(() => annotations.destroy());
+    if (response.result.local_only) {
+      // 中文注释：手动标注只读本地证据，不注册轨迹采集、推理或主动任务入口。
+      const teardown = (message) => {
+        if (message.type === 'copilot.teardown') stop();
+      };
+      chrome.runtime.onMessage.addListener(teardown);
+      cleanups.push(() => chrome.runtime.onMessage.removeListener(teardown));
+      return;
+    }
     const host = document.createElement('div');
     host.setAttribute('data-fast-automation-overlay', 'copilot');
     cleanups.push(() => host.remove());

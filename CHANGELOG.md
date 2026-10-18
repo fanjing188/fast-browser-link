@@ -31,14 +31,14 @@
 
 ## 1.11.2 — 2026-10-12
 
-详见 `docs/release-1.11.2.md`。
+详见 `docs/releases/release-1.11.2.md`。
 
 - 修复：自定义下拉框（ARIA combobox/listbox）的选项在展开后异步出现时，`ref_select_option` 报 `select_option_missing`。现在展开后最多等待 1.5 秒；`by: "value"` 依次匹配 `value`、`data-value`。只在 aria-controls/aria-owns 关联的列表内选择，歧义、禁用与不重放检查不变；原生 `<select>` 不变。
 - 测试：`tests/native-v2/real-native-v2.mjs` 后半段按 1.11.x 规则更新断言（截图不再因 iframe 拒绝、旧引用自动重定位、同页跨站导航、未公开动作错误码）。
 
 ## 1.11.1 — 2026-10-12
 
-修复 1.11.0 中误删的两项保护，并让完整离线门禁与 1.11.0 的放开规则一致。详见 `docs/release-1.11.1.md`。
+修复 1.11.0 中误删的两项保护，并让完整离线门禁与 1.11.0 的放开规则一致。详见 `docs/releases/release-1.11.1.md`。
 
 - 修复：对密码、支付、验证码字段执行 `ref_fill`/`ref_press` 时，重新走预审并返回 `user_input_required`，由浏览器提示用户亲自填写，用户确认后同一请求得到 `completed_by_user`；1.11.0 中只返回 `sensitive_target` 错误。
 - 修复：Vault 填写过凭据的标签页重新排斥任意脚本和 CDP 目标访问，防止脚本读取刚填入的凭据。
@@ -47,7 +47,7 @@
 
 ## 1.11.0 — 2026-10-11
 
-离线回归和真实浏览器验证见 `docs/release-1.11.0.md`。
+离线回归和真实浏览器验证见 `docs/releases/release-1.11.0.md`。
 
 - 移除页面内容保护、文字过滤和普通任务动作审批；同一工作页支持跨站导航，保留任务/会话标签租约隔离。
 - 添加最多三轮的定位恢复、候选排序和 recovery 诊断；已派发未知写入只回读，不重复执行。

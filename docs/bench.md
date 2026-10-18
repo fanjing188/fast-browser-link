@@ -123,6 +123,6 @@ streams without a terminal turn do not claim complete call counts.
 
 中文：缺字段不补零、不推算；turn 不等于模型请求。总耗时的进程实测值单列
 `harnessElapsedMs`，不冒充 JSONL 内指标；脚本内部 helper 不按源码静态估算调用数。
-本轮仓库夹具是按官方事件结构制作的合成样本，不是真实任务录制。真实运行后应以脱敏录制
+仓库离线夹具是按官方事件结构制作的合成样本，不是真实任务录制。真实运行后应以脱敏录制
 样本补充解析回归，不把离线分数或虚构 token 当真实效率结论。事件格式参见
 [OpenAI 官方非交互模式文档](https://developers.openai.com/codex/noninteractive/)。

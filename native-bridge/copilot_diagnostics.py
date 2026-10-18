@@ -179,7 +179,7 @@ class StderrLog:
         self.tail.append(clean)
         data = (self.role + ": " + clean + "\n").encode()[: self.limit]
         with _LOCK:
-            path = self.directory / (self.today().isoformat() + ".hermes-stderr.log")
+            path = self.directory / (self.today().isoformat() + ".agent-stderr.log")
             archive = path.with_suffix(".log.1")
             if any(item.is_symlink() for item in (path, archive, *path.parents)):
                 raise ValueError("stderr log refuses symlinks")
@@ -190,7 +190,10 @@ class StderrLog:
             os.fchmod(fd, 0o600)
             with os.fdopen(fd, "ab") as handle:
                 handle.write(data)
-            for old in self.directory.glob("????-??-??.hermes-stderr.log*"):
+            for old in (
+                *self.directory.glob("????-??-??.agent-stderr.log*"),
+                *self.directory.glob("????-??-??.hermes-stderr.log*"),
+            ):
                 if (
                     old.name[:10] <= (self.today() - timedelta(days=7)).isoformat()
                     and not old.is_symlink()

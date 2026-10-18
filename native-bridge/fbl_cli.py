@@ -627,7 +627,9 @@ def logs(ctx, *, follow=False, kind=None, errors=False, bundle=None):
                     }
                 )
         if kind in (None, "stderr"):
-            for path in sorted(directory.glob("*.hermes-stderr.log*"))[-14:]:
+            for path in sorted(
+                [*directory.glob("*.agent-stderr.log*"), *directory.glob("*.hermes-stderr.log*")]
+            )[-14:]:
                 if not path.is_symlink():
                     result.extend(
                         {"type": "stderr", "text": redact(line)}
@@ -775,7 +777,7 @@ def init_pack(ctx, name, argv=None, url=None, capability=None):
 def parser():
     p = argparse.ArgumentParser(
         prog="fbl",
-        description="Core browser tools for any Agent via Skills, CLI or MCP. Assist supports Hermes; Codex support is in development.",
+        description="Core browser tools for any Agent via Skills, CLI or MCP. Assist supports Hermes and Codex.",
     )
     sub = p.add_subparsers(dest="command", required=True)
 

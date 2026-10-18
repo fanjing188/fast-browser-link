@@ -257,7 +257,7 @@ def stage(
             shutil.copyfile(origin, target)
             target.chmod(0o600)
     # 中文注释：安装后的受限起草也需要同一份公开指南与合同。
-    for name in ("packs-guide.md", "adapter-packs.zh-CN.md", "fbl-pack.schema.json"):
+    for name in ("packs-guide.md", "design/adapter-packs.zh-CN.md", "fbl-pack.schema.json"):
         origin = next(
             (
                 directory / name

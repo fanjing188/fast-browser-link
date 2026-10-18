@@ -170,7 +170,7 @@ Network inspection, raw CDP and `page_request` share the task’s existing brows
 
 Network summaries omit query strings and headers. JSON detail filters credential-like keys, with explicit withheld/pending/evicted states. It is not general-purpose PII filtering. Capture IDs survive script process changes and navigation within authorized origins in the same live task; Python variables do not. Leaving the authorized origins or closing the tab clears its capture. Network inspection does not drain the raw CDP event buffer.
 
-See the [module catalog](product-modules.zh-CN.md) for contracts and limits, and the [generated API reference](browser-api-reference.md) for exact helper and tool schemas. `fast_browser_reference` projects helpers for a connected instance; `fast_browser_doctor` checks installation and connection without starting the service.
+See the [module catalog](design/product-modules.zh-CN.md) for contracts and limits, and the [generated API reference](browser-api-reference.md) for exact helper and tool schemas. `fast_browser_reference` projects helpers for a connected instance; `fast_browser_doctor` checks installation and connection without starting the service.
 
 ## 显式选择工作页
 

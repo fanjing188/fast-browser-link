@@ -1069,21 +1069,6 @@ class BridgeDaemon:
         allowed = required | {"requestIdHash"}
         if set(params) - allowed or required - set(params):
             raise ProtocolError("invalid_params", "invalid diagnostics query")
-        if (
-            silent
-            and not table_export
-            and isinstance(params.get("allowedOrigins"), list)
-            and any(
-                isinstance(url, str)
-                and not self.copilot.resource_allowed(
-                    params.get("instanceId"), url, fetch_id=params.get("copilotResourceToken")
-                )
-                for url in params["allowedOrigins"]
-            )
-        ):
-            raise ProtocolError(
-                "copilot_resource_denied", "Serialized tool requires a capability workflow"
-            )
         owner = self._required_string(params, "owner")
         task_id = self._required_string(params, "taskId")
         request_hash = params.get("requestIdHash")

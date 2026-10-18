@@ -1,5 +1,16 @@
 // 中文注释：只翻译界面固定文案；模型结果、关键词、来源原文保持原语言。
 const messages = {
+  '先试试，无需 Agent': 'Try first, no Agent needed',
+  '直接使用当前页面；主动建议需要配置并开启协作。':
+    'Use this page directly; proactive suggestions require Agent setup and enabling Assist.',
+  识别并导出表格: 'Detect and export tables',
+  多页采集: 'Multi-page collection',
+  页面标注: 'Page annotations',
+  工作篮: 'Work basket',
+  '配置 Agent': 'Configure Agent',
+  'Codex 受限推理每次实测固定输入约 10.6K tokens，另加任务上下文；未选模型时优先按名称选择 nano / mini / luna，匹配不到沿用默认。名称规则不代表实时报价。':
+    'Measured Codex restricted inference has about 10.6K fixed input tokens per call, plus task context. Without a selection, prefer nano / mini / luna name segments, otherwise the default. This is not live pricing.',
+
   '协作 Agent': 'Assist Agent',
   '默认 Agent': 'Default Agent',
   查看与配置: 'View and configure',

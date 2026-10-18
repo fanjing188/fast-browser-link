@@ -180,7 +180,7 @@ test('work status uses the current Agent name and requires enabled, ready and co
 test('first sidebar detection is read-only and enabling an unconfigured Agent opens setup without starting collaboration', async () => {
   const f = await mountMain();
   try {
-    assert.equal(f.doc.getElementById('agent-setup-dialog').open, true);
+    assert.equal(f.doc.getElementById('agent-setup-dialog').open, false);
     assert.ok(f.calls.some((message) => message.command === 'agent_catalog'));
     assert.equal(
       f.calls.some((message) =>
@@ -448,4 +448,117 @@ test('popup keeps its direct open gesture but an onboarding receipt never turns 
   } finally {
     dispose();
   }
+});
+
+test('unconfigured sidebar exposes usable local tools and hides proactive workflow cards', async () => {
+  const f = await mountMain({
+    ...state,
+    suggestions: [
+      {
+        id: 'proactive',
+        status: 'pending',
+        action: 'workflow.run',
+        title: 'PROACTIVE_SENTINEL',
+        params: { flow: 'example' },
+      },
+    ],
+  });
+  try {
+    assert.equal(f.doc.getElementById('agent-setup-dialog').open, false);
+    assert.equal(f.doc.getElementById('local-tools').hidden, false);
+    assert.doesNotMatch(f.doc.getElementById('pending').textContent, /PROACTIVE_SENTINEL/);
+    for (const id of ['local-tables', 'local-collect', 'local-annotations', 'local-basket']) {
+      const button = f.doc.getElementById(id);
+      assert.equal(button.disabled, false);
+      await button.onclick();
+    }
+    assert.equal(f.doc.getElementById('work-basket').hidden, false);
+    assert.equal(f.doc.getElementById('work-basket').open, true);
+    assert.equal(
+      f.calls.filter((call) => call.type === 'copilot.local' && call.command === 'recognize_tables')
+        .length,
+      2,
+    );
+    assert.ok(
+      f.calls.some((call) => call.type === 'copilot.local' && call.command === 'annotate_page'),
+    );
+    assert.equal(
+      f.calls.some((call) =>
+        ['agent_setup_start', 'execute', 'settings', 'configure', 'models'].includes(call.command),
+      ),
+      false,
+    );
+  } finally {
+    f.close();
+  }
+});
+
+test('manual annotations stay page-scoped and never enable Assist or accept proactive actions', async () => {
+  const tab = { id: 17, windowId: 1, url: 'https://example.test/table' },
+    calls = [],
+    injected = [],
+    api = {
+      runtime: {
+        id: 'fixture',
+        getURL: (path) => `chrome-extension://fixture/${path}`,
+        sendMessage: async () => ({}),
+      },
+      tabs: { query: async () => [tab], sendMessage: async () => ({}) },
+      storage: { local: { get: async () => ({}) } },
+      scripting: { executeScript: async (value) => injected.push(value) },
+    },
+    background = new CopilotBackground(api, async (name) => {
+      calls.push(name);
+      return {};
+    });
+  const panelSender = sender('copilot-panel.html'),
+    contentSender = { id: 'fixture', url: tab.url, frameId: 0, tab };
+  assert.equal(
+    (await send(background, { type: 'copilot.local', command: 'annotate_page' }, panelSender))
+      .result.active,
+    true,
+  );
+  assert.equal(injected.length, 1);
+  assert.equal(background.enabled, false);
+  assert.equal(
+    (
+      await send(
+        background,
+        { type: 'copilot.annotation_lookup', params: { objects: [] } },
+        contentSender,
+      )
+    ).result != null,
+    true,
+  );
+  assert.equal(
+    await send(
+      background,
+      { type: 'copilot.observe', page: {}, description: 'open' },
+      contentSender,
+    ),
+    null,
+  );
+  assert.equal(
+    await send(
+      background,
+      { type: 'copilot.selection', command: 'quick_task', params: {} },
+      contentSender,
+    ),
+    null,
+  );
+  assert.equal(
+    await send(
+      background,
+      { type: 'copilot.annotation_lookup', params: {} },
+      { ...contentSender, url: 'https://example.test/other' },
+    ),
+    null,
+  );
+  background.tabEvent(tab.id, '导航到新页面', tab);
+  assert.equal(background.localAnnotations.size, 0);
+  assert.equal(
+    await send(background, { type: 'copilot.annotation_lookup', params: {} }, contentSender),
+    null,
+  );
+  assert.deepEqual(calls, ['annotation_lookup']);
 });

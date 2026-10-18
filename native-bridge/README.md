@@ -1,6 +1,6 @@
 # native-bridge
 
-Python standard-library daemon and Chromium Native Messaging host. Wire contracts are described in [docs/protocol.md](../docs/protocol.md).
+Python standard-library daemon and Chromium Native Messaging host. Wire contracts are described in [docs/design/protocol.md](../docs/design/protocol.md).
 
 ## Files
 

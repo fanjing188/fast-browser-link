@@ -28,6 +28,11 @@ class GenericPacks(unittest.TestCase):
         self.root = Path(self.tmp.name).resolve()
         self.source = ROOT / "docs/examples/adapter-pack"
         self.value = json.loads((self.source / "package.json").read_text())
+        # 中文注释：此组固定验收旧包的模型推荐与兼容合同；主动触发另有完整示例与专项。
+        self.value["flows"].pop("support_reply_draft")
+        self.value["flows"]["support_materials"].pop("triggers")
+        self.value["flows"]["support_materials"].pop("next")
+        self.value["tools"][0]["pages"][0]["flows"] = ["support_materials"]
         self.package = self.root / "pack"
         self.package.mkdir()
         for file in ("inspect_case.py", "cases.json"):

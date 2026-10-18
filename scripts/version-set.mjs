@@ -21,7 +21,7 @@ export async function setVersion(source, next) {
   const different = after.findIndex((value, index) => value !== before.at(index));
   if (different < 0 || after.at(different) < before.at(different))
     throw Error(`New version ${next} must be greater than current version ${current}`);
-  const releaseFile = `docs/release-${next}.md`;
+  const releaseFile = `docs/releases/release-${next}.md`;
   try {
     await readFile(path.join(source, releaseFile));
     throw Error(`${releaseFile} already exists; refusing to overwrite release history`);
@@ -57,9 +57,9 @@ export async function setVersion(source, next) {
     });
   const date = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Shanghai' });
   await add('CHANGELOG.md', (text) => text.replace(/^## /m, `## ${next} — ${date}\n\n## `));
-  const template = await readFile(path.join(source, 'docs/release-template.md'), 'utf8');
+  const template = await readFile(path.join(source, 'docs/releases/release-template.md'), 'utf8');
   if (!template.includes('{{version}}') || !template.includes('{{date}}'))
-    throw Error('docs/release-template.md: missing version/date placeholders');
+    throw Error('docs/releases/release-template.md: missing version/date placeholders');
   const draft = template.replaceAll('{{version}}', next).replaceAll('{{date}}', date);
   changes.push({ file: releaseFile, original: null, content: draft });
   // 中文注释：全部读取和校验成功后才落盘；写入或最终核验失败时恢复本次修改。

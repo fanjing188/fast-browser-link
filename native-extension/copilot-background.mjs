@@ -45,6 +45,7 @@ export class CopilotBackground {
     this.selectionPopup = true;
     this.tableHints = new Map();
     this.annotationProfiles = new Map();
+    this.localAnnotations = new Map();
     this.tableCaptures = new Map();
     this.tableEpochs = new Map();
     this.tableLoading = new Set();
@@ -145,6 +146,27 @@ export class CopilotBackground {
     });
   }
   async localCommand(name, params) {
+    if (name === 'annotate_page') {
+      const [tab] = await this.api.tabs.query({ active: true, currentWindow: true });
+      await this.refreshOwnership();
+      if (!tab || this.owned(tab) || !ordinaryPage(tab.url || '')) throw Error('此页不支持标注');
+      if (this.localAnnotations.get(tab.id) === tab.url) {
+        this.localAnnotations.delete(tab.id);
+        if (!this.enabled) await this.api.tabs.sendMessage(tab.id, { type: 'copilot.teardown' });
+        return { active: false };
+      }
+      this.localAnnotations.set(tab.id, tab.url);
+      try {
+        await this.api.scripting.executeScript({
+          target: { tabId: tab.id },
+          files: ['copilot-entry.js'],
+        });
+      } catch (error) {
+        this.localAnnotations.delete(tab.id);
+        throw error;
+      }
+      return { active: true };
+    }
     if (name === 'learn_current') {
       const [tab] = await this.api.tabs.query({ active: true, currentWindow: true });
       await this.refreshOwnership();
@@ -623,6 +645,7 @@ export class CopilotBackground {
     return this.request('observe', { trace: this.trace, page });
   }
   tabEvent(tabId, description, tab) {
+    if (['导航到新页面', '关闭标签页'].includes(description)) this.localAnnotations.delete(tabId);
     if (description === '关闭标签页') {
       this.pages.delete(tabId);
       this.invalidateTables(tabId);
@@ -855,7 +878,13 @@ export class CopilotBackground {
         await this.settings(state);
         return { enabled: state.enabled, agent: state.agent };
       })();
-    } else if (content && this.enabled && message.type === 'copilot.selection') {
+    } else if (
+      content &&
+      (this.enabled ||
+        (this.localAnnotations.get(sender.tab.id) === sender.url &&
+          message.command === 'basket_add')) &&
+      message.type === 'copilot.selection'
+    ) {
       if (message.command === 'open_capabilities') {
         try {
           void this.api.sidePanel.open({ windowId: sender.tab.windowId });
@@ -914,7 +943,11 @@ export class CopilotBackground {
           return this.request('selection_context', { text: params.text });
         throw Error('unknown selection command');
       });
-    } else if (content && this.enabled && message.type === 'copilot.annotation_lookup') {
+    } else if (
+      content &&
+      (this.enabled || this.localAnnotations.get(sender.tab.id) === sender.url) &&
+      message.type === 'copilot.annotation_lookup'
+    ) {
       work = this.refreshOwnership().then(() => {
         if (this.owned(sender.tab) || sender.url !== sender.tab.url)
           throw Error('work page excluded');
@@ -967,7 +1000,10 @@ export class CopilotBackground {
       work = this.refreshOwnership()
         .then(() => this.api.storage.local.get('copilotBallPosition'))
         .then(async (saved) => ({
-          enabled: this.enabled && !this.owned(sender.tab),
+          enabled:
+            (this.enabled || this.localAnnotations.get(sender.tab.id) === sender.url) &&
+            !this.owned(sender.tab),
+          local_only: !this.enabled,
           observing: !!(await this.foreground(sender.tab.id)),
           table_hints: this.tableHints.get(sender.tab.id) || {},
           page_annotations: this.pageAnnotations !== false,

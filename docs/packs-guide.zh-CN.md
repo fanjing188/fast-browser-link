@@ -1,7 +1,7 @@
 # 从你的工作流程到功能包
 
 从每天重复的工作开始。功能包为 Assist / 协作声明操作对象、数据来源、执行流程
-和结果表，不必一开始就让模型判断。完整字段见[字段参考](adapter-packs.zh-CN.md)
+和结果表，不必一开始就让模型判断。完整字段见[字段参考](design/adapter-packs.zh-CN.md)
 和 [package schema](fbl-pack.schema.json)，本指南按一个工单任务走完。
 [English](packs-guide.md)。
 
@@ -68,12 +68,10 @@
 {"result":{"columns":[{"field":"case_id","label":{"en":"Case","zh":"工单号"}}],"primary":"case_id"}}
 ```
 
-**下一步**先写“请人工收集材料”。第 35 轮加入 `triggers` 与条件 `next` 衔接。
-当前起草分支基于第 32–34 轮，可保留草稿里的这些字段，但不实现或认证它们的推荐
-语义。在第 35 轮合同合入前，可执行包先不写 `next`，把人工交接写在 `when`：
+**触发与下一步**：给 `support_materials` 加入下面声明。`triggers` 各条是或、同条字段是且；表头来自同一表格，选区须完整匹配对象正则。目标 `support_reply_draft` 必须存在、对象同为 `case_id`，也要加入页面的 `flows`。目标设 `triggers: []`，仅在材料齐全时提出接续建议，不自动执行、不发送回复；完整示例已包含只读步骤。
 
 ```json
-{"when":{"en":"Review missing materials, then ask a person to collect them.","zh":"核对缺失材料后，请人工收集。"}}
+{"triggers":[{"table_columns":{"all":["Case","Status"]}},{"selection":{"object":"case_id"}}],"next":[{"flow":"support_reply_draft","when":{"field":"missing_materials","records":"all","empty":true}}]}
 ```
 
 以上是逐项增加的字段，不是各自独立的包。需要完整字段时从
@@ -136,6 +134,8 @@ fbl packs install /absolute/path/from/the/draft/output
 对象类型和固定动作类别，不发送 URL、对象值、选区或页面文字。
 侧栏显示草稿路径及验证命令，仍须审阅后安装。
 
+场景还支持 `follow_completed: [{"flow":"support_materials","status":"completed","object":"CS-1001","records":[{"missing_materials":[]}]}]` 和 `dwell_seconds`，与 `table_columns`、`table_rows`、`selection` 一起验收触发和条件接续；静态检查拒绝不存在的 next 流程。见[完整场景](examples/adapter-pack/tests/scenarios.json)。
+
 ## 5. 作者要知道的安全规则
 
 - 凭据、账户状态和个人路径不进包；真实来源从用户管理的配置引用认证。
@@ -145,4 +145,4 @@ fbl packs install /absolute/path/from/the/draft/output
 - 使用 argv 数组，不拼 shell；文件留在包内，输入输出有界，未知值保持未知。
 
 接真实来源前阅读[安全政策](../SECURITY.md)、[能力参考](fbl-packs.zh-CN.md)
-及[适配规则](adapter-packs.zh-CN.md)。
+及[适配规则](design/adapter-packs.zh-CN.md)。

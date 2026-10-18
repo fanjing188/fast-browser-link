@@ -16,12 +16,12 @@ This release connects Hermes to an existing Chrome or Edge on macOS. It is inten
 - Browser acceptance has been performed on Chrome 153 and Edge 153 using temporary profiles and isolated package installations.
 - The full offline integration recipe pins Hermes to `e62a47ab680bf952b26559e540c28bc18571017c`. Compatibility with every later Hermes revision is not implied.
 - Browser Use CLI 0.13.7 was used for official-tool acceptance. It is optional unless the official `browser_exec` adapter is used.
-- Unit, synthetic integration, real-browser and installed-application checks are distinct. See [testing.md](testing.md) for reproducible commands.
+- Unit, synthetic integration, real-browser and installed-application checks are distinct. See [testing.md](../testing.md) for reproducible commands.
 
 ## Limits
 
 - Installation is manual. The installer refuses to overwrite an existing installation; there is no transactional in-place updater.
-- Arbitrary JavaScript/CDP are privileged capabilities. Python runs with the user's permissions. Neither is a security sandbox; see [SECURITY.md](../SECURITY.md).
+- Arbitrary JavaScript/CDP are privileged capabilities. Python runs with the user's permissions. Neither is a security sandbox; see [SECURITY.md](../../SECURITY.md).
 - A screenshot, successful input dispatch or HTTP response is not proof of business completion. Unknown writes are not replayed.
 - Parsing covers the declared, observed DOM scope. Virtualized/unloaded content, unsupported frames and Canvas/OCR are not silently treated as complete.
 - Local in-memory parse results are not a durable result store. Automated multi-page collection and saved checkpoints remain future work.
@@ -29,6 +29,6 @@ This release connects Hermes to an existing Chrome or Edge on macOS. It is inten
 
 ## Install and report
 
-Download the versioned installation ZIP and its checksum manifest from the release, or build from source. Follow [installation.md](installation.md), then verify both the extension version and the live connection. For updates, read the data-preserving manual procedure before removing any files.
+Download the versioned installation ZIP and its checksum manifest from the release, or build from source. Follow [installation.md](../installation.md), then verify both the extension version and the live connection. For updates, read the data-preserving manual procedure before removing any files.
 
-Report reproducible bugs using the issue template. Never attach real cookies, credentials, account screenshots or personal files. Security reports use the private channel described in [SECURITY.md](../SECURITY.md).
+Report reproducible bugs using the issue template. Never attach real cookies, credentials, account screenshots or personal files. Security reports use the private channel described in [SECURITY.md](../../SECURITY.md).

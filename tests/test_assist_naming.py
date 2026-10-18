@@ -33,6 +33,11 @@ ALLOWLIST = (
         "文档明确说明未改名的 Hermes profile 内部标识",
     ),
     (
+        "docs/design/*.md",
+        re.compile(r"`fast-copilot`"),
+        "设计合同中的原 Hermes profile 内部标识保持不变",
+    ),
+    (
         "README*.md",
         re.compile(r"`fast-copilot`"),
         "安装说明中的 Hermes profile 内部标识",

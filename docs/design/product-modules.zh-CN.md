@@ -1,6 +1,6 @@
 # 产品功能与模块索引
 
-本文描述 1.9.0 的功能、入口、模块归属和优化边界，支持 macOS。历史版本的真实浏览器验证不代替本次验收，结果见 [测试说明](testing.md)。
+本文描述 1.9.0 的功能、入口、模块归属和优化边界，支持 macOS。历史版本的真实浏览器验证不代替本次验收，结果见 [测试说明](../testing.md)。
 
 ## 1. 浏览器连接与授权
 
@@ -122,7 +122,7 @@
 
 ### 6.2 生成文档和在线能力
 
-`python3 scripts/generate-browser-reference.py` 从实际 HELPERS 导出、函数签名、docstring 和工具 schema 生成 [接口参考](browser-api-reference.md)。`--check` 检查漂移，并已接入核心测试。
+`python3 scripts/generate-browser-reference.py` 从实际 HELPERS 导出、函数签名、docstring 和工具 schema 生成 [接口参考](../browser-api-reference.md)。`--check` 检查漂移，并已接入核心测试。
 
 `fast_browser_reference(instance_id=...)` 用只读探针读取当前已连接扩展上报的能力，仅展示该实例支持的 helper。未连接或没有上报能力时不推断支持；不指定实例时返回可选浏览器与工具入口。接口存在不等于当前任务获得授权。
 
@@ -139,7 +139,7 @@
 
 `plugins/fast-browser-link` 是共享根中的唯一使用中主程序，命名 profile 只用受控直接链接引用；各自启停、可选权限、记忆、工作区、站点工具、任务身份和凭据数据不合并。旧全副本、未登记及停用入口参与迁移，不参与自动启用。升级备份在扫描目录之外，失败按原目录或原链接恢复；保留 Hermes Desktop 生成的应用级界面缓存。
 
-`executor-plugin/maintenance/update.py` 提供正式版检查、手动更新和每小时检查/空闲安装。GitHub digest、ZIP 路径、完整包清单、版本及扩展身份校验后，复用 `install-cli.py` 和 `install-executor.py` 的事务、备份及回滚；安装、更新、卸载共用目录锁。应用运行时延后，不自动退出程序；开发预览版不进入自动更新通道。见 [安装与更新](installation.md#automatic-updates--自动更新)。
+`executor-plugin/maintenance/update.py` 提供正式版检查、手动更新和每小时检查/空闲安装。GitHub digest、ZIP 路径、完整包清单、版本及扩展身份校验后，复用 `install-cli.py` 和 `install-executor.py` 的事务、备份及回滚；安装、更新、卸载共用目录锁。应用运行时延后，不自动退出程序；开发预览版不进入自动更新通道。见 [安装与更新](../installation.md#automatic-updates--自动更新)。
 
 ## 9. 测试与后续优化入口
 

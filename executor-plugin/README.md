@@ -25,7 +25,7 @@ When the operator grants the plugin `tools.override`, the plugin re-registers He
 
 The browser popup shows the extension version, browser access mode and task controls. The task cursor is always enabled and stays visible between steps. Page content is returned as-is; password input values are omitted, and password, payment and one-time-code fields return `user_input_required` for the user (or Vault) to fill.
 
-Hermes Desktop provides browser links and Cookie mirror controls. Mirroring always needs a fresh source-extension confirmation. The native mirror dialog uses an opaque, centered elevated surface and fits narrow/short windows. Stable-release updates are managed by `maintenance/update.py`; pre-releases are excluded. See [feature catalog](../docs/features.md) and [usage](../docs/usage.md).
+Hermes Desktop provides browser links and Cookie mirror controls. Mirroring always needs a fresh source-extension confirmation. The native mirror dialog uses an opaque, centered elevated surface and fits narrow/short windows. Stable-release updates are managed by `maintenance/update.py`; pre-releases are excluded. See [feature catalog](../docs/features.md) and [usage](../docs/design/usage.md).
 
 ## Tests
 

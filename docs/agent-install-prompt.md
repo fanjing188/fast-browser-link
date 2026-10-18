@@ -1,20 +1,22 @@
-# 从 GitHub 自动安装并验证
+# Install and verify from GitHub
 
-将下面提示词发送给能执行本机命令的 agent。默认使用独立 skills 模式。
+Send the following to an Agent that can execute local commands. Use independent Skills by default.
 
 ```text
-请从 https://github.com/fanjing188/fast-browser-link 的正式 Releases 自动下载安装 Fast-browser-link，并实际调用验证。
+Download and install Fast-browser-link from actual published Releases at https://github.com/fanjing188/fast-browser-link, then verify real browser calls.
 
-1. 使用 GitHub API 或 gh 获取真实 Release 附件，选择 fast-browser-link-<版本>.zip；不要选择 Source code 或带 -hermes- 的适配器包。
-2. 校验发布的 ZIP SHA256 和包内 SHA256SUMS.json，在独立目录解压；仓库或附件不可用时如实停止，不猜测 URL。
-3. 阅读安装说明，检查 macOS、Python 3.11+ 和目标目录。已有安装不覆盖、不删除。
-4. 记录原 Hermes 配置、插件及 Native host 文件的摘要。保留所有现有插件、数据和标签页。
-5. 先运行 bash install.sh --dry-run，再运行 bash install.sh。不要加 --hermes-plugin，不开启 tools.override，不修改 Hermes 源码或 config.yaml。
-6. 在日常使用的 Chrome/Edge 中，通过正常扩展管理界面加载输出的 extension 目录。新版扩展 ID 为 hhnljehnkmhhgjjjmnlhilfpcjhobloc；保留旧扩展启用。不要装进其他应用的专用浏览器或临时 profile。
-7. 读取 ~/.agents/skills/fast-browser-link/SKILL.md，使用其 scripts/browser.py 验证 health、browsers、公开网页读取，以及本机测试页的填写、点击和回读。不要向真实网站提交测试数据。
-8. 关闭本次创建的任务，核对清理成功和旧安装文件未变。报告 Release URL、摘要、安装位置及验证结果。
+1. Use the GitHub API or gh to find an actual fast-browser-link-<version>.zip asset. Do not choose Source code or a -hermes- adapter ZIP.
+2. Verify the published ZIP SHA256 and internal SHA256SUMS.json; extract into an isolated directory. Stop honestly if the repository or asset is unavailable; never guess a URL.
+3. Read installation instructions and check macOS, Python 3.11+ and target directories. Do not overwrite or remove an existing installation.
+4. Record digests of existing Hermes configuration, plugins and Native host files. Preserve all plugins, data and tabs.
+5. Run bash install.sh --dry-run, then bash install.sh. Do not add --hermes-plugin, enable tools.override, or modify Hermes source/config.yaml.
+6. Load the printed extension directory through normal Chrome/Edge extension management in the everyday browser. The extension ID is hhnljehnkmhhgjjjmnlhilfpcjhobloc; keep the old extension enabled. Do not install into another application's dedicated browser or a temporary profile.
+7. Read ~/.agents/skills/fast-browser-link/SKILL.md. Use scripts/browser.py to verify health, browsers, public-page reading and a local test page's fill/click/readback. Never submit test data to real sites.
+8. Close tasks created for this check; verify cleanup and unchanged prior installation files. Report the actual Release URL, digests, installation location and results.
 
-请实际执行。文件复制成功或 health 正常，不等于浏览器调用验证通过；需要用户确认时说明具体步骤。
+Execute the work. Copying files or passing health is not proof of browser calls. State any specific browser confirmation the user must complete.
 ```
 
-通用包无需 Node.js 或 Hermes。浏览器对未上架扩展的首次确认仍然适用；纯云端、不能执行本机命令的 agent 无法直接使用本机 skill。
+The independent package requires neither Node.js nor Hermes. Browser confirmation for an unpacked extension still applies. An Agent without local command execution cannot directly use this local Skill. The source candidate is unreleased; build it separately if needed.
+
+[Installation](installation.md) · [中文](agent-install-prompt.zh-CN.md)

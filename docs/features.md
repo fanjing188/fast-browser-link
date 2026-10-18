@@ -19,7 +19,7 @@ This catalog describes the current source feature set. See the [changelog](../CH
 | Uploads | Local paths named in conversation, copied into task-private storage, selected into a visible file input in the main document | Up to 10 files, 100 MiB each. Hidden inputs and inputs inside frames are not supported. The OS file dialog is never driven. |
 | Downloads | Attribution to the task, cancel, claim with size and digest verification | Ambiguous concurrent downloads are never claimed automatically. |
 | Credentials | Optional takeover of Hermes' Vault tools: list, fill, TOTP entry, save login through a private local channel | Off by default. External password-manager CLIs must be installed and unlocked separately. Payment cards and addresses are not handled. |
-| Official tools | 18 official Hermes browser tools and 28 `browser_exec` helpers, routed for bound sessions (see [usage](usage.md#fast-official-browser-tools)) | Version-dependent; use the generated capability reference for the connected instance. `browser_snapshot(full=true)` is not supported. |
+| Official tools | 18 official Hermes browser tools and 28 `browser_exec` helpers, routed for bound sessions (see [usage](design/usage.md#fast-official-browser-tools)) | Version-dependent; use the generated capability reference for the connected instance. `browser_snapshot(full=true)` is not supported. |
 | Visibility | Whole-task input overlay, status, takeover/stop, action highlights and an always-enabled task cursor with smooth travel | Cursor remains between steps, hides on takeover/disconnection or hidden tabs, respects reduced motion, and is hidden/restored for capture. |
 | Diagnostics | Correlated, field-allowlisted events and the latest task steps on the webpage overlay | Never records page text, credentials or free-form exception text. |
 
@@ -33,13 +33,13 @@ This catalog describes the current source feature set. See the [changelog](../CH
 
 ## Site tools, network evidence and page requests
 
-Verified custom site-tool drafts, bounded network evidence, same-origin page requests, read-only doctor and generated capability-aware API reference are described by module in the [product catalog](product-modules.zh-CN.md). These tools reuse the existing task and script execution chain. Verified source does not mean a personal installation or public release has been updated.
+Verified custom site-tool drafts, bounded network evidence, same-origin page requests, read-only doctor and generated capability-aware API reference are described by module in the [product catalog](design/product-modules.zh-CN.md). These tools reuse the existing task and script execution chain. Verified source does not mean a personal installation or public release has been updated.
 
 ## Page output and sensitive fields
 
 Since 1.11.0 there is no content filtering, shielding switch or content-protection refusal: page text, attributes, script results and diagnostics are returned as-is. Password input values are replaced with `[password]` in every output.
 
-Password, payment and one-time-code fields keep their protection. Semantic snapshots mark them with `fieldKind` and `inputRequired: vault_or_user` and expose no actions; `ref_fill`/`ref_press` on them return `user_input_required` so the user fills them (or Vault does). Screenshots still mask visible sensitive fields; when the mask cannot be confirmed they return `capture_sensitive_blocked` or `capture_frame_uninspectable`. See [page output and recovery](content-shield.md).
+Password, payment and one-time-code fields keep their protection. Semantic snapshots mark them with `fieldKind` and `inputRequired: vault_or_user` and expose no actions; `ref_fill`/`ref_press` on them return `user_input_required` so the user fills them (or Vault does). Screenshots still mask visible sensitive fields; when the mask cannot be confirmed they return `capture_sensitive_blocked` or `capture_frame_uninspectable`. See [page output and recovery](design/content-shield.md).
 
 ## Cookie mirror
 
@@ -47,7 +47,7 @@ Open **Hermes Desktop → 浏览器连接 → Cookie 镜像** to read/search the
 
 Each transfer requires a real click in the source extension confirmation panel, including full-access mode. Optional target-cookie clearing defaults off. Session cookies keep session lifetime unless persistence for 1–365 days is selected. Only the default non-incognito store is supported. Values travel once through bounded memory with a 60-second deadline including approval; disconnect/failure clears payloads. They do not enter task files, model responses or diagnostic logs.
 
-Cookie copying does not copy localStorage, IndexedDB, device keys or MFA state, and readback identity matches do not prove login. Site grouping uses a small suffix table rather than a complete PSL. The public tool offers `list_sites`, `request_mirror`, and `status` with allowlisted metadata only. See [usage](usage.md#cookie-mirror) and [security](../SECURITY.md#cookie-mirror-150).
+Cookie copying does not copy localStorage, IndexedDB, device keys or MFA state, and readback identity matches do not prove login. Site grouping uses a small suffix table rather than a complete PSL. The public tool offers `list_sites`, `request_mirror`, and `status` with allowlisted metadata only. See [usage](design/usage.md#cookie-mirror) and [security](../SECURITY.md#cookie-mirror-150).
 
 ## Stable-release updates
 

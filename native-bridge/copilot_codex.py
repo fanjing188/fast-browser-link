@@ -480,6 +480,19 @@ class Codex(ACP):
             if self.execution:
                 params["runtimeWorkspaceRoots"] = [self.thread_cwd]
             selected = self.config.get("exec_model" if self.execution else "inference_model")
+            if not selected and not self.execution:
+                # 中文注释：仅从目录按名称段优先 nano、mini、luna；同档沿用目录顺序。
+                # 名称只是低成本启发式，不代表实时报价；未匹配则保留服务端默认。
+                models = self.list_models()["available"]
+                selected = next(
+                    (
+                        row["id"]
+                        for tier in ("nano", "mini", "luna")
+                        for row in models
+                        if tier in re.split(r"[-_.]", row["id"].lower())
+                    ),
+                    None,
+                )
             if selected:
                 params["model"] = selected
             self.audit_active = not self.execution

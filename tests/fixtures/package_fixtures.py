@@ -1,4 +1,5 @@
 """Complete synthetic package/source fixtures for negative install controls."""
+
 from __future__ import annotations
 
 import hashlib
@@ -18,7 +19,7 @@ def write_installer_package(root: Path, *, include_api_client: bool = True) -> P
     # 使用当前桥接候选包布局构造离线安装夹具。
     files: dict[str, bytes] = {
         "fast-browser-link/plugin.yaml": b"name: fast-browser-link\nversion: 1.3.0\n",
-        "fast-browser-link/__init__.py": b"\"\"\"Fixture plugin.\"\"\"\n",
+        "fast-browser-link/__init__.py": b'"""Fixture plugin."""\n',
         "fast-browser-link/runtime.py": b"# runtime fixture\n",
         "fast-browser-link/native_tools.py": b"# tools fixture\n",
         # 中文注释：合成包必须包含自动更新的维护闭包。
@@ -39,10 +40,13 @@ def write_installer_package(root: Path, *, include_api_client: bool = True) -> P
         "fast-browser-link/native_bridge/browser_diagnostics/schema.py": b"# schema fixture\n",
         "fast-browser-link/native_bridge/browser_diagnostics/runtime.py": b"# runtime fixture\n",
         "fast-browser-link/native_bridge/browser_diagnostics/sink.py": b"# sink fixture\n",
-        "native-extension/manifest.json": json.dumps({
-            "manifest_version": 3,
-            "background": {"service_worker": "background.mjs"},
-        }).encode() + b"\n",
+        "native-extension/manifest.json": json.dumps(
+            {
+                "manifest_version": 3,
+                "background": {"service_worker": "background.mjs"},
+            }
+        ).encode()
+        + b"\n",
         "native-extension/background.mjs": b"// background fixture\n",
         "docs/python-scripting.md": b"# python scripting fixture\n",
         "docs/CHANGELOG.md": b"# changelog fixture\n",
@@ -57,10 +61,7 @@ def write_installer_package(root: Path, *, include_api_client: bool = True) -> P
     if include_api_client:
         files["fast-browser-link/native_bridge/api_client.py"] = b"# api client fixture\n"
     _write_tree(root, files)
-    manifest = {
-        name: hashlib.sha256(data).hexdigest()
-        for name, data in sorted(files.items())
-    }
+    manifest = {name: hashlib.sha256(data).hexdigest() for name, data in sorted(files.items())}
     (root / "SHA256SUMS.json").write_text(
         json.dumps(manifest, ensure_ascii=False, sort_keys=True) + "\n",
         encoding="utf-8",
@@ -77,14 +78,16 @@ def write_packager_source(root: Path, *, include_api_client: bool = False) -> Pa
         "executor-plugin/dashboard/manifest.json": b'{"version":"1.3.0"}\n',
         "cloud-link/site/package.json": b'{"version":"1.3.0"}\n',
         "cloud-link/site/package-lock.json": b'{"version":"1.3.0","packages":{"":{"version":"1.3.0"}}}\n',
+        "native-bridge/cookie_mirror.py": b"# cookie mirror fixture\n",
+        "native-extension/cookie-mirror.mjs": b"// cookie mirror fixture\n",
         "native-bridge/client.py": b"# client\n",
         "native-bridge/daemon.py": b"# daemon\n",
         "native-bridge/host.py": b"# host\n",
         "native-extension/manifest.json": b'{"manifest_version":3,"version":"1.3.0"}\n',
         "native-extension/build.mjs": b"// build entry fixture\n",
-        "native-extension/background.mjs": b"// 中文注释：版本握手夹具。\nconst hello={version:chrome.runtime.getManifest().version};const popup={version:chrome.runtime.getManifest().version};\n",
+        "native-extension/background.mjs": "// 中文注释：版本握手夹具。\nconst hello={version:chrome.runtime.getManifest().version};const popup={version:chrome.runtime.getManifest().version};\n".encode(),
         "executor-plugin/plugin.yaml": b"name: fast-browser-link\nversion: 1.3.0\n",
-        "executor-plugin/__init__.py": b"\"\"\"Plugin fixture.\"\"\"\n",
+        "executor-plugin/__init__.py": b'"""Plugin fixture."""\n',
         "executor-plugin/open_tool.py": b"# open tool\n",
         "executor-plugin/skills/fast-browser-link/SKILL.md": b"# browser skill\n",
         "executor-plugin/script_lane/host_bridge.py": b"# host bridge\n",

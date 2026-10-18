@@ -95,7 +95,7 @@ See [testing.md](testing.md) for how to run and write tests.
 
 ## Maintaining new modules
 
-See [product modules](product-modules.zh-CN.md) for source ownership and limits. After changing exported Python helpers or tool schemas, run `python3 scripts/generate-browser-reference.py`. `npm test` checks generated documentation drift. Site-tool and network test runners are explicitly included in the gate inventory; browser runners remain opt-in.
+See [product modules](design/product-modules.zh-CN.md) for source ownership and limits. After changing exported Python helpers or tool schemas, run `python3 scripts/generate-browser-reference.py`. `npm test` checks generated documentation drift. Site-tool and network test runners are explicitly included in the gate inventory; browser runners remain opt-in.
 
 ## Installation internals
 

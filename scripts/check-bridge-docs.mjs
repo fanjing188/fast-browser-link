@@ -21,14 +21,16 @@ const root = args.length
   ? resolve(args[1])
   : resolve(fileURLToPath(new URL('..', import.meta.url)));
 const docsDir = join(root, 'docs');
+function documents(directory) {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    if (entry.name === 'growth') return [];
+    const file = join(directory, entry.name);
+    return entry.isDirectory() ? documents(file) : entry.name.endsWith('.md') ? [file] : [];
+  });
+}
 const files = [
   ...ROOT_DOCS.map((name) => join(root, name)).filter(existsSync),
-  ...(existsSync(docsDir)
-    ? readdirSync(docsDir)
-        .filter((name) => name.endsWith('.md'))
-        .sort()
-        .map((name) => join(docsDir, name))
-    : []),
+  ...(existsSync(docsDir) ? documents(docsDir).sort() : []),
 ];
 const errors = [];
 if (!files.some((file) => relative(root, file) === 'README.md')) errors.push('README.md: missing');

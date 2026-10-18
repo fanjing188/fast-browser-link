@@ -153,7 +153,7 @@ function pageFixture(html) {
         binding,
         options: { root: '#target', mode: 'interactive', budget: 5000 },
       });
-      assert.equal(window.__fastNativeSemanticsV2.version, 8);
+      assert.equal(window.__fastNativeSemanticsV2.version, 9);
       assert.equal(page.items.length, 1);
       return { binding, snapshotId: page.snapshotId, ref: page.items[0].ref };
     },

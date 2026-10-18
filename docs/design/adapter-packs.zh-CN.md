@@ -1,6 +1,6 @@
 # 功能插件与技能适配包开发标准
 
-第一次写包请先读[从你的工作流程到功能包](packs-guide.zh-CN.md)，本页保留为字段参考。
+第一次写包请先读[从你的工作流程到功能包](../packs-guide.zh-CN.md)，本页保留为字段参考。
 
 功能插件是可安装的本地适配包，公开入口为 `package.json`。它把工作场景、建议、取数能力和执行步骤放在同一个包里。核心负责浏览器连接、任务隔离、权限和结果；插件声明业务规则与数据来源。
 
@@ -55,7 +55,7 @@ my-adapter/
 
 ## 可运行示例
 
-[示例目录](examples/adapter-pack/) 中的 `support-triage-example` 仅读取随包合成工单，没有网络调用，也不操作真实订单。
+[示例目录](../examples/adapter-pack) 中的 `support-triage-example` 仅读取随包合成工单，没有网络调用，也不操作真实订单。
 
 ```sh
 fbl packs install /absolute/path/to/docs/examples/adapter-pack
@@ -67,7 +67,7 @@ fbl packs install /absolute/path/to/docs/examples/adapter-pack
 
 ### 通用领域声明（version 1）
 
-以下字段均可选，旧包不需要迁移。参见 [package.json 格式](fbl-pack.schema.json) 和 [工单示例](examples/adapter-pack/package.json)。
+以下字段均可选，旧包不需要迁移。参见 [package.json 格式](../fbl-pack.schema.json) 和 [工单示例](../examples/adapter-pack/package.json)。
 
 | 字段 | 格式与默认行为 |
 | --- | --- |

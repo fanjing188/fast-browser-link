@@ -182,26 +182,29 @@ class DiagnosticsTests(unittest.TestCase):
         ]:
             log.append(line)
         directory = self.root / "logs"
-        raw = "".join(path.read_text() for path in directory.glob("*.hermes-stderr.log*"))
+        raw = "".join(path.read_text() for path in directory.glob("*.agent-stderr.log*"))
         self.assertNotIn(secret, raw)
         self.assertIn("redacted", raw)
         for i in range(40):
             log.append("warning " + str(i) + " " + "." * 30)
-        files = list(directory.glob("*.hermes-stderr.log*"))
+        files = list(directory.glob("*.agent-stderr.log*"))
         self.assertEqual(len(files), 2)
         for path in files:
             self.assertLessEqual(path.stat().st_size, 128)
             self.assertEqual(path.stat().st_mode & 0o777, 0o600)
         self.assertEqual(len(log.tail), 20)
         self.assertLessEqual(sum(len(line.encode()) for line in log.finish()), 1024)
-        old = directory / ((date.today() - timedelta(days=7)).isoformat() + ".hermes-stderr.log")
+        old = directory / ((date.today() - timedelta(days=7)).isoformat() + ".agent-stderr.log")
         old.write_text("old")
+        legacy = directory / ((date.today() - timedelta(days=7)).isoformat() + ".hermes-stderr.log")
+        legacy.write_text("legacy")
         tomorrow = StderrLog(self.root, today=lambda: date.today() + timedelta(days=1))
         tomorrow.append("next day")
         self.assertFalse(old.exists())
+        self.assertFalse(legacy.exists())
         outside = self.root / "outside"
         outside.write_text("keep")
-        target = directory / (date.today().isoformat() + ".hermes-stderr.log")
+        target = directory / (date.today().isoformat() + ".agent-stderr.log")
         target.unlink()
         target.symlink_to(outside)
         with self.assertRaises(ValueError):

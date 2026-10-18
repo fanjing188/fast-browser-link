@@ -21,8 +21,8 @@ const inputs = [
   ...TEXT_VERSION_FILES,
   'native-extension/background.mjs',
   'CHANGELOG.md',
-  'docs/release-template.md',
-  `docs/release-${current}.md`,
+  'docs/releases/release-template.md',
+  `docs/releases/release-${current}.md`,
   'scripts/package-version.mjs',
   'scripts/version-set.mjs',
 ];
@@ -62,7 +62,7 @@ test('version:set 更新全部发布副本，保留历史、固定身份和外�
       ...JSON_VERSION_FILES,
       ...TEXT_VERSION_FILES,
       'CHANGELOG.md',
-      `docs/release-${next}.md`,
+      `docs/releases/release-${next}.md`,
     ])
       assert.ok(result.stdout.includes(`- ${file}\n`), file);
     assert.equal(await verifyReleaseVersions(work), next);
@@ -81,10 +81,10 @@ test('version:set 更新全部发布副本，保留历史、固定身份和外�
     assert.match(changelog.split('\n')[2], / — \d{4}-\d{2}-\d{2}$/);
     assert.equal(changelog.replace(/^## .*\n\n/m, ''), originals[inputs.indexOf('CHANGELOG.md')]);
     assert.equal(
-      await readFile(path.join(work, `docs/release-${current}.md`), 'utf8'),
-      originals[inputs.indexOf(`docs/release-${current}.md`)],
+      await readFile(path.join(work, `docs/releases/release-${current}.md`), 'utf8'),
+      originals[inputs.indexOf(`docs/releases/release-${current}.md`)],
     );
-    const draft = await readFile(path.join(work, `docs/release-${next}.md`), 'utf8');
+    const draft = await readFile(path.join(work, `docs/releases/release-${next}.md`), 'utf8');
     assert.ok(!draft.includes('{{'));
     assert.ok(draft.includes('草稿'));
     assert.ok(draft.includes('待记录测试命令'));
@@ -100,7 +100,10 @@ test('version:set 更新全部发布副本，保留历史、固定身份和外�
     const following = `${parts[0]}.${parts[1]}.${parts[2] + 2n}`;
     await setVersion(work, following);
     assert.equal(await verifyReleaseVersions(work), following);
-    assert.equal(await readFile(path.join(work, `docs/release-${next}.md`), 'utf8'), draft);
+    assert.equal(
+      await readFile(path.join(work, `docs/releases/release-${next}.md`), 'utf8'),
+      draft,
+    );
   }));
 
 test('拒绝同版本、降级、非法格式和多余参数，文件不变', async () =>
@@ -123,18 +126,18 @@ test('拒绝同版本、降级、非法格式和多余参数，文件不变', as
 test('预检拒绝已有草稿、损坏模板及版本漂移，避免部分更新', async () =>
   fixture(async (work) => {
     const original = await snapshot(work),
-      releasePath = path.join(work, `docs/release-${next}.md`);
+      releasePath = path.join(work, `docs/releases/release-${next}.md`);
     await writeFile(releasePath, 'existing historical note');
     await assert.rejects(setVersion(work, next), /refusing to overwrite release history/);
     assert.deepEqual(await snapshot(work), original);
     assert.equal(await readFile(releasePath, 'utf8'), 'existing historical note');
     await rm(releasePath);
-    const template = path.join(work, 'docs/release-template.md');
+    const template = path.join(work, 'docs/releases/release-template.md');
     await writeFile(template, 'invalid template');
     const broken = await snapshot(work);
     await assert.rejects(setVersion(work, next), /missing version\/date placeholders/);
     assert.deepEqual(await snapshot(work), broken);
-    await cp(path.join(root, 'docs/release-template.md'), template);
+    await cp(path.join(root, 'docs/releases/release-template.md'), template);
     const plugin = path.join(work, 'executor-plugin/plugin.yaml');
     await writeFile(
       plugin,
@@ -151,7 +154,7 @@ test('文档、下载标签、锁根字段和握手漂移报告具体文件与�
       ...JSON_VERSION_FILES,
       ...TEXT_VERSION_FILES.filter((file) => file !== 'scripts/migrate-to-fast-browser-link.py'),
       'CHANGELOG.md',
-      `docs/release-${current}.md`,
+      `docs/releases/release-${current}.md`,
     ]) {
       const target = path.join(work, file),
         original = await readFile(target, 'utf8');
@@ -174,19 +177,11 @@ test('文档、下载标签、锁根字段和握手漂移报告具体文件与�
     for (const file of ['README.md', 'README.zh-CN.md']) {
       const target = path.join(work, file),
         original = await readFile(target, 'utf8');
-      const token = `/download/v${current}/`,
-        offset = original.indexOf(token);
-      await writeFile(target, original.replace(token, `/download/v${next}/`));
-      const line = original.slice(0, offset).split('\n').length;
-      await assert.rejects(verifyReleaseVersions(work), (error) =>
-        error.message.includes(`${file}:${line}:`),
-      );
+      await writeFile(target, original.replace('Unreleased (', 'Released ('));
+      await assert.rejects(verifyReleaseVersions(work), /missing current release reference/);
       await writeFile(
         target,
-        original.replace(
-          'https://github.com/fanjing188/fast-browser-link/releases/download/',
-          'https://wrong.example/releases/download/',
-        ),
+        original.replaceAll('docs/installation', 'docs/missing-installation'),
       );
       await assert.rejects(verifyReleaseVersions(work), /missing current release reference/);
       await writeFile(target, original);
@@ -203,7 +198,7 @@ test('文档、下载标签、锁根字段和握手漂移报告具体文件与�
       /native-extension\/background.mjs:\d+:.*getManifest/,
     );
     await writeFile(backgroundPath, background);
-    const release = `docs/release-${current}.md`;
+    const release = `docs/releases/release-${current}.md`;
     await rm(path.join(work, release));
     await assert.rejects(verifyReleaseVersions(work), (error) =>
       error.message.includes(`${release}:1: ENOENT`),
@@ -212,10 +207,12 @@ test('文档、下载标签、锁根字段和握手漂移报告具体文件与�
 
 test('损坏生成模板导致最终校验失败时恢复本次写入', async () =>
   fixture(async (work) => {
-    const template = path.join(work, 'docs/release-template.md');
+    const template = path.join(work, 'docs/releases/release-template.md');
     await writeFile(template, '# wrong title {{version}}\n{{date}}\n');
     const before = await snapshot(work);
     await assert.rejects(setVersion(work, next), /release title/);
     assert.deepEqual(await snapshot(work), before);
-    await assert.rejects(readFile(path.join(work, `docs/release-${next}.md`)), { code: 'ENOENT' });
+    await assert.rejects(readFile(path.join(work, `docs/releases/release-${next}.md`)), {
+      code: 'ENOENT',
+    });
   }));

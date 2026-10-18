@@ -46,7 +46,7 @@ def scope(url, identity):
 
 def references():
     here = Path(__file__).resolve().parent
-    names = ("packs-guide.md", "adapter-packs.zh-CN.md", "fbl-pack.schema.json")
+    names = ("packs-guide.md", "design/adapter-packs.zh-CN.md", "fbl-pack.schema.json")
     for directory in (here.parent / "docs", here / "fbl-assets/authoring"):
         if all((directory / name).is_file() for name in names):
             return {name: (directory / name).read_text() for name in names}

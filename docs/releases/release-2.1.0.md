@@ -27,13 +27,13 @@ node tests/native-v2/real-login-continuity.mjs
 node tests/native-v2/real-login-continuity.mjs --edge
 ```
 
-需要已有固定 Hermes 测试环境，设置 `HERMES_SOURCE` 与 `HERMES_PYTHON`；完整环境和证据范围见 [测试说明](testing.md) 与 [无痕矩阵](incognito.md)。
+需要已有固定 Hermes 测试环境，设置 `HERMES_SOURCE` 与 `HERMES_PYTHON`；完整环境和证据范围见 [测试说明](../testing.md) 与 [无痕矩阵](../incognito.md)。
 
 ## 安装与更新
 
 - 独立模式：下载 `fast-browser-link-2.1.0.zip`，校验 Release 的 `SHA256SUMS.txt` 与包内 `SHA256SUMS.json`，解压后运行 `bash install.sh`。仅需 Python 3.11+，不需要 Node.js 或 Hermes。
 - 可选 Hermes integration：使用 `fast-browser-link-hermes-2.1.0.zip`；其现有安装支持 `./install.sh --upgrade`。
-- 独立安装器不会覆盖已有目标。已有独立安装应先结束任务、备份程序及技能，按 [维护要求](agent-integration.md#安装状态和升级) 校验并同步程序，保留 `plugin-data` 的任务身份和数据，不能用删除数据绕过活动任务检查。
+- 独立安装器不会覆盖已有目标。已有独立安装应先结束任务、备份程序及技能，按 [维护要求](../agent-integration.md#安装状态和升级) 校验并同步程序，保留 `plugin-data` 的任务身份和数据，不能用删除数据绕过活动任务检查。
 - 更新后重载扩展，以 `browsers` 确认连接。无痕模式还需在扩展详情开启 Incognito / InPrivate 权限。扩展固定 ID 和 Native host 名保持不变。
 
 ## 能力边界

@@ -1,6 +1,6 @@
 # 工具感知协作能力
 
-协作读取通用包、显式配置的 `extension_dirs`，以及自身数据目录内的 `extensions/*/package.json`。声明加载不执行命令。公共仓库只放中性能力、[标准schema](assist-capabilities.schema.json)、[虚构示例](examples/copilot-package/package.json)和说明；个人工具、凭据、规则及脚本位置属于本机包。旧fetcher声明继续兼容。
+协作读取通用包、显式配置的 `extension_dirs`，以及自身数据目录内的 `extensions/*/package.json`。声明加载不执行命令。公共仓库只放中性能力、[标准schema](assist-capabilities.schema.json)、[虚构示例](../examples/copilot-package/package.json)和说明；个人工具、凭据、规则及脚本位置属于本机包。旧fetcher声明继续兼容。
 
 “本机能力”列出绑定实现、可执行文件/脚本检查、浏览器只读体检、成本、批量上限及串行状态。协作开启自动跑一次，也可手动刷新；模型关闭时仍能做只读体检。命令体检不调用供应商。浏览器体检只用独立后台工作页和声明的就绪标记，不读凭据、不登录、不导出或付款。“可调用”只表示可尝试，不代表实际数据、市场或剩余额度已经核实。
 
@@ -40,7 +40,7 @@ v1包增加 `capabilities`、`flows`、可选 `schemas`、`experience_file`、`f
 
 “把当前工具加入记忆”只发送host/path/title/表头做一次零工具推理，画像先是草稿。用户修改后必须单独确认保存本机包；保存画像不自动绑定能力或批准链接。保存前完整校验，不把失败声明写成生效配置。
 
-初始化脚本支持 `--copy-assets` 复制files显式列出的文件，以及多个 `--experience-source` 本机来源，免模型抽取最多800字。默认预览；apply只创建缺失文件，使用严格权限、最后写声明，不改Hermes/协作根配置，也不覆盖已有包文件。参见[扩展包说明](assist-packages.zh-CN.md)。
+初始化脚本支持 `--copy-assets` 复制files显式列出的文件，以及多个 `--experience-source` 本机来源，免模型抽取最多800字。默认预览；apply只创建缺失文件，使用严格权限、最后写声明，不改Hermes/协作根配置，也不覆盖已有包文件。参见[扩展包说明](../assist-packages.zh-CN.md)。
 
 工作流判断只接收语义投影（已有key、关键词、URL、标题与已知意图/排除标记）及请求的趋势序列；精确指标和权威证据保留在本机步骤及判断器。已有判档记录先排重，再补量；组合正文按需读取。
 

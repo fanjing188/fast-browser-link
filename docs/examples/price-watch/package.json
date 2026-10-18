@@ -206,7 +206,15 @@
           }
         ],
         "primary": "product_id"
-      }
+      },
+      "triggers": [
+        {
+          "page": {
+            "tool": "price-watch",
+            "page": "detail"
+          }
+        }
+      ]
     }
   }
 }

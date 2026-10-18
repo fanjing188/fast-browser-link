@@ -296,7 +296,7 @@ class R14Tests(unittest.TestCase):
         log.append("INFO api_key=synthetic-private-noise")
         log.append("ERROR synthetic failure despite INFO noise")
         self.assertEqual(len(log.finish()), 2)
-        raw = "".join(path.read_text() for path in (self.root / "logs").glob("*.hermes-stderr.log"))
+        raw = "".join(path.read_text() for path in (self.root / "logs").glob("*.agent-stderr.log"))
         self.assertNotIn("registered", raw)
         self.assertIn("WARNING", raw)
         self.assertIn("ERROR", raw)

@@ -1,6 +1,6 @@
 # Tool-aware Assist capabilities
 
-Assist loads the bundled generic package, configured `extension_dirs`, and local `extensions/*/package.json` under its own data directory. Loading a declaration does not execute it. Public source contains no private provider routing, credentials, team thresholds or personal script locations. See the [schema catalog](assist-capabilities.schema.json), [example package](examples/copilot-package/package.json), and [package setup](assist-packages.md).
+Assist loads the bundled generic package, configured `extension_dirs`, and local `extensions/*/package.json` under its own data directory. Loading a declaration does not execute it. Public source contains no private provider routing, credentials, team thresholds or personal script locations. See the [schema catalog](assist-capabilities.schema.json), [example package](../examples/copilot-package/package.json), and [package setup](../assist-packages.md).
 
 The capability page shows which implementation is bound, executable/script checks, read-only browser probe status, cost labels, batch limits and serial lanes. It runs once when Assist starts and can be refreshed manually, including while models are off. Command checks never invoke providers. Browser probes use owned background work pages and declared readiness selectors; no credential values, login, export or payment actions. A successful probe means the interface can be attempted, not that all report data or account quotas have been verified.
 

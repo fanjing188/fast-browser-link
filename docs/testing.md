@@ -139,7 +139,7 @@ Real login acceptance is opt-in and uses temporary profiles with a shared tempor
 node tests/v1.5.0/real-cookie-mirror.mjs
 ```
 
-Prefer `--headed` (and `--same-browser --headed` for two Chrome profiles): the confirmation panel opens only after the source window is verifiably focused, which headless browsers do not reliably report, so headless runs can fall back to the popup's pending-confirmation button or time out. The fixture issues randomized ordinary, httpOnly session and partitioned cookies; the runner checks source rejection, popup confirmation, import counts, readback and the target protected page, then scans every file in the temporary state (except the browser profiles' own cookie stores) and the session logs for the fixture values. `COOKIE_LEAK_SELFTEST=1` plants one value in the daemon directory and must make the run fail, proving the scan is effective. Missing partitioned-cookie support fails acceptance. Cookie values are never printed or saved. See [usage](usage.md#cookie-mirror) for limitations.
+Prefer `--headed` (and `--same-browser --headed` for two Chrome profiles): the confirmation panel opens only after the source window is verifiably focused, which headless browsers do not reliably report, so headless runs can fall back to the popup's pending-confirmation button or time out. The fixture issues randomized ordinary, httpOnly session and partitioned cookies; the runner checks source rejection, popup confirmation, import counts, readback and the target protected page, then scans every file in the temporary state (except the browser profiles' own cookie stores) and the session logs for the fixture values. `COOKIE_LEAK_SELFTEST=1` plants one value in the daemon directory and must make the run fail, proving the scan is effective. Missing partitioned-cookie support fails acceptance. Cookie values are never printed or saved. See [usage](design/usage.md#cookie-mirror) for limitations.
 
 ### Desktop Cookie mirror (1.5.1)
 
@@ -191,7 +191,7 @@ To keep gate scratch files outside the user's Hermes directory, set `FAST_BROWSE
 
 ### 页面内容屏蔽候选
 
-受影响的离线回归复用既有 `tests/popup-integration/content-filter.test.mjs`、`native-routing.test.mjs` 和 `popup.test.mjs`；此前未登记的 `native-routing.test.mjs` 已加入显式 Node 清单和 coverage matrix。内容、截图和回放用例通过真实 Executor→Bridge；配置用例通过实际 background 消息处理器。CDP、DOM、Canvas 是合成后端，不代表个人浏览器验收。完整配置、拒绝矩阵和个人验收要求见 [页面内容屏蔽](content-shield.md)。
+受影响的离线回归复用既有 `tests/popup-integration/content-filter.test.mjs`、`native-routing.test.mjs` 和 `popup.test.mjs`；此前未登记的 `native-routing.test.mjs` 已加入显式 Node 清单和 coverage matrix。内容、截图和回放用例通过真实 Executor→Bridge；配置用例通过实际 background 消息处理器。CDP、DOM、Canvas 是合成后端，不代表个人浏览器验收。完整配置、拒绝矩阵和个人验收要求见 [页面内容屏蔽](design/content-shield.md)。
 
 ## 1.8.0 云端发布检查
 

@@ -58,7 +58,7 @@ test('independent MV3 has no content script and popup preserves task protections
 
 test('current architecture describes the allowed persistent CDP script boundary', async () => {
   assert.equal(cdpMethodAllowed('Page.addScriptToEvaluateOnNewDocument').allowed, true);
-  const architecture = await readFile(path.join(repo, 'docs/architecture.md'), 'utf8');
+  const architecture = await readFile(path.join(repo, 'docs/design/architecture.md'), 'utf8');
   assert.doesNotMatch(architecture, /`Page\.addScriptToEvaluateOnNewDocument` 已禁用/);
   assert.match(
     architecture,
@@ -157,7 +157,7 @@ test('real helper extracts and verifies the current package before native E2E', 
     );
     assert.doesNotMatch(manifest.description, /智能审批|smart[- ]approval/i);
     for (const relative of [
-      'docs/usage.md',
+      'docs/design/usage.md',
       'fast-browser-link/skills/fast-browser-troubleshoot/SKILL.md',
     ]) {
       const guidance = await readFile(path.join(result.packageRoot, relative), 'utf8');

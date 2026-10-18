@@ -101,6 +101,51 @@ const tables = new TablePanel(
   },
   { onChange: () => render() },
 );
+for (const id of [
+  'local-tables',
+  'local-collect',
+  'local-annotations',
+  'local-basket',
+  'local-agent',
+]) {
+  document.getElementById(id).onclick = async () => {
+    const status = document.getElementById('local-tools-status');
+    status.textContent = '';
+    try {
+      if (id === 'local-agent') return await agents.open();
+      if (id === 'local-basket') {
+        await basket.refresh();
+        return await command('open_basket');
+      }
+      const response = await chrome.runtime.sendMessage({
+        type: 'copilot.local',
+        command: id === 'local-annotations' ? 'annotate_page' : 'recognize_tables',
+        params: {},
+      });
+      if (response?.error || !response?.result) throw Error(response?.error || '页面读取失败');
+      if (id === 'local-annotations') {
+        status.textContent = uiLanguage.startsWith('zh')
+          ? '已开启当前页标注；再次点击可停止。'
+          : 'Annotations on for this page; click again to stop.';
+        if (!response.result.active)
+          status.textContent = uiLanguage.startsWith('zh')
+            ? '当前页标注已停止。'
+            : 'Page annotations stopped.';
+        return;
+      }
+      tables.state = response.result;
+      const row = tables.suggestions().find((row) => row.status === 'pending');
+      tables.render();
+      if (row) await tables.command('execute', { id: row.id });
+      else
+        status.textContent = uiLanguage.startsWith('zh')
+          ? '未识别到可导出的表格。'
+          : 'No exportable table detected.';
+    } catch (error) {
+      status.textContent = error.message;
+    }
+  };
+}
 chrome.runtime.onMessage.addListener((message) => {
   if (message.type === 'copilot.tables_changed') void tables.refresh();
   if (
@@ -124,6 +169,7 @@ async function command(name, params = {}) {
   }
 
   if (name === 'open_basket') {
+    document.getElementById('work-basket').hidden = false;
     document.getElementById('work-basket').open = true;
     document.getElementById('work-basket').scrollIntoView?.({ block: 'nearest' });
     return {};
@@ -220,7 +266,11 @@ function render() {
       {
         ...state,
         agent_connecting: agentStarting,
-        suggestions: tables.mergeSuggestions(state.suggestions),
+        suggestions: tables.mergeSuggestions(
+          agents.ready()
+            ? state.suggestions
+            : (state.suggestions || []).filter((row) => row.explicit || row.status !== 'pending'),
+        ),
       },
       { command },
     );
@@ -364,7 +414,7 @@ void command('locale', { language: chrome.i18n?.getUILanguage?.() || navigator.l
   .then(() => command('state'))
   .then(() => {
     void tables.refresh();
-    void agents.refresh();
+    void agents.refresh({ autoOpen: false });
     return logs.load();
   })
   .catch(failed);

@@ -87,7 +87,8 @@ test('main work surface contains only work, compact usage and navigation; settin
       ),
       ['执行模式', '界面', '协作 Agent', '表格与导出', '记忆', '关于'],
     );
-    assert.equal(f.doc.querySelectorAll('#copilot-settings-form>fieldset:first-child p').length, 0);
+    assert.match(f.doc.getElementById('codex-inference-cost').textContent, /10\.6K/);
+    assert.equal(work.contains(f.doc.getElementById('codex-inference-cost')), false);
   } finally {
     f.close();
   }

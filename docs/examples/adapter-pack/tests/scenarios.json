@@ -1,0 +1,85 @@
+[
+  {
+    "url": "https://support.example.test/cases?q=CS-1001",
+    "expect_absent": [
+      "support_reply_draft"
+    ],
+    "expect": [
+      "support_materials"
+    ]
+  },
+  {
+    "url": "https://support.example.test/cases",
+    "table_columns": [
+      "Case",
+      "Status"
+    ],
+    "table_rows": [
+      [
+        "CS-1001",
+        "open"
+      ]
+    ],
+    "expect": [
+      "support_materials"
+    ]
+  },
+  {
+    "url": "https://support.example.test/cases",
+    "selection": "CS-1001",
+    "expect": [
+      "support_materials"
+    ]
+  },
+  {
+    "url": "https://support.example.test/cases",
+    "selection": "arbitrary",
+    "expect_absent": []
+  },
+  {
+    "url": "https://support.example.test/cases",
+    "follow_completed": [
+      {
+        "flow": "support_materials",
+        "status": "completed",
+        "object": "CS-1001",
+        "records": [
+          {
+            "missing_materials": []
+          }
+        ]
+      }
+    ],
+    "expect": [
+      "support_reply_draft"
+    ]
+  },
+  {
+    "url": "https://support.example.test/cases",
+    "follow_completed": [
+      {
+        "flow": "support_materials",
+        "status": "completed",
+        "object": "CS-1001",
+        "records": [
+          {
+            "missing_materials": [
+              "invoice"
+            ]
+          }
+        ]
+      }
+    ],
+    "expect_absent": [
+      "support_reply_draft"
+    ]
+  },
+  {
+    "url": "https://other.example.test/cases",
+    "selection": "CS-1001",
+    "expect_absent": [
+      "support_materials",
+      "support_reply_draft"
+    ]
+  }
+]

@@ -300,7 +300,7 @@ class ActiveFollow(unittest.TestCase):
         )
 
     def test_documented_support_overlay_loads_and_chains_after_empty_materials(self):
-        document = (fixtures.ROOT / "docs/adapter-packs.zh-CN.md").read_text()
+        document = (fixtures.ROOT / "docs/design/adapter-packs.zh-CN.md").read_text()
         overlay = json.loads(re.findall(r"```json\n(.*?)\n```", document, re.S)[-1])
         self.value["flows"].update(overlay["flows"])
         self.value["tools"][0]["pages"][0]["flows"].append("support_reply_draft")

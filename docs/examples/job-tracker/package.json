@@ -224,7 +224,15 @@
           }
         ],
         "primary": "job_id"
-      }
+      },
+      "triggers": [
+        {
+          "page": {
+            "tool": "job-tracker",
+            "page": "detail"
+          }
+        }
+      ]
     }
   }
 }

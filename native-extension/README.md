@@ -36,10 +36,10 @@ Offline: `npm test` / `npm run verify`. Real-browser runners live in `tests/nati
 
 `cookie-mirror.mjs` 是独立内存模块，不进入注入库的 65000 字节预算。Hermes 插件页面选择站点和目标，浏览器弹窗不再展示镜像入口；独立确认面板必须亲自批准本次复制，全部访问也不例外。默认 store、60 秒 TTL、256 KiB 分块、单条失败计数及无值回读；不写存储、日志或诊断。新增 `cookies` + `<all_urls>` 权限用于站点 Cookie 清单和跨站导入。构建在 `BUILD-DEPS.json` 记录该模块原文哈希。
 
-页面内容原样返回，定位失败自动恢复；覆盖率和密码值规则见[页面读取与定位恢复](../docs/content-shield.md)。
+页面内容原样返回，定位失败自动恢复；覆盖率和密码值规则见[页面读取与定位恢复](../docs/design/content-shield.md)。
 
 浏览器弹窗右上角从当前 manifest 显示版本，提供本地连接授权、独立云端连接授权（确认后普通任务直接执行，无审批模式切换）、当前任务控制。模拟鼠标固定启用，任务执行和等待下一步期间持续显示，目标间以 240ms 的 transform 动画衔接；接管、断连及任务结束时隐藏，截图完成后恢复。
 
 ## 独立云端连接
 
-`cloud-link.mjs` 连接 `com.fast.browser_link.cloud`，原本地 host 继续使用既有端口。云端模式按任务绑定，已有个人标签页不授权；连接码、配对与站点配置见 [云端连接](../docs/cloud-connection.md)。
+`cloud-link.mjs` 连接 `com.fast.browser_link.cloud`，原本地 host 继续使用既有端口。云端模式按任务绑定，已有个人标签页不授权；连接码、配对与站点配置见 [云端连接](../docs/design/cloud-connection.md)。

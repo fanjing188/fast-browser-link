@@ -511,8 +511,16 @@ class R15(unittest.TestCase):
         ]
         (directory / "2026.events.jsonl").write_text("\n".join(map(json.dumps, rows)))
         private_write(
-            directory / "2026.hermes-stderr.log", "ERROR PRIVATE_PAGE_SENTINEL token=secret-value"
+            directory / "2026.hermes-stderr.log",
+            "ERROR LEGACY_AGENT_LOG\nERROR PRIVATE_PAGE_SENTINEL token=secret-value",
         )
+        private_write(directory / "2026.agent-stderr.log", "ERROR NEW_AGENT_LOG")
+        stderr = io.StringIO()
+        with contextlib.redirect_stdout(stderr):
+            logs(self.ctx, kind="stderr")
+        self.assertIn("NEW_AGENT_LOG", stderr.getvalue())
+        self.assertIn("LEGACY_AGENT_LOG", stderr.getvalue())
+        self.assertNotIn("PRIVATE_PAGE_SENTINEL", stderr.getvalue())
         output = io.StringIO()
         with contextlib.redirect_stdout(output):
             logs(self.ctx, kind="system", errors=True)

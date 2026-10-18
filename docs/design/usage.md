@@ -30,7 +30,7 @@ Use `fast_browser_close(task_id, keep_tabs=true)` for pages the user must finish
 | `fast_browser_browsers`, `fast_browser_health` | List connected browsers; check the bridge service. |
 | `fast_browser_create`, `fast_browser_list`, `fast_browser_get` | Manage tasks explicitly. `get` on a ready task also binds the session to it. |
 | `fast_browser_run(task_id, action, ...)` | Run one page action (see below). |
-| `fast_browser_script(code)` | Run a short Python script with page helpers — see [Python scripting](python-scripting.md). |
+| `fast_browser_script(code)` | Run a short Python script with page helpers — see [Python scripting](../python-scripting.md). |
 | `fast_browser_downloads(task_id, action)` | `list`, `claim` or `cancel` downloads started by the task's pages. |
 | `fast_browser_cookie_mirror(action, ...)` | List site counts, request a confirmed transfer or query status; never returns cookie values. |
 | `fast_browser_artifacts(task_id)` | List files registered to the task (metadata only). |
@@ -104,7 +104,7 @@ Hermes can call `fast_browser_cookie_mirror` with `action="list_sites"` and `sou
 
 Background focus failure no longer prevents creating the confirmation panel. If focus cannot be verified, the extension sends a generic system notification using the `notifications` permission. Clicking it only focuses the valid panel; approval still needs your real click inside it. Notifications contain no website, task or Cookie data. If system settings suppress notifications, bring the source browser and its existing confirmation window to the front. The badge keeps the pending count. Manual-input panels retain this behavior. Login-window adoption does not create a confirmation panel. Ordinary reads, writes and debugging no longer create per-action panels; connection authorization remains in the extension.
 
-The 60-second deadline starts at request time, including confirmation. Failure, expiry or either profile disconnecting destroys remaining memory payloads. Writes already dispatched may have changed the target; there is no automatic rollback or replay. Only the default non-incognito store is supported. Domain grouping uses a small suffix table, not a complete public suffix list; check the site selection. Cookie identities do not prove working login: localStorage, device binding, MFA or server invalidation can require another login. Copying all cookies for a site does not identify which one carries login. Ending a task does not remove imported cookies. See [security](../SECURITY.md#cookie-mirror-150).
+The 60-second deadline starts at request time, including confirmation. Failure, expiry or either profile disconnecting destroys remaining memory payloads. Writes already dispatched may have changed the target; there is no automatic rollback or replay. Only the default non-incognito store is supported. Domain grouping uses a small suffix table, not a complete public suffix list; check the site selection. Cookie identities do not prove working login: localStorage, device binding, MFA or server invalidation can require another login. Copying all cookies for a site does not identify which one carries login. Ending a task does not remove imported cookies. See [security](../../SECURITY.md#cookie-mirror-150).
 
 ## Uploads and downloads
 
@@ -138,6 +138,6 @@ Look at `code` and `outcome_unknown` in the result. **If `outcome_unknown` is tr
 
 ## Incognito and independent CLI
 
-The optional Hermes integration accepts `incognito=true` on `fast_browser_open` / `fast_browser_create`. Independent skills and MCP use `create` with the Native parameter `incognito: true`; their operation names and camelCase examples are in [agent integration](agent-integration.md). Enable browser extension Incognito/InPrivate access first. Do not fall back to a regular task when permission is missing.
+The optional Hermes integration accepts `incognito=true` on `fast_browser_open` / `fast_browser_create`. Independent skills and MCP use `create` with the Native parameter `incognito: true`; their operation names and camelCase examples are in [agent integration](../agent-integration.md). Enable browser extension Incognito/InPrivate access first. Do not fall back to a regular task when permission is missing.
 
-The independent entry also supports `downloads`, `download_claim` and `download_cancel`. `close` with `keepTabs: true` and `handoffReason: "user_requested"` hands a page back without deleting it. See the [incognito matrix](incognito.md) for the exact tested capabilities and remaining browser/user confirmation boundaries.
+The independent entry also supports `downloads`, `download_claim` and `download_cancel`. `close` with `keepTabs: true` and `handoffReason: "user_requested"` hands a page back without deleting it. See the [incognito matrix](../incognito.md) for the exact tested capabilities and remaining browser/user confirmation boundaries.

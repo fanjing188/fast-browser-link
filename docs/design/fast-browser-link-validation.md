@@ -1,6 +1,6 @@
 # Fast-browser-link 首轮改造验收（2026-10-13）
 
-本文件记录首轮结果。后续全面复查发现并修复了新旧扩展 ID 冲突及 Vault 注册元数据问题；不能用本首轮结果声称升级与所有 Hermes 工具均无影响。当前兼容边界见 [通用接入](agent-integration.md)。
+本文件记录首轮结果。后续全面复查发现并修复了新旧扩展 ID 冲突及 Vault 注册元数据问题；不能用本首轮结果声称升级与所有 Hermes 工具均无影响。当前兼容边界见 [通用接入](../agent-integration.md)。
 
 本地开发候选，起点为 `727b128`，分支 `codex/fast-browser-link`。原工作目录及其已有修改保留，候选目录已改名为 `Fast-browser-link`。尚未提交、推送、发布或更改 GitHub 仓库名称。
 

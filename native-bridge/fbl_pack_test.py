@@ -162,7 +162,26 @@ def test_pack(directory, command_runner=None):
             def run_scenario():
                 if not isinstance(scenario, dict) or not isinstance(scenario.get("url"), str):
                     raise ValueError("scenario URL required")
-                context = {"url": scenario["url"], "tables": scenario.get("tables", [])}
+                context = {
+                    "url": scenario["url"],
+                    "tables": scenario.get("tables", []),
+                    "follow_completed": scenario.get("follow_completed", []),
+                    "dwell_seconds": scenario.get("dwell_seconds", 0),
+                }
+                completed = context["follow_completed"]
+                if (
+                    not isinstance(completed, list)
+                    or len(completed) > 100
+                    or any(
+                        not isinstance(row, dict)
+                        or row.get("flow") not in packages.flows
+                        or row.get("status") not in {"completed", "failed", "stopped", "partial"}
+                        or not isinstance(row.get("object"), str)
+                        or not isinstance(row.get("records", []), list)
+                        for row in completed
+                    )
+                ):
+                    raise ValueError("invalid scenario completions")
                 if "table_columns" in scenario:
                     context["tables"] = [
                         {

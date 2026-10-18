@@ -20,3 +20,5 @@
 `fbl logs --errors` 查错误，`--follow --type stderr` 供本机查看；分享使用 `--bundle`，排除任意 stderr 正文、页面数据和凭据。诊断包保持私有。重连成功不证明中断任务完成；先回读页面和账本，未知写入禁止重放。
 
 升级在 `fbl-backups` 留日期备份，错误输出含备份路径。若新任务/未知进程使回滚无法核实，保留文件并报告，不删除锁、重置文件或停无关进程。普通失败回滚后先 doctor 再恢复业务。
+
+stderr 写入 `logs/<日期>.agent-stderr.log`，读取兼容旧 `.hermes-stderr.log`；仍为 2 MiB 轮转、一个归档、保留七天。

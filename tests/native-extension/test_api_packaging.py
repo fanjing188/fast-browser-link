@@ -36,7 +36,7 @@ class ApiPackagingTests(unittest.TestCase):
     def test_isolated_stage_imports_api_dependency_without_checkout(self):
         with tempfile.TemporaryDirectory(dir=SCRATCH) as temp:
             result = load(ROOT / "native-bridge/install.py").stage(
-                Path(temp), ["chrome-extension://" + "a" * 32 + "/"]
+                Path(temp), ["chrome-extension://hhnljehnkmhhgjjjmnlhilfpcjhobloc/"]
             )
             host_bin = Path(result["host"]).parent
             self.assertTrue((host_bin / "api_client.py").is_file(), "stage omitted api_client.py")
@@ -70,7 +70,7 @@ class ApiPackagingTests(unittest.TestCase):
                     package,
                     temp / "home",
                     temp / "hh",
-                    ["chrome-extension://" + "a" * 32 + "/"],
+                    ["chrome-extension://hhnljehnkmhhgjjjmnlhilfpcjhobloc/"],
                     apply=True,
                 )
             self.assertFalse((temp / "hh").exists())

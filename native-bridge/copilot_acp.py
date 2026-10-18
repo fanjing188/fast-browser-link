@@ -245,6 +245,18 @@ class ACP:
         self.tools_verified = True
         return session
 
+    def verify_policy(self):
+        if not self.tools_verified:
+            raise ACPError("Hermes zero-tool check missing")
+        return {"status": "verified_zero_tools", "source": "hermes./tools"}
+
+    def finish_session(self):
+        self.prompt("/reset")
+        return {"context_reset": True, "runtime_ended": False}
+
+    def recover(self, saved=None):
+        return self.new_session()
+
     def select_model(self, selected):
         target = selected or (self.model_state or {}).get("currentModelId", "")
         if target and target != self.active_model:

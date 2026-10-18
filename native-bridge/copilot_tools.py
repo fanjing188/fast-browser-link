@@ -19,7 +19,7 @@ from copilot_capabilities import (
 )
 from copilot_packages import Packages, validate_binding
 from copilot_results import obj, text, array, BOOL, NUMBER
-from copilot_exec_acp import ACPExecutions
+from copilot_adapters import adapter
 from copilot_diagnostics import ModelOutputInvalid, failure
 
 DECISION = obj(
@@ -391,7 +391,7 @@ class ToolSupport:
         work = self.directory / "tasks" / (row["id"] + "-judgment")
         work.mkdir(parents=True, exist_ok=True, mode=0o700)
         if self.acp_executions is None or self.acp_executions.closed:
-            self.acp_executions = ACPExecutions(
+            self.acp_executions = adapter(self.config).executions(
                 self.config,
                 self.directory,
                 lambda _: None,
@@ -810,7 +810,7 @@ class ToolSupport:
             "result_schema": PROFILE,
         }
         if self.acp_executions is None or self.acp_executions.closed:
-            self.acp_executions = ACPExecutions(
+            self.acp_executions = adapter(self.config).executions(
                 self.config,
                 self.directory,
                 lambda _: None,

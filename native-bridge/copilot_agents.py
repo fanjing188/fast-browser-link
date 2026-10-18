@@ -1,4 +1,4 @@
-"""协作 Agent 注册、只读发现和用户主动触发的后台安装；目前仅支持 Hermes。"""
+"""协作 Agent 注册、只读发现和用户主动触发的后台安装。"""
 
 from contextlib import contextmanager
 import json
@@ -15,7 +15,10 @@ import urllib.request
 from urllib.parse import urlsplit
 import uuid
 
-REGISTRY = {"hermes": {"id": "hermes", "name": "Hermes"}}
+REGISTRY = {
+    "hermes": {"id": "hermes", "name": "Hermes"},
+    "codex": {"id": "codex", "name": "Codex"},
+}
 METHODS = {
     "agent_catalog",
     "agent_setup_start",
@@ -370,19 +373,53 @@ class Agents:
             "setup_hint": "配置 Hermes 专用协作环境" if installed else "安装 Hermes 并配置协作",
         }
         selected = config.get("default_agent", "hermes")
+        rows = [row, self._codex_row(config, busy)]
+        current = next((item for item in rows if item["id"] == selected), {})
         result = {
             "default_agent": selected,
             "busy": busy,
-            "onboarding_required": not ready
-            or not isinstance(selected, str)
-            or selected not in REGISTRY,
-            "agents": [row],
+            "onboarding_required": not current.get("configured", False),
+            "agents": rows,
         }
         with self.lock:
             jobs = [job for job in self.jobs.values() if job["owner"] == instance]
             if jobs:
                 result["job"] = self._view(jobs[-1])
         return result
+
+    def _codex_ready(self, config):
+        return bool(
+            config.get("codex_onboarded") and shutil.which(config.get("codex_command", "codex"))
+        )
+
+    def _codex_row(self, config, busy):
+        from copilot_adapters import AgentAdapter
+
+        installed = bool(shutil.which(config.get("codex_command", "codex")))
+        ready = self._codex_ready(config)
+        return {
+            **REGISTRY["codex"],
+            "installed": installed,
+            "configured": ready,
+            "status": "configured" if ready else "needs_check" if installed else "not_installed",
+            "can_setup": not busy,
+            "setup_action": "check" if installed else "manual_install",
+            "setup_hint": "Codex 受限推理与沙箱执行 / Codex restricted inference and sandboxed execution",
+            "installation": AgentAdapter("codex").installation_guide(),
+            "inference_policy": "restricted_audited",
+        }
+
+    def _select(self, identity):
+        changes = {"default_agent": identity}
+        if identity != self.app.config.get("default_agent", "hermes"):
+            if self.app.runtime:
+                self.app.runtime.close()
+                self.app.runtime = None
+            if self.app.acp_executions:
+                self.app.acp_executions.close()
+                self.app.acp_executions = None
+            changes.update(inference_model="", exec_model="", exec_transport="acp")
+        self.app._save_configuration(changes)
 
     def request(self, instance, method, params):
         expected = (
@@ -403,9 +440,14 @@ class Agents:
         if method == "agent_select":
             with self.app.lock:
                 self._idle()
-                if self.busy() or not self.catalog(instance)["agents"][0]["configured"]:
+                selected = next(
+                    row
+                    for row in self.catalog(instance)["agents"]
+                    if row["id"] == params["agent_id"]
+                )
+                if self.busy() or not selected["configured"]:
                     raise ValueError("agent setup required")
-                self.app._save_configuration({"default_agent": params["agent_id"]})
+                self._select(params["agent_id"])
                 self.app._emit(instance, "configuration", changes=["default_agent"])
             return self.catalog(instance)
         if method == "agent_setup_start":
@@ -446,6 +488,8 @@ class Agents:
                 raise ValueError("agent setup unavailable")
             if method == "agent_setup_cancel" and job["status"] == "pending":
                 job["status"] = "cancelled"
+                if job.get("runtime"):
+                    job["runtime"].close()
                 self._terminate(job["process"])
             return self._view(job)
 
@@ -472,6 +516,9 @@ class Agents:
                 pass
 
     def _run(self, job):
+        if job["agent_id"] == "codex":
+            self._run_codex(job)
+            return
         process = None
         reader = None
         outcome = {"result": "failed", "error": "setup_failed"}
@@ -588,6 +635,64 @@ class Agents:
                         "command": "See the official installation and repair instructions",
                     }
 
+    def _run_codex(self, job):
+        from copilot_adapters import AgentAdapter
+        from copilot_codex import Codex
+
+        runtime = None
+        try:
+            detected = AgentAdapter("codex").detect(self._context(), self.app.config)
+            if not detected.get("configured") and detected.get("status") != "auth_missing":
+                with self.lock:
+                    job.update(
+                        status="failed",
+                        error="codex_" + detected["status"],
+                        installation=AgentAdapter("codex").installation_guide(),
+                    )
+                return
+            with self.lock:
+                if self.closed or job["status"] != "pending":
+                    return
+                job["phase"] = "connection"
+            runtime = Codex(self.app.config, self.app.directory)
+            with self.lock:
+                job["runtime"] = runtime
+                if self.closed or job["status"] != "pending":
+                    return
+            runtime.start(initialize_only=True)
+            runtime.close()
+            with self.app.lock, self.lock:
+                if self.closed or job["status"] != "pending":
+                    return
+                self._idle()
+                self.app._save_configuration({"codex_onboarded": True})
+                self._select("codex")
+                job.update(
+                    status="completed",
+                    phase="complete",
+                    connection={
+                        "inference": "connected",
+                        "execution": "connected",
+                        "check": "codex_initialize",
+                        "model_call": False,
+                    },
+                )
+                self.app._emit(job["owner"], "configuration", changes=["default_agent"])
+        except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
+            with self.lock:
+                if job["status"] == "pending":
+                    job.update(
+                        status="failed",
+                        error="codex_auth_missing"
+                        if str(error) == "codex_auth_required"
+                        else "connection_failed",
+                    )
+                    if str(error) == "codex_auth_required":
+                        job["next_command"] = "codex login"
+        finally:
+            if runtime:
+                runtime.close()
+
     def close(self):
         with self.lock:
             self.closed = True
@@ -595,6 +700,8 @@ class Agents:
             for job in self.jobs.values():
                 if job["status"] == "pending":
                     job["status"] = "cancelled"
+                    if job.get("runtime"):
+                        job["runtime"].close()
                     self._terminate(job["process"])
                 threads.append(job["thread"])
         for thread in threads:

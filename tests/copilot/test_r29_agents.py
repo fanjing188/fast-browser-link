@@ -422,7 +422,7 @@ class AgentManagerTests(unittest.TestCase):
             result = self.app.request("one", "agent_setup_status", {"id": job["id"]})
         return result, process, launch
 
-    def test_catalog_is_read_only_and_only_exposes_supported_hermes(self):
+    def test_catalog_is_read_only_and_exposes_supported_agents(self):
         before = (self.directory / "config.json").read_bytes()
         with (
             patch("copilot_agents.command", return_value=None),
@@ -438,7 +438,7 @@ class AgentManagerTests(unittest.TestCase):
             result = self.app.request("one", "agent_catalog", {})
         self.assertEqual(result["default_agent"], "hermes")
         self.assertTrue(result["onboarding_required"])
-        self.assertEqual([row["id"] for row in result["agents"]], ["hermes"])
+        self.assertEqual([row["id"] for row in result["agents"]], ["hermes", "codex"])
         self.assertEqual(result["agents"][0]["setup_action"], "install_engine")
         self.assertFalse(result["agents"][0]["installed"])
         self.assertEqual((self.directory / "config.json").read_bytes(), before)
@@ -450,7 +450,7 @@ class AgentManagerTests(unittest.TestCase):
     def test_request_shapes_and_unsupported_agents_are_rejected(self):
         for method, params in [
             ("agent_catalog", {"refresh": True}),
-            ("agent_setup_start", {"agent_id": "codex"}),
+            ("agent_setup_start", {"agent_id": "unsupported"}),
             ("agent_setup_start", {"agent_id": []}),
             ("agent_setup_start", {"agent_id": "hermes", "url": "https://evil.test"}),
             ("agent_setup_status", {"id": []}),

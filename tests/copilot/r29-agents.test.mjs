@@ -712,3 +712,39 @@ test('a failed default switch asks to turn collaboration off rather than merely 
     f.close();
   }
 });
+
+test('Codex guide displays manual commands and restricted inference without starting setup', async () => {
+  const f = fixture(async (name) => {
+    assert.equal(name, 'agent_catalog');
+    return catalog({
+      default_agent: 'codex',
+      agents: [agent({ id: 'codex', name: 'Codex', setup_action: 'manual_install' })],
+    });
+  });
+  try {
+    await f.panel.refresh();
+    assert.match(f.doc.getElementById('agent-detection').textContent, /restricted mode/);
+    const help = f.doc.getElementById('agent-installation-help');
+    assert.equal(help.hidden, false);
+    assert.equal(help.querySelector('a').href, 'https://developers.openai.com/codex/cli');
+    assert.match(
+      help.querySelector('code').textContent,
+      /npm install -g @openai\/codex.*codex login/,
+    );
+    assert.deepEqual(f.calls, [['agent_catalog', {}]]);
+    assert.match(
+      f.panel.jobError({ agent_id: 'codex', error: 'codex_unsupported_version' }),
+      /version unsupported.*0\.162\.1/,
+    );
+    assert.match(
+      f.panel.jobError({ agent_id: 'codex', error: 'codex_auth_missing' }),
+      /codex login/,
+    );
+    assert.equal(
+      f.panel.connectionChecked({ connection: { ...connection, check: 'codex_initialize' } }),
+      true,
+    );
+  } finally {
+    f.close();
+  }
+});

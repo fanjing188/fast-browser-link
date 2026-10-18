@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from copilot_acp import ACP, ACPError
+from copilot_adapters import adapter
 from copilot_diagnostics import ModelOutputInvalid, failure, failure_message
 from copilot_journal import Journal
 from copilot_health import health
 from copilot_usage import counts, from_metrics, add
-from copilot_exec_acp import ACPExecutions, compact_memory
+from copilot_exec_acp import compact_memory
 from copilot_fetch import Fetcher
 from copilot_tables import TableStore
 from copilot_directories import Directories, METHODS as DIRECTORY_METHODS, export_directory
@@ -1985,7 +1986,9 @@ class Copilot(ObservationSupport, InferenceSupport, ResultSupport, ToolSupport):
             )
             try:
                 result, metrics = model_json_prompt(runtime, prompt, account, permitted)
-            except Exception:
+            except Exception as error:
+                if getattr(error, "metrics", None):
+                    account(error.metrics)
                 with self.lock:
                     self._state(instance)["last_call_succeeded"] = False
                 raise
@@ -2049,7 +2052,7 @@ class Copilot(ObservationSupport, InferenceSupport, ResultSupport, ToolSupport):
                 state["bridge_connected_at"] = self.clock()
 
     def _activate(self, instance, epoch, resume=False, restart_execution=False):
-        runtime = ACP(
+        runtime = adapter(self.config).inference(
             self.config,
             self.directory,
             lambda update: self._update(instance, epoch, update, runtime),
@@ -2067,7 +2070,7 @@ class Copilot(ObservationSupport, InferenceSupport, ResultSupport, ToolSupport):
                 with self.lock:
                     if not self._valid(instance, epoch):
                         return
-                    self.acp_executions = ACPExecutions(
+                    self.acp_executions = adapter(self.config).executions(
                         self.config,
                         self.directory,
                         lambda reason: self._execution_failure(instance, epoch, reason),
@@ -2284,6 +2287,14 @@ class Copilot(ObservationSupport, InferenceSupport, ResultSupport, ToolSupport):
                     return
 
     def _update(self, instance, epoch, update, runtime=None):
+        if update.get("sessionUpdate") == "policy_violation":
+            self.journal.add(
+                instance,
+                "policy_violation",
+                error=True,
+                item_type=update.get("item_type", "unknown"),
+            )
+            return
         if update.get("sessionUpdate") != "copilot_transport_error":
             return
         with self.lock:

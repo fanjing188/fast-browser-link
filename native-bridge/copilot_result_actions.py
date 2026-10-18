@@ -22,7 +22,8 @@ from copilot_contracts import (
     validate,
 )
 from copilot_diagnostics import ModelOutputInvalid, failure, failure_message
-from copilot_exec_acp import ACPExecutions, compact_memory
+from copilot_exec_acp import compact_memory
+from copilot_adapters import adapter
 from copilot_execution import (
     RERUN_WARNING,
     ExecutionError,
@@ -400,7 +401,11 @@ class ResultSupport:
                                 else reported
                             )
                             row["model_source"] = (
-                                "acp" if event.get("source") == "acp.session" else "hermes"
+                                "codex"
+                                if event.get("source") == "codex.thread"
+                                else "acp"
+                                if event.get("source") == "acp.session"
+                                else "hermes"
                             )
                         row["step"] = event.get("name") or event.get("type")
                         self._emit(instance, "progress", id=key, progress=event)
@@ -517,7 +522,13 @@ class ResultSupport:
             with self.lock:
                 if not self._valid(instance, epoch) or row["status"] != "executing":
                     raise ExecutionError("execution stopped")
-            transport = "oneshot" if row.get("fallback") else execution_config["exec_transport"]
+            transport = (
+                "acp"
+                if execution_config.get("default_agent") == "codex"
+                else "oneshot"
+                if row.get("fallback")
+                else execution_config["exec_transport"]
+            )
             row["transport"] = transport
             if row.get("single_judgment"):
                 inline = True
@@ -526,7 +537,7 @@ class ResultSupport:
                     if not self._valid(instance, epoch) or row["status"] != "executing":
                         raise ExecutionError("execution stopped")
                     if self.acp_executions is None or self.acp_executions.closed:
-                        self.acp_executions = ACPExecutions(
+                        self.acp_executions = adapter(self.config).executions(
                             self.config,
                             self.directory,
                             lambda reason: self._execution_failure(instance, epoch, reason),
@@ -535,6 +546,15 @@ class ResultSupport:
                             ),
                         )
                     pool = self.acp_executions
+                extra = {}
+                if execution_config.get("default_agent") == "codex":
+                    limit = min(
+                        execution_config["max_turns"],
+                        template.get("max_turns", 1) * execution_config.get("turn_multiplier", 1),
+                    )
+                    factory = getattr(self, "codex_browser_factory", None)
+                    broker = factory(instance, epoch, row, template, limit) if factory else None
+                    extra = {"template": template, "broker": broker}
                 result, metrics = pool.run(
                     job_key,
                     brief,
@@ -543,6 +563,7 @@ class ResultSupport:
                     private_write,
                     progress,
                     selected_model=execution_config["exec_model"],
+                    **extra,
                 )
             else:
                 args = execution_argv(execution_config, template, title, query)

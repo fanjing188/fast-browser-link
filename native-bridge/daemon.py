@@ -4688,6 +4688,20 @@ class BridgeDaemon:
                                 )
 
                         self.copilot = Copilot(self.data_dir / "copilot", notify)
+                        from copilot_codex_broker import BrowserBroker
+
+                        self.copilot.codex_browser_factory = (
+                            lambda instance, epoch, row, template, limit: BrowserBroker(
+                                self,
+                                instance,
+                                lambda: self.copilot._valid(instance, epoch)
+                                and row.get("status") == "executing",
+                                row.get("page_context")
+                                or self.copilot._state(instance).get("page_context"),
+                                template,
+                                limit,
+                            )
+                        )
                         self.copilot.resource_status = (
                             lambda task_id: self.tasks.get(task_id, {}).get("state")
                             in {"closed", "cancelled"}

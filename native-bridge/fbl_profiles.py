@@ -64,13 +64,23 @@ def profile_plan(home, profile, model='', provider='auto'):
         wanted=merge_owned(current,wanted)
     elif not model:raise ValueError('available model selection required')
     changes=[]
+    details=[]
     def diff(before,after,prefix=''):
         for key,value in after.items():
             name=prefix+key
             if isinstance(value,dict) and isinstance(before.get(key),dict):diff(before[key],value,name+'.')
-            elif before.get(key)!=value:changes.append(name)
+            elif before.get(key)!=value:
+                changes.append(name)
+                if name in {'reasoning_effort', '_config_version', 'agent.max_turns'}:
+                    details.append(f'{name}: {before.get(key)} → {value}')
     diff(current,wanted)
-    return {'profile':profile,'state':'drift' if changes else 'ready','changes':changes,'config':wanted,'target':target,'marker':marker}
+    current_model=current.get('model', {})
+    current_model=current_model.get('default', '') if isinstance(current_model, dict) else str(current_model)
+    previous_model=(record.get('model') if marker.is_file() else None) or model
+    if previous_model and previous_model != current_model:
+        details.insert(0, f'模型已变化（可能由 Hermes 迁移）：{previous_model} → {current_model}')
+    details.append(f'当前模型：{current_model or "未登记"}；推理强度：{current.get("reasoning_effort", "未设置")}')
+    return {'details': details, 'fix_policy': '保留当前模型、提供商、较新的 _config_version 和非受管设置；恢复 reasoning_effort=low、ACP 空工具、MCP 空配置及其他专用 profile 受管约束。', 'profile':profile,'state':'drift' if changes else 'ready','changes':changes,'config':wanted,'target':target,'marker':marker}
 
 
 def repair(home, profile, write, model='', provider='auto', dry_run=False):
@@ -85,6 +95,9 @@ def repair(home, profile, write, model='', provider='auto', dry_run=False):
     text=json.dumps(plan['config'],ensure_ascii=False,indent=2)+'\n'
     if plan['changes'] or not (target/'config.yaml').exists():write(target/'config.yaml',text)
     else:text=(target/'config.yaml').read_text()
+    if 'model' not in existing:
+        value=plan['config'].get('model', {})
+        existing['model']=value.get('default', '') if isinstance(value, dict) else str(value)
     existing.update(version=3);existing['files']['config.yaml']=hashlib.sha256(text.encode()).hexdigest()
     existing['owned_keys']=list(OWNED);write(marker,json.dumps(existing,indent=2)+'\n')
     return {'profile':profile,'state':'ready','changes':plan['changes']}

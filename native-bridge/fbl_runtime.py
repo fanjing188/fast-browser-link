@@ -163,19 +163,33 @@ def doctor(ctx,fix=False,probe=None,deep=False,start=False):
     browsers=[row for row in live.get('browsers',[]) if row.get('connected')]
     add('extension',bool(browsers),'connected' if browsers else 'disconnected','Open browser extension and connect')
     loaded=live.get('daemonVersion') if probe else daemon_version(ctx) if live.get('ok') else None
-    add('daemon_version',bool(expected) and loaded==expected,'matched' if expected and loaded==expected else 'unconfirmed','fbl update --dry-run')
-    add('version',bool(expected) and bool(browsers) and all(row.get('version')==expected for row in browsers),'matched' if expected and browsers and all(row.get('version')==expected for row in browsers) else 'unconfirmed','fbl update --dry-run')
-    add('runtime_integrity',integrity,'verified' if integrity else 'mismatch' if hashes else 'unversioned','fbl update --dry-run')
+    registration_command='fbl update --source <包>'
+    unregistered=runtime_files.is_dir() and not expected and not hashes and str(runtime_files/'runtime-version.json') not in invalid
+    if unregistered:
+        for component in ('daemon_version', 'version', 'runtime_integrity'):
+            add(component, True, 'unregistered', registration_command, severity='info',verified=False,
+                message='手动安装版本未登记；运行 fbl update --source <包> 登记。当前版本与完整性尚未验证。')
+    else:
+        add('daemon_version',bool(expected) and loaded==expected,'matched' if expected and loaded==expected else 'unconfirmed','fbl update --dry-run')
+        add('version',bool(expected) and bool(browsers) and all(row.get('version')==expected for row in browsers),'matched' if expected and browsers and all(row.get('version')==expected for row in browsers) else 'unconfirmed','fbl update --dry-run')
+        add('runtime_integrity',integrity,'verified' if integrity else 'mismatch','fbl update --dry-run')
     add('runtime_root',all(Path(checked(path).get('path','/missing')).is_relative_to(ctx.runtime) for path in manifests(ctx.user) if path.exists()),'consistent','fbl doctor')
     from fbl_update import extension_targets
     packages=extension_targets(ctx)
     add('extension_path',bool(packages),'present' if packages else 'missing','fbl update --dry-run')
     command=shutil.which('hermes');add('hermes',bool(command),'available' if command else 'optional_missing','Install Hermes only for collaboration')
+    model_references=checked(ctx.copilot/'config.json')
     for profile in ('copilot','copilot-exec'):
         try:
             plan=profile_plan(ctx.hermes,profile)
+            details=plan.get('details',[]);policy=plan.get('fix_policy','')
+            reference=model_references.get('inference_model' if profile=='copilot' else 'exec_model')
+            selected=plan.get('config',{}).get('model',{})
+            selected=selected.get('default') if isinstance(selected,dict) else selected
+            if reference and selected and reference!=selected:
+                details.insert(0,f'协作配置记录模型 → 当前 profile 模型：{reference} → {selected}（可能由 Hermes 迁移；--fix 保留当前模型）')
             if fix and plan['state']=='drift':plan=repair(ctx.hermes,profile,private_write);actions.append(profile)
-            add(profile,plan['state']=='ready',plan['state'],'fbl setup' if plan['state']=='unmanaged' else 'fbl doctor --fix',changes=plan.get('changes',[]))
+            add(profile,plan['state']=='ready',plan['state'],'fbl setup' if plan['state']=='unmanaged' else 'fbl doctor --fix',changes=plan.get('changes',[]),details=details,fix_policy=policy)
         except (OSError,ValueError):add(profile,False,'missing_or_unreadable','fbl setup')
     config=checked(ctx.copilot/'config.json');extensions=config.get('extension_dirs',[])
     add('packages',all(Path(path).is_dir() for path in extensions),'present' if all(Path(path).is_dir() for path in extensions) else 'missing_path','fbl packs list')

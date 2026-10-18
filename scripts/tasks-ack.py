@@ -6,8 +6,6 @@
 from __future__ import annotations
 
 import argparse
-import base64
-from datetime import datetime
 import fcntl
 import importlib.util
 import json
@@ -38,16 +36,6 @@ def shared_home(value):
         raise InstallError('Hermes 目录不能是链接。', '使用实际目录路径后重试。')
     home = home.resolve()
     return home.parent.parent if home.parent.name == 'profiles' else home
-
-
-def write_private(path, payload):
-    # 中文注释：新文件独占创建、不跟随链接，权限 0600。
-    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
-    try:
-        os.write(descriptor, payload)
-        os.fsync(descriptor)
-    finally:
-        os.close(descriptor)
 
 
 def hold_daemon_lock(data):
@@ -91,48 +79,13 @@ def acknowledge(home, task_id, reason, env, *, stop_daemon=False):
             descriptor = hold_daemon_lock(data)
             try:
                 CLI.check_daemon_stopped(home, env)
-                return update_task(data, home, task_id, reason)
+                result = CLI.acknowledge_tasks(home, [task_id], reason, env, descriptor)
+                return {**result, 'taskId': task_id}
             finally:
                 os.close(descriptor)
         finally:
             if token:
                 CLI.leave_maintenance(home, token)
-
-
-def update_task(data, home, task_id, reason):
-    tasks_path = data / 'tasks.json'
-    try:
-        value = CLI.load_task_records(home)
-    except (OSError, ValueError, TypeError) as error:
-        raise InstallError('任务记录无法安全读取 / Task records cannot be read safely.',
-                           '确认没有未合并的派发日志且文件权限为 0600 后重试。') from error
-    matches = [task for task in value['tasks'] if isinstance(task, dict) and task.get('id') == task_id]
-    if len(matches) != 1:
-        raise InstallError('找不到该任务 / Task not found: ' + task_id, '用 dev:sync 输出里的任务 id 重试。')
-    task = matches[0]
-    if task.get('state') not in CLI.TERMINAL_TASK_STATES:
-        raise InstallError('任务尚未关闭 / Task is not closed: ' + task_id, '先在 Hermes 中结束任务；本命令只标记已关闭任务。')
-    if ('vaultPermit' in task or 'gatewayPermit' in task or task.get('idlePendingHuman')
-            or task.get('idleRecoveryState') in {'paused', 'pending_approval'}):
-        raise InstallError('任务仍带有授权或待人工处理状态 / Task still holds permits or pending input.',
-                           '在 Hermes 中处理完毕后重试；不会清除授权。')
-    stamp = datetime.now().astimezone()
-    backup = data / ('tasks.json.ack-' + stamp.strftime('%Y%m%dT%H%M%S') + '-'
-                     + base64.b32encode(os.urandom(5)).decode('ascii').lower() + '.bak')
-    original = tasks_path.read_bytes()
-    write_private(backup, original)
-    task['userVerified'] = {'reason': reason, 'at': stamp.isoformat(timespec='seconds'),
-                            'previousCleanupState': task.get('cleanupState'),
-                            'previousCleanupReason': task.get('cleanupReason')}
-    task['cleanupState'] = 'succeeded'
-    task['cleanupReason'] = 'verified_complete'
-    temporary = data / ('.tasks.json.ack-' + base64.b32encode(os.urandom(5)).decode('ascii').lower())
-    try:
-        write_private(temporary, json.dumps(value, ensure_ascii=False, separators=(',', ':')).encode('utf-8'))
-        os.replace(temporary, tasks_path)
-    finally:
-        temporary.unlink(missing_ok=True)
-    return {'status': 'acknowledged', 'taskId': task_id, 'backup': str(backup)}
 
 
 def main(argv=None):

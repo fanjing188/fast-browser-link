@@ -11,7 +11,7 @@ def context(copilot):
 def readiness(ctx,diagnostic):
     checks=diagnostic['checks'];state=read(ctx.copilot/'fbl-state.json')
     items=[{'id':'setup','ok':state.get('setup_complete') is True,'command':'fbl setup'},
-           {'id':'browser','ok':all(any(row['component']==name and row['ok'] for row in checks) for name in ('runtime','daemon','extension','runtime_integrity','version')) and any(row['ok'] for row in checks if row['component'].startswith('host_')),'command':'fbl doctor --fix'},
+           {'id':'browser','ok':all(any(row['component']==name and row['ok'] and row.get('code')!='unregistered' for row in checks) for name in ('runtime','daemon','extension','runtime_integrity','version')) and any(row['ok'] for row in checks if row['component'].startswith('host_')),'command':'fbl doctor --fix'},
            {'id':'templates','ok':any(row['component']=='templates' and row['ok'] for row in checks),'command':'fbl doctor --fix'},
            {'id':'profiles','repairable':any(row['component'] in {'copilot','copilot-exec'} and row.get('code')=='drift' for row in checks),'ok':all(any(row['component']==name and row['ok'] for row in checks) for name in ('copilot','copilot-exec')),'command':'fbl setup'},
            {'id':'discovery','ok':state.get('discovery_reviewed') is True and not changes(ctx),'command':'fbl packs discover'}]

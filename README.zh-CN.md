@@ -4,7 +4,7 @@
 
 [品牌规范](docs/brand.zh-CN.md)
 
-**2.2.0 — macOS 本地候选。** 通过 skills、JSON CLI 或 MCP stdio，让本机 agent 操作 Chrome / Edge，支持普通登录态、无痕任务及跨登录跳转的连续任务日志。
+**2.2.0 — macOS 本地候选。** 让 AI agent（Hermes、Codex、Claude Code 等）直接调用已连接的浏览器执行工作：读取和操作页面、填写表单、上传下载、识别和导出表格、多页数据收集，以及跟随你的操作实时给出建议、在后台执行的协作模式。全程使用你的登录状态，可随时接管，敏感字段只由你填写。
 
 [English](README.md)
 

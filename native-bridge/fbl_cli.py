@@ -305,7 +305,7 @@ def parser():
         s=sub.add_parser(name);common(s)
         if name=='setup':
             s.add_argument('--yes',action='store_true');s.add_argument('--dry-run',action='store_true');s.add_argument('--seo',action='store_true',default=None);s.add_argument('--url',action='append',default=[]);s.add_argument('--scan-tabs',action='store_true')
-        elif name=='update':s.add_argument('--dry-run',action='store_true');s.add_argument('--wait',type=float,default=0);s.add_argument('--pause-hermes',action='store_true')
+        elif name=='update':s.add_argument('--yes',action='store_true');s.add_argument('--dry-run',action='store_true');s.add_argument('--wait',type=float,default=0);s.add_argument('--pause-hermes',action='store_true')
         elif name=='doctor':s.add_argument('--fix',action='store_true')
         elif name=='logs':s.add_argument('--follow',action='store_true');s.add_argument('--type',choices=['system','execution','inference','capture','stderr']);s.add_argument('--errors',action='store_true');s.add_argument('--bundle',nargs='?',const='fbl-diagnostics.tar.gz')
         elif name=='packs':
@@ -324,12 +324,12 @@ def main(argv=None):
         elif args.command=='update':
             if not args.source:
                 if args.dry_run:
-                    from fbl_update import plan
-                    result=plan(ctx)
+                    from fbl_update import preview
+                    result=preview(ctx)
                 else:
                     from fbl_update import fetch_update
-                    result=fetch_update(ctx,wait=args.wait,pause_hermes=args.pause_hermes)
-            else:result=update(ctx,args.source,dry_run=args.dry_run,wait=args.wait,pause_hermes=args.pause_hermes)
+                    result=fetch_update(ctx,wait=args.wait,pause_hermes=args.pause_hermes,yes=args.yes,confirm=lambda prompt: sys.stdin.isatty() and input(prompt).strip().lower() in {'y','yes'})
+            else:result=update(ctx,args.source,dry_run=args.dry_run,wait=args.wait,pause_hermes=args.pause_hermes,yes=args.yes,confirm=lambda prompt: sys.stdin.isatty() and input(prompt).strip().lower() in {'y','yes'})
         elif args.command=='doctor':result=doctor(ctx,fix=args.fix,deep=True,start=args.fix)
         elif args.command=='logs':result=logs(ctx,follow=args.follow,kind=args.type,errors=args.errors,bundle=args.bundle)
         elif args.command=='packs':
@@ -346,6 +346,8 @@ def main(argv=None):
         print(json.dumps(result,ensure_ascii=False,indent=2,default=str));return 0
     except (ValueError,OSError,RuntimeError,subprocess.SubprocessError) as error:
         from copilot_diagnostics import redact
+        if str(error).startswith('active or unsettled'):
+            print('\n'.join(redact(line) for line in str(error).splitlines()),file=sys.stderr);return 1
         print(json.dumps({'error':type(error).__name__,'message':redact(str(error)),'backup':getattr(error,'backup',None),'rolled_back':getattr(error,'rolled_back',False),'warnings':getattr(error,'notes',[])},ensure_ascii=False),file=sys.stderr);return 1
 
 

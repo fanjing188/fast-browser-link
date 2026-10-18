@@ -44,7 +44,7 @@
     "48": "icon-48.png",
     "128": "icon-128.png"
   },
-  "description": "连接本机 AI Agent 与 Chrome/Edge，连接授权后直接执行普通及无痕任务，支持连续登录日志、表单、上传下载、用户接管和敏感字段保护。",
+  "description": "让 AI agent（Hermes、Codex、Claude Code 等）直接调用已连接的浏览器执行工作，连接授权后直接执行：页面操作、表单、上传下载、表格导出与实时协作。",
   "side_panel": {
     "default_path": "copilot-panel.html"
   },

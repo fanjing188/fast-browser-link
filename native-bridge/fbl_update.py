@@ -66,28 +66,88 @@ def legacy_cli(ctx):
     cli=load('fbl_maintenance',ctx.support/'install-cli.py');cli.EXECUTOR=load('fbl_verifier',ctx.support/'install-executor.py');return cli
 
 
-def idle(ctx,cli,wait=0):
+def task_status(ctx, cli):
+    roots, _ = layouts(ctx)
+    groups = {'active': [], 'after_daemon_stop': [], 'needs_verification': []}
+    eligible = {}
+    epoch = None; epoch_checked = False
+    for root in roots:
+        try:
+            jobs=cli.load_basket_jobs(root)
+            for identity, job in jobs.items():
+                group='active' if isinstance(job,dict) and job.get('state') in {'queued','running'} else 'needs_verification'
+                groups[group].append({'id': identity, 'title': job.get('title','Copilot basket') if isinstance(job,dict) else 'Copilot basket', 'runtime':str(root)})
+        except (OSError, ValueError, TypeError, cli.InstallError):
+            groups['needs_verification'].append({'title': 'Copilot basket activity cannot be verified', 'runtime': str(root)})
+        try:
+            records = cli.load_task_records(root)
+        except (OSError, ValueError, TypeError, cli.InstallError):
+            groups['needs_verification'].append({'title': '任务记录无法安全读取（权限、格式或未合并日志）', 'runtime': str(root)})
+            continue
+        for task in records['tasks']:
+            reason = cli.task_block_reason(task)
+            if reason is None:
+                continue
+            row = {key: task.get(key) for key in ('id', 'title', 'state', 'cleanupState', 'createdAt', 'updatedAt')} if isinstance(task, dict) else {'title': 'Invalid task record'}
+            row['runtime'] = str(root)
+            if reason == 'active':
+                group = 'active'
+            elif reason == 'history':
+                group = 'after_daemon_stop'
+            else:
+                group = 'needs_verification'
+                if not epoch_checked:
+                    epoch = cli.browser_epoch(dict(os.environ)); epoch_checked = True
+                row['safe_to_settle'] = cli.old_browser_task(task, epoch)
+                if row['safe_to_settle']:
+                    eligible.setdefault(root, []).append(task['id'])
+            groups[group].append(row)
+    return groups, eligible
+
+
+def task_summary(groups):
+    return {key: {'count': len(rows), 'examples': rows[:5]} for key, rows in groups.items()}
+
+
+def task_message(groups):
+    lines = ['active or unsettled tasks / 升级任务检查：']
+    for key, title in (('active', '真正进行中'), ('after_daemon_stop', '停 daemon 后可通过'), ('needs_verification', '需要核实')):
+        rows = groups[key]; lines.append(f'{title}：{len(rows)}')
+        for row in rows[:5]:
+            title = ' '.join(str(row.get('title') or '(无标题)').split())[:100]
+            stamp=row.get('updatedAt')
+            try: stamp=datetime.fromtimestamp(stamp).astimezone().isoformat(timespec='seconds')
+            except (TypeError, ValueError, OverflowError, OSError): stamp='unknown'
+            identity=' '.join(str(row.get('id', 'unknown')).split())[:100]
+            lines.append(f"  - {title} [{identity}] 时间 {stamp}" + (' 可安全结清（需确认）' if row.get('safe_to_settle') else ''))
+    lines.append('下一步：先结束进行中的任务；fbl update --dry-run --source <包> 复查。旧纪元任务确认后运行 fbl update --source <包> --pause-hermes（--yes 自动确认）。其他未知任务核实后用 npm run tasks:ack -- <taskId> --stop-daemon。')
+    return '\n'.join(lines)
+
+
+def idle(ctx, cli, wait=0, *, allow_settle=False):
     import math
-    if not isinstance(wait,(int,float)) or not math.isfinite(wait) or wait<0:raise ValueError('wait must be finite and nonnegative')
-    roots,_=layouts(ctx);deadline=time.monotonic()+wait;previous=None
+    if not isinstance(wait, (int, float)) or not math.isfinite(wait) or wait < 0:
+        raise ValueError('wait must be finite and nonnegative')
+    deadline = time.monotonic() + wait; previous = None
     while True:
-        busy=[]
-        for root in roots:
-            try:cli.assert_tasks_idle(root)
-            except cli.CloudGateError:
-                records=cli.load_task_records(root)
-                busy.extend({'id':row.get('id'),'title':row.get('title',''),'state':row.get('state')} for row in records.get('tasks',[]))
-                if not records.get('tasks'):
-                    activity=read(safe(root/'plugin-data/fast-browser-link-native/copilot/basket-active.json'))
-                    jobs=activity.get('jobs',{})
-                    if not isinstance(jobs,dict):raise ValueError('Copilot basket activity cannot be verified')
-                    busy.extend({'id':key,'title':row.get('title','Copilot basket'),'state':row.get('state','unknown')} for key,row in jobs.items() if isinstance(row,dict))
-                    if not jobs:busy.append({'id':'copilot-unsettled','title':'Copilot activity cannot be verified','state':'unknown'})
-        if not busy:return
-        if busy!=previous and wait:
-            print(json.dumps({'waiting_for_tasks':busy},ensure_ascii=False),file=sys.stderr);previous=busy
-        if time.monotonic()>=deadline:raise ValueError('active or unsettled tasks: '+json.dumps(busy,ensure_ascii=False))
-        time.sleep(min(.5,max(0,deadline-time.monotonic())))
+        groups, eligible = task_status(ctx, cli)
+        review = [row for row in groups['needs_verification'] if not (allow_settle and row.get('safe_to_settle'))]
+        if not groups['active'] and not review:
+            return groups, eligible
+        message = task_message(groups)
+        if message != previous and wait:
+            print(message, file=sys.stderr); previous = message
+        if time.monotonic() >= deadline:
+            raise ValueError(message)
+        time.sleep(min(.5, max(0, deadline-time.monotonic())))
+
+
+def preview(ctx, summary=None, cli=None):
+    groups, eligible = task_status(ctx, cli or legacy_cli(ctx))
+    return {**(summary or plan(ctx)), 'status': 'dry_run', 'task_check': task_summary(groups),
+            'safe_to_settle': sum(map(len, eligible.values())),
+            'ready_after_confirmation': not groups['active'] and all(row.get('safe_to_settle') for row in groups['needs_verification']),
+            'next_steps': task_message(groups)}
 
 
 def extension_targets(ctx):
@@ -113,10 +173,15 @@ def _copy(source,target):
     else:target.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(source,target)
 
 
-def update(ctx,source,*,dry_run=False,wait=0,pause_hermes=False,health=None):
+def update(ctx,source,*,dry_run=False,wait=0,pause_hermes=False,health=None,yes=False,confirm=None):
     payload=verify_source(source);summary=plan(ctx,source);cli=legacy_cli(ctx)
-    idle(ctx,cli,wait)
-    if dry_run:return {**summary,'status':'dry_run'}
+    if dry_run:
+        return preview(ctx, summary, cli)
+    groups, approved = idle(ctx, cli, wait, allow_settle=True)
+    if approved:
+        print(task_message(groups), file=sys.stderr)
+        if not yes and (confirm is None or not confirm('确认备份并结清上述旧浏览器纪元任务？[y/N] ')):
+            raise ValueError('旧纪元任务尚未确认；未停止 daemon、未修改任务。使用交互终端确认或 --yes。')
     roots,plugins=layouts(ctx);env={**os.environ,'PYTHONDONTWRITEBYTECODE':'1'}
     for root in roots:
         for path in manifests(ctx.user):
@@ -133,7 +198,7 @@ def update(ctx,source,*,dry_run=False,wait=0,pause_hermes=False,health=None):
             for root in roots:
                 data=root/'plugin-data/fast-browser-link-native';data.mkdir(parents=True,exist_ok=True,mode=0o700)
                 stack.enter_context(cli.install_lock(data))
-                cli.assert_tasks_idle(root)
+                idle(ctx, cli, allow_settle=True)
                 was_running[root]=bool(cli.verified_daemon_pid(root,env))
                 markers.append((root,cli.enter_maintenance(root,'fbl update',os.getpid())))
                 if not cli.cloud_never_configured(root,ctx.user):
@@ -142,7 +207,22 @@ def update(ctx,source,*,dry_run=False,wait=0,pause_hermes=False,health=None):
                 result=cli.command(['hermes','pause','--reason','fbl update'],{**env,'HERMES_HOME':str(ctx.hermes)})
                 if result.returncode:raise ValueError('Hermes scheduling could not be paused')
                 paused=True
-            for root in roots:cli.stop_daemon(root,env);stack.enter_context(cli.idle_bridge(root,env))
+            acknowledgements = []
+            for root in roots:
+                idle(ctx, cli, allow_settle=True)
+                cli.stop_daemon(root, env)
+                def settle(descriptor, root=root):
+                    current_groups, candidates = task_status(ctx, cli)
+                    if current_groups['active'] or any(not row.get('safe_to_settle') for row in current_groups['needs_verification']):
+                        raise ValueError(task_message(current_groups))
+                    ids = candidates.get(root, [])
+                    if not set(ids).issubset(approved.get(root, [])):
+                        raise ValueError('旧纪元任务集合已变化；重新预览并确认。')
+                    if ids:
+                        epoch = cli.browser_epoch(env)
+                        if epoch is None: raise ValueError('browser epoch can no longer be verified')
+                        acknowledgements.append(cli.acknowledge_tasks(root, ids, '用户确认升级前结清旧浏览器纪元任务', env, descriptor, epoch=epoch))
+                stack.enter_context(cli.idle_bridge(root, env, settle=settle))
             prepared=[]
             for index,root in enumerate(roots):
                 staging=transaction/('runtime-'+str(index));user=transaction/('user-'+str(index));user.mkdir()
@@ -224,12 +304,12 @@ def update(ctx,source,*,dry_run=False,wait=0,pause_hermes=False,health=None):
                 try:client.call('health')
                 finally:client.close()
             if was_running[root] and not health(root).get('ok'):raise ValueError('restarted daemon validation failed')
-        return {**summary,'status':'updated','backup':str(transaction),'notes':notes}
+        return {**summary,'status':'updated','backup':str(transaction),'notes':notes,'acknowledged_tasks':acknowledgements}
     except BaseException as error:
         for root in roots:
             try:
                 if not any(item[0]==root for item in markers):markers.append((root,cli.enter_maintenance(root,'fbl rollback',os.getpid())))
-                cli.assert_tasks_idle(root)
+                idle(ctx, cli, allow_settle=True)
                 cli.stop_daemon(root,env)
             except (OSError,ValueError,cli.InstallError):
                 if swapped:raise ValueError('rollback requires manual process verification; backup retained at '+str(transaction))
@@ -238,6 +318,10 @@ def update(ctx,source,*,dry_run=False,wait=0,pause_hermes=False,health=None):
             if target.exists():os.replace(target,failed)
             if previous is not None:os.replace(previous,target)
         rolled_back=True
+        if isinstance(error, cli.InstallError):
+            error=ValueError(str(error)+'\n'+error.fix)
+            error.backup=str(transaction);error.rolled_back=True;error.notes=notes
+            raise error
         error.backup=str(transaction);error.rolled_back=True;error.notes=notes
         raise
     finally:

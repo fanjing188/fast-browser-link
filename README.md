@@ -4,7 +4,7 @@
 
 [Brand guidelines](docs/brand.md)
 
-**2.2.0 — local macOS candidate.** Connect local agents to Chrome or Edge through skills, a JSON CLI or MCP stdio. Use regular signed-in sessions or opt-in incognito tasks, with continuous task logs across login redirects and popups.
+**2.2.0 — local macOS candidate.** Let AI agents (Hermes, Codex, Claude Code and more) work directly in your connected browser: read and act on pages, fill forms, upload and download files, detect and export tables, collect multi-page data, and use Copilot mode, which suggests next steps as you browse and runs them in the background. Your signed-in sessions are used as they are, you can take over at any time, and sensitive fields are left to you.
 
 [简体中文](README.zh-CN.md)
 

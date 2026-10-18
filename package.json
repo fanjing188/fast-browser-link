@@ -2,7 +2,7 @@
   "name": "fast-browser-link",
   "version": "2.2.0",
   "private": true,
-  "description": "通过 Skills、JSON CLI 和 MCP 操作本机 Chrome/Edge，支持普通及无痕任务、连续登录日志、表单与文件工作流，并提供可选 Hermes 适配器。",
+  "description": "让 AI agent（Hermes、Codex、Claude Code 等）直接调用已连接的浏览器执行工作，连接授权后直接执行：页面操作、表单、上传下载、表格导出与实时协作。",
   "type": "module",
   "author": "FanJean",
   "repository": {

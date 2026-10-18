@@ -516,40 +516,141 @@ def load_task_records(home):
     return value
 
 
+def load_basket_jobs(home):
+    activity=home/'plugin-data/fast-browser-link-native/copilot/basket-active.json'
+    EXECUTOR.reject_target_symlinks([activity])
+    if activity.exists():
+        info=activity.stat()
+        if not stat.S_ISREG(info.st_mode) or info.st_uid!=os.getuid() or stat.S_IMODE(info.st_mode)&0o077:raise ValueError('unsafe basket activity record')
+        state=json.loads(activity.read_text())
+        if not isinstance(state,dict) or state.get('version')!=1 or not isinstance(state.get('jobs'),dict):raise ValueError('unknown Copilot basket work')
+        return state['jobs']
+    return {}
+
+
+def assert_basket_idle(home):
+    if load_basket_jobs(home):
+        raise ValueError('active or unsettled Copilot basket work')
+
+
+def task_block_reason(task, *, daemon_stopped=False):
+    if (not isinstance(task, dict) or not isinstance(task.get('id'), str)
+            or not isinstance(task.get('owner'), str) or task.get('state') not in TERMINAL_TASK_STATES
+            or task.get('idlePendingHuman') or task.get('idleRecoveryState') in {'paused', 'pending_approval'}
+            or 'vaultPermit' in task or 'gatewayPermit' in task):
+        return 'active'
+    verified = daemon_stopped and isinstance(task.get('userVerified'), dict)
+    operation = task.get('currentOperation', {'state': 'succeeded'})
+    if not isinstance(operation, dict) or (operation.get('state') not in {'succeeded', 'failed'} and not verified):
+        return 'active'
+    if task.get('cleanupState') == 'pending':
+        return 'active'
+    if task.get('cleanupState') != 'succeeded':
+        return 'cleanup'
+    if not daemon_stopped:
+        for field, settled in (('requestHistory', {'confirmed', 'rejected'}),
+                               ('operationTimeline', {'succeeded', 'failed'})):
+            rows = task.get(field, [] if field == 'operationTimeline' else None)
+            if not isinstance(rows, list) or any(not isinstance(row, dict) or row.get('state') not in settled for row in rows):
+                return 'history'
+    return None
+
+
 def assert_tasks_idle(home, *, daemon_stopped=False):
     try:
-        activity=home/'plugin-data/fast-browser-link-native/copilot/basket-active.json'
-        EXECUTOR.reject_target_symlinks([activity])
-        if activity.exists():
-            info=activity.stat()
-            if info.st_uid!=os.getuid() or stat.S_IMODE(info.st_mode)&0o077:raise ValueError('unsafe basket activity record')
-            state=json.loads(activity.read_text())
-            if not isinstance(state,dict) or state.get('version')!=1 or not isinstance(state.get('jobs'),dict) or state['jobs']:raise ValueError('active or unsettled Copilot basket work')
-        value = load_task_records(home)
-        for task in value['tasks']:
-            if (not isinstance(task, dict) or not isinstance(task.get('id'), str)
-                    or not isinstance(task.get('owner'), str) or task.get('state') not in TERMINAL_TASK_STATES
-                    or task.get('cleanupState') != 'succeeded' or task.get('idlePendingHuman')
-                    or task.get('idleRecoveryState') in {'paused', 'pending_approval'}
-                    or 'vaultPermit' in task or 'gatewayPermit' in task):
-                raise ValueError('active or unknown task')
-            # 中文注释：用户经 tasks:ack 核实过的已关闭任务，残留的当前操作不再代表可执行授权。
-            verified = daemon_stopped and isinstance(task.get('userVerified'), dict)
-            operation = task.get('currentOperation', {'state': 'succeeded'})
-            if not isinstance(operation, dict) or (operation.get('state') not in {'succeeded', 'failed'} and not verified):
-                raise ValueError('active or unknown task')
-            # 中文注释：daemon 已确认停止且任务已关闭、清理成功时，历史里的 unknown/dispatched 只是旧记录，
-            # 不会再有回执或执行；daemon 仍可能运行时继续拒绝。
-            if daemon_stopped:
-                continue
-            for field, settled in (('requestHistory', {'confirmed', 'rejected'}),
-                                   ('operationTimeline', {'succeeded', 'failed'})):
-                rows = task.get(field, [] if field == 'operationTimeline' else None)
-                if not isinstance(rows, list) or any(not isinstance(row, dict) or row.get('state') not in settled for row in rows):
-                    raise ValueError('unsettled operation')
+        assert_basket_idle(home)
+        if any(task_block_reason(task, daemon_stopped=daemon_stopped) for task in load_task_records(home)['tasks']):
+            raise ValueError('active or unknown task')
     except (OSError, ValueError, TypeError) as error:
         raise CloudGateError('活动任务或状态无法核实 / Task state is active or unknown.',
                            '先结束任务再重试；已关闭但清理状态未知的任务核实后用 npm run tasks:ack -- <taskId> 标记。') from error
+
+
+def browser_epoch(env):
+    # 中文注释：使用同用户浏览器主进程的启动时间；重连时间、持久 instanceId 不能证明浏览器重启。
+    try:
+        result = command(['ps', '-U', str(os.getuid()), '-o', 'lstart=,comm='], {**env, 'LC_ALL': 'C'})
+    except InstallError:
+        return None
+    if result.returncode:
+        return None
+    starts = []
+    for line in result.stdout.splitlines():
+        match = re.fullmatch(r'\s*(\w{3} +\w{3} +\d{1,2} +\d{2}:\d{2}:\d{2} +\d{4}) +(/.+)', line)
+        if not match:
+            continue
+        executable = match[2]
+        if not any(executable.endswith('/'+name+'.app/Contents/MacOS/'+name) for name in ('Google Chrome', 'Microsoft Edge')):
+            continue
+        try:
+            starts.append(datetime.strptime(match[1], '%a %b %d %H:%M:%S %Y').timestamp())
+        except ValueError:
+            return None
+    # 中文注释：无法将旧实例映射到进程时，取所有浏览器最早启动时间，宁可要求人工核实。
+    return min(starts) if starts else None
+
+
+def old_browser_task(task, epoch):
+    import math
+    if task_block_reason(task, daemon_stopped=True) != 'cleanup' or task.get('cleanupState') not in {'unknown', 'failed'}:
+        return False
+    operation = task.get('currentOperation', {'state': 'succeeded'})
+    if not isinstance(operation, dict) or operation.get('state') not in {'succeeded', 'failed'}:
+        return False
+    times = [task.get('createdAt'), task.get('updatedAt')]
+    for field in ('lastActivityAt',):
+        if field in task: times.append(task[field])
+    history=task.get('requestHistory', [])
+    timeline=task.get('operationTimeline', [])
+    if not isinstance(history, list) or not isinstance(timeline, list): return False
+    for row in [operation, *history, *timeline]:
+        if not isinstance(row, dict): return False
+        for field in ('startedAt', 'completedAt', 'createdAt', 'updatedAt', 'dispatchedAt', 'time'):
+            if field in row: times.append(row[field])
+    return (type(epoch) in (int, float) and math.isfinite(epoch) and epoch > 0
+            and all(type(value) in (int, float) and math.isfinite(value) and 0 < value < epoch - 1 for value in times))
+
+
+def acknowledge_tasks(home, task_ids, reason, env, descriptor, *, epoch=None):
+    # 中文注释：与 tasks:ack 共用备份及原子写入；调用者必须持启动锁、停稳 daemon。
+    data = home / 'plugin-data/fast-browser-link-native'
+    lock = data / 'daemon.lock'
+    EXECUTOR.reject_target_symlinks([lock])
+    if os.fstat(descriptor).st_ino != lock.stat().st_ino or os.fstat(descriptor).st_dev != lock.stat().st_dev:
+        raise ValueError('wrong daemon lock')
+    acquire_bridge_lock(descriptor)
+    check_daemon_stopped(home, env)
+    value = load_task_records(home)
+    selected = [task for task in value['tasks'] if isinstance(task, dict) and task.get('id') in task_ids]
+    if len(selected) != len(set(task_ids)) or not selected:
+        raise ValueError('task IDs missing or duplicated')
+    for task in selected:
+        if (task.get('state') not in TERMINAL_TASK_STATES or 'vaultPermit' in task or 'gatewayPermit' in task
+                or task.get('idlePendingHuman') or task.get('idleRecoveryState') in {'paused', 'pending_approval'}):
+            raise ValueError('task still holds permits, pending input or is not closed')
+        if epoch is not None and not old_browser_task(task, epoch):
+            raise ValueError('task no longer belongs to a verified old browser epoch')
+    stamp = datetime.now().astimezone()
+    suffix = stamp.strftime('%Y%m%dT%H%M%S') + '-' + base64.b32encode(os.urandom(5)).decode('ascii').lower()
+    backup = data / ('tasks.json.ack-' + suffix + '.bak')
+    tasks = data / 'tasks.json'
+    def write_private(path, payload):
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(fd, 'wb') as handle:
+            handle.write(payload); handle.flush(); os.fsync(handle.fileno())
+    write_private(backup, tasks.read_bytes())
+    for task in selected:
+        task['userVerified'] = {'reason': reason, 'at': stamp.isoformat(timespec='seconds'),
+                                'previousCleanupState': task.get('cleanupState'), 'previousCleanupReason': task.get('cleanupReason')}
+        task['cleanupState'] = 'succeeded'
+        task['cleanupReason'] = 'verified_complete'
+    temporary = data / ('.tasks.json.ack-' + suffix)
+    try:
+        write_private(temporary, json.dumps(value, ensure_ascii=False, separators=(',', ':')).encode())
+        os.replace(temporary, tasks)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return {'status': 'acknowledged', 'taskIds': list(task_ids), 'backup': str(backup)}
 
 
 def assert_daemon_stopped(home, env):
@@ -701,13 +802,14 @@ def acquire_bridge_lock(descriptor):
 
 
 @contextmanager
-def idle_bridge(home, env, *, profiles=()):
+def idle_bridge(home, env, *, profiles=(), settle=None):
     # 中文注释：复用 daemon 自身的启动锁，持锁期间不能新启动；活服务从不自动结束。
     data = home / 'plugin-data/fast-browser-link-native'
     lock = data / 'daemon.lock'
     EXECUTOR.reject_target_symlinks([lock, data / 'daemon.pid', data / 'bridge.sock'])
     assert_daemon_stopped(home, env)
-    assert_tasks_idle(home, daemon_stopped=True)
+    if settle is None:
+        assert_tasks_idle(home, daemon_stopped=True)
     if not data.is_dir():
         probe_references(home, profiles)
         yield None
@@ -723,13 +825,16 @@ def idle_bridge(home, env, *, profiles=()):
         if descriptor is not None:
             acquire_bridge_lock(descriptor)
             assert_daemon_stopped(home, env)
-            assert_tasks_idle(home, daemon_stopped=True)
+            if settle is None:
+                assert_tasks_idle(home, daemon_stopped=True)
         # 中文注释：空闲门禁在探测前；缺失锁延后创建，建链失败不会遗留 daemon.lock。
         probe_references(home, profiles)
         if descriptor is None:
             descriptor = os.open(lock, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
             acquire_bridge_lock(descriptor)
         assert_daemon_stopped(home, env)
+        if settle is not None:
+            settle(descriptor)
         assert_tasks_idle(home, daemon_stopped=True)
         yield descriptor
     finally:

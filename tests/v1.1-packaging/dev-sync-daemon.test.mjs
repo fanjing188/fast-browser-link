@@ -17,16 +17,19 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { fixtureInstaller, isolatedInstallerEnv } from '../helpers/isolated-installer.mjs';
+
+const testTemp = process.platform === 'darwin' ? '/private/tmp' : tmpdir();
 import {
   assertDevelopmentIdle,
   runDevelopmentGuard,
   initializeCopilot,
 } from '../../scripts/dev-sync-daemon.mjs';
 
-// 中文注释：保留指定 TMPDIR 的隔离范围；短目录名让 profile scratch 下的 macOS 套接字仍不超限。
+// 中文注释：规范的短临时路径避开 macOS 默认 /var 链接和 103 字节 socket 上限。
 async function daemonHome() {
   for (let attempt = 0; attempt < 100; attempt++) {
-    const home = path.join(tmpdir(), `d${randomUUID().slice(0, 3)}`);
+    const home = path.join(testTemp, `d${randomUUID().slice(0, 3)}`);
     try {
       await mkdir(home, { mode: 0o700 });
       return home;
@@ -38,7 +41,8 @@ async function daemonHome() {
 }
 
 test('dev-sync 不向 PID 文件指向的无关进程发送 SIGTERM', async (t) => {
-  const home = await mkdtemp(path.join(tmpdir(), 'dev-sync-pid-'));
+  const home = await mkdtemp(path.join(testTemp, 'dev-sync-pid-'));
+  const env = await isolatedInstallerEnv(home, home);
   const dataDir = path.join(home, 'plugin-data', 'fast-browser-link-native');
   await mkdir(dataDir, { recursive: true });
   const child = spawn(
@@ -54,11 +58,12 @@ test('dev-sync 不向 PID 文件指向的无关进程发送 SIGTERM', async (t) 
     await rm(home, { recursive: true, force: true });
   });
   await once(child.stdout, 'data');
+  env.FBL_TEST_PROCESSES = JSON.stringify({ pids: { [child.pid]: 'unrelated-process' } });
   const pidFile = path.join(dataDir, 'daemon.pid');
   await writeFile(pidFile, String(child.pid), { mode: 0o600 });
   // 中文注释：无关子进程模拟复用后的 PID；拒绝身份核对时不得发信号。
   assert.throws(
-    () => assertDevelopmentIdle(home, path.resolve(import.meta.dirname, '../..')),
+    () => assertDevelopmentIdle(home, path.resolve(import.meta.dirname, '../..'), env),
     /身份|核对|手动/,
   );
   assert.equal(child.exitCode, null);
@@ -68,6 +73,7 @@ test('dev-sync 不向 PID 文件指向的无关进程发送 SIGTERM', async (t) 
 test('dev-sync 拒绝真实活 daemon 且不发送信号', async (t) => {
   const home = await daemonHome();
   let daemon;
+  const env = await isolatedInstallerEnv(home, home);
   t.after(async () => {
     if (daemon && daemon.exitCode === null && daemon.signalCode === null) {
       daemon.kill('SIGKILL');
@@ -88,8 +94,12 @@ test('dev-sync 拒绝真实活 daemon 且不发送信号', async (t) => {
   daemon = spawn(
     process.env.BROWSER_LINK_TEST_PYTHON || 'python3',
     [daemonScript, '--home', home],
-    { stdio: 'ignore' },
+    { stdio: ['ignore', 'ignore', 'pipe'], env },
   );
+  let daemonError = '';
+  daemon.stderr.on('data', (bytes) => {
+    daemonError += bytes;
+  });
   let ready = false;
   for (let i = 0; i < 100; i++) {
     try {
@@ -98,7 +108,7 @@ test('dev-sync 拒绝真实活 daemon 且不发送信号', async (t) => {
     if (ready) break;
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
-  assert.ok(ready, '临时 daemon 未启动');
+  assert.ok(ready, `临时 daemon 未启动：${daemonError}`);
   const unrelated = spawn(process.execPath, ['-e', 'setInterval(()=>{},1000)'], {
     stdio: 'ignore',
   });
@@ -108,17 +118,23 @@ test('dev-sync 拒绝真实活 daemon 且不发送信号', async (t) => {
       await once(unrelated, 'exit');
     }
   });
+  env.FBL_TEST_PROCESSES = JSON.stringify({
+    pids: {
+      [unrelated.pid]: 'unrelated-process',
+      [daemon.pid]: `python3 ${daemonScript} --home ${home}`,
+    },
+  });
   await writeFile(pidFile, String(unrelated.pid), { mode: 0o600 });
   // 中文注释：真实套接字仍在线时，伪造 PID 也不能使脚本停止无关子进程。
   assert.throws(
-    () => assertDevelopmentIdle(home, path.resolve(import.meta.dirname, '../..')),
+    () => assertDevelopmentIdle(home, path.resolve(import.meta.dirname, '../..'), env),
     /身份|核对/,
   );
   assert.equal(unrelated.exitCode, null);
   assert.equal(daemon.exitCode, null);
   await writeFile(pidFile, String(daemon.pid), { mode: 0o600 });
   assert.throws(
-    () => assertDevelopmentIdle(home, path.resolve(import.meta.dirname, '../..')),
+    () => assertDevelopmentIdle(home, path.resolve(import.meta.dirname, '../..'), env),
     /仍在运行|退出/,
   );
   assert.equal(daemon.exitCode, null);
@@ -127,7 +143,7 @@ test('dev-sync 拒绝真实活 daemon 且不发送信号', async (t) => {
 
 async function syncFixture(t) {
   // 中文注释：目录名保持很短，verify 的 scratch 下真实 daemon socket 路径仍需不超过 103 字节。
-  const base = await mkdtemp(path.join(tmpdir(), 'sg-'));
+  const base = await realpath(await mkdtemp(path.join(testTemp, 'sg-')));
   t.after(() => rm(base, { recursive: true, force: true }));
   const repo = path.join(base, 'repo'),
     home = path.join(base, 'h');
@@ -174,7 +190,7 @@ async function syncFixture(t) {
   const cloudHost = path.join(home, 'plugins/fast-browser-link/cloud_link/native_host.py');
   const cli = path.join(home, 'plugins/fast-browser-link/maintenance/install-cli.py');
   await cp(path.resolve(import.meta.dirname, '../../cloud-link/native_host.py'), cloudHost);
-  await cp(path.join(repo, 'scripts/install-cli.py'), cli);
+  await fixtureInstaller(path.join(repo, 'scripts/install-cli.py'), cli, cloudHost);
   const hash = async (file) =>
     createHash('sha256')
       .update(await readFile(file))
@@ -223,13 +239,12 @@ for file,value in manifests:
     `#!/bin/sh\necho "$*" >> ${JSON.stringify(hermesLog)}\ncase "$1" in pause) : > "$HERMES_HOME/ESTOP";; resume) rm -f "$HERMES_HOME/ESTOP";; esac\n`,
     { mode: 0o700 },
   );
+  const env = await isolatedInstallerEnv(base, home);
   const run = (args = [], extra = {}) =>
     spawnSync(process.execPath, [path.join(repo, 'scripts/dev-sync-local.mjs'), ...args], {
       encoding: 'utf8',
       env: {
-        ...process.env,
-        HOME: base,
-        HERMES_HOME: home,
+        ...env,
         BROWSER_LINK_HERMES: hermes,
         BROWSER_LINK_DEV_SYNC_WAIT_SECONDS: '1',
         ...extra,
@@ -243,7 +258,7 @@ for file,value in manifests:
       return [];
     }
   };
-  return { base, repo, home, data, installed, desktop, run, hermesCalls };
+  return { base, repo, home, data, installed, desktop, run, hermesCalls, env };
 }
 
 test('dev-sync 未知任务合同在打包及首次写入前拒绝', async (t) => {
@@ -351,7 +366,7 @@ test('dev-sync 正式守卫覆盖整个子进程并阻止真实 daemon 启动', 
   if(lock.status===0)process.exit(2);
  `,
     ],
-    { ...process.env, HOME: f.base },
+    f.env,
   );
   assert.equal(result.status, 0, result.stderr);
   assert.equal(await readFile(f.installed, 'utf8'), 'installed-sentinel');
@@ -368,8 +383,165 @@ const exists = async (file) => {
   }
 };
 
+test('测试解释器拒绝真实 HOME 和非夹具运行时，拒绝发生在执行代码前', async (t) => {
+  const f = await syncFixture(t);
+  for (const extra of [
+    { HOME: process.env.HOME },
+    { HERMES_HOME: path.join(process.env.HOME, '.hermes') },
+    { HERMES_HOME: path.join(process.env.HOME, '.fast-browser-link') },
+  ]) {
+    const result = spawnSync(f.env.BROWSER_LINK_TEST_PYTHON, ['-c', "print('EXECUTED')"], {
+      encoding: 'utf8',
+      env: { ...f.env, ...extra },
+    });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /refuses non-fixture/);
+    assert.doesNotMatch(result.stdout, /EXECUTED/);
+  }
+  const result = spawnSync(
+    PYTHON,
+    [
+      path.join(REPO, 'tests/helpers/isolated-installer.py'),
+      process.env.HOME,
+      path.join(process.env.HOME, '.hermes'),
+      '-c',
+      "print('EXECUTED')",
+    ],
+    { encoding: 'utf8', env: { ...process.env, TMPDIR: path.dirname(process.env.HOME) } },
+  );
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /requires temporary roots/);
+  assert.doesNotMatch(result.stdout, /EXECUTED/);
+});
+
+test('Chrome、Edge、Hermes 和其他宿主存在时，同步只读取注入的 PID 状态', async (t) => {
+  const f = await syncFixture(t);
+  const applications = [
+    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
+    '/Applications/Hermes.app/Contents/MacOS/Hermes',
+    '/other/runtime/cloud_link/native_host.py',
+  ];
+  await writeFile(path.join(f.data, 'daemon.pid'), '99999999', { mode: 0o600 });
+  await fakePackager(f);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const result = f.run([], { FBL_TEST_PROCESSES: JSON.stringify({ applications }) });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(JSON.parse(result.stdout).status, 'synced');
+  }
+  assert.equal(await readFile(f.installed, 'utf8'), 'new-desktop');
+  const probes = (await readFile(path.join(f.base, 'process-probes.jsonl'), 'utf8'))
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line));
+  assert.ok(probes.length > 0);
+  assert.ok(probes.every((argv) => argv.join(' ') === 'ps -p 99999999 -o command='));
+});
+
+test('正式维护守卫仍拒绝注入的浏览器、Hermes 和宿主活动', async (t) => {
+  const f = await syncFixture(t);
+  const code = `
+import importlib.util,os,sys
+spec=importlib.util.spec_from_file_location('cli',sys.argv[1])
+cli=importlib.util.module_from_spec(spec);spec.loader.exec_module(cli)
+try:
+    cli.maintenance_processes_stopped(os.environ,include_hosts=True)
+except cli.CloudGateError:
+    print('REFUSED')
+`;
+  for (const application of [
+    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
+    'hermes chat',
+    '/fixture/cloud_link/native_host.py',
+  ]) {
+    const result = spawnSync(
+      f.env.BROWSER_LINK_TEST_PYTHON,
+      ['-c', code, path.join(REPO, 'scripts/install-cli.py')],
+      {
+        encoding: 'utf8',
+        env: { ...f.env, FBL_TEST_PROCESSES: JSON.stringify({ applications: [application] }) },
+      },
+    );
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout.trim(), 'REFUSED');
+  }
+});
+
+test('未使用测试解释器时，正式守卫忽略测试进程数据并保留 ps 探测', async (t) => {
+  const f = await syncFixture(t);
+  const result = spawnSync(
+    PYTHON,
+    [
+      '-c',
+      `
+import importlib.util,os,subprocess,sys
+from unittest.mock import patch
+spec=importlib.util.spec_from_file_location('cli',sys.argv[1])
+cli=importlib.util.module_from_spec(spec);spec.loader.exec_module(cli)
+with patch.object(subprocess,'run',return_value=subprocess.CompletedProcess([],0,
+    '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge','')) as probe:
+    try:
+        cli.maintenance_processes_stopped(os.environ,include_hosts=True)
+    except cli.CloudGateError:
+        print('REFUSED')
+    assert probe.call_args.args[0]==['/bin/ps','-axo','command=']
+`,
+      path.join(REPO, 'scripts/install-cli.py'),
+    ],
+    {
+      encoding: 'utf8',
+      env: { ...f.env, FBL_TEST_PROCESSES: '{}' },
+    },
+  );
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout.trim(), 'REFUSED');
+});
+
+test('临时围栏仍拒绝被篡改的宿主和未收尾的云端 journal', async (t) => {
+  for (const kind of ['host', 'journal']) {
+    const f = await syncFixture(t);
+    if (kind === 'host')
+      await writeFile(
+        path.join(f.home, 'plugins/fast-browser-link/cloud_link/native_host.py'),
+        '# changed',
+      );
+    else
+      await writeFile(
+        path.join(f.home, 'plugin-data/fast-browser-link-cloud/requests.sqlite-wal'),
+        'pending',
+        { mode: 0o600 },
+      );
+    const result = runDevelopmentGuard(
+      f.home,
+      f.repo,
+      [PYTHON, '-c', "print('PACKAGING_REACHED')"],
+      f.env,
+    );
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /Cloud state is active or unknown/);
+    assert.doesNotMatch(result.stderr, /PACKAGING_REACHED/);
+    assert.equal(await readFile(f.installed, 'utf8'), 'installed-sentinel');
+  }
+});
+
+test('注入的活 daemon 身份仍被正式空闲守卫拒绝', async (t) => {
+  const f = await syncFixture(t);
+  const pid = '99999999';
+  await writeFile(path.join(f.data, 'daemon.pid'), pid, { mode: 0o600 });
+  const env = {
+    ...f.env,
+    FBL_TEST_PROCESSES: JSON.stringify({
+      pids: {
+        [pid]: `python3 ${f.home}/plugins/fast-browser-link/native_bridge/daemon.py --home ${f.home}`,
+      },
+    }),
+  };
+  assert.throws(() => assertDevelopmentIdle(f.home, f.repo, env), /桥接仍在运行/);
+});
+
 // 中文注释：从已安装路径启动真实 daemon，命令行与正式身份核对一致。
-async function startInstalledDaemon(t, home) {
+async function startInstalledDaemon(t, home, env) {
   const data = path.join(home, 'plugin-data', 'fast-browser-link-native');
   const socketPath = path.join(data, 'bridge.sock');
   assert.ok(
@@ -379,7 +551,19 @@ async function startInstalledDaemon(t, home) {
   const script = path.join(home, 'plugins/fast-browser-link/native_bridge/daemon.py');
   await mkdir(path.dirname(script), { recursive: true });
   await cp(path.join(REPO, 'native-bridge'), path.dirname(script), { recursive: true });
-  const daemon = spawn(PYTHON, [script, '--home', home], { stdio: 'ignore' });
+  const daemon = spawn(PYTHON, [script, '--home', home], {
+    stdio: ['ignore', 'ignore', 'pipe'],
+    env,
+  });
+  let stderr = '';
+  daemon.stderr.on('data', (bytes) => {
+    stderr += bytes;
+  });
+  env.FBL_TEST_PROCESSES = JSON.stringify({
+    pids: {
+      [daemon.pid]: `python3 ${script} --home ${home}`,
+    },
+  });
   t.after(async () => {
     if (daemon.exitCode === null && daemon.signalCode === null) {
       daemon.kill('SIGKILL');
@@ -393,7 +577,7 @@ async function startInstalledDaemon(t, home) {
     } catch {}
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
-  throw Error('临时 daemon 未启动');
+  throw Error(`临时 daemon 未启动：${stderr}`);
 }
 
 // 中文注释：替身打包器生成同步所需的最小产物与哈希清单，其余流程走真实 dev-sync。
@@ -428,26 +612,9 @@ async function fakePackager(f) {
       'utf8',
     ),
   };
-  for (const name of [
-    'copilot_diagnostics.py',
-    'copilot_health.py',
-    'copilot_journal.py',
-    'copilot_setup.py',
-    'copilot.py',
-    'copilot_acp.py',
-    'copilot_execution.py',
-    'copilot_usage.py',
-    'copilot_models.py',
-    'copilot_exec_acp.py',
-    'copilot_fetch.py',
-    'copilot_results.py',
-    'copilot_tables.py',
-    'copilot_directories.py',
-    'copilot_agents.py',
-    'copilot_packages.py',
-    'copilot_capabilities.py',
-    'copilot_tools.py',
-  ])
+  for (const name of (await readdir(path.join(REPO, 'native-bridge'))).filter((name) =>
+    /^copilot(?:_.*)?\.py$/.test(name),
+  ))
     copilotFiles[`fast-browser-link/native_bridge/${name}`] = await readFile(
       path.join(REPO, 'native-bridge', name),
       'utf8',
@@ -489,7 +656,7 @@ test('dev-sync 一条命令：暂停 Hermes、写维护标记、停止已核实 
     mode: 0o600,
   });
   await fakePackager(f);
-  const daemon = await startInstalledDaemon(t, f.home);
+  const daemon = await startInstalledDaemon(t, f.home, f.env);
   const exited = once(daemon, 'exit');
   const result = f.run();
   assert.equal(result.status, 0, result.stderr);
@@ -539,7 +706,7 @@ test('dev-sync 等待任务超时列出 id 与标题，不停止任何进程并�
   await writeFile(path.join(f.data, 'tasks.json'), JSON.stringify({ version: 1, tasks: [task] }), {
     mode: 0o600,
   });
-  const daemon = await startInstalledDaemon(t, f.home);
+  const daemon = await startInstalledDaemon(t, f.home, f.env);
   const started = Date.now(),
     result = f.run(['--wait-seconds', '1']);
   assert.notEqual(result.status, 0);
@@ -652,7 +819,7 @@ test('daemon 仍在运行时残留历史继续拒绝', async (t) => {
   await writeFile(path.join(f.data, 'tasks.json'), JSON.stringify({ version: 1, tasks: [] }), {
     mode: 0o600,
   });
-  await startInstalledDaemon(t, f.home);
+  await startInstalledDaemon(t, f.home, f.env);
   const code = `
 import importlib.util,sys
 from pathlib import Path
@@ -673,7 +840,7 @@ except cli.CloudGateError:
       path.join(REPO, 'scripts/install-executor.py'),
       f.home,
     ],
-    { encoding: 'utf8' },
+    { encoding: 'utf8', env: f.env },
   );
   assert.equal(result.status, 3, result.stderr);
 });
@@ -686,15 +853,16 @@ async function ackFixture(t, tasks) {
   await mkdir(data, { recursive: true, mode: 0o700 });
   const bytes = JSON.stringify({ version: 1, tasks });
   await writeFile(path.join(data, 'tasks.json'), bytes, { mode: 0o600 });
+  const env = await isolatedInstallerEnv(home, home);
   const ack = (...args) =>
-    spawnSync(PYTHON, [path.join(REPO, 'scripts/tasks-ack.py'), ...args], {
+    spawnSync(env.BROWSER_LINK_TEST_PYTHON, [path.join(REPO, 'scripts/tasks-ack.py'), ...args], {
       encoding: 'utf8',
-      env: { ...process.env, HERMES_HOME: home, PYTHONDONTWRITEBYTECODE: '1' },
+      env,
       timeout: 60000,
     });
   const backups = async () =>
     (await readdir(data)).filter((name) => name.startsWith('tasks.json.ack-'));
-  return { home, data, bytes, ack, backups };
+  return { home, data, bytes, ack, backups, env };
 }
 
 test('tasks:ack 备份原文件并把已关闭任务标为用户已核实', async (t) => {
@@ -752,7 +920,7 @@ test('tasks:ack 拒绝未关闭、不存在、带授权、未合并日志和 dae
     const f = await ackFixture(t, [
       { id: 'a', owner: 'o', state: 'closed', cleanupState: 'unknown', requestHistory: [] },
     ]);
-    const daemon = await startInstalledDaemon(t, f.home);
+    const daemon = await startInstalledDaemon(t, f.home, f.env);
     const result = f.ack('a');
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /仍在运行|--stop-daemon/);
@@ -769,7 +937,7 @@ test('tasks:ack 拒绝未关闭、不存在、带授权、未合并日志和 dae
 });
 
 test('copilot 初始化使用真实暂存运行时并保留既有配置；失败包含 Python stderr', async (t) => {
-  const base = await mkdtemp(path.join(tmpdir(), 'copilot-sync-'));
+  const base = await mkdtemp(path.join(testTemp, 'copilot-sync-'));
   t.after(() => rm(base, { recursive: true, force: true }));
   const home = await realpath(base),
     plugin = path.join(home, 'plugin');

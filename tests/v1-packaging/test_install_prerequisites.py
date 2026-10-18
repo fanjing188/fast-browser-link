@@ -10,7 +10,7 @@ import unittest
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
-SCRATCH = Path.home() / ".hermes/cache/scratch"
+SCRATCH = Path(tempfile.gettempdir()).resolve()
 ORIGIN = "chrome-extension://hhnljehnkmhhgjjjmnlhilfpcjhobloc/"
 
 spec = importlib.util.spec_from_file_location(

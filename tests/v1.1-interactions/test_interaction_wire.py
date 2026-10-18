@@ -21,7 +21,7 @@ class InteractionWireTests(unittest.TestCase):
         cls.runtime_module = cls.tools.runtime_module()
 
     def setUp(self):
-        scratch = Path.home() / ".hermes/cache/scratch"
+        scratch = Path(tempfile.gettempdir()).resolve()
         scratch.mkdir(parents=True, exist_ok=True)
         temp = tempfile.TemporaryDirectory(dir=scratch)
         self.addCleanup(temp.cleanup)

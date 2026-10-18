@@ -36,8 +36,8 @@ except (cli.InstallError, OSError, ValueError) as error:
   });
 }
 
-export function assertDevelopmentIdle(home, repo) {
-  const result = runDevelopmentGuard(home, repo);
+export function assertDevelopmentIdle(home, repo, env = process.env) {
+  const result = runDevelopmentGuard(home, repo, [], env);
   if (result.status !== 0) throw Error(result.stderr || '无法核实同步空闲状态');
 }
 

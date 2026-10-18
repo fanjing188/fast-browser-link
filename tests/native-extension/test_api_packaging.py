@@ -9,7 +9,7 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
-SCRATCH = Path.home() / ".hermes/cache/scratch"
+SCRATCH = Path(tempfile.gettempdir()).resolve()
 FIXTURE_DIR = ROOT / "tests/fixtures"
 
 

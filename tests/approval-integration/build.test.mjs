@@ -1,14 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
-import { tmpdir, homedir } from 'node:os';
+import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 const root = path.resolve(import.meta.dirname, '../..');
 test('native build is offline closed over the approval policy', async () => {
-  const folder = await mkdtemp(path.join(homedir(), '.hermes/cache/scratch/approval-closure-'));
+  const folder = await mkdtemp(path.join(tmpdir(), 'approval-closure-'));
   try {
     execFileSync(process.execPath, [path.join(root, 'native-extension/build.mjs'), folder]);
     const deps = JSON.parse(await readFile(path.join(folder, 'BUILD-DEPS.json'), 'utf8'));

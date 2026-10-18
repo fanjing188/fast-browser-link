@@ -11,11 +11,16 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
-SCRATCH = Path(os.environ.get("TMPDIR", str(Path.home() / ".hermes/cache/scratch")))
+SCRATCH = Path(os.environ.get("TMPDIR", str(Path(tempfile.gettempdir()).resolve())))
 DIAG = Path("browser-diagnostics/python/browser_diagnostics")
 FILES = ("__init__.py", "schema.py", "runtime.py", "sink.py")
 # 中文注释：版本预检也读取仓库根清单，负向夹具必须先满足正常打包输入。
 INPUTS = (
+    "fbl.py",
+    "skills",
+    "agent-link",
+    "scripts/setup-copilot-profile.py",
+    "scripts/setup-copilot-package.py",
     "package.json",
     "package-lock.json",
     "cloud-link",

@@ -17,7 +17,7 @@ from daemon import BridgeDaemon, ProtocolError
 
 class ApprovalNotificationTests(unittest.TestCase):
     def setUp(self):
-        scratch = Path.home() / ".hermes" / "cache" / "scratch"
+        scratch = Path(tempfile.gettempdir()).resolve()
         scratch.mkdir(parents=True, exist_ok=True)
         self.temp = tempfile.TemporaryDirectory(dir=scratch)
         self.addCleanup(self.temp.cleanup)

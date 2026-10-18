@@ -22,7 +22,7 @@ from unittest.mock import patch
 sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parents[2]
 PLUGIN = ROOT / "executor-plugin"
-SCRATCH = Path.home() / ".hermes" / "cache" / "scratch"
+SCRATCH = Path(tempfile.gettempdir()).resolve()
 SCRATCH.mkdir(parents=True, exist_ok=True, mode=0o700)
 sys.path.insert(0, str(ROOT / "native-bridge"))
 from daemon import BridgeDaemon, ProtocolError  # noqa: E402

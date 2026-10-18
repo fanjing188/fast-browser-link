@@ -12,7 +12,7 @@ import unittest
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-SCRATCH_ROOT = pathlib.Path.home() / ".hermes" / "cache" / "scratch"
+SCRATCH_ROOT = pathlib.Path(tempfile.gettempdir()).resolve()
 SCRIPT = ROOT / "scripts" / "inventory-official-browser.py"
 _SPEC = importlib.util.spec_from_file_location("inventory_official_browser", SCRIPT)
 if _SPEC is None or _SPEC.loader is None:

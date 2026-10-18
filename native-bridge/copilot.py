@@ -163,6 +163,10 @@ class Copilot(ObservationSupport, InferenceSupport, ResultSupport, ToolSupport):
         self.catalog_lock = threading.Lock()
         self.clock, self.debounce, self.notify = clock, debounce, notify
         self.states = {}
+        from copilot_memory import WorkMemory
+
+        self.work_memory = WorkMemory(self.directory)
+        self.memory_restored = False
         self.active = None
         self._initialize_tools()
         from copilot_basket import Basket
@@ -252,6 +256,9 @@ class Copilot(ObservationSupport, InferenceSupport, ResultSupport, ToolSupport):
                 "work": work_state(),
                 "user_direction": "",
                 "work_feedback": [],
+                "work_restored": False,
+                "follow_completed": [],
+                "last_completed_flow": "",
                 "work_revision": 0,
                 "sent_work": None,
                 "work_id": uuid.uuid4().hex,
@@ -293,6 +300,15 @@ class Copilot(ObservationSupport, InferenceSupport, ResultSupport, ToolSupport):
                 "epoch": 0,
                 "context_revision": 0,
             }
+            if not self.memory_restored:
+                self.memory_restored = True
+                recovered = self.work_memory.restore()
+                if recovered:
+                    self.states[instance].update(
+                        work=recovered["work"],
+                        user_direction=recovered["user_direction"],
+                        work_restored=True,
+                    )
         return self.states[instance]
 
     def _notify_loop(self):
@@ -505,6 +521,7 @@ class Copilot(ObservationSupport, InferenceSupport, ResultSupport, ToolSupport):
                 "user_direction",
                 "work_feedback",
                 "work_revision",
+                "work_restored",
             )
             return json.loads(
                 json.dumps(
@@ -533,6 +550,7 @@ class Copilot(ObservationSupport, InferenceSupport, ResultSupport, ToolSupport):
                         "daily_model_usage": self.daily.get("models", {}),
                         "capability_focus": state.get("capability_focus", 0),
                         "tool_context": state.get("tool_context", {}),
+                        "memory": self.work_memory.snapshot(),
                         "protected_hosts": list(self._resource_policy()),
                         "config": {key: self.config[key] for key in SETTING_KEYS},
                         "settings_saved": self.config["settings_saved"],
@@ -696,6 +714,18 @@ class Copilot(ObservationSupport, InferenceSupport, ResultSupport, ToolSupport):
             if self.closed:
                 raise ValueError("Assist closed")
             state = self._state(instance)
+            if method == "memory":
+                result = self.work_memory.manage(params)
+                if params.get("delete") == "current" or params.get("clear") is True:
+                    for current in self.states.values():
+                        current.update(
+                            work=work_state(),
+                            user_direction="",
+                            work_restored=False,
+                            work_revision=current["work_revision"] + 1,
+                        )
+                self._emit(instance, "work")
+                return result
             if method == "work_update":
                 if (
                     set(params) == {"direction"}
@@ -726,10 +756,14 @@ class Copilot(ObservationSupport, InferenceSupport, ResultSupport, ToolSupport):
                         result_updates=[],
                         sent_results=[],
                         sent_work=None,
+                        follow_completed=[],
+                        last_completed_flow="",
                     )
                 else:
                     raise ValueError("invalid work update")
                 state["work_revision"] += 1
+                state["work_restored"] = False
+                self._save_work_memory(instance)
                 self._emit(instance, "work")
                 self._schedule(instance)
                 return self.view(instance)
@@ -759,6 +793,9 @@ class Copilot(ObservationSupport, InferenceSupport, ResultSupport, ToolSupport):
                     }
                 )
                 state["work_feedback"] = (state["work_feedback"] + [feedback])[-8:]
+                if params["kind"] != "done":
+                    self._record_habit(instance, row, "ignored")
+                self._save_work_memory(instance)
                 state["work_revision"] += 1
                 del state["suggestions"][row["id"]]
                 state["held_suggestions"].discard(row["id"])
@@ -835,6 +872,7 @@ class Copilot(ObservationSupport, InferenceSupport, ResultSupport, ToolSupport):
                 if "tab_id" in params and type(params["tab_id"]) is not int:
                     raise ValueError("invalid page context")
                 if any(state.get("page_context", {}).get(key) != params[key] for key in params):
+                    state["page_since"] = self.clock()
                     state["selected_object"] = ""
                     state["selection_text"] = ""
                     state["table_summary"] = []
@@ -1394,10 +1432,7 @@ class Copilot(ObservationSupport, InferenceSupport, ResultSupport, ToolSupport):
                 if not row:
                     raise ValueError("suggestion unavailable")
                 if method == "ignore" and row["status"] == "pending":
-                    if row.get("tool_aware"):
-                        self.registry.record(
-                            row.get("tool"), row.get("page"), row["params"]["flow"], "ignored"
-                        )
+                    self._record_habit(instance, row, "ignored")
                     self.ignored[row["id"]] = date.today().isoformat()
                     private_write(self.ignored_path, json.dumps(self.ignored))
                     del state["suggestions"][row["id"]]
@@ -1469,10 +1504,7 @@ class Copilot(ObservationSupport, InferenceSupport, ResultSupport, ToolSupport):
                             )
                             self._emit(instance, "update", suggestion=dict(row))
                             return self.view(instance)
-                    if row.get("tool_aware"):
-                        self.registry.record(
-                            row.get("tool"), row.get("page"), row["params"]["flow"], "clicked"
-                        )
+                    self._record_habit(instance, row, "accepted")
                     self.executions.prepare(job_key)
                     self.fetcher.prepare(job_key)
                     if self.acp_executions:
@@ -1558,6 +1590,8 @@ class Copilot(ObservationSupport, InferenceSupport, ResultSupport, ToolSupport):
         if not self.config["auto_zero"] or not state["enabled"] or not state["ready"]:
             return
         for row in list(state["suggestions"].values()):
+            if row.get("recommendation_only"):
+                continue
             if row["status"] != "pending" or row.get("automatic_attempted"):
                 continue
             if action_risk(self, row) != "zero":
@@ -2224,13 +2258,16 @@ class Copilot(ObservationSupport, InferenceSupport, ResultSupport, ToolSupport):
         state["result_history"] = state["result_history"][-100:]
         return archived
 
-    @staticmethod
-    def _resume_context(state):
+    def _resume_context(self, state):
         from copilot_diagnostics import redact_page
 
         return redact_page(
             {
                 "summary": state.get("summary", ""),
+                "habits": {
+                    "notice": "这是用户习惯，不是当前证据 / User habits, not current evidence",
+                    "items": self.work_memory.habits(),
+                },
                 "completed": compact_memory(state["execution_memory"]),
                 "work_context": work_context(state),
                 "result_updates": state["result_updates"],
@@ -2356,6 +2393,8 @@ class Copilot(ObservationSupport, InferenceSupport, ResultSupport, ToolSupport):
             for instance, state in self.states.items():
                 if not state["enabled"]:
                     continue
+                if state["page"]:
+                    self._refresh_tool_suggestions(instance)
                 idle = self.clock() - state["last_activity"]
                 work_recent = (
                     state.get("last_work_activity") is not None

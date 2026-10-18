@@ -115,3 +115,62 @@ fbl packs install /absolute/path/to/docs/examples/adapter-pack
 至少覆盖：声明加载；场景内出现相应建议、场景外不出现；真实执行回执；字段与市场一致；空结果/部分数据；停止和重试；登录、验证码、限流与配额；任务页清理；安装冲突与卸载保护。离线夹具、真实浏览器和付费来源验收分别记录。
 
 先在临时目录运行示例与测试，再安装到自己的运行时。改动过的受管包不会被静默覆盖或卸载，需由作者审查后处理。
+
+## 主动跟随：`triggers` 与 `next`
+
+流程可选 `triggers`，最多 20 条。数组各条是“或”，同条各键是“且”，键顺序不影响结果。省略沿用原有页面/URL 推荐；空数组只允许由 `next` 衔接。所有流程仍须属于当前工具的匹配页面，并有明确对象。习惯只能调整排序，不能让页面外或未触发的流程出现。
+
+| 触发声明 | 命中依据 |
+| --- | --- |
+| `{"page":{"tool":"support-triage-example","page":"case"}}` | 工具和页面 ID 同时匹配 |
+| `{"table_columns":{"all":["Case","Status"]}}` | 同一张已采集表格包含所有列，忽略大小写和首尾空白 |
+| `{"selection":{"object":"case_id"}}` | 当前选区完整匹配该对象的已有 selection 正则 |
+| `{"after":{"flow":"support_materials","status":"completed"}}` | 当前工作中同对象流程成功完成；失败、停止、部分完成不算 |
+| `{"dwell_seconds":20}` | 当前页面停留至少 20 秒；范围 0–86400，页面或标签页切换重新计时，后台每 5 秒检查 |
+
+命中直接产生确定性建议，卡片显示原因，不为此启动模型推理。模型可排序，处理未覆盖情况，但不能放行未触发的流程。确定性与模型建议按流程和对象合并，最多 10 条自动产生的待办；用户主动建立的任务和已有执行/结果不因上限删除。已完成、稍后、方向不对以及当天忽略继续抑制重复建议。表头与选区仅消费现有有界数据。
+
+`next` 最多 20 条，每条必须包含 `flow` 和 `when`，目标流程须存在且对象类型相同。条件必须显式声明 `records:"any"`（任一记录）或 `records:"all"`（全部记录）。空记录集永不命中，缺字段不当空值。只检查成功结果的 `records`，不检查模型推测或页面文字。
+
+| `when` 条件 | 含义 |
+| --- | --- |
+| `{"field":"missing_materials","records":"all","empty":true}` | 每条记录的字段为 null、空字符串、空数组或空对象；0 和 false 为非空 |
+| `{"field":"missing_materials","records":"any","empty":false}` | 任一记录字段非空 |
+| `{"field":"status","records":"all","equals":"open"}` | 值与类型均相等 |
+| `{"field":"missing_materials","records":"any","contains":"invoice"}` | 字符串包含子串，或数组含该元素 |
+| `{"field":"count","records":"any","min":1,"max":5}` | 数值闭区间；min/max 可只写一个，不接受布尔值或数值字符串 |
+
+同条只能有一种条件，数值 min/max 可组合。衔接沿用完成流程的对象，即使当前 URL 不再提供它；目标仍须在当前页面允许的流程清单中。只生成待办，不自动执行；执行仍受宿主风险、能力、确认及页面权限检查约束。
+
+以下片段演示给已有合成工单包增加声明。将第二个流程加入页面 `flows`，并提供其真实步骤；本例沿用示例已有的本地只读核对步骤，仅演示条件衔接，不发送回复：
+
+```json
+{
+  "flows": {
+    "support_materials": {
+      "name": {"zh":"核对工单材料","en":"Inspect case materials"},
+      "object":"case_id",
+      "judgment":false,
+      "risk":"zero",
+      "triggers":[
+        {"page":{"tool":"support-triage-example","page":"case"}},
+        {"table_columns":{"all":["Case","Status"]}},
+        {"selection":{"object":"case_id"}},
+        {"dwell_seconds":20}
+      ],
+      "next":[{"flow":"support_reply_draft","when":{"field":"missing_materials","records":"all","empty":true}}],
+      "steps":[{"id":"read_case","capability":"case.inspect","risk":"zero","input":{"case_id":"$input.object"}}]
+    },
+    "support_reply_draft": {
+      "name":{"zh":"复核回复材料","en":"Review reply materials"},
+      "object":"case_id",
+      "judgment":false,
+      "risk":"zero",
+      "triggers":[],
+      "steps":[{"id":"read_case","capability":"case.inspect","risk":"zero","input":{"case_id":"$input.object"}}]
+    }
+  }
+}
+```
+
+页面采集新增可见表单标签（label、aria-label、placeholder）和 h1–h3（每级最多 5 条），不读取字段值。密码、验证码与支付字段只留下“存在敏感字段”。快照保持 3KB 上限，先保留表格摘要、标题及选区，再保留表单标签；原有脱敏与浏览器权限不变。

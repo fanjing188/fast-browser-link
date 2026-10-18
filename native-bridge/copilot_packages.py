@@ -331,6 +331,9 @@ class Packages:
                 if models > 1:
                     raise ValueError("workflow has more than one model turn")
                 validate_flow(flow, objects, {**CAPABILITIES, **self.schemas})
+                from copilot_follow import validate_follow
+
+                validate_follow(flow, {**self.flows, **value.get("flows", {})})
                 from copilot_risk import declared
 
                 declared(flow)
@@ -420,6 +423,8 @@ class Packages:
                 "name": flow.get("name", identity),
                 "description": flow.get("description", {}),
                 "when": flow.get("when", {}),
+                "triggers": flow.get("triggers"),
+                "next": flow.get("next", []),
                 "scene": self.scenes.get(self.flow_packages.get(identity), {"id": "general"})["id"],
                 "object_type": flow.get("object", "keyword"),
                 "objects": self.flow_objects(identity, context, selection),

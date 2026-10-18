@@ -46,6 +46,7 @@ for (const file of [
   'copilot-result.mjs',
   'copilot-result.html',
   'copilot-settings.mjs',
+  'copilot-memory-panel.mjs',
   'copilot-view.mjs',
   'copilot-entry.js',
   'copilot-collector.mjs',

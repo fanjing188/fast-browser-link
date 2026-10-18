@@ -100,6 +100,7 @@ class ObservationSupport:
             return {"accepted": False, "reason": "coalesced"}
         state.update(capture_signature=signature, capture_at=self.clock(), context_dirty=False)
         self._refresh_tool_suggestions(instance, selection)
+        self._save_work_memory(instance)
         state["last_activity"], state["idle_paused"] = self.clock(), False
         kinds = []
         for step in meaningful:
@@ -127,7 +128,13 @@ class ObservationSupport:
             snapshot_bytes=len(json.dumps(page, ensure_ascii=False).encode()),
             items=len(page.get("items", [])),
         )
-        self._schedule(instance)
+        covered = state["tool_context"].get("trigger_covered", False)
+        uncovered = any(
+            "triggers" not in flow
+            for flow in self.packages.matching_flows(self._tool_context(instance)).values()
+        )
+        if not covered or uncovered:
+            self._schedule(instance)
         return {"accepted": True}
 
     @staticmethod
@@ -138,16 +145,38 @@ class ObservationSupport:
             "items": [],
             "truncated": False,
         }
-        for item in page.get("items", [])[:80]:
-            if not isinstance(item, dict):
-                continue
+        priority = {
+            "table": 0,
+            "heading": 1,
+            "selection": 2,
+            "sensitive-fields": 3,
+            "form-label": 4,
+        }
+        heading_counts = {1: 0, 2: 0, 3: 0}
+        for item in sorted(
+            (item for item in page.get("items", [])[:80] if isinstance(item, dict)),
+            key=lambda item: priority.get(item.get("role"), 5),
+        ):
+            if item.get("role") == "heading":
+                level = item.get("level")
+                if type(level) is int and level in heading_counts:
+                    if heading_counts[level] >= 5:
+                        continue
+                    heading_counts[level] += 1
             bounded["items"].append(
                 {"role": str(item.get("role", ""))[:30], "name": str(item.get("name", ""))[:180]}
+                | (
+                    {"level": item["level"]}
+                    if item.get("role") == "heading"
+                    and type(item.get("level")) is int
+                    and item["level"] in (1, 2, 3)
+                    else {}
+                )
             )
-            if len(json.dumps(bounded, ensure_ascii=False, separators=(",", ":")).encode()) > 3000:
+            if len(json.dumps(bounded, ensure_ascii=False).encode()) > 3072:
                 bounded["items"].pop()
                 bounded["truncated"] = True
-                break
+                continue
         return bounded
 
     @staticmethod
@@ -203,6 +232,12 @@ class ObservationSupport:
             ],
         }
         work = work_context(state)
+        habits = self.work_memory.habits()
+        if habits:
+            payload["habits"] = {
+                "notice": "这是用户习惯，不是当前证据 / User habits, not current evidence",
+                "items": habits,
+            }
         if work != state["sent_work"] and (
             any(state["work"].values())
             or state["user_direction"]

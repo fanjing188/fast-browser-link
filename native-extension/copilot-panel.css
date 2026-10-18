@@ -52,3 +52,5 @@
 .work-context[data-activity=connecting] .work-status,.work-context[data-activity=connecting] .work-signal{color:var(--brand)}
 .work-context[data-activity=connecting] .work-rail span{animation:work-forward 1.8s linear infinite;opacity:1}
 .work-context[data-activity=connecting] .work-signal i{animation:work-signal 1s cubic-bezier(0.77,0,0.175,1) infinite alternate}
+
+.memory-records{list-style:none;padding:0;margin:12px 0}.memory-records li{display:flex;gap:10px;align-items:start;padding:10px 0;border-bottom:1px solid var(--line-2)}.memory-records li>div{flex:1;min-width:0;overflow-wrap:anywhere}.memory-records button{flex:none;min-height:32px}.memory-records p,#memory-hint,#memory-empty,#memory-status{font-size:12px;line-height:1.6;color:var(--ink-2)}#memory-status{display:block;margin-top:8px}

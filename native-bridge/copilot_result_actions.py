@@ -863,6 +863,24 @@ class ResultSupport:
                 report=str(report),
                 cache_hit=cache,
             )
+            if (
+                row["action"] == "workflow.run"
+                and row.get("work_id", state["work_id"]) == state["work_id"]
+                and row.get("completion_status", row["status"]) == "completed"
+            ):
+                state["follow_completed"] = (
+                    state["follow_completed"]
+                    + [
+                        {
+                            "flow": row["params"]["flow"],
+                            "object": row["params"]["object"],
+                            "status": "completed",
+                            "records": copy.deepcopy(result.get("records", [])),
+                        }
+                    ]
+                )[-20:]
+                state["last_completed_flow"] = row["params"]["flow"]
+                self._refresh_tool_suggestions(instance)
             if row["action"] in {"seo.keyword_check", "seo.trends"}:
                 recent = {
                     key: copy.deepcopy(row[key])

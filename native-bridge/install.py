@@ -88,6 +88,8 @@ def stage(
         "copilot.py",
         "copilot_contracts.py",
         "copilot_state.py",
+        "copilot_follow.py",
+        "copilot_memory.py",
         "copilot_observation.py",
         "copilot_inference.py",
         "copilot_result_actions.py",

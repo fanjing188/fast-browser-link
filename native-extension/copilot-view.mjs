@@ -62,8 +62,13 @@ export function renderWorkContext(doc, state, { command } = {}) {
     state.user_direction ||
     work.goal ||
     (en ? 'Learning from your browsing…' : '正在从你的操作了解工作…');
-  doc.getElementById('work-goal').textContent = goal;
+  doc.getElementById('work-goal').textContent =
+    goal + (state.work_restored ? (en ? ' · Restored from last session' : ' · 上次会话恢复') : '');
   doc.getElementById('work-log-goal').textContent = work.goal || goal;
+  if (state.work_restored)
+    doc.getElementById('work-log-goal').textContent += en
+      ? ' · Restored from last session'
+      : ' · 上次会话恢复';
   const direction = doc.getElementById('work-user-direction');
   direction.hidden = !state.user_direction;
   direction.textContent = (en ? 'Your direction: ' : '你的方向：') + (state.user_direction || '');

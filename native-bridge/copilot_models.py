@@ -73,6 +73,8 @@ def settings(values):
 
 
 def catalogs(config, directory, write, *, force=False, runtime=None):
+    if config.get("default_agent", "hermes") == "codex":
+        return codex_catalogs(config, directory, write, force=force)
     path = Path(directory) / "models.json"
     cache = {}
     if path.is_file() and not path.is_symlink():
@@ -141,3 +143,42 @@ def catalogs(config, directory, write, *, force=False, runtime=None):
     if saved:
         write(path, json.dumps(saved, ensure_ascii=False))
     return result
+
+
+def codex_catalogs(config, directory, write, *, force=False):
+    from copilot_codex import Codex
+
+    probe = Codex(config, directory)
+    try:
+        probe.start(initialize_only=True)
+        effective = probe.call("config/read", {"includeLayers": False}).get("config", {})
+        provider = effective.get("model_provider") or "openai"
+        key = json.dumps(["codex", probe.version, provider])
+        path = Path(directory) / "codex-models.json"
+        cache = {}
+        if path.is_file() and not path.is_symlink():
+            cache = json.loads(path.read_text())
+        entry = cache.get(key, {})
+        if not force and 0 <= time.time() - entry.get("fetched_at", 0) < 86400:
+            entry = {**entry, "cached": True}
+        else:
+            entry = {
+                **probe.list_models(),
+                "agent": "codex",
+                "version": probe.version,
+                "provider": provider,
+                "fetched_at": time.time(),
+                "cached": False,
+            }
+            write(path, json.dumps({key: entry}, ensure_ascii=False))
+        return {"inference": entry, "execution": dict(entry)}
+    except (ACPError, OSError, ValueError, TypeError):
+        entry = {
+            "current": "",
+            "available": [],
+            "cached": False,
+            "error": "Codex model list unavailable; check installation and run codex login in your terminal.",
+        }
+        return {"inference": entry, "execution": dict(entry)}
+    finally:
+        probe.close()

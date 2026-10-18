@@ -52,7 +52,7 @@ export class AgentPanel {
     return (
       job.connection?.inference === 'connected' &&
       job.connection?.execution === 'connected' &&
-      job.connection?.check === 'acp_initialize'
+      ['acp_initialize', 'codex_initialize'].includes(job.connection?.check)
     );
   }
   show() {
@@ -232,6 +232,27 @@ export class AgentPanel {
     }
   }
   jobError(job) {
+    if (job.agent_id === 'codex') {
+      const messages = {
+        codex_not_installed: this.t(
+          '请按官方说明安装 Codex，然后重新检测。',
+          'Install Codex using the official instructions, then detect again.',
+        ),
+        codex_unsupported_version: this.t(
+          'Codex 版本不受支持，需要 0.162.1 或更高版本。',
+          'Codex version unsupported; 0.162.1 or newer is required.',
+        ),
+        codex_auth_missing: this.t(
+          '请在终端执行 codex login，然后重新检测。',
+          'Run codex login in your terminal, then detect again.',
+        ),
+        codex_auth_error: this.t(
+          '无法核实 Codex 登录状态，请在终端检查。',
+          'Could not verify Codex login status. Check in your terminal.',
+        ),
+      };
+      if (messages[job.error]) return messages[job.error];
+    }
     const messages = {
       engine_existing_configuration_requires_manual: this.t(
         '已有安装或用户配置，请按官方指南修复，保留原配置。',
@@ -368,13 +389,26 @@ export class AgentPanel {
     notice.textContent = this.notice || this.catalogError || busyMessage;
     notice.dataset.error = String(!!this.error || catalogError);
     const help = doc.getElementById('agent-installation-help');
-    help.hidden = this.job?.error !== 'engine_existing_configuration_requires_manual';
+    help.hidden =
+      agent?.id !== 'codex' && this.job?.error !== 'engine_existing_configuration_requires_manual';
     const guide = help.querySelector('a');
-    guide.href = INSTALL_DOCS;
+    guide.href = agent?.id === 'codex' ? 'https://developers.openai.com/codex/cli' : INSTALL_DOCS;
     guide.textContent = this.t(
       '查看官方安装与修复指南 ↗',
       'Official installation and repair guide ↗',
     );
+    let commands = help.querySelector('code');
+    if (agent?.id === 'codex') {
+      if (!commands) {
+        commands = doc.createElement('code');
+        help.append(commands);
+      }
+      commands.textContent = 'npm install -g @openai/codex · codex login';
+      doc.getElementById('agent-detection').textContent += this.t(
+        ' · 推理为受限模式（只读沙箱、无执行环境、宿主审计）；Hermes 为已核实零工具。',
+        ' · Inference uses restricted mode (read-only sandbox, no execution environment, host audit); Hermes verifies zero tools.',
+      );
+    } else commands?.remove();
     doc.getElementById('agent-later').textContent = pending
       ? this.t('后台继续', 'Continue in background')
       : this.t('稍后', 'Later');
@@ -387,7 +421,9 @@ export class AgentPanel {
             `安装 ${agent.name} 并配置协作`,
             `Install ${agent.name} and configure collaboration`,
           )
-        : this.t('配置并连接', 'Configure and connect');
+        : agent?.id === 'codex'
+          ? this.t('检查并连接', 'Check and connect')
+          : this.t('配置并连接', 'Configure and connect');
     const enable = doc.getElementById('agent-enable');
     enable.hidden = !ready;
     enable.disabled = this.busy;

@@ -137,6 +137,8 @@ def failure(error, runtime=None):
 
 def failure_message(value, language="zh"):
     zh = {
+        "policy_violation": "Codex 受限推理出现工具事件，本轮输出已丢弃",
+        "codex_disconnected": "Codex 连接中断，执行任务不会重放",
         "model_output_invalid": "模型返回格式不对，已保留原建议",
         "acp_disconnected": "Hermes 推理连接已断开，正在重连",
         "acp_timeout": "Hermes 响应超时，已保留原建议",
@@ -144,6 +146,8 @@ def failure_message(value, language="zh"):
         "internal_error": "协作处理异常，已保留原建议",
     }
     en = {
+        "policy_violation": "Codex restricted inference tool event; turn output discarded",
+        "codex_disconnected": "Codex disconnected; execution will not be replayed",
         "model_output_invalid": "Invalid model output; previous suggestions retained",
         "acp_disconnected": "Hermes disconnected; reconnecting",
         "acp_timeout": "Hermes timed out; previous suggestions retained",

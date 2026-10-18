@@ -6,6 +6,8 @@ import shutil
 
 
 def health(config, state, runtime):
+    if config.get("default_agent") == "codex":
+        return codex_health(config, state, runtime)
     home = Path(config.get("hermes_home") or Path.home() / ".hermes").expanduser()
     profile = config.get("exec_profile", "fast-copilot")
     profile_exists = (
@@ -95,6 +97,12 @@ def health(config, state, runtime):
 
 
 def startup_failure(config, error, *, execution=False):
+    if config.get("default_agent") == "codex":
+        return {
+            "code": str(error) if str(error).startswith("codex_") else "codex_start_failed",
+            "reason": "Codex 会话启动失败：请检查版本、登录状态和策略回执",
+            "reason_en": "Codex session failed: check version, login and policy receipt",
+        }
     command = config.get("exec_acp_command" if execution else "acp_command")
     home = Path(config.get("hermes_home") or Path.home() / ".hermes").expanduser()
     profile = config.get("exec_profile" if execution else "inference_profile", "fast-copilot")
@@ -121,3 +129,31 @@ def startup_failure(config, error, *, execution=False):
             else "Inference session failed to start",
         )
     return {"code": code, "reason": reason, "reason_en": english}
+
+
+def codex_health(config, state, runtime):
+    ready = bool(state.get("ready") and runtime and not runtime.closed and not runtime.failure)
+    failed = (
+        state.get("diagnostic")
+        or state.get("startup_error")
+        or state.get("inference_failures", 0) >= 3
+    )
+    status = (
+        "error"
+        if failed
+        else "connected"
+        if ready
+        else "connecting"
+        if state.get("enabled")
+        else "disconnected"
+    )
+    return {
+        "state": status,
+        "acp_ready": ready,
+        "execution_startable": bool(shutil.which(config.get("codex_command", "codex"))),
+        "last_call_succeeded": state.get("last_call_succeeded"),
+        "reason": "Codex 推理：受限模式（只读沙箱、无执行环境、宿主审计）",
+        "reason_en": "Codex inference: restricted mode (read-only sandbox, no execution environment, host audit)",
+        "inference_policy": "restricted_audited",
+        "policy_receipt": getattr(runtime, "policy_receipt", None),
+    }

@@ -1,65 +1,43 @@
 """发现只列标签元数据或在新归属工作页读取结构，不接管用户页面。"""
 
 import json
-import os
 from pathlib import Path
 import secrets
-import stat
 import time
 import uuid
 from urllib.parse import urlsplit
 from client import BridgeClient
 
-METHODS = {
-    "health": "health",
-    "browsers": "browser.list",
-    "create": "shared.create",
-    "get": "shared.get",
-    "run": "shared.run",
-    "close": "shared.close",
-    "cancel": "shared.cancel",
-    "resume": "shared.resume",
-    "list": "shared.list",
-    "downloads": "shared.downloads",
-}
-
 
 def browser_call(ctx, operation, params, session=None):
-    if operation not in METHODS or not isinstance(params, dict):
-        raise ValueError("invalid browser operation")
-    if any(key in params for key in ("owner", "session_id", "__owner_lease")):
-        raise ValueError("caller cannot supply task authority")
-    values = dict(params)
-    if operation not in {"health", "browsers"}:
-        if not session:
-            raise ValueError("task operations require --session")
-        path = Path(session).expanduser()
-        try:
-            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
-            with os.fdopen(fd, "w") as handle:
-                handle.write(secrets.token_urlsafe(32))
-        except FileExistsError:
-            pass
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
-        with os.fdopen(fd) as handle:
-            info = os.fstat(handle.fileno())
-            if (
-                not stat.S_ISREG(info.st_mode)
-                or info.st_uid != os.getuid()
-                or stat.S_IMODE(info.st_mode) != 0o600
-            ):
-                raise ValueError("unsafe session file")
-            owner = handle.read(129)
-        if not owner or len(owner) > 128:
-            raise ValueError("invalid session identity")
-        values["owner"] = owner
-    if operation == "run":
-        values.setdefault("requestId", uuid.uuid4().hex)
-    client = BridgeClient(ctx.runtime)
+    from fbl_runtime import load
+
+    root = Path(__file__).resolve().parent.parent
+    entry = next(
+        (
+            p
+            for p in (
+                root / "agent-link/fast_browser_link.py",
+                ctx.runtime / "runtime/agent-link/fast_browser_link.py",
+                root / "agent_link/fast_browser_link.py",
+            )
+            if p.is_file()
+        ),
+        None,
+    )
+    if entry is None:
+        raise ValueError("agent runtime missing")
+    agent = load("fbl_browser_agent", entry)
+    if operation not in {"health", "browsers"} and not session:
+        raise ValueError("task operations require --session")
+    owner = agent.session_owner(session) if session else None
+    browser = agent.Browser(home=ctx.runtime, owner=owner)
     try:
-        return client.call(METHODS[operation], values)
+        return browser.call(operation, params)
     finally:
-        client.close()
+        if browser.lane is not None:
+            browser.lane.close()
+        browser.client.close()
 
 
 class BrowserDiscovery:

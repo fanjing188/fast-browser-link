@@ -1,3 +1,82 @@
+# Codex / Claude Code: Skills and MCP
+
+MCP is recommended when available: a persistent process exposes structured arguments
+without a shell approval for each step. Browser authorization and sensitive input
+checks still apply. Skills provide the same script lane through a JSON CLI and work
+when the agent has local command execution but no MCP connection.
+
+After setting up the core runtime and connecting the extension, preview either command:
+
+```bash
+fbl mcp install --agent codex --dry-run
+fbl mcp install --agent claude --dry-run
+```
+
+Review the printed argv; add `--apply` to execute it through the installed agent CLI.
+Codex uses `codex mcp add fast-browser-link --env FAST_BROWSER_LINK_HOME=<runtime> -- <python> -B <entry> --mcp`.
+Claude Code uses `claude mcp add --scope user --transport stdio fast-browser-link --env FAST_BROWSER_LINK_HOME=<runtime> -- <python> -B <entry> --mcp`.
+Existing names are preserved; an unreadable configuration stops installation.
+Restart the agent's MCP connection and check that `fast_browser_link` is listed.
+For Skills, use `./install.sh --agent codex` or `--agent claude` during initial setup,
+then read the installed `fast-browser-link/SKILL.md`. Existing installations use the
+managed update workflow below. Never overwrite an existing skill to bypass checks.
+
+中文：优先 MCP，常驻进程提供结构化参数，免去逐步 shell 批准，但不跳过浏览器审批。
+Skills 适合仅能执行本机命令的客户端。先预览 `fbl mcp install --agent codex|claude`，
+审阅后加 `--apply`；已有同名配置不覆盖，配置无法确认时停止。命令只经官方 CLI 执行，
+不直接改写 agent 配置文件。重新连接 MCP 后检查工具清单。
+
+## Multi-step scripts / 多步脚本
+
+Use operation `script` on the existing `fast_browser_link` MCP tool:
+
+```json
+{"operation":"script","params":{"taskId":"ready-task-id","code":"new_tab('https://example.com')\npage = read_page()\nprint(page)","timeout":120}}
+```
+
+Or use the Skills entrypoint / 或使用 Skills 入口：
+
+```bash
+python3 <skill>/scripts/browser.py --session <private-session-file> script - < script-params.json
+fbl browser --session <private-session-file> script - < script-params.json
+```
+
+`script-params.json` contains the inner `params` object. `timeout` is 1–3600 seconds,
+default 720. Optional `tabId` selects an owned work tab; `resume_checkpoint` is an
+explicit business checkpoint, read with `load_checkpoint()`. Memory variables reset
+between calls; files persist in a 0700 per-session directory beneath runtime data.
+This runs local Python with the same filesystem semantics as the Hermes script lane;
+it is not an OS sandbox. The scrubbed child environment excludes host credentials.
+Every helper retains the existing task, origin, lease and approval checks.
+Use `new_tab`, `use_tab`, `read_page`, `click_element`, `fill_element`,
+`semantic_snapshot`, `evaluate`, `wait_pending` and `reconcile` inside Python.
+
+Always inspect `execution_complete`, `outcome_unknown` and `last_operation`.
+A caught exception or exit code 0 cannot clear an awaiting approval/input state.
+Unknown writes must be inspected, never replayed automatically. MCP bindings retain
+pending state in the process; CLI restarts retain files and the daemon operation
+ledger, not Python memory or pending helper objects. Read task state and its existing
+request ID before continuing after interruption. Do not replay the old script.
+
+中文：多步任务用 script；变量每次重置、文件延续，工作目录按入口可信身份隔离且权限为
+0700。检查完成标志和操作账本，捕获异常不代表完成；待审批或待人工输入时继续同一请求。
+未知结果先核实，禁止重放写入。CLI 重启不会保留 helper 内存，须读回原任务及请求状态。
+
+## Verified site tools / 已验证网站工具
+
+`site_search` takes `query` and `limit`; only activated verified tools are visible.
+`site_run` takes `taskId`, optional `tabId`, `site`, `name`, `args` and optional
+`timeout_s` (1–600). Search returns argument/result contracts; run validates both.
+The catalog is `<runtime>/plugin-data/fast-browser-link-native/site-tools`; the
+independent path does not silently import catalogs from another runtime.
+Define/try/activate remain in the existing trusted authoring workflow: they change
+executable definitions, and trial runs may perform real writes. This round exposes
+only discovery and execution and adds no permissions.
+
+中文：site_search 只查已验证启用的工具；site_run 校验参数、结果和原任务授权来源。
+目录属于当前运行时，不自动复制其他运行时数据。define/try/activate 涉及可执行代码维护与
+真实试运行副作用，本轮独立入口不开放，也不扩展授权。
+
 # Fast-browser-link 通用 agent 接入
 
 默认 `./install.sh` 自动检测 agent 目录并安装通用技能；`--agent all` 安装全部目标，`--agent codex --agent cursor` 可选择目标。`--dry-run` 不写入文件；`--no-open` 不打开浏览器。环境要求：macOS、Python 3.11+，以及 Chrome 或 Edge；只有源码构建需要 Node.js 22.12+。

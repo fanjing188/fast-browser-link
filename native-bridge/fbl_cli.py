@@ -783,7 +783,7 @@ def parser():
         for key in ("user-home", "hermes-home", "runtime", "source"):
             s.add_argument("--" + key, type=Path)
 
-    for name in ("setup", "update", "doctor", "logs", "packs", "browser"):
+    for name in ("setup", "update", "doctor", "logs", "packs", "browser", "mcp"):
         s = sub.add_parser(name)
         common(s)
         if name == "setup":
@@ -830,6 +830,12 @@ def parser():
             s.add_argument("--no-draft", action="store_true")
             s.add_argument("--describe")
             s.add_argument("--json", action="store_true")
+        elif name == "mcp":
+            s.add_argument("action", choices=["install"])
+            s.add_argument("--agent", choices=["codex", "claude"], required=True)
+            mode = s.add_mutually_exclusive_group()
+            mode.add_argument("--dry-run", action="store_true")
+            mode.add_argument("--apply", action="store_true")
         elif name == "browser":
             s.add_argument("--session")
             s.add_argument("operation")
@@ -954,10 +960,19 @@ def main(argv=None):
                 result = confirmation(
                     ctx, discover(ctx, args.url, args.scan_tabs, not args.no_draft), yes=args.yes
                 )
+        elif args.command == "mcp":
+            from fbl_mcp import install
+
+            result = install(ctx, args.agent, apply=args.apply, dry_run=args.dry_run)
         else:
             from fbl_browser import browser_call
 
-            result = browser_call(ctx, args.operation, json.loads(args.params), args.session)
+            result = browser_call(
+                ctx,
+                args.operation,
+                json.loads(sys.stdin.read() if args.params == "-" else args.params),
+                args.session,
+            )
         print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
         return 0
     except Exception as error:

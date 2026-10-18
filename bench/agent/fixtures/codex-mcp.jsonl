@@ -1,0 +1,6 @@
+{"type":"thread.started","thread_id":"fixture-thread"}
+{"type":"turn.started"}
+{"type":"item.started","item":{"id":"item_0","type":"mcp_tool_call","server":"fast-browser-link","tool":"fast_browser_link","arguments":{"operation":"script","params":{"taskId":"task","code":"print(1)"}},"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_0","type":"mcp_tool_call","server":"fast-browser-link","tool":"fast_browser_link","arguments":{"operation":"script","params":{"taskId":"task","code":"print(1)"}},"result":{"content":[{"type":"text","text":"{\"execution_complete\":false,\"outcome_unknown\":false}"}]},"status":"completed"}}
+{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"需要用户在浏览器中填写密码。"}}
+{"type":"turn.completed","usage":{"input_tokens":24763,"cached_input_tokens":24448,"output_tokens":122}}

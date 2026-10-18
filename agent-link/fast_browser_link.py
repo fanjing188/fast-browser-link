@@ -59,11 +59,16 @@ METHODS = {
     "downloads": "shared.downloads",
     "download_claim": "shared.download_claim",
     "download_cancel": "shared.download_cancel",
+    "script": None,
+    "site_search": None,
+    "site_run": None,
 }
 
 
 class Browser:
     def __init__(self, home=HOME, owner=None, client=None):
+        self.home = Path(home)
+        self.lane = None
         self.owner = owner or secrets.token_urlsafe(32)
         self.used = False
         self.client = client or bridge.BridgeClient(home, timeout=60)
@@ -71,8 +76,21 @@ class Browser:
     def call(self, operation, params):
         if operation not in METHODS or not isinstance(params, dict):
             raise ValueError("未知操作或参数不是对象")
-        if any(key in params for key in ("owner", "session_id", "__owner_lease")):
+        if any(
+            key in params
+            for key in ("owner", "session_id", "__owner_lease", "__browser_link_owner_lease")
+        ):
             raise ValueError("浏览器身份由调用入口管理")
+        if operation in {"script", "site_search", "site_run"}:
+            if self.lane is None:
+                spec = importlib.util.spec_from_file_location(
+                    "fbl_independent_scripts", client_path.resolve().with_name("fbl_scripts.py")
+                )
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+                self.lane = module.ScriptLane(self.client, self.home, self.owner)
+            self.used = True
+            return self.lane.execute(operation, params)
         args = dict(params)
         if operation not in ("health", "browsers"):
             args["owner"] = self.owner
@@ -90,14 +108,14 @@ class Browser:
 def tool_schema():
     return {
         "name": "fast_browser_link",
-        "description": "控制已连接的 Chrome/Edge。先 browsers，再 create、get、run，完成后 close。结果未知时先读取，禁止重放写入。",
+        "description": "控制 Chrome/Edge：browsers → create/get ready → run 或 script → close。多步优先 script；site_search 查已启用网站工具，site_run 运行。未知结果先读取，禁止重放写入。",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "operation": {"type": "string", "enum": list(METHODS)},
                 "params": {
                     "type": "object",
-                    "description": "Native 参数，例如 taskId、tabId、action、url；create 可用 incognito=true 开无痕任务，需扩展无痕权限；禁止指定 owner。",
+                    "description": "Native 参数；script: taskId, code(Python), timeout(1..3600 秒), 可选 tabId/resume_checkpoint。helpers: new_tab, use_tab, read_page, click_element, fill_element, semantic_snapshot, evaluate, wait_pending, reconcile；变量不延续，文件延续，检查 execution_complete。site_search: query/limit；site_run: taskId, site, name, args, timeout_s。create 可用 incognito=true，需无痕权限；禁止指定 owner。",
                 },
             },
             "required": ["operation"],
@@ -175,6 +193,32 @@ def error(exc):
     }
 
 
+def session_owner(session):
+    path = Path(session).expanduser()
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(fd, "w") as out:
+            out.write(secrets.token_urlsafe(32))
+    except FileExistsError:
+        pass
+    # 中文注释：复用桥接的私有文件检查，避免从链接或其他用户文件读取身份。
+    fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    import stat
+
+    with os.fdopen(fd) as source:
+        info = os.fstat(source.fileno())
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or info.st_uid != os.getuid()
+            or stat.S_IMODE(info.st_mode) != 0o600
+        ):
+            raise ValueError("会话文件必须属于当前用户且权限为 0600")
+        owner = source.read(129)
+    if not owner or len(owner) > 128:
+        raise ValueError("无效会话文件")
+    return owner
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mcp", action="store_true")
@@ -182,32 +226,10 @@ def main():
     parser.add_argument("operation", nargs="?", choices=list(METHODS))
     parser.add_argument("params", nargs="?", default="{}", help="JSON 对象；- 表示从 stdin 读取")
     args = parser.parse_args()
-    owner = None
-    if args.session and not args.mcp:
-        path = Path(args.session).expanduser()
-        try:
-            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-            with os.fdopen(fd, "w") as out:
-                out.write(secrets.token_urlsafe(32))
-        except FileExistsError:
-            pass
-        # 中文注释：复用桥接的私有文件检查，避免从链接或其他用户文件读取身份。
-        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
-        import stat
-
-        with os.fdopen(fd) as source:
-            info = os.fstat(source.fileno())
-            if (
-                not stat.S_ISREG(info.st_mode)
-                or info.st_uid != os.getuid()
-                or stat.S_IMODE(info.st_mode) != 0o600
-            ):
-                parser.error("会话文件必须属于当前用户且权限为 0600")
-            owner = source.read(129)
-        if not owner or len(owner) > 128:
-            parser.error("无效会话文件")
-    browser = Browser(owner=owner)
+    browser = None
     try:
+        owner = session_owner(args.session) if args.session and not args.mcp else None
+        browser = Browser(owner=owner)
         if args.mcp:
             serve(browser)
         else:
@@ -221,12 +243,15 @@ def main():
         print(json.dumps(error(exc), ensure_ascii=False))
         return 1
     finally:
-        if args.mcp and browser.used:
+        if browser is not None and browser.lane is not None:
+            browser.lane.close()
+        if browser is not None and args.mcp and browser.used:
             try:
                 browser.client.call("shared.session_end", {"owner": browser.owner})
             except (bridge.BridgeError, OSError):
                 pass
-        browser.client.close()
+        if browser is not None:
+            browser.client.close()
     return 0
 
 

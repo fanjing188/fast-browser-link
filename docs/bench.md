@@ -71,3 +71,58 @@ npm test
 ## 1.4.2 截图基准
 
 `screenshot_plain` 截取普通表单，`screenshot_masked` 截取 `/real-form-cases` 的可见敏感字段与跨源框架。两项均只计截图动作，不计进入页面的准备时间。同轮比较 p50，含遮罩的单张截图增加值应不超过 150 ms。其余机械动作以同机同浏览器重新记录的基线为参考，各 p50 不超过该项的 110%。沙箱无法监听基准端口时记录 `EPERM`，不能用离线用例时延替代真实浏览器结果。
+
+## Codex + MCP / Codex + Skills
+
+Both routes use `bench/agent/run_codex.py --mode mcp|skills`. We use
+`codex exec --json` because each task is a separate process and its JSONL can be
+archived and scored offline without implementing another app-server lifecycle.
+The runner uses a temporary working directory for each of the existing seven tasks.
+MCP configuration is passed only through `-c`; Skills are copied only into that
+workspace's `.agents/skills`. `--ignore-user-config` avoids loading unrelated MCP
+configuration. No agent configuration file is edited. Use the same model, browser,
+site port and machine load for all routes; run them sequentially because the site
+log is shared. These commands call real models **only with `--run`**:
+
+```bash
+# Start the local fixture site in a separate terminal.
+node bench/site/server.mjs 8765
+# Preview only: no model, browser or site requests.
+python3 bench/agent/run_codex.py --mode mcp --label r38-mcp
+python3 bench/agent/run_codex.py --mode skills --label r38-skills
+# Run outside the sandbox, after connecting the installed extension/runtime.
+python3 bench/agent/run_codex.py --mode mcp --label r38-mcp --model <same-model> --output bench/results/r38-mcp --run
+python3 bench/agent/run_codex.py --mode skills --label r38-skills --model <same-model> --output bench/results/r38-skills --run
+# Use --runtime <runtime-directory> when the runtime is not in its default location.
+python3 bench/agent/run_codex.py --mode mcp --score bench/results/r38-mcp
+python3 bench/compare.py <hermes-result.json> bench/results/r38-mcp/result.json bench/results/r38-skills/result.json
+# Offline only: synthetic event envelopes, fake CLI, existing correctness scoring.
+python3 -B -m unittest discover -s bench/agent -v
+```
+
+中文：优先 MCP；两条路径均使用临时任务目录和同一组七任务，逐个保存 JSONL、站点日志与
+输出，复用 `score.py` 正确性评分。默认只预览，只有 `--run` 会实际调用模型。MCP 参数仅
+注入本次进程；Skills 仅复制到临时工作区，不安装技能或修改个人配置。`--score` 只读归档评分。
+
+Token metrics come directly from `turn.completed.usage`: `input_tokens`,
+`cached_input_tokens`, `output_tokens`. Missing fields remain “未拿到”. A user turn
+may contain multiple model requests, so `modelCalls` is not inferred from turns.
+Standard JSONL has no request count or per-event timestamps: `modelCalls`, `totalMs`,
+`browserToolMs` and `modelThinkingMs` remain missing. The runner separately records
+measured process wall time as `harnessElapsedMs`; this is not substituted for a
+JSONL metric. Hermes token fields, where present, use `input_tokens`,
+`cache_read_tokens` and `output_tokens` from its read-only session row.
+
+MCP counts completed `fast-browser-link/fast_browser_link` calls and direct
+`operation=script` calls. It does not infer helper calls inside Python. Skills
+counts only unambiguous direct `python[3] [-B] .../browser.py` commands; a compound
+shell command containing that entrypoint makes browser/script counts missing.
+Failures include failed tool/command events and structured unsuccessful receipts,
+including a script that exits 0 while `execution_complete=false`. Truncated event
+streams without a terminal turn do not claim complete call counts.
+
+中文：缺字段不补零、不推算；turn 不等于模型请求。总耗时的进程实测值单列
+`harnessElapsedMs`，不冒充 JSONL 内指标；脚本内部 helper 不按源码静态估算调用数。
+本轮仓库夹具是按官方事件结构制作的合成样本，不是真实任务录制。真实运行后应以脱敏录制
+样本补充解析回归，不把离线分数或虚构 token 当真实效率结论。事件格式参见
+[OpenAI 官方非交互模式文档](https://developers.openai.com/codex/noninteractive/)。

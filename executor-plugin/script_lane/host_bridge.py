@@ -105,7 +105,9 @@ class HostBridge:
 
     OPTIONAL_OFFICIAL_HELPERS = frozenset({"page_info", "fill_input"})
 
-    def __init__(self, runtime, plugin_root, *, official_helper_capabilities=()):
+    def __init__(
+        self, runtime, plugin_root, *, official_helper_capabilities=(), owner_for_session=None
+    ):
         if isinstance(official_helper_capabilities, str):
             raise ValueError("official helper capabilities must be a collection")
         capabilities = frozenset(official_helper_capabilities)
@@ -113,6 +115,7 @@ class HostBridge:
             raise ValueError("unsupported official helper capability")
         self.official_helper_capabilities = capabilities
         self.runtime = runtime
+        self.owner_for_session = owner_for_session or runtime.authority.owner_for_session
         self.plugin_root = Path(plugin_root)
         spec = importlib.util.spec_from_file_location(
             "native_action_session", self.plugin_root / "script_lane" / "action_session.py"
@@ -162,12 +165,12 @@ class HostBridge:
             raise BridgeDenied("native task browser instance is disconnected")
         return task
 
-    def bind(self, session_id: str, *, owner: str, task_id: str, tab_id=None):
+    def bind(self, session_id: str, *, owner: str, task_id: str, tab_id=None, select=False):
         if (
             not session_id
             or not owner
             or not task_id
-            or self.runtime.authority.owner_for_session(session_id) != owner
+            or self.owner_for_session(session_id) != owner
         ):
             raise BridgeDenied("trusted owner/session binding required")
         task = self._verified_task(owner, task_id)
@@ -188,7 +191,7 @@ class HostBridge:
                 existing[3].reconnect()
             if tab_id is not None:
                 existing[3].use_tab(tab_id)
-            if tab_id is not None or session_id not in self._bindings:
+            if select or tab_id is not None or session_id not in self._bindings:
                 self._bindings[session_id] = existing
 
     def unbind(self, session_id: str, *, task_id=None):
@@ -231,7 +234,7 @@ class HostBridge:
             if self._closed or binding is None:
                 raise BridgeDenied("no bound task")
             owner, task_id, instance_id, _, _, revoked = binding
-            if revoked.is_set() or self.runtime.authority.owner_for_session(session_id) != owner:
+            if revoked.is_set() or self.owner_for_session(session_id) != owner:
                 raise BridgeDenied("binding revoked")
             task = self._verified_task(owner, task_id, instance_id)
             if not set(origins).issubset(set(task.get("allowedOrigins", []))):
@@ -245,7 +248,7 @@ class HostBridge:
             bindings = list(self._task_bindings.get(session_id, {}).values())
         matches = []
         for owner, task_id, instance, actions, _, revoked in bindings:
-            if revoked.is_set() or self.runtime.authority.owner_for_session(session_id) != owner:
+            if revoked.is_set() or self.owner_for_session(session_id) != owner:
                 continue
             task = self.runtime.call("shared.get", {"owner": owner, "taskId": task_id})
             if (
@@ -302,7 +305,7 @@ class HostBridge:
             if binding is None or (session_id, tool_call_id) in self._used_calls:
                 raise BridgeDenied("no bound native task or duplicate Hermes call")
             owner, native_task, instance_id, actions, lock, revoked = binding
-            if self.runtime.authority.owner_for_session(session_id) != owner:
+            if self.owner_for_session(session_id) != owner:
                 raise BridgeDenied("trusted session owner changed")
             task = self._verified_task(owner, native_task, instance_id)
             if not lock.acquire(blocking=False):

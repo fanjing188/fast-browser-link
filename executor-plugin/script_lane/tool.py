@@ -70,10 +70,10 @@ def _valid_checkpoint(value):
         return False
 
 
-def workspace_for(hermes_home: Path, owner: str) -> Path:
+def workspace_for(runtime_home: Path, owner: str) -> Path:
     """One private directory per trusted session owner; never model-chosen."""
     digest = hashlib.sha256(owner.encode("utf-8")).hexdigest()[:24]
-    root = Path(hermes_home) / "plugin-data" / "fast-browser-link-native" / "scripts"
+    root = Path(runtime_home) / "plugin-data" / "fast-browser-link-native" / "scripts"
     path = root / digest
     for directory in (root, path, path / "tmp"):
         directory.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -257,7 +257,7 @@ def _export_roots(shared_home: Path):
 def make_handler(
     bridge,
     authority,
-    hermes_home: Path,
+    runtime_home: Path,
     *,
     lease_error,
     bridge_denied,
@@ -303,7 +303,7 @@ def make_handler(
                 ensure_ascii=False,
             )
         try:
-            workspace = workspace_for(hermes_home, lease.owner)
+            workspace = workspace_for(runtime_home, lease.owner)
             result = run_script(
                 bridge,
                 session_id=session_id,
@@ -313,7 +313,7 @@ def make_handler(
                 timeout_s=timeout_s,
                 resume_checkpoint=checkpoint,
                 python=python,
-                export_roots=_export_roots(shared_home or hermes_home),
+                export_roots=_export_roots(shared_home or runtime_home),
             )
         except bridge_denied as error:
             # 中文注释：任务仍存在，等待用户继续；不能把暂停当作绑定缺失。

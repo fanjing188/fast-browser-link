@@ -1,0 +1,4 @@
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"command_execution","command":"python3 .agents/skills/fast-browser-link/scripts/browser.py --session local.session script '{\"taskId\":\"task\",\"code\":\"print(1)\"}'","aggregated_output":"{\"execution_complete\":true}","exit_code":0,"status":"completed"}}
+{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"python3 .agents/skills/fast-browser-link/scripts/browser.py --session local.session get '{}'","aggregated_output":"{\"error\":\"invalid_request\"}","exit_code":1,"status":"completed"}}
+{"type":"turn.completed","usage":{"input_tokens":100,"output_tokens":20}}

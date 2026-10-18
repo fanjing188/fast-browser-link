@@ -57,7 +57,7 @@ def schemas():
 SCHEMAS = schemas()
 
 
-def register(ctx, bridge, runtime, home, *, lease_error, bridge_denied):
+def register(ctx, bridge, runtime, home, *, lease_error, bridge_denied, enabled_tools=None):
     root = Path(__file__).resolve().parent
     import importlib.util
 
@@ -70,7 +70,8 @@ def register(ctx, bridge, runtime, home, *, lease_error, bridge_denied):
     script = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(script)
     store = store_module.Store(Path(home) / "plugin-data/fast-browser-link-native/site-tools")
-    runtime.authority.lease_tools(tuple(SCHEMAS))
+    names = tuple(SCHEMAS) if enabled_tools is None else tuple(enabled_tools)
+    runtime.authority.lease_tools(names)
 
     def make_handler(name):
         def handler(args, *, session_id=None, **_):
@@ -198,7 +199,8 @@ def register(ctx, bridge, runtime, home, *, lease_error, bridge_denied):
 
         return handler
 
-    for name, schema in SCHEMAS.items():
+    for name in names:
+        schema = SCHEMAS[name]
         ctx.register_tool(
             name=name,
             toolset="fast-browser-link",

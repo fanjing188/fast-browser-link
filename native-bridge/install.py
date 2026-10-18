@@ -77,6 +77,8 @@ def stage(
         "fbl_update.py",
         "fbl_discovery.py",
         "fbl_browser.py",
+        "fbl_scripts.py",
+        "fbl_mcp.py",
         "fbl_panel.py",
         "copilot_diagnostics.py",
         "copilot_health.py",
@@ -120,6 +122,30 @@ def stage(
     diagnostic_files = ("__init__.py", "schema.py", "runtime.py", "sink.py")
     required = [source_dir / name for name in native_files]
     required += [diagnostics_source / name for name in diagnostic_files]
+    # 中文注释：源码、独立包和 Hermes 包均复制同一份脚本执行器，安装时不生成另一套实现。
+    shared_root = next(
+        (
+            path
+            for path in (
+                source_dir,
+                source_dir.parent,
+                source_dir.parent / "executor-plugin",
+                source_dir.parent / "adapter/fast-browser-link",
+            )
+            if (path / "script_lane/host_bridge.py").is_file()
+        ),
+        source_dir,
+    )
+    shared_files = (
+        "script_lane/host_bridge.py",
+        "script_lane/action_session.py",
+        "script_lane/child.py",
+        "script_lane/tool.py",
+        "script_lane/page-request.js",
+        "site_tools/tools.py",
+        "site_tools/store.py",
+    )
+    required += [shared_root / name for name in shared_files]
     missing = [str(path.relative_to(source_dir.parent)) for path in required if not path.is_file()]
     if missing:
         raise ValueError("native host runtime is incomplete; missing: " + ", ".join(missing))
@@ -130,6 +156,7 @@ def stage(
     # 中文注释：隔离 HOME 内的任何目标或祖先链接都可能越界，必须在第一次写入前统一拒绝。
     targets = [host_bin / name for name in (*native_files, "task_diagnostics.py", HOST_NAME)]
     targets += [host_bin / "browser_diagnostics" / name for name in diagnostic_files]
+    targets += [host_bin / name for name in shared_files]
     targets += [data_dir / "host-config.json"]
     targets += [target_home / directory / f"{HOST_NAME}.json" for directory in _BROWSER_DIRS]
     for target in targets:
@@ -144,6 +171,12 @@ def stage(
     for filename in native_files:
         destination = host_bin / filename
         shutil.copyfile(source_dir / filename, destination)
+        os.chmod(destination, 0o600)
+
+    for filename in shared_files:
+        destination = host_bin / filename
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(shared_root / filename, destination)
         os.chmod(destination, 0o600)
 
     # 中文注释：随 Native 运行时复制通用模板；按受管摘要升级模板，保留用户修改和既有配置。

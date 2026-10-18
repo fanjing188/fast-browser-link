@@ -116,8 +116,25 @@ def markdown(rows: list[dict]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def compare_many(results):
+    if any(result.get("kind") != "agent" for result in results):
+        raise ValueError("multi-route comparison requires agent results")
+    columns = [_metrics(result) for result in results]
+    labels = [result.get("runtime", result["label"]) for result in results]
+    lines = ["| 指标 | " + " | ".join(labels) + " |", "|---|" + "---:|" * len(results)]
+    for key in sorted(set().union(*(column.keys() for column in columns))):
+        lines.append(
+            "| "
+            + key
+            + " | "
+            + " | ".join(str(column.get(key, ("未拿到",))[0]) for column in columns)
+            + " |"
+        )
+    return "\n".join(lines) + "\n"
+
+
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
-        raise SystemExit("用法: python3 bench/compare.py <before.json> <after.json>")
-    before, after = (json.loads(Path(name).read_text()) for name in sys.argv[1:])
-    print(markdown(compare(before, after)), end="")
+    if len(sys.argv) not in (3, 4):
+        raise SystemExit("用法: python3 bench/compare.py <before.json> <after.json> [third.json]")
+    results = [json.loads(Path(name).read_text()) for name in sys.argv[1:]]
+    print(compare_many(results) if len(results) == 3 else markdown(compare(*results)), end="")

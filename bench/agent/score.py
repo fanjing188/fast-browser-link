@@ -353,13 +353,13 @@ def session_metrics(
                 "browserToolMs",
                 "modelThinkingMs",
                 "inputTokens",
+                "cachedReadTokens",
+                "outputTokens",
                 *lifecycle_metrics([]),
             )
         }
     connection.row_factory = sqlite3.Row
-    session = connection.execute(
-        "select started_at, ended_at, input_tokens from sessions where id=?", (session_id,)
-    ).fetchone()
+    session = connection.execute("select * from sessions where id=?", (session_id,)).fetchone()
     if session is None:
         return session_metrics(connection, None)
     rows = connection.execute(
@@ -420,6 +420,15 @@ def session_metrics(
         "browserToolMs": round(sum(browser_durations) * 1000) if browser_durations else MISSING,
         "modelThinkingMs": round(thinking * 1000) if thinking else MISSING,
         "inputTokens": session["input_tokens"] if session["input_tokens"] is not None else MISSING,
+        **{
+            target: session[source]
+            if source in session.keys() and session[source] is not None
+            else MISSING
+            for target, source in (
+                ("cachedReadTokens", "cache_read_tokens"),
+                ("outputTokens", "output_tokens"),
+            )
+        },
         **lifecycle_metrics(rows, task_snapshot),
     }
 

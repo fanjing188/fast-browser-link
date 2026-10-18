@@ -537,10 +537,21 @@ def task_block_reason(task, *, daemon_stopped=False):
     if (not isinstance(task, dict) or not isinstance(task.get('id'), str)
             or not isinstance(task.get('owner'), str) or task.get('state') not in TERMINAL_TASK_STATES
             or task.get('idlePendingHuman') or task.get('idleRecoveryState') in {'paused', 'pending_approval'}
-            or 'vaultPermit' in task or 'gatewayPermit' in task):
+            or 'vaultPermit' in task or 'gatewayPermit' in task
+            or any(task.get(field, []) != [] for field in ('agentTabIds', 'adoptedPopupTabIds'))):
+        return 'active'
+    history = task.get('requestHistory', [])
+    if isinstance(history, list) and any(isinstance(row, dict) and row.get('state') in {'awaiting_human', 'awaiting_approval'} for row in history):
         return 'active'
     verified = daemon_stopped and isinstance(task.get('userVerified'), dict)
     operation = task.get('currentOperation', {'state': 'succeeded'})
+    timeline = task.get('operationTimeline', [])
+    # 中文注释：仅维护空闲判定可把无残留的终态 unknown 转入核实；运行时和原始操作结果不变。
+    operations = [operation, *timeline] if isinstance(timeline, list) else [operation]
+    if (not verified and task.get('cleanupState') == 'succeeded' and isinstance(timeline, list)
+            and all(isinstance(row, dict) and row.get('state') in {'succeeded', 'failed', 'unknown'} for row in operations)
+            and any(row['state'] == 'unknown' for row in operations)):
+        return 'history' if isinstance(task.get('userVerified'), dict) else 'verification'
     if not isinstance(operation, dict) or (operation.get('state') not in {'succeeded', 'failed'} and not verified):
         return 'active'
     if task.get('cleanupState') == 'pending':
@@ -592,10 +603,12 @@ def browser_epoch(env):
 
 def old_browser_task(task, epoch):
     import math
-    if task_block_reason(task, daemon_stopped=True) != 'cleanup' or task.get('cleanupState') not in {'unknown', 'failed'}:
+    reason = task_block_reason(task, daemon_stopped=True)
+    if reason not in {'cleanup', 'verification'}:
         return False
     operation = task.get('currentOperation', {'state': 'succeeded'})
-    if not isinstance(operation, dict) or operation.get('state') not in {'succeeded', 'failed'}:
+    if reason == 'cleanup' and (task.get('cleanupState') not in {'unknown', 'failed'}
+            or not isinstance(operation, dict) or operation.get('state') not in {'succeeded', 'failed'}):
         return False
     times = [task.get('createdAt'), task.get('updatedAt')]
     for field in ('lastActivityAt',):
@@ -642,6 +655,16 @@ def acknowledge_tasks(home, task_ids, reason, env, descriptor, *, epoch=None):
     for task in selected:
         task['userVerified'] = {'reason': reason, 'at': stamp.isoformat(timespec='seconds'),
                                 'previousCleanupState': task.get('cleanupState'), 'previousCleanupReason': task.get('cleanupReason')}
+        # 中文注释：核实结果单独记入历史备注，不把未知写入伪装成执行成功，亦不改防重放账本。
+        notes = []
+        for field in ('currentOperation', 'operationTimeline'):
+            rows = [task.get(field)] if field == 'currentOperation' else task.get(field, [])
+            if not isinstance(rows, list): continue
+            for index, row in enumerate(rows):
+                if isinstance(row, dict) and row.get('state') == 'unknown':
+                    notes.append({'field': field, 'index': index, 'state': 'verified_complete', 'previousState': 'unknown',
+                                  **({'requestIdHash': row['requestIdHash']} if 'requestIdHash' in row else {})})
+        if notes: task['userVerified']['operations'] = notes
         task['cleanupState'] = 'succeeded'
         task['cleanupReason'] = 'verified_complete'
     temporary = data / ('.tasks.json.ack-' + suffix)

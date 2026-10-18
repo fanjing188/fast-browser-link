@@ -290,7 +290,7 @@ test('dev-sync 已关闭但清理未知的任务立即列出并提示 tasks:ack�
 
 test('daemon 已停止时已关闭且清理成功任务的残留历史不再阻塞守卫',async t=>{
  const terminal={id:'test-task',owner:'test-owner',state:'closed',cleanupState:'succeeded',requestHistory:[]};
- for(const record of [{version:1,tasks:[{...terminal,requestHistory:[{state:'dispatched'}]}]},{version:1,tasks:[{...terminal,operationTimeline:[{state:'unknown'}]}]},
+ for(const record of [{version:1,tasks:[{...terminal,requestHistory:[{state:'dispatched'}]}]},{version:1,tasks:[{...terminal,operationTimeline:[{state:'unknown'}],userVerified:{reason:'checked'}}]},
   {version:1,tasks:[{...terminal,currentOperation:{state:'unknown'},userVerified:{reason:'checked'}}]}])
   await t.test(JSON.stringify(record),async t=>{
    const f=await syncFixture(t);
@@ -299,10 +299,12 @@ test('daemon 已停止时已关闭且清理成功任务的残留历史不再阻�
    // 中文注释：通过全部门禁后才会到达替身打包器。
    assert.match(result.stderr,/PACKAGING_REACHED/);
   });
- // 中文注释：未经用户核实的当前操作残留仍然拒绝。
- const f=await syncFixture(t);
- await writeFile(path.join(f.data,'tasks.json'),JSON.stringify({version:1,tasks:[{...terminal,currentOperation:{state:'unknown'}}]}),{mode:0o600});
- assert.doesNotMatch(f.run().stderr,/PACKAGING_REACHED/);
+ // 中文注释：当前操作和时间线中的 unknown 均须核实，停机本身不能代替确认。
+ for(const unknown of [{currentOperation:{state:'unknown'}},{operationTimeline:[{state:'unknown'}]}]){
+  const f=await syncFixture(t);
+  await writeFile(path.join(f.data,'tasks.json'),JSON.stringify({version:1,tasks:[{...terminal,...unknown}]}),{mode:0o600});
+  assert.doesNotMatch(f.run().stderr,/PACKAGING_REACHED/);
+ }
 });
 
 test('daemon 仍在运行时残留历史继续拒绝',async t=>{

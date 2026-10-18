@@ -180,7 +180,7 @@ def update(ctx,source,*,dry_run=False,wait=0,pause_hermes=False,health=None,yes=
     groups, approved = idle(ctx, cli, wait, allow_settle=True)
     if approved:
         print(task_message(groups), file=sys.stderr)
-        if not yes and (confirm is None or not confirm('确认备份并结清上述旧浏览器纪元任务？[y/N] ')):
+        if not yes and (confirm is None or not confirm(f'确认备份并结清上述 {sum(map(len, approved.values()))} 个旧浏览器纪元任务（保留原始操作结果）？[y/N] ')):
             raise ValueError('旧纪元任务尚未确认；未停止 daemon、未修改任务。使用交互终端确认或 --yes。')
     roots,plugins=layouts(ctx);env={**os.environ,'PYTHONDONTWRITEBYTECODE':'1'}
     for root in roots:

@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 """独立 Native Messaging 云端端口；不重启或替换本地浏览器桥。"""
-
 from __future__ import annotations
 
 import json
@@ -18,7 +17,7 @@ from runtime.service import CloudService
 
 # 中文注释：复用原生帧解析与写入，不引入第二套浏览器执行器。
 sys.path.insert(0, str(NATIVE_BRIDGE))
-framing = native_tools._runtime.load_module(NATIVE_BRIDGE / "host.py", "browser_cloud_framing_")
+framing = native_tools._runtime.load_module(NATIVE_BRIDGE / 'host.py', 'browser_cloud_framing_')
 sys.path.remove(str(NATIVE_BRIDGE))
 
 
@@ -30,7 +29,7 @@ MAINTENANCE_EXIT = 5
 
 def maintenance_active(home):
     # 中文注释：开发同步的维护标记与本地桥共用；只判断存在，不跟随链接也不读取内容。
-    return os.path.lexists(home / "plugin-data/fast-browser-link-native/maintenance.json")
+    return os.path.lexists(home / 'plugin-data/fast-browser-link-native/maintenance.json')
 
 
 def watch_maintenance(home, stopped):
@@ -42,7 +41,7 @@ def watch_maintenance(home, stopped):
 
 
 def main():
-    home = Path(os.environ.get("HERMES_HOME", Path.home() / ".hermes")).resolve()
+    home = Path(os.environ.get('HERMES_HOME', Path.home() / '.hermes')).resolve()
     # 中文注释：维护期间不取锁、不建实例目录；扩展按退避重连稍后再试。
     if maintenance_active(home):
         return MAINTENANCE_EXIT
@@ -62,19 +61,15 @@ def main():
 
 
 def serve(home):
-    if len(sys.argv) < 2 or sys.argv[1] not in framing._load_allowed_origins(
-        home / "plugin-data/fast-browser-link-native"
-    ):
+    if len(sys.argv) < 2 or sys.argv[1] not in framing._load_allowed_origins(home / 'plugin-data/fast-browser-link-native'):
         return 3
     write_lock = threading.Lock()
     pending = {}
     pending_lock = threading.Lock()
     service = None
-
     # 中文注释：云端进程单独停止时交还自己的任务，不能留下仍可使用的旧授权。
     def stop(_signal, _frame):
         raise EOFError
-
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
 
@@ -83,63 +78,45 @@ def serve(home):
 
     def request_browser(method, params):
         request_id = uuid.uuid4().hex
-        entry = {"event": threading.Event(), "response": None}
+        entry = {'event': threading.Event(), 'response': None}
         with pending_lock:
             pending[request_id] = entry
         try:
-            send({"id": request_id, "method": method, "params": params})
-            if (
-                not entry["event"].wait(15)
-                or not isinstance(entry["response"], dict)
-                or "error" in entry["response"]
-            ):
-                raise ValueError("cloud_browser_unavailable")
-            return entry["response"].get("result", {})
+            send({'id': request_id, 'method': method, 'params': params})
+            if not entry['event'].wait(15) or not isinstance(entry['response'], dict) or 'error' in entry['response']:
+                raise ValueError('cloud_browser_unavailable')
+            return entry['response'].get('result', {})
         finally:
             with pending_lock:
                 pending.pop(request_id, None)
 
     def handle(message):
         nonlocal service
-        request_id = message.get("id")
+        request_id = message.get('id')
         try:
-            method, params = message.get("method"), message.get("params", {})
+            method, params = message.get('method'), message.get('params', {})
             if not isinstance(params, dict):
-                raise ValueError("invalid_params")
-            if method == "hello":
-                if (
-                    service
-                    or set(params) != {"instance_id", "browser"}
-                    or not re.fullmatch(r"[a-f0-9-]{36}", params.get("instance_id", ""))
-                    or params.get("browser") not in ("Chrome", "Edge")
-                ):
-                    raise ValueError("invalid_identity")
-                service = CloudService(
-                    home,
-                    params["instance_id"],
-                    params["browser"],
-                    request_browser,
-                    notify=lambda value: send({"method": "cloud.status_changed", "params": value}),
-                )
+                raise ValueError('invalid_params')
+            if method == 'hello':
+                if service or set(params) != {'instance_id', 'browser'} or not re.fullmatch(r'[a-f0-9-]{36}', params.get('instance_id', '')) or params.get('browser') not in ('Chrome', 'Edge'):
+                    raise ValueError('invalid_identity')
+                service = CloudService(home, params['instance_id'], params['browser'], request_browser,
+                    notify=lambda value: send({'method': 'cloud.status_changed', 'params': value}))
                 result = service.view()
             elif service is None:
-                raise ValueError("cloud_not_initialized")
-            elif method == "status" and not params:
+                raise ValueError('cloud_not_initialized')
+            elif method == 'status' and not params:
                 result = service.view()
-            elif (
-                method == "connect"
-                and set(params) <= {"replace"}
-                and type(params.get("replace", False)) is bool
-            ):
-                result = service.start_pairing(params.get("replace", False))
-            elif method == "disconnect" and not params:
+            elif method == 'connect' and set(params) <= {'replace'} and type(params.get('replace', False)) is bool:
+                result = service.start_pairing(params.get('replace', False))
+            elif method == 'disconnect' and not params:
                 result = service.disconnect()
             else:
-                raise ValueError("invalid_method")
-            send({"id": request_id, "result": result})
+                raise ValueError('invalid_method')
+            send({'id': request_id, 'result': result})
         except Exception:
             # 中文注释：界面只接收固定错误，凭据、网页内容和网络异常不会经 stdout 输出。
-            send({"id": request_id, "error": "云端操作未确认，请检查连接状态后重试。"})
+            send({'id': request_id, 'error': '云端操作未确认，请检查连接状态后重试。'})
 
     stopped = threading.Event()
     threading.Thread(target=watch_maintenance, args=(home, stopped), daemon=True).start()
@@ -147,11 +124,11 @@ def serve(home):
         while True:
             message = framing.read_native_message(sys.stdin.buffer)
             with pending_lock:
-                entry = pending.get(message.get("id")) if "method" not in message else None
+                entry = pending.get(message.get('id')) if 'method' not in message else None
             if entry:
-                entry["response"] = message
-                entry["event"].set()
-            elif message.get("method") == "hello":
+                entry['response'] = message
+                entry['event'].set()
+            elif message.get('method') == 'hello':
                 handle(message)
             else:
                 threading.Thread(target=handle, args=(message,), daemon=True).start()
@@ -162,12 +139,12 @@ def serve(home):
         # 中文注释：浏览器断线时立即结束反向请求等待，不让失效授权继续等待回执。
         with pending_lock:
             for entry in pending.values():
-                entry["response"] = {"error": "cloud_disconnected"}
-                entry["event"].set()
+                entry['response'] = {'error': 'cloud_disconnected'}
+                entry['event'].set()
         if service:
             service.close()
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     os.umask(0o077)
     raise SystemExit(main())

@@ -16,4 +16,6 @@ extend-exclude = [
     "docs/growth",
     # 该既有夹具含非 ASCII bytes 字面量，解析失败；本轮不修改其行为或内容。
     "tests/fixtures/package_fixtures.py",
+    # 安装器以 CLOUD_FENCE_HOST_SHA256 固定该文件的字节，旧安装的升级守卫依赖它；格式化会改变摘要。
+    "cloud-link/native_host.py",
 ]

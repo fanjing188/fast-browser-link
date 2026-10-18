@@ -19,7 +19,7 @@ ProtocolError = _daemon.ProtocolError
 
 class AccessRequestTimeoutReviewTests(unittest.TestCase):
     def setUp(self):
-        scratch = Path.home() / ".hermes" / "cache" / "scratch"
+        scratch = Path(tempfile.gettempdir()).resolve()
         scratch.mkdir(parents=True, exist_ok=True)
         self.temp = tempfile.TemporaryDirectory(prefix="access-review-", dir=scratch)
         self.addCleanup(self.temp.cleanup)

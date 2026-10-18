@@ -7,6 +7,7 @@ import io
 import importlib.util
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import signal
@@ -196,7 +197,21 @@ class InstallFlowTests(unittest.TestCase):
         if result.returncode:
             cls.scratch.cleanup()
             raise RuntimeError(result.stderr)
-        # 中文注释：只替换 doctor 为离线连接响应，发行包其余程序使用真实打包产物。
+        # 中文注释：夹具生成有效的已安装围栏；不把源码中固定的历史摘要当成当前宿主摘要。
+        digest = hashlib.sha256(
+            (cls.release / "fast-browser-link/cloud_link/native_host.py").read_bytes()
+        ).hexdigest()
+        for relative in ("install-cli.py", "fast-browser-link/maintenance/install-cli.py"):
+            installer = cls.release / relative
+            installer.write_text(
+                re.sub(
+                    r'^CLOUD_FENCE_HOST_SHA256 = "[a-f0-9]{64}"$',
+                    f'CLOUD_FENCE_HOST_SHA256 = "{digest}"',
+                    installer.read_text(),
+                    flags=re.M,
+                )
+            )
+        # 中文注释：doctor 使用离线连接响应，不连接本机浏览器。
         (
             cls.release / "fast-browser-link/native_bridge/doctor.py"
         ).write_text("""import json, os, pathlib, sys
@@ -475,20 +490,18 @@ if os.environ.get('TEST_ACTIVATE_FAIL') == '1':
         return private
 
     def maintenance_invoke(self, *, fail=False, paused_probe=False, running_app=False, ok=True):
-        # 中文注释：进程表仅保留本隔离夹具的真实宿主；不把用户正在使用的应用当测试对象。
+        # 中文注释：根据本夹具的子进程注入宿主状态，不读取或过滤本机进程表。
         script = """import os,sys,subprocess,runpy,pathlib
 from unittest import mock
 original=subprocess.run
 def run(argv,*args,**kwargs):
-    result=original(argv,*args,**kwargs)
     if argv==['/bin/ps','-axo','command=']:
-        root=os.environ['HERMES_HOME']
-        result.stdout='\\n'.join(line for line in result.stdout.splitlines() if
-            root+'/plugins/fast-browser-link/cloud_link/native_host.py' in line or
-            root+'/plugin-data/fast-browser-link-cloud/com.fast.browser_link.cloud' in line)
+        import json
+        result=subprocess.CompletedProcess(argv,0,'\\n'.join(json.loads(os.environ['TEST_MAINTENANCE_HOSTS'])), '')
         if os.environ.get('TEST_MAINTENANCE_APP')=='1':
             result.stdout+='\\n/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
-    return result
+        return result
+    return original(argv,*args,**kwargs)
 mock.patch.object(subprocess,'run',side_effect=run).start()
 """
         if paused_probe:
@@ -518,6 +531,13 @@ mock.patch.object(os,'open',side_effect=open_node).start()
             env={
                 **self.env,
                 "TEST_MAINTENANCE_APP": "1" if running_app else "0",
+                "TEST_MAINTENANCE_HOSTS": json.dumps(
+                    [
+                        str(self.plugin / "cloud_link/native_host.py")
+                        for child in getattr(self, "fixture_hosts", [])
+                        if child.poll() is None
+                    ]
+                ),
                 **({"TEST_ACTIVATE_FAIL": "1"} if fail else {}),
             },
             capture_output=True,
@@ -536,6 +556,7 @@ mock.patch.object(os,'open',side_effect=open_node).start()
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
+        self.fixture_hosts = [*getattr(self, "fixture_hosts", []), child]
         assert child.stdin is not None and child.stdout is not None and child.stderr is not None
         payload = json.dumps(
             {

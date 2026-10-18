@@ -5,12 +5,13 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
+import { tmpdir } from 'node:os';
 import { buildCurrentPackageArchive } from './current-package.mjs';
 import { cdpMethodAllowed } from '../../native-extension/cdp-policy.mjs';
 const exec = promisify(execFile);
 const root = new URL('../../native-extension/', import.meta.url);
 const repo = path.resolve(import.meta.dirname, '../..');
-const scratch = process.env.TMPDIR || path.join(process.env.HOME, '.hermes/cache/scratch');
+const scratch = tmpdir();
 test('independent MV3 has no content script and popup preserves task protections without smart consent controls', async () => {
   const m = JSON.parse(await readFile(new URL('manifest.json', root)));
   assert.equal(m.background.type, 'module');

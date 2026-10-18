@@ -35,7 +35,7 @@ class SelectedFile:
 
 class ArtifactStoreTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
-        scratch = Path.home() / ".hermes/cache/scratch"
+        scratch = Path(tempfile.gettempdir()).resolve()
         scratch.mkdir(parents=True, exist_ok=True)
         self.temp = tempfile.TemporaryDirectory(dir=scratch)
         self.addCleanup(self.temp.cleanup)
@@ -160,7 +160,7 @@ class ArtifactStoreTests(unittest.IsolatedAsyncioTestCase):
 
 class ArtifactApiTests(unittest.TestCase):
     def test_only_trusted_desktop_upload_creates_task_scoped_artifact(self):
-        scratch = Path.home() / ".hermes/cache/scratch"
+        scratch = Path(tempfile.gettempdir()).resolve()
         scratch.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(dir=scratch) as temporary:
             api_path = ROOT / "executor-plugin" / "dashboard" / "plugin_api.py"

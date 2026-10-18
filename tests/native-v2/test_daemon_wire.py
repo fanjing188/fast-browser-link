@@ -322,7 +322,7 @@ class SafeIdleExitTests(unittest.TestCase):
 
 class NativeV2DaemonTests(unittest.TestCase):
     def setUp(self):
-        scratch = Path.home() / ".hermes/cache/scratch"
+        scratch = Path(tempfile.gettempdir()).resolve()
         scratch.mkdir(parents=True, exist_ok=True)
         self.tmp = tempfile.TemporaryDirectory(dir=scratch)
         self.addCleanup(self.tmp.cleanup)

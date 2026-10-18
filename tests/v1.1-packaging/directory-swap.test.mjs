@@ -19,6 +19,7 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { fixtureInstaller, isolatedInstallerEnv } from '../helpers/isolated-installer.mjs';
 // 中文注释：macOS 的默认临时目录既含 /var 链接又过长，夹具使用真实短路径测试生产路径校验。
 const testTemp = process.platform === 'darwin' ? '/private/tmp' : tmpdir();
 import {
@@ -28,7 +29,7 @@ import {
 } from '../../scripts/directory-swap.mjs';
 
 async function developmentFixture(t, selectedHome) {
-  const base = await realpath(await mkdtemp(path.join(testTemp, 'bridge-development-')));
+  const base = await realpath(await mkdtemp(path.join(testTemp, 'bd-')));
   t.after(() => rm(base, { recursive: true, force: true }));
   const repo = path.join(base, 'repo'),
     home = selectedHome || path.join(base, 'home'),
@@ -72,8 +73,9 @@ async function developmentFixture(t, selectedHome) {
     '#!/bin/sh\ncase "$1" in pause) : > "$HERMES_HOME/ESTOP";; resume) rm -f "$HERMES_HOME/ESTOP";; esac\n',
     { mode: 0o700 },
   );
+  const isolatedEnv = await isolatedInstallerEnv(base, home);
   const env = (selectedHome) => ({
-    ...process.env,
+    ...isolatedEnv,
     HERMES_HOME: selectedHome,
     BROWSER_LINK_HERMES: hermes,
     BROWSER_LINK_DEV_SYNC_WAIT_SECONDS: '0',
@@ -358,13 +360,19 @@ test('real dev sync packages and swaps the shared root once while preserving pro
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
   assert.ok(ready, `隔离 daemon 未启动：${daemonError}`);
+  // 中文注释：仅注入本测试创建的 daemon 身份，不查询本机进程表。
+  const processes = JSON.stringify({
+    pids: {
+      [daemon.pid]: `python3 ${daemonScript} --home ${home}`,
+    },
+  });
   const originalLink = await readlink(f.link),
     config = path.join(f.profile, 'config.yaml');
   await writeFile(config, 'disabled-sentinel');
   const run = () =>
     spawnSync(process.execPath, [path.join(f.repo, 'scripts', 'dev-sync-local.mjs')], {
       encoding: 'utf8',
-      env: { ...f.env(f.profile), HOME: f.base },
+      env: { ...f.env(f.profile), FBL_TEST_PROCESSES: processes },
       timeout: 120000,
     });
   // 中文注释：维护模式只给身份核实过的 daemon 发 SIGTERM；缺少云端升级保护时仍在首次写入前拒绝，并删除维护标记。
@@ -381,6 +389,11 @@ test('real dev sync packages and swaps the shared root once while preserving pro
     { recursive: true },
   );
   await mkdir(path.join(f.root, 'maintenance'), { recursive: true });
+  await fixtureInstaller(
+    path.join(f.repo, 'scripts/install-cli.py'),
+    path.join(f.repo, 'scripts/install-cli.py'),
+    path.join(f.root, 'cloud_link/native_host.py'),
+  );
   await cp(
     path.join(f.repo, 'scripts/install-cli.py'),
     path.join(f.root, 'maintenance/install-cli.py'),

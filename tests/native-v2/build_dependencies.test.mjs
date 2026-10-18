@@ -5,10 +5,11 @@ import { promisify } from 'node:util';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
+import { tmpdir } from 'node:os';
 
 const exec = promisify(execFile);
 const root = path.resolve(import.meta.dirname, '../..');
-const scratch = path.join(process.env.HOME, '.hermes/cache/scratch');
+const scratch = tmpdir();
 const sha256 = (data) => createHash('sha256').update(data).digest('hex');
 
 test('native build copies exact browser-safe module sources and rewrites imports locally', async () => {

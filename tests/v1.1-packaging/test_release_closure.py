@@ -16,13 +16,18 @@ import io
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
-SCRATCH = Path.home() / ".hermes/cache/scratch"
+SCRATCH = Path(tempfile.gettempdir()).resolve()
 ORIGIN = "chrome-extension://hhnljehnkmhhgjjjmnlhilfpcjhobloc/"
 OLD_RELEASE = (
     "8b91fe844aa22c92cef0955b80414466c9e2ac71"  # 已发布 v1.8.5 的固定 Git 源码，不是个人安装副本。
 )
 # 中文注释：版本闭包校验包含锁文件和云端版本元数据，fixture 不能遗漏这些输入。
 INPUTS = (
+    "fbl.py",
+    "skills",
+    "agent-link",
+    "scripts/setup-copilot-profile.py",
+    "scripts/setup-copilot-package.py",
     "package.json",
     "package-lock.json",
     "executor-plugin",

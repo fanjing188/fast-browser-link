@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { analyzeRepository, CHECKER_INPUTS } from '../../scripts/check-v1.1-integration.mjs';
@@ -9,7 +9,7 @@ import { analyzeRepository, CHECKER_INPUTS } from '../../scripts/check-v1.1-inte
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
 async function fixtureRoot(t) {
-  const scratch = process.env.TMPDIR || path.join(homedir(), '.hermes/cache/scratch');
+  const scratch = tmpdir();
   await mkdir(scratch, { recursive: true });
   const root = await mkdtemp(path.join(scratch, 'v11-integration-check-'));
   t.after(() => rm(root, { recursive: true, force: true }));

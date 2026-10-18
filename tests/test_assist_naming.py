@@ -3,6 +3,7 @@
 import ast
 from pathlib import Path
 import re
+import subprocess
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -54,7 +55,25 @@ ALLOWLIST = (
 )
 
 
+def tracked():
+    # 中文注释：扫描已跟踪及未忽略的新文件；被忽略的本机构建产物会随重新构建更新。
+    listing = subprocess.run(
+        ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+        cwd=ROOT,
+        capture_output=True,
+        check=True,
+    ).stdout.decode()
+    return {ROOT / name for name in listing.split("\0") if name}
+
+
 def sources():
+    files = tracked()
+    for path in _sources():
+        if path in files:
+            yield path
+
+
+def _sources():
     yield ROOT / "package.json"
     yield ROOT / "CHANGELOG.md"
     yield from ROOT.glob("README*.md")

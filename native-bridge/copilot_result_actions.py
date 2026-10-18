@@ -13,7 +13,14 @@ from datetime import date
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from copilot_contracts import canonical, object_key, private_write, suggestion_id, validate
+from copilot_contracts import (
+    SEO_ACTIONS,
+    canonical,
+    object_key,
+    private_write,
+    suggestion_id,
+    validate,
+)
 from copilot_diagnostics import ModelOutputInvalid, failure, failure_message
 from copilot_exec_acp import ACPExecutions, compact_memory
 from copilot_execution import (
@@ -37,6 +44,52 @@ from copilot_state import result_context, work_context
 
 
 class ResultSupport:
+    def _export_generic_result(self, instance, row, params):
+        from copilot_capabilities import label
+
+        if set(params) - {"id", "rows"}:
+            raise ValueError("invalid generic result filter")
+        records = row["result"]["records"]
+        selected = params.get("rows", list(range(len(records))))
+        if (
+            not isinstance(selected, list)
+            or len(selected) > 1000
+            or any(type(index) is not int or not 0 <= index < len(records) for index in selected)
+            or len(set(selected)) != len(selected)
+        ):
+            raise ValueError("invalid result rows")
+        columns = row["result_view"]["columns"]
+        language = self._state(instance)["locale"]
+        unknown = "未知" if language == "zh" else "Unknown"
+        begin = self.tables.request(
+            instance,
+            "table_begin",
+            {
+                "name": row.get("flow_name", row["title"]),
+                "site": "assist",
+                "headers": [label(column["label"], language) for column in columns],
+            },
+        )
+
+        def cell(value):
+            return (
+                unknown
+                if value is None or value == ""
+                else json.dumps(value, ensure_ascii=False)
+                if isinstance(value, (list, dict, bool))
+                else str(value)
+            )
+
+        rows = [
+            [{"text": cell(records[index].get(column["field"]))} for column in columns]
+            for index in selected
+        ]
+        for start in range(0, len(rows), 100):
+            self.tables.request(
+                instance, "table_append", {"id": begin["id"], "rows": rows[start : start + 100]}
+            )
+        return self.tables.request(instance, "table_finish", {"id": begin["id"], "format": "csv"})
+
     def _result_action(self, instance, method, params, known_override=None):
         state = self._state(instance)
         row = state["suggestions"].get(params.get("id"))
@@ -505,7 +558,10 @@ class ResultSupport:
                 if not self._valid(instance, epoch) or row["status"] != "executing":
                     return
             try:
-                result = compose(row["action"], row["params"], result, fetched, validate)
+                if row["action"] in SEO_ACTIONS | {"general.task", "browser.open"}:
+                    result = compose(row["action"], row["params"], result, fetched, validate)
+                else:
+                    validate(result, template["result_schema"])
             except ValueError as error:
                 raise ModelOutputInvalid("result", "schema_mismatch") from error
             private_write(result_path, json.dumps(result, ensure_ascii=False, indent=2))
@@ -678,21 +734,33 @@ class ResultSupport:
             pass
         return None
 
+    def _result_template(self, row):
+        template = self.templates.get(row.get("render_as", row["action"]))
+        if row["action"] != "workflow.run" or row.get("basket_batch"):
+            return template
+        flow = self.packages.flows[row["params"]["flow"]]
+        if row.get("result_view"):
+            contract = self.packages.result_contract(row["params"]["flow"])
+            if not contract:
+                raise ValueError("workflow record schema unavailable")
+            template["result_schema"]["properties"]["records"]["items"] = contract
+        if "decision_schema" in flow:
+            template["result_schema"]["properties"]["decision"] = flow["decision_schema"]
+            template["display_fields"].append("decision")
+        return template
+
     def _complete(self, instance, row, result, cache=False):
         if row.get("automatic"):
             result = copy.deepcopy(result)
             result["verdict"] = ("已自动查到：" + result["verdict"])[:30]
-        validate(result, self.templates.get(row.get("render_as", row["action"]))["result_schema"])
+        template = self._result_template(row)
+        validate(result, template["result_schema"])
         if not result.get("missing"):
             row.pop("resume_from", None)
         report = self._report_path(row["id"])
         private_write(report, result_report(result, row["title"]))
         row["report"] = str(report)
-        row["result"] = {
-            key: result[key]
-            for key in self.templates.get(row.get("render_as", row["action"]))["display_fields"]
-            if key in result
-        }
+        row["result"] = {key: result[key] for key in template["display_fields"] if key in result}
         if (
             row["action"] == "seo.keyword_check"
             and not row.get("automatic")
@@ -770,13 +838,7 @@ class ResultSupport:
                 status="failed" if row.get("completion_status") == "failed" else "completed",
                 pool_saved=row["action"] in {"seo.keyword_check", "seo.save_pool"},
                 finished_at=time.time(),
-                result={
-                    key: result[key]
-                    for key in self.templates.get(row.get("render_as", row["action"]))[
-                        "display_fields"
-                    ]
-                    if key in result
-                },
+                result={key: result[key] for key in template["display_fields"] if key in result},
                 report=str(report),
                 cache_hit=cache,
             )

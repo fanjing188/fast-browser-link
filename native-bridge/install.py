@@ -98,6 +98,7 @@ def stage(
         "copilot_directories.py",
         "copilot_agents.py",
         "copilot_packages.py",
+        "copilot_pack_contracts.py",
         "copilot_capabilities.py",
         "copilot_tools.py",
         "copilot_setup.py",

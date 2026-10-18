@@ -35,14 +35,14 @@ class PluginLifecycle(unittest.TestCase):
         target = Path(result["path"])
         packages = Packages([target], include_builtin=False)
         self.assertIn(
-            "材料", packages.experience_for("https://support.example.test/cases?q=invoice")
+            "材料", packages.experience_for("https://support.example.test/cases?q=CS-1001")
         )
         self.assertEqual(packages.experience_for("https://support.example.test/unrelated"), "")
         self.assertEqual(packages.experience_for("https://other.example.test/cases"), "")
         registry = Registry(packages, self.ctx.copilot, private_write, validate)
         runner = Workflows(registry)
         output, stopped = runner.run(
-            "fixture", "support_materials", "invoice", {"language": "zh"}, self.user / "work"
+            "fixture", "support_materials", "CS-1001", {"language": "zh"}, self.user / "work"
         )
         self.assertFalse(stopped)
         self.assertEqual(len(output["records"]), 1)

@@ -34,7 +34,7 @@ SEO data acquisition runs in daemon subprocesses: Google Suggest for longtail; u
 
 Input, cache-read and output tokens remain informational per day/session/task/model. There is no weighted daily limit or usage-based pause. Legacy daily_token_budget/cache_weight keys are ignored on read and removed on the next save. Context rollover defaults to 6000; unreliable usage is labeled estimated. Idle pause after three minutes and automatic close after thirty minutes remain. Work-tab exclusion and typed-value privacy boundaries remain unchanged.
 
-See the [implementation report](growth/report-copilot-mode-p1.md) for verified tests, source contracts, user-supplied4198-token measurement, remaining blockers and real Edge checks.
+See the [testing guide](testing.md) for validation steps and the distinction between offline tests and real-browser evidence.
 
 ## R7 structured results and local tables
 

@@ -1,17 +1,30 @@
 # Copilot (2.2.0 local candidate)
 
+The connection Agent is **Fast-copilot**, with the lowercase Hermes profile ID `fast-copilot`. New setup creates one profile shared by analysis and execution. ACP and CLI default to no tools; oneshot enables only each task's explicit toolsets and turn limit. Setup can inherit configuration from owned legacy `copilot` or `copilot-exec` profiles without copying credentials or deleting their directories. Archive legacy profiles only after local synchronization and setup.
+
+First-use Agent onboarding detects the local collaboration runtime without starting installation or model requests. Hermes is currently the only supported adapter. Choosing the default Agent and explicitly starting setup runs the supported installation, dedicated profile configuration, browser-tool binding and ACP initialization checks in a background worker. Settings → Collaboration Agent reopens the guide; switching requires collaboration and tasks to stop. Configuration checks alone do not enable collaboration or prove an active session. The status uses the selected Agent name and reports connecting until enabled, ready and connected.
+
+A fresh missing Hermes engine uses the official HTTPS non-interactive stable installer only after the user clicks Install. Existing engine checkouts, credentials or default configuration are preserved and require manual repair when the engine is unavailable. Missing model authorization directs the user to `hermes model`; credentials are never collected by the extension. The setup worker does not send a model prompt. Existing dedicated unmanaged profiles are preserved.
+
+Detected page tables are local suggestion cards in the Suggestions tab, sharing its ten-card cap. Detection does not open export controls or a confirmation window. Execute opens the table export dialog; only a subsequent explicit export action starts the existing one-use table confirmation. Saved receipts appear once in Results and reopen the same dialog for file, column and basket actions.
+
+The Current goal card uses a moving status rail while collaboration is active, with a static reduced-motion variant. Adjust direction opens a focused dialog; a successful update closes it, while failures preserve the draft. Thinking log opens a secondary dialog for the reported evidence, constraints, open questions and user feedback. User direction takes priority over the inferred goal.
+
+Settings use the shared controls for local capability declarations. Default export folder offers a native macOS folder picker and Restore default; selecting a folder saves only after confirmation, while cancellation keeps the current path. The picker runs outside the request thread and is cancelled when the sidebar closes. Settings no longer include page-table identification; table confirmations and active jobs remain in the work view. About groups version, usage and connection status, with a clickable fixed runtime log folder. These directory operations require the matching updated extension and native host.
+
 Copilot follows bounded semantic snapshots and recent actions. The sidebar now loads Hermes model catalogs before activation, with a 24-hour daemon cache and explicit refresh. Catalog discovery uses initialize/session/new only, without model prompts. Missing catalogs allow manual provider:model IDs. Credentials and profile defaults are never changed.
 
-The main view shows status, informational daily/session usage and suggestions/running/results. Settings and logs use secondary views in the same sidebar. Settings are grouped into interface, execution mode, collapsed advanced controls and local capabilities. First activation uses Balanced defaults with a dismissible notice. Fields auto-save and show a brief check mark; changes affect subsequent calls while running tasks retain their starting configuration. Presets match model names rather than live prices. Unmatched IDs use profile defaults.
+The main view shows a compact header and four counted tabs: suggestions, running, results and logs. Suggestions show at most ten compact cards, ordered by similarity to the current selection/page object, then capability availability and stable proposal priority. Card actions sit on the right; inline result accordions are replaced by Details and task-log entries. A connection problem exposes one repair notice, removed after recovery. Usage stays in the log footer and Settings → About; an empty basket stays hidden. Settings group execution mode, interface, local capabilities, table exports, collapsed advanced controls and about. First activation uses Balanced defaults with a brief dismissible notice. Fields auto-save; changes affect subsequent calls while running tasks retain their starting configuration. Presets match model names rather than live prices. Unmatched IDs use profile defaults.
+
+Capture waits for document readiness and approximately one second of DOM stability. Inference projections mask emails, phone numbers, long numeric IDs and credential URL parameters, and omit account/profile controls. Local execution retains its original parameters. Restored sessions receive suggestion content together with changed statuses; an empty model response with an explicit page object provides local evidence/pool lookup and current-page workflows without inventing an object.
 
 User-run initialization/managed upgrade:
 
 ```sh
 bash scripts/setup-copilot-profile.sh --apply
-bash scripts/setup-copilot-profile.sh --profile copilot-exec --apply
 ```
 
-Preview first without --apply. Unknown or modified profiles, changed plugin links and different model/provider arguments are refused. Verified owned files receive title-generation/approval additions; the execution ACP toolset becomes empty for judgment, while CLI retains browser/web/terminal/file tools. No permanent terminal commands are allowed and no yolo mode is enabled. The user runs this script; this candidate has not been installed or synchronized.
+Preview first without --apply. Unknown or modified profiles, changed plugin links and different model/provider arguments are refused. Verified owned files receive title-generation/approval additions; ACP and CLI default to zero tools; oneshot passes task-specific `-t` and `--max-turns` limits. No permanent terminal commands are allowed and no yolo mode is enabled. The user runs this script; this candidate has not been installed or synchronized.
 
 The default persistent execution ACP creates a fresh session per SEO judgment, verifies zero tools, sends one model prompt, and writes/validates its returned JSON in the daemon. /tools and /reset are local controls. Sessions run concurrently, bounded by max_parallel; cancellation targets one session. A crashed connection restarts once without replaying in-flight tasks. Completed task memory is limited to500 UTF-8 bytes.
 
@@ -41,11 +54,13 @@ Tool memory, capability binding, discovery and composable workflows: [capability
 
 ## Live logs
 
+Each running/result card opens a task-specific secondary log view with live elapsed time and current steps. The all-execution-log entry combines execution events for the current browser, with pause/follow controls. Result Details opens a validated extension popup with content cards, typed tables, groups, SERP results, trend charts and export actions. Task logs remain available there; raw command arguments and tool output are not included.
+
 Capture, inference, execution and system events record fixed summaries, sizes, timings, model usage/estimate flags, suggestion counts, source IDs and page/script stages. No input values, cookies, authentication headers, page bodies, raw errors or command arguments are logged.
 
 Events batch every 200ms. The log page renders only its fixed-height viewport window; JSON details are separate. At most 2,000 records are retained, with type/error/search filters, pause/follow, clear for the current browser/day, and full JSONL copy/export. Logs use the existing seven-day directory as logs/YYYY-MM-DD.events.jsonl with mode 0600 and reload on reopening the sidebar. Connection events observed offline remain explicitly volatile until reconnect submission and readback.
 
-The board defaults to “Hermes Copilot” (Chinese: “Hermes协作看板”). Rename it in Settings → Interface; the brand remains Fast-browser-link. The primary view contains connections, suggestions/running tasks/collapsed results, the latest three logs and one usage line. Execution, table/export and local capabilities live in secondary settings. The popup shows the inline Board button only while collaboration is enabled.
+The board defaults to “Hermes Copilot” (Chinese: “Hermes协作看板”). Rename it in Settings → Interface; the brand remains Fast-browser-link. Healthy connections occupy no primary row. The popup shows the inline Board button only while collaboration is enabled; turning collaboration on also opens the sidebar. The popup has three feature rows: local Agent connection, cloud Agent connection and Agent collaboration mode. Unpaired cloud access is an ordinary state.
 
 Table extraction requires synchronized confirmation in the sidebar and a closed-shadow decoration on the source page. No export or multipage work starts before confirmation. Escape, cancellation and target removal clear it; changed ownership, navigation or changed captured rows reject stale confirmation. Multipage confirmation opens the same URL in a background work page, retaining the 200-page ceiling.
 
@@ -69,20 +84,22 @@ Health summaries count all capabilities: available if a usable binding exists; o
 
 ## Inference diagnostics and recovery
 
-Errors distinguish `model_output_invalid`, `acp_disconnected`, `acp_timeout`, `acp_process_exited` and `internal_error`, with fixed field/validation codes, exception types and exit codes. The first two consecutive inference failures retain suggestions and show a notice; the third marks an error. Success clears the count. Long titles/reasons are truncated with an ellipsis, suggestions are capped at eight, IDs are host-generated and unknown fields are discarded. Invalid actions/parameters are skipped without expanding permissions. Normalization creates one informational event, not an error alert.
+Errors distinguish `model_output_invalid`, `acp_disconnected`, `acp_timeout`, `acp_process_exited` and `internal_error`, with fixed field/validation codes, exception types and exit codes. The first two consecutive inference failures retain suggestions and show a notice; the third marks an error. Success clears the count. Long titles/reasons are truncated with an ellipsis, suggestions are capped at ten, IDs are host-generated and unknown fields are discarded. Invalid actions/parameters are skipped without expanding permissions. Normalization creates one informational event, not an error alert.
 
 Inference ACP, execution ACP and oneshot stderr are drained continuously and conservatively redacted into `copilot/logs/YYYY-MM-DD.hermes-stderr.log`. Each file is capped at 2 MiB with one same-day `.log.1` archive, seven-day retention and mode 0600. Credential-bearing lines, known token prefixes, long opaque strings, URLs and personal directory paths are masked. Raw model stdout is not included. Process-exit events carry the exit code and last twenty redacted lines. Disconnect events distinguish user, idle, service shutdown, process exit and transport failure.
 
-An unexpected inference disconnect or process exit receives one immediate recovery per enabled collaboration session: revalidate the zero-tool profile, resume using the saved summary, completed-task memory and suggestion statuses, then resend current page deltas. Execution tasks are never replayed. A failed recovery or another exit uses the existing bounded 5/15/60-second startup retry policy and eventually waits for manual Retry. Brief ready states preserve this recovery budget until a valid inference succeeds or the user toggles collaboration.
+An unexpected inference disconnect or process exit receives one immediate recovery per enabled collaboration session: revalidate the zero-tool profile, resume using the saved summary, completed-task memory and suggestion content/statuses, then resend the current page. Execution tasks are never automatically replayed. A failed recovery or another exit uses the existing bounded 5/15/60-second startup retry policy and eventually waits for manual Retry. Brief ready states preserve this recovery budget until a valid inference succeeds or the user toggles collaboration.
 
-The managed-profile generator was checked against Hermes configuration source. Creation or verified managed upgrades of `copilot` and `copilot-exec` write `_config_version: 50`, preserve higher versions and model/provider settings, and reject user-modified profiles. No global Hermes migration runs; other defaults merge at read time. Updating source alone does not modify installed profiles.
+The managed-profile generator was checked against Hermes configuration source. Creation or verified managed upgrades of `fast-copilot` write `_config_version: 50`, preserve higher versions and model/provider settings, and reject user-modified profiles. No global Hermes migration runs; other defaults merge at read time. Updating source alone does not modify installed profiles.
 
 
 ## Judgment and partial results
 
-ACP judgment uses the zero-tool `inference_profile` (default `copilot`) and selects an explicitly configured execution model through `session/set_model`. With no selection, that zero-tool profile's default applies. `/tools` is still verified. `copilot-exec` remains for tool-enabled oneshot tasks; source updates do not modify Hermes profiles.
+ACP judgment uses the zero-tool `inference_profile` (default `fast-copilot`) and selects an explicitly configured execution model through `session/set_model`. With no selection, that zero-tool profile's default applies. `/tools` is still verified. Tool-enabled oneshot tasks use the same `fast-copilot` profile with explicit `-t` and `--max-turns`; source updates do not modify Hermes profiles.
 
-Failures persist `tasks/failed-<id>/result.json` with classified errors, redacted messages and acquired evidence, plus a report. Cards explicitly mark missing judgment without inventing tiers. Workflows skip unbound capabilities, retain their step artifacts and continue toward one judgment when evidence exists. `completion_status` and card/log labels distinguish completed, partial and failed outcomes. Candidate budgets report deduplicated and omitted counts.
+Failures persist `tasks/failed-<id>/result.json` with classified errors, redacted messages and acquired evidence, plus a report. Cards explicitly mark missing judgment without inventing tiers. Deterministic workflows retain successful steps, loop items and judgments; blocked/unavailable sources remain retryable. Final judgment waits for required steps. Sidebar Continue can reopen a reclaimed work page for remaining steps. `completion_status` and card/log labels distinguish completed, partial and failed outcomes. Candidate budgets report deduplicated and omitted counts.
+
+Tool-enabled free execution records call names, parameter-type summaries and succeeded/failed/unknown results. Quota consumption remains unknown unless the execution protocol supplies evidence. Reliable tool-level resume is unavailable: retry explicitly warns that it restarts from the beginning and may repeat actions, then requires a task-bound confirmation. It does not claim to skip successful side effects or paid calls. Confirmation remains separate from connection notices during polling.
 
 Unchanged semantic captures and same-second duplicates are discarded or merged locally; empty increments do not trigger inference. Model suggestions survive at least 30 seconds and require two consecutive omissions before withdrawal, except a page change. Hovered/expanded cards are retained by both UI and host; release uses the existing fade. Closing the sidebar clears holds.
 
@@ -92,3 +109,16 @@ Table reading covers native/ARIA tables, split headers/bodies, virtual rows, ope
 
 
 [Page annotations, basket and execution risk](copilot-page-work.md)
+
+
+功能插件的安装、初始化、管理和开发标准见 [功能插件与技能适配包](adapter-packs.zh-CN.md)。
+
+## Ongoing work understanding and corrections
+
+The sidebar shows a tentative goal, next step, evidence, constraints and open questions. A separate one-sentence user direction takes precedence over inferred goals without granting execution authority. Work context survives related page changes, inference context rollover and inference-process recovery. It is held in the current daemon instance state; it is not restored after a daemon restart.
+
+Later and Wrong direction suppress the same proposed action within the current work without claiming completion. Explicit selection actions remain available. Start new work resets the goal, direction and feedback and starts a clean inference session on the next inference. Existing tasks/results remain visible; late results from previous work do not enter the new work context. Corrections invalidate inference responses already in flight.
+
+Settled captures retain up to 30 ordered activity descriptions, including copy and scroll. Scroll includes a visible section title. Identical batches are coalesced for one second; selection text is not suppressed across pages. Table pages retain surrounding content while automatic table input remains limited to headings and row counts. Input values and hidden content remain excluded.
+
+Terminal tasks return up to six compact result updates: verdict, up to three findings/metrics/sources/process items, up to five missing-data items and completion status. Full reports and raw tables are excluded, and model projections are redacted. Automatic completions do not trigger extra notification-only model calls. Existing execution authorization, metered-source confirmation and workspace isolation remain in force.

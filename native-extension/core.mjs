@@ -1,3 +1,4 @@
+import {STATES,shapes,svg,renderStatus,statusNode} from './ui-design.mjs';
 import {BRAND_CSS,createBrandMark} from './brand.mjs';
 import {createOverlayView} from './overlay-view.mjs';
 import {passwordValues,omitPasswordValues} from './password-values.mjs';
@@ -2234,7 +2235,7 @@ export class Executor {
   entry.listener=(source,method,params)=>{
    if(source?.tabId!==tabId||method!=='Runtime.bindingCalled'||params?.name!==binding||params.executionContextId!==contextId||t.overlays?.get(tabId)!==entry)return;
    let command;try{command=JSON.parse(params.payload);}catch{return;}
-   if(command?.nonce!==nonce||!['stop','takeover','resume','ui_state'].includes(command.kind)||!Number.isSafeInteger(command.commandId))return;
+   if(command?.nonce!==nonce||!['stop','takeover','resume','continue','login','open-file','basket','ui_state'].includes(command.kind)||!Number.isSafeInteger(command.commandId))return;
    void (async()=>{
     if(command.kind==='ui_state'){try{this.check(t,{generation:t.generation});if(this.leases.get(tabId)!==t.id||typeof command.value?.minimized!=='boolean'||typeof command.value?.collapsed!=='boolean')return;await this.api.storage?.local?.set({[preferenceKey]:{minimized:command.value.minimized,collapsed:command.value.collapsed}});}catch{}return;}
     let result={state:'unknown'};
@@ -2248,6 +2249,7 @@ export class Executor {
      if(typeof this.onOverlayCommand==='function'){
       if(command.kind==='stop')t.overlayStopping=true;
       const response=await this.onOverlayCommand(Object.freeze({taskId:t.id,generation:t.generation,tabId,origin:origin(tab.url),kind:command.kind}));
+      if(response?.state==='handled'&&response?.verified===true)result={state:'handled'};
       if(response?.state==='disconnected')result={state:'disconnected'};
       if(command.kind==='takeover'&&response?.state==='paused'&&response?.verified===true&&t.paused)result={state:'paused'};
       if(command.kind==='resume'&&response?.state==='running'&&response?.verified===true&&!t.paused)result={state:'running'};
@@ -2273,6 +2275,8 @@ export class Executor {
      const DEFAULT_COMPLETE_MS=600,MAX_COMPLETE_MS=2000,owners=new WeakMap();
      const BRAND_CSS=${JSON.stringify(BRAND_CSS)};
      const createBrandMark=${createBrandMark.toString()};
+     const STATES=${JSON.stringify(STATES)},shapes=${JSON.stringify(shapes)};
+     const svg=${svg.toString()},renderStatus=${renderStatus.toString()},statusNode=${statusNode.toString()};
      const createOverlayView=${createOverlayView.toString()};
      const createAutomationOverlay=${createAutomationOverlay.toString()};
      const createInteractionHighlight=${createInteractionHighlight.toString()};
@@ -2288,7 +2292,7 @@ export class Executor {
       try{globalThis[scope.binding](JSON.stringify({nonce:scope.nonce,commandId:id,kind}));}
       catch(error){pending.delete(id);signal.removeEventListener('abort',abort);reject(error);}
      });
-     const overlay=createAutomationOverlay({document,taskId:scope.taskId,generation:scope.generation,tabId:scope.tabId,origin:scope.origin,documentId:scope.documentId,title:scope.title,startedAt:scope.startedAt,language:scope.language,preferences:scope.preferences,onPreference:value=>{try{globalThis[scope.binding](JSON.stringify({nonce:scope.nonce,kind:'ui_state',commandId:++commandId,value}));}catch{}},onStop:(_scope,options)=>command('stop',options),onTakeover:(_scope,options)=>command('takeover',options),onResume:(_scope,options)=>command('resume',options)});
+     const overlay=createAutomationOverlay({document,taskId:scope.taskId,generation:scope.generation,tabId:scope.tabId,origin:scope.origin,documentId:scope.documentId,title:scope.title,startedAt:scope.startedAt,language:scope.language,preferences:scope.preferences,onPreference:value=>{try{globalThis[scope.binding](JSON.stringify({nonce:scope.nonce,kind:'ui_state',commandId:++commandId,value}));}catch{}},onStop:(_scope,options)=>command('stop',options),onTakeover:(_scope,options)=>command('takeover',options),onResume:(_scope,options)=>command('resume',options),onContinue:(_scope,options)=>command('continue',options),onLogin:(_scope,options)=>command('login',options),onOpenFile:(_scope,options)=>command('open-file',options),onBasket:(_scope,options)=>command('basket',options)});
      const state={overlay,nonce:scope.nonce,pending,taskId:scope.taskId,generation:scope.generation,documentId:scope.documentId,origin:scope.origin,modeGeneration:scope.modeGeneration,active:true,operationToken:null,paintedToken:null};
      globalThis.__fastAutomationOverlay=state;
      state.highlight=createInteractionHighlight({document,taskId:scope.taskId,generation:scope.generation,documentId:scope.documentId,surface:overlay.interactionSurface,

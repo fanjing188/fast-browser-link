@@ -1,8 +1,8 @@
 {
   "board_name": "",
-  "$comment": "先用 scripts/setup-copilot-profile.sh 分别新建 copilot 与 --profile copilot-exec；已有配置不自动覆盖。",
-  "inference_profile": "copilot",
-  "exec_profile": "copilot-exec",
+  "$comment": "先用 scripts/setup-copilot-profile.sh 新建统一 Fast-copilot profile；已有配置不自动覆盖。",
+  "inference_profile": "fast-copilot",
+  "exec_profile": "fast-copilot",
   "report_dir": "reports",
   "pool_command": [],
   "max_parallel": 3,

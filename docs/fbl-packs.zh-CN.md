@@ -2,7 +2,7 @@
 
 运行时从已登记 `extension_dirs` 读取 `package.json`，当前格式版本 **1**。`pack.json` 是依赖与升级策略说明，执行契约仍是 package.json。通用包依赖 `browser.core`；SEO 判断另依赖 agent。setup 默认安装 general，询问 SEO（默认不装），使用 managed_packs 避免重复加载旧内置包。已有安装在 setup 前保持原配置。
 
-`fbl packs init my-local --argv '["python3","/absolute/local/script.py","--input","{input_json}"]' --capability keyword.expand` 在所选运行时的 `plugin-data/fast-browser-link-native/copilot/extensions/my-local` 生成骨架。程序生成根路径并核实脚本，不接受穿越/软链接。审阅后 `fbl packs install 生成目录` 登记；`fbl packs remove my-local` 只移除摘要匹配的受管包。
+`fbl packs init my-local --argv '["python3","/absolute/local/script.py","--input","{input_json}"]' --capability keyword.expand` 在所选运行时的 `plugin-data/fast-browser-link-native/copilot/drafts/my-local` 生成骨架。程序生成根路径并核实脚本，不接受穿越/软链接。审阅后 `fbl packs install 生成目录` 登记；`fbl packs remove my-local` 只移除摘要匹配的受管包。
 
 升级比较 `.fbl-pack.json` / `.fbl-skill.json` 和已知历史技能摘要。未修改内置包、技能与运行时一同进入回滚事务；用户修改阻止覆盖/删除，模板冲突保留 `.json.new`。未知格式版本拒绝，版本变更需明确迁移。
 
@@ -25,3 +25,6 @@ SEO 包仅含公开联想、公开搜索结果、Trends 页面、sitemap 页面�
 工具站来自用户填网址或明确勾选扫描当前普通标签 URL/标题，不读历史。发现只在归属工作页检查登录态和表头，按结构别名匹配，不按域名。未知成本、付费、模型草稿、需登录默认不勾；只有已声明零成本、可用且置信度至少95%才默认选中。确认屏审阅来源/依据/置信度/成本/验证结果，可改优先级、参数、上限；确认后仅保存本机 extensions/discovered 包。日常遇新报表表头提示审阅，不执行查询。
 
 doctor 比较文件、帮助摘要和 MCP schema；开启协作检查文件/新技能并后台刷新帮助/MCP 元数据。doctor 可刷新此前确认的网址表头；启动时不打开网页，后续已采集表头发生变化则提示。变化提示重新确认，绝不自动改绑定；远端没检查不能当成未变化。
+
+
+功能插件的安装、初始化、管理和开发标准见 [功能插件与技能适配包](adapter-packs.zh-CN.md)。

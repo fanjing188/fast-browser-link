@@ -423,21 +423,43 @@ class BridgeDaemon:
         return worker
 
     @staticmethod
-    def _task_safe_for_idle_exit(task):
+    def _task_quiescent(task, operation_states, request_states):
         if (not isinstance(task, dict) or task.get('state') not in {'closed', 'cancelled', 'failed'}
                 or task.get('cleanupState') != 'succeeded' or task.get('idlePendingHuman')
                 or task.get('idleRecoveryState') in {'paused', 'pending_approval'}
                 or 'vaultPermit' in task or 'gatewayPermit' in task):
             return False
         operation = task.get('currentOperation', {'state': 'succeeded'})
-        if not isinstance(operation, dict) or operation.get('state') not in {'succeeded', 'failed'}:
+        if not isinstance(operation, dict) or operation.get('state') not in operation_states:
             return False
-        for field, settled in (('requestHistory', {'confirmed', 'rejected'}),
-                               ('operationTimeline', {'succeeded', 'failed'})):
+        for field, settled in (('requestHistory', request_states), ('operationTimeline', operation_states)):
             rows = task.get(field, [] if field == 'operationTimeline' else None)
             if not isinstance(rows, list) or any(not isinstance(row, dict) or row.get('state') not in settled for row in rows):
                 return False
         return True
+
+    @staticmethod
+    def _task_safe_for_idle_exit(task):
+        return BridgeDaemon._task_quiescent(task, {'succeeded', 'failed'}, {'confirmed', 'rejected'})
+
+    @staticmethod
+    def _task_safe_for_reload(task):
+        if BridgeDaemon._task_safe_for_idle_exit(task):
+            return True
+        if not BridgeDaemon._task_quiescent(task, {'succeeded', 'failed', 'confirmed', 'unknown'}, {'confirmed', 'rejected', 'unknown'}):
+            return False
+        proof = task.get('userVerified')
+        if not isinstance(proof, dict) or not isinstance(proof.get('reason'), str) or not proof['reason'].strip():
+            return False
+        # 中文注释：只采用已有人工核实，且确认后任务没有再次变化；不改写原始未知日志。
+        from datetime import datetime
+        try:
+            verified = datetime.fromisoformat(proof['at'])
+            updated = task['updatedAt']
+            return (verified.tzinfo is not None and isinstance(updated, (int, float)) and not isinstance(updated, bool)
+                    and 0 < updated <= verified.timestamp() <= time.time() + 5)
+        except (KeyError, TypeError, ValueError, OverflowError):
+            return False
 
     def _try_idle_exit(self):
         # 中文注释：与快照相同的写锁顺序；落盘中或失败时不为退出清理任何状态。
@@ -3208,6 +3230,17 @@ class BridgeDaemon:
                         self._finish_approval_locked(key, 'approval_revoked', '审批方式已改变，原确认已撤销')
                 self._persist_tasks()
                 return self._public_task(task)
+        if method == 'extension.reload_status' and params == {}:
+            # 中文注释：复用退出门禁，未知操作、未清理任务和在途生命周期均不能触发自动重载。
+            with self.state_lock:
+                blocked = [task for task in self.tasks.values()
+                           if task.get('instanceId') == instance_id and not self._task_safe_for_reload(task)]
+                busy = bool(self.lifecycle_operations or self.inflight_requests or self.preparing_requests
+                            or self.action_approvals or self.pending_journal)
+                return {'idle': not blocked and not busy, 'blockingCount': len(blocked),
+                        'lifecycleBusy': busy,
+                        'blockingTasks': [{key: row.get(key) for key in ('id', 'state', 'cleanupState')}
+                                          for row in blocked[:20]]}
         # 中文注释：只有可信扩展可为浮层清理读取本实例已关闭任务；默认列表保持原有语义。
         if method == "extension.tasks" and (params == {} or (set(params) == {"includeClosed"} and params["includeClosed"] is True)):
             with self.state_lock:
@@ -3740,6 +3773,10 @@ class BridgeDaemon:
                         response = {"id": request_id, "result": result}
                     except ProtocolError as exc:
                         response = {"id": request_id, "error": {"code": exc.code, "message": exc.message}}
+                    except Exception as exc:
+                        # 中文注释：单条扩展请求的意外异常只回错误并记诊断，不能关闭整条原生连接。
+                        self._diagnostic("extension_request", "failed", error_code="internal_error")
+                        response = {"id": request_id, "error": {"code": "internal_error", "message": type(exc).__name__}}
                     self._send_extension(extension, response)
                 method = request.get("method")
                 if method in {"extension.tab_event", "extension.popup_adopted"} or (

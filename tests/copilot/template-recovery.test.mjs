@@ -46,9 +46,9 @@ test('specific startup reason and retry action appear in sidebar status and shar
  const dom=new JSDOM('<span></span>');try{
   const startup_error={reason:'推理 profile 不存在',reason_en:'Inference profile missing'};
   assert.equal(statePresentation({diagnostic:'acp_start_blocked',startup_error}).label,'出错 · 重试');
-  assert.equal(statePresentation({diagnostic:'acp_start_blocked',startup_error}).message,startup_error.reason);
-  assert.equal(statePresentation({diagnostic:'acp_start_blocked',startup_error,locale:'en'}).message,startup_error.reason_en);
-  const el=dom.window.document.querySelector('span');renderConnection(el,{state:'error',...startup_error},'en');assert.equal(el.title,'Inference profile missing');
+  assert.equal(statePresentation({diagnostic:'acp_start_blocked',startup_error}).message,'推理 配置 不存在');
+  assert.equal(statePresentation({diagnostic:'acp_start_blocked',startup_error,locale:'en'}).message,'Inference configuration missing');
+  const el=dom.window.document.querySelector('span');renderConnection(el,{state:'error',...startup_error},'en');assert.equal(el.title,'Inference configuration missing');
  }finally{dom.window.close();}
 });
 
@@ -62,7 +62,7 @@ test('single inference failure shows a notice, three failures show the reason, a
   assert.equal(dom.window.document.getElementById('error').hidden,true);
   assert.match(dom.window.document.getElementById('notice').textContent,/模型返回格式不对/);
   state.inference_failures=3;state.diagnostic='model_output_invalid';renderDashboard(dom.window.document,state,{command:async()=>{}});
-  assert.equal(dom.window.document.getElementById('error').hidden,false);assert.match(dom.window.document.getElementById('error-copy').textContent,/模型返回格式不对/);
+  assert.equal(dom.window.document.getElementById('connection-notice').hidden,false);assert.match(dom.window.document.getElementById('connection-message').textContent,/模型返回格式不对/);assert.equal(dom.window.document.getElementById('error').hidden,true);assert.equal(dom.window.document.getElementById('notice').hidden,true);
   assert.equal(statePresentation({...state,recovering:true}).label,'正在重连');
   state.inference_failure=null;state.diagnostic=null;renderDashboard(dom.window.document,state,{command:async()=>{}});
   assert.equal(dom.window.document.getElementById('notice').textContent,'');

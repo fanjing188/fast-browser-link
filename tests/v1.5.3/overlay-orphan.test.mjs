@@ -40,7 +40,7 @@ test('放开只移除本地浮层和捕获监听器，不再调用任务控制�
 test('重试允许恢复连接，旧请求迟到不能覆盖新回执，超时清理信号已取消',async()=>{
  let calls=0,late,firstSignal;const f=fixture((_scope,{signal})=>{calls++;if(calls===1){firstSignal=signal;return new Promise(resolve=>{late=resolve;});}return Promise.resolve({state:'paused'});});try{
   await f.click('takeover');assert.equal(firstSignal.aborted,true);await f.click('retry');
-  assert.equal(calls,2);assert.equal(f.overlay.host.style.pointerEvents,'none');assert.match(f.shadow.textContent,/等待用户/);
+  assert.equal(calls,2);assert.equal(f.overlay.host.style.pointerEvents,'none');assert.match(f.shadow.textContent,/需要你操作/);
   late({state:'running'});await tick();assert.equal(f.overlay.host.style.pointerEvents,'none');
  }finally{f.close();}
 });
@@ -77,7 +77,7 @@ test('长动作暂停等待显示进度，屏障收尾前不伪造已暂停',asy
  try{
   const pending=executor.pause('task',2);await tick();assert.equal(task.pauseRequested,true);assert.notEqual(task.paused,true);
   assert.match(f.shadow.textContent,/正在接管/);assert.equal(f.key(),true);
-  finish();await pending;assert.equal(task.paused,true);assert.equal(f.key(),false);assert.match(f.shadow.textContent,/等待用户/);
+  finish();await pending;assert.equal(task.paused,true);assert.equal(f.key(),false);assert.match(f.shadow.textContent,/需要你操作/);
  }finally{finish();f.close();}
 });
 

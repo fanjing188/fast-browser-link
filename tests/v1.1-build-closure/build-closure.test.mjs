@@ -27,8 +27,8 @@ const dependencyFiles = [
 const sourceCopies = [
   'copilot-annotations.mjs','copilot-basket.mjs',
   'copilot-readiness.mjs',
-  'copilot-retry.mjs','copilot-controls.mjs','copilot-controls.css','copilot-table-confirm.mjs','copilot-logs.mjs',
-  'brand.css','brand.mjs','brand-logo.svg','brand-logo-small.svg','brand-mark.svg','overlay-view.mjs',
+  'copilot-retry.mjs','copilot-controls.mjs','ui-design.mjs','copilot-table-confirm.mjs','copilot-logs.mjs',
+  'brand.css','brand.mjs','brand-logo.svg','brand-logo-small.svg','brand-mark.svg','overlay-view.mjs','overlay-logs.mjs',
   'copilot-tool-reports.mjs','copilot-capabilities-panel.mjs','copilot-selection.mjs','copilot-browser-data.mjs','copilot-i18n.mjs','copilot-tables.mjs','copilot-table-job.mjs','copilot-table-panel.mjs','copilot-result-view.mjs','copilot-result.mjs','copilot-result.html','copilot-settings.mjs','copilot-view.mjs','copilot-entry.js','copilot-collector.mjs','copilot-background.mjs','copilot-observation.mjs','copilot-panel.html','copilot-panel.css','copilot-panel.mjs',
   // 中文注释：新增工作窗口和效果模块同样进入显式构建闭包。
   'action-effects.mjs', 'work-window.mjs', 'work-window.html',

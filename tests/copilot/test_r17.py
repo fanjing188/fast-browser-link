@@ -205,8 +205,8 @@ class R17(unittest.TestCase):
 
     def test_doctor_unregistered_info_and_drift_details_preserve_migrated_model(self):
         self.install();stamp=self.ctx.data/'host-bin/runtime-version.json';stamp.unlink()
-        repair(self.hermes,'copilot',private_write,'initial-model')
-        config=self.hermes/'profiles/copilot/config.yaml';value=json.loads(config.read_text())
+        repair(self.hermes,'fast-copilot',private_write,'initial-model')
+        config=self.hermes/'profiles/fast-copilot/config.yaml';value=json.loads(config.read_text())
         value['model']['default']='migrated-model';value['reasoning_effort']='high';value['_config_version']=101
         private_write(config,json.dumps(value))
         live=lambda _:{'ok':True,'browsers':[{'connected':True}]}
@@ -215,7 +215,7 @@ class R17(unittest.TestCase):
             row=next(row for row in result['checks'] if row['component']==name)
             self.assertEqual(row['code'],'unregistered');self.assertEqual(row['severity'],'info')
             self.assertIn('--source',row['command']);self.assertIn('尚未验证',row['message'])
-        row=next(row for row in result['checks'] if row['component']=='copilot')
+        row=next(row for row in result['checks'] if row['component']=='fast-copilot')
         self.assertIn('initial-model → migrated-model',' '.join(row['details']))
         self.assertIn('high → low',' '.join(row['details']));self.assertIn('保留当前模型',row['fix_policy'])
         doctor(self.ctx,fix=True,probe=live);fixed=json.loads(config.read_text())

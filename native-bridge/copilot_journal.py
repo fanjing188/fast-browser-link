@@ -25,6 +25,7 @@ MESSAGES={
  'inference_failed':('inference','推理未完成，保留已有建议','Inference failed; existing suggestions retained'),
  'connecting':('system','正在连接协作会话','Connecting Copilot session'),
  'inference_return':('inference','推理返回，更新建议','Inference returned; suggestions updated'),
+ 'inference_fallback':('inference','模型无建议·已用基础建议','No model suggestions; using basic suggestions'),
  'summary':('inference','摘要上下文','Summarized context'),
  'session':('inference','建立新的推理会话','Started a new inference session'),
  'execute_start':('execution','任务开始','Task started'),
@@ -127,11 +128,12 @@ class Journal:
 
     def add(self,instance,event,*,error=False,**details):
         if event not in MESSAGES:raise ValueError('unknown log event')
+        details=safe_details(details)
         with self.lock:
             if self.closed:return
             self._roll_day()
             self.revision+=1;previous=self.rows[-1] if self.rows else None
-            folded=event=='execute_step' and previous and previous['instance']==instance and previous['event']==event and all(previous['details'].get(key)==details.get(key) for key in ('task_id','step_index','capability','provider'))
+            folded=event=='execute_step' and previous and previous['instance']==instance and previous['event']==event and all(previous['details'].get(key)==details.get(key) for key in ('task_id','step_index','capability','provider','step_name','phase'))
             if folded:details={**previous['details'],**details,'repeats':previous['details'].get('repeats',1)+1}
             row=self._row(instance,event,previous['id'] if folded else self.revision,time.time(),details,error)
             if folded:self.rows[-1]=row

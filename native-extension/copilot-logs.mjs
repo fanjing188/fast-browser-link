@@ -1,3 +1,4 @@
+import {statusNode} from './ui-design.mjs';
 // 中文注释：固定行高窗口化列表；详情独立显示，展开JSON不会改变列表行高或滚动定位。
 export class LogPanel{
  constructor(doc,request,{language='zh',clipboard=doc.defaultView.navigator?.clipboard,download}={}){
@@ -9,6 +10,7 @@ export class LogPanel{
   doc.getElementById('log-clear').onclick=()=>this.action('log-clear',async()=>this.set(await request('logs_clear')));
   doc.getElementById('log-copy').onclick=()=>this.action('log-copy',async()=>{const value=await request('logs_export');await this.clipboard.writeText(value.jsonl);this.notice(this.t('已复制','Copied'));});
   doc.getElementById('log-export').onclick=()=>this.action('log-export',async()=>{const value=await request('logs_export');await this.download(value.jsonl);this.notice(this.t('已发起导出','Export started'));});
+  for(const chip of doc.querySelectorAll('[data-log-filter]'))chip.onclick=()=>{doc.getElementById('log-filter').value=chip.dataset.logFilter;for(const other of doc.querySelectorAll('[data-log-filter]'))other.setAttribute('aria-pressed',String(other===chip));this.selected=null;this.viewport.scrollTop=0;this.render();};
   const Observer=doc.defaultView.ResizeObserver;this.observer=Observer?new Observer(()=>{this.preview();if(this.active)this.render();}):null;this.observer?.observe(this.viewport);
  }
  t(zh,en){return this.en?en:zh;}
@@ -17,7 +19,7 @@ export class LogPanel{
  async load(){try{this.set(await this.request('logs_read'));}catch{this.notice(this.t('日志暂不可用','Logs unavailable'));}}
  set(value){const incoming=value.entries||[];if(value.revision<this.revision){const merged=new Map([...incoming,...this.entries.filter(row=>typeof row.id==='number')].map(row=>[row.id,row]));this.entries=[...merged.values()].sort((a,b)=>a.id-b.id).slice(-2000);}else{this.revision=value.revision||0;this.entries=incoming.slice(-2000);}this.selected=null;this.doc.getElementById('log-detail').hidden=true;this.doc.getElementById('log-detail').querySelector('pre').textContent='';if(value.error)this.notice(this.t('日志未能持久化，请检查本机目录权限','Log persistence failed. Check local directory permissions.'));this.preview();if(this.active)this.render();}
  append(event){if(event.error){this.notice(this.t('日志未能持久化，请检查本机目录权限','Log persistence failed. Check local directory permissions.'));return;}if(event.revision<=this.revision)return;this.revision=event.revision;if(event.reset){this.entries=(event.entries||[]).slice(-2000);this.selected=null;this.doc.getElementById('log-detail').hidden=true;}else{const incoming=new Map(this.entries.map(row=>[row.id,row]));for(const row of event.entries||[])incoming.set(row.id,row);this.entries=[...incoming.values()].slice(-2000);}this.preview();if(this.active){if(this.follow)this.latest();else this.render();}}
- preview(){const root=this.doc.getElementById('recent-logs');if(!root)return;root.replaceChildren();for(const row of this.entries.slice(-3).reverse()){const button=this.doc.createElement('button');button.type='button';button.textContent=this.summary(row);button.onclick=()=>this.doc.getElementById('open-logs').click();root.append(button);}}
+ preview(){const count=this.doc.getElementById('logs-count');if(count)count.textContent=String(this.entries.length);}
  filtered(){const type=this.doc.getElementById('log-filter').value,search=this.doc.getElementById('log-search').value.toLocaleLowerCase();return this.entries.filter(row=>(!type||type==='errors'&&row.error||row.type===type)&&(!search||[this.summary(row),row.type,JSON.stringify(row.details)].join(' ').toLocaleLowerCase().includes(search)));}
  summary(row){
   const detail=row.details||{},parts=[this.en?row.summary_en:row.summary];
@@ -31,6 +33,7 @@ export class LogPanel{
  }
  latest(){this.follow=true;this.viewport.scrollTop=Math.max(0,this.filtered().length*this.rowHeight-this.viewport.clientHeight);this.lastScroll=this.viewport.scrollTop;this.render();}
  render(){
+  const count=this.doc.getElementById('logs-count');if(count)count.textContent=String(this.entries.length);const errors=this.doc.querySelector('[data-log-filter=errors]');if(errors)errors.textContent=this.t('只看错误','Errors')+' · '+this.entries.filter(row=>row.error).length;
   const rows=this.filtered(),height=this.viewport.clientHeight||480,start=Math.min(Math.max(0,rows.length-Math.ceil(height/this.rowHeight)),Math.max(0,Math.floor(this.viewport.scrollTop/this.rowHeight)-3)),end=Math.min(rows.length,start+Math.ceil(height/this.rowHeight)+6);
   if(this.selected===null)this.doc.getElementById('log-detail').hidden=true;
   this.doc.getElementById('log-count').textContent=`${rows.length} / ${this.entries.length}`;this.doc.getElementById('log-pause').textContent=this.t(this.follow?'暂停滚动':'继续滚动',this.follow?'Pause scroll':'Resume scroll');this.doc.getElementById('log-pause').setAttribute('aria-pressed',String(!this.follow));this.doc.getElementById('log-latest').hidden=this.follow;
@@ -38,10 +41,10 @@ export class LogPanel{
   if(!rows.length){const empty=this.doc.createElement('p');empty.className='empty';empty.textContent=this.t('暂无日志','No logs yet');this.list.append(empty);}
   for(const row of rows.slice(start,end)){
    const line=this.doc.createElement('button');line.type='button';line.className='log-line';line.dataset.type=row.type;line.dataset.id=row.id;line.dataset.error=String(!!row.error);line.setAttribute('aria-expanded',String(this.selected===row.id));
-   const icon=this.doc.createElement('span');icon.textContent={capture:'◉',inference:'◇',execution:'▹',system:'○'}[row.type]||'○';icon.className='log-icon';icon.setAttribute('aria-label',this.t({capture:'采集',inference:'推理',execution:'执行',system:'系统'}[row.type],row.type));
+   const icon=statusNode(this.doc,row.error?'failed':row.event?.includes('start')?'running':row.event==='connected'?'following':'connected',{language:this.en?'en':'zh',bare:true});icon.classList.add('log-icon');icon.setAttribute('aria-label',row.error?this.t('失败','Failed'):this.t('已完成','Completed'));
    const clock=this.doc.createElement('time');clock.textContent=new Date(row.time*1000).toLocaleTimeString(this.en?'en-GB':'zh-CN',{hour12:false});clock.title=new Date(row.time*1000).toLocaleString();
    const text=this.doc.createElement('span');text.className='log-summary';text.textContent=this.summary(row);text.title=text.textContent;text.setAttribute('data-user-content','');
-   const metrics=this.doc.createElement('span');metrics.className='log-metrics';const detail=row.details||{},tokens=detail.tokens??(detail.input||0)+(detail.cache_read||0)+(detail.output||0);metrics.textContent=[detail.duration_ms!==undefined?`${(detail.duration_ms/1000).toFixed(1)}s`:'',tokens?`${detail.estimated?'≈':''}${tokens.toLocaleString()} tok`:detail.estimated_tokens?`≈${detail.estimated_tokens} tok`:''].filter(Boolean).join(' · ');line.append(icon,clock,text,metrics);line.onclick=()=>this.details(row);this.list.append(line);
+   const metrics=this.doc.createElement('span');metrics.className='log-metrics';const detail=row.details||{};metrics.textContent=[detail.duration_ms!==undefined?`${(detail.duration_ms/1000).toFixed(1)}s`:'',''].filter(Boolean).join(' · ');line.append(clock,icon,text,metrics);line.onclick=()=>this.details(row);this.list.append(line);
   }
  }
  details(row){

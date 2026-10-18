@@ -76,9 +76,9 @@
         }
       ],
       "probe": {
-        "url": "https://trends.google.com/trends/",
+        "url": "https://trends.google.com/trends/explore",
         "ready_selectors": [
-          "h1",
+          "input",
           "a[href*=\"/trends/explore\"]"
         ]
       }
@@ -1978,7 +1978,8 @@
         "risk": "zero",
         "read_only": true,
         "public": true,
-        "requires_login": false
+        "requires_login": false,
+        "serial_group": "public-trends"
       }
     ],
     "keyword.judge": [
@@ -1995,6 +1996,35 @@
         "risk": "zero",
         "read_only": true,
         "local_only": true
+      }
+    ],
+    "keyword.expand": [
+      {
+        "id": "public-trends-rising",
+        "type": "browser",
+        "tool": "google-trends",
+        "page": "explore",
+        "link": "explore",
+        "verified": true,
+        "mode": "trends_rising",
+        "reports": [
+          "rising"
+        ],
+        "priority": 20,
+        "batch_limit": 1,
+        "max_pages": 1,
+        "serial_group": "public-trends",
+        "cost": "one public trend report per keyword; rate limits apply",
+        "disable_on": [
+          "login",
+          "captcha",
+          "quota",
+          "rate_limit"
+        ],
+        "risk": "metered",
+        "read_only": true,
+        "public": true,
+        "requires_login": false
       }
     ]
   }

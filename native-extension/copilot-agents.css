@@ -1,0 +1,32 @@
+#agent-settings .agent-settings-actions{display:flex;align-items:center;justify-content:space-between;gap:8px;padding-top:8px;min-width:0}
+#agent-default-status{min-width:0;font-size:12px;color:var(--ink-2);overflow-wrap:anywhere}
+#agent-default-status[data-state=ready]{color:var(--ok)}
+#agent-default-status[data-state=error]{color:var(--bad)}
+.agent-setup-dialog{max-width:420px;padding:20px}
+.agent-setup-dialog .work-dialog-heading{align-items:flex-start;margin-bottom:12px}
+.agent-eyebrow{display:block;margin-bottom:5px;font-size:11px;color:var(--ink-2)}
+.agent-setup-dialog h2{font-size:18px;line-height:1.4}
+.agent-setup-dialog .work-dialog-hint{margin-bottom:16px}
+.agent-setup-dialog>select,.agent-setup-dialog>.shared-dropdown{box-sizing:border-box;width:100%;min-width:0;max-width:100%}
+.agent-setup-dialog>select{padding:8px 10px;appearance:none;border:1px solid var(--line);border-radius:var(--rc);background:var(--paper);color:var(--ink)}
+.agent-setup-dialog .shared-dropdown>button{min-height:34px}
+.agent-detection{margin:9px 0 18px;font-size:12px;line-height:1.5;color:var(--ink-2)}
+.agent-setup-steps{list-style:none;padding:0;margin:0 0 16px}
+.agent-setup-steps li{display:flex;align-items:flex-start;gap:12px;padding:11px 0;border-bottom:1px solid var(--line-2);min-width:0}
+.agent-setup-steps li:last-child{border-bottom:0}
+.agent-step-mark{display:block;flex:none;width:8px;height:8px;margin:5px 4px 0;border:1px solid var(--ink-3);border-radius:50%;background:var(--paper)}
+.agent-setup-steps li>div{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex:1;min-width:0}
+.agent-setup-steps strong{font-size:12px;font-weight:550;min-width:0}
+.agent-step-status{font-size:11px;line-height:1.5;color:var(--ink-2);text-align:end;overflow-wrap:anywhere;max-width:52%}
+.agent-setup-steps [data-state=done] .agent-step-mark{background:var(--ok);border-color:var(--ok)}
+.agent-setup-steps [data-state=active] .agent-step-mark{background:var(--brand);border-color:var(--brand)}
+.agent-setup-steps [data-state=error] .agent-step-mark{background:var(--bad);border-color:var(--bad)}
+.agent-setup-steps [data-state=active] strong{color:var(--brand)}
+.agent-setup-steps [data-state=error] .agent-step-status{color:var(--bad)}
+.agent-setup-notice{display:block;font-size:12px;line-height:1.6;overflow-wrap:anywhere;color:var(--ink-2)}
+.agent-setup-notice:empty{display:none}
+.agent-setup-notice[data-error=true]{color:var(--bad)}
+.agent-setup-actions{display:flex;align-items:center;justify-content:flex-end;gap:7px;flex-wrap:wrap;margin-top:20px}
+.agent-setup-actions button{min-height:32px}
+.agent-setup-dialog [aria-busy=true]{cursor:wait}
+.agent-installation-help{margin:8px 0 0;font-size:12px;line-height:1.6}.agent-installation-help a{color:var(--brand);text-decoration:underline;text-underline-offset:3px}

@@ -58,7 +58,9 @@
         "vendor/redact.mjs",
         "copilot-selection.mjs",
         "copilot-i18n.mjs",
-        "brand.mjs"
+        "brand.mjs",
+        "ui-design.mjs",
+        "copilot-annotations.mjs"
       ],
       "matches": [
         "http://*/*",

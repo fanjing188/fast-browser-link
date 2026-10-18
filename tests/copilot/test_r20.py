@@ -26,6 +26,22 @@ from tests.support import temporary_bridge_home
 ORIGIN = 'chrome-extension://abcdefghijklmnopabcdefghijklmnop/'
 R20B_OBSERVATION={'trace':[],'page':{'url':'https://example.test/'+'f'*72,'title':'third','items':[]}}
 
+def assert_first_empty_inference(case,entries):
+    requests=[json.loads(line) for line in (case.app.directory/'acp-requests.jsonl').read_text().splitlines()]
+    inference=[]
+    for request in requests:
+        if request.get('method')!='session/prompt':continue
+        text=request['params']['prompt'][0]['text']
+        try:payload=json.loads(text)
+        except ValueError:continue
+        if payload.get('type')=='infer':inference.append((text,payload))
+    case.assertEqual(len(inference),1)
+    text,payload=inference[0]
+    case.assertEqual(payload['statuses'],{});case.assertEqual(payload['suggestions'],[])
+    case.assertEqual(payload['page'],{**R20B_OBSERVATION['page'],'truncated':False})
+    sent=next(row for row in entries if row['event']=='inference_send' and row['details'].get('phase')=='inference')
+    case.assertEqual(sent['details']['increment_bytes'],len(text.encode('utf-8')))
+
 
 class Replay(unittest.TestCase):
     def setUp(self):
@@ -124,6 +140,7 @@ class Replay(unittest.TestCase):
         while time.monotonic()-connected<30:
             self.assertIsNone(self.process.poll())
             time.sleep(.25)
+        self.assertGreaterEqual(time.monotonic()-connected,30)
         before=len(self.inference_frames)
         self.request('extension.copilot.observe',R20B_OBSERVATION)
         deadline=time.monotonic()+6
@@ -136,7 +153,7 @@ class Replay(unittest.TestCase):
         receipt=next(row for row in logs if row['event']=='inference_return' and 'added' in row['details'])
         self.assertEqual([receipt['details'][key] for key in ('added','removed','updated')],[0,0,0])
         self.assertGreaterEqual(receipt['details']['duration_ms'],2500)
-        self.assertTrue(any(row['event']=='inference_send' and row['details'].get('increment_bytes')==354 for row in logs))
+        assert_first_empty_inference(self,logs)
         self.assertTrue(all(row['bytes']<=512*1024 for row in self.frames))
         self.assertIsNone(self.process.poll())
         events=[message['params'] for message in self.inference_frames[before:] if message.get('method')=='copilot.changed']
@@ -334,7 +351,7 @@ class Local(unittest.TestCase):
         receipt=next(row for row in entries if row['event']=='inference_return' and 'added' in row['details'])
         self.assertEqual([receipt['details'][key] for key in ('added','removed','updated')],[0,0,0])
         self.assertGreaterEqual(receipt['details']['duration_ms'],2500)
-        self.assertTrue(any(row['event']=='inference_send' and row['details'].get('increment_bytes')==354 for row in entries))
+        assert_first_empty_inference(self,entries)
         self.assertTrue(any(row['event']=='capture' and row['details'].get('steps')==0 for row in entries))
         for message in self.r20b_messages:
             encoded=json.dumps(message,separators=(',',':'),ensure_ascii=False,allow_nan=False).encode()

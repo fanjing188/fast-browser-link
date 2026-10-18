@@ -11,6 +11,14 @@ function fixture(html){
  const semantics=createPageSemantics({document:dom.window.document,taskId:'t',documentId:'d',leaseId:'l'});
  return {dom,semantics,parser:createPageParser(semantics.parsingContext()),close(){semantics.revoke();dom.window.close();}};
 }
+test('large hidden subtrees do not exhaust snapshot or parser scans before visible content',()=>{
+ const f=fixture('<div hidden>'+Array.from({length:21000},()=>'<span>Hidden</span>').join('')+'</div><main><h1>Visible report</h1><button>Export</button></main>');
+ try{const snapshot=f.semantics.snapshot({mode:'interactive',budget:4000});assert.equal(snapshot.coverage.complete,true);assert.ok(snapshot.items.some(item=>item.name==='Export'));assert.ok(snapshot.coverage.scanned<20);assert.equal(snapshot.coverage.prunedSubtrees,1);const parsed=f.parser.parse({sections:['blocks'],maxScan:20});assert.equal(parsed.coverage.traversalComplete,true);assert.ok(parsed.blocks.some(block=>block.text==='Visible report'));assert.equal(parsed.coverage.prunedSubtrees,1);}finally{f.close();}
+});
+test('branch pruning preserves offscreen chart data and descendants that override visibility',()=>{
+ const f=fixture('<div style="visibility:hidden"><button style="visibility:visible">Visible child</button></div><div style="position:absolute;left:-10000px"><table><tr><th>Value</th></tr><tr><td>42</td></tr></table></div>');
+ try{const snapshot=f.semantics.snapshot({mode:'interactive',budget:4000});assert.ok(snapshot.items.some(item=>item.name==='Visible child'));const parsed=f.parser.parse({sections:['tables']});assert.equal(parsed.tables.length,2);assert.equal(parsed.tables[1].cells[0].text,'42');}finally{f.close();}
+});
 test('parses structured regions, div content, spans and controls without input values',()=>{
  const f=fixture('<main><h1>产品</h1><div>可见正文</div><table><tr><th colspan="2">规格</th></tr><tr><th>名称</th><th>价格</th></tr><tr><td>鼠标</td><td>99</td></tr></table><form><label>密码<input type="password" value="SUPERSECRET"></label></form></main>');
  try{const result=f.parser.parse();assert.equal(result.regions[0].kind,'main');assert(result.blocks.some(b=>b.text==='可见正文'));assert.equal(result.tables[0].cells[0].colSpan,2);assert.equal(result.tables[2].cells[1].headerRefs.length,2);assert(!JSON.stringify(result).includes('SUPERSECRET'));assert.equal(result.forms.length,1);}finally{f.close();}

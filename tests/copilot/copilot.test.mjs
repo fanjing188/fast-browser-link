@@ -36,7 +36,7 @@ test('trajectory records row context and selection, never typed values',()=>{
 function background(){const registered=[],messages=[],native=[];
  const api={runtime:{id:'fixture',getURL:path=>'chrome-extension://fixture/'+path,sendMessage:async m=>messages.push(m)},sidePanel:{open:async()=>{}},
  scripting:{getRegisteredContentScripts:async()=>registered,registerContentScripts:async rows=>registered.push(...rows),unregisterContentScripts:async()=>registered.splice(0),executeScript:async()=>{}},
- tabs:{query:async()=>[{id:1,url:'https://example.test/'}],sendMessage:async(id,m)=>messages.push(m)},storage:{local:{get:async()=>({}),set:async()=>{}},session:{set:async()=>{},get:async()=>({}),remove:async()=>{}}}};
+ windows:{get:async()=>({focused:true})},tabs:{query:async()=>[{id:1,windowId:7,url:'https://example.test/'}],sendMessage:async(id,m)=>messages.push(m)},storage:{local:{get:async()=>({}),set:async()=>{}},session:{set:async()=>{},get:async()=>({}),remove:async()=>{}}}};
  const service=new CopilotBackground(api,async(method,params)=>{native.push({method,params});return {enabled:true,show_ball:true,suggestions:[]};});return {service,registered,messages,native,api};
 }
 test('content and panel protocols are separate; dynamic registration and native events',async()=>{

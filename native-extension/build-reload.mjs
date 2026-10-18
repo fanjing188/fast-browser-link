@@ -3,7 +3,7 @@
 const BUILD_PATTERN=/^[a-f0-9]{64}$/;
 export const RELOAD_KEY='reloadedForBuild';
 
-export async function reloadForInstalledBuild({chrome,fetch,loadedBuildId}){
+export async function reloadForInstalledBuild({chrome,fetch,loadedBuildId,canReload=async()=>true,onStatus=()=>{}}){
  if(!BUILD_PATTERN.test(loadedBuildId||''))return false;
  let installed;
  try{
@@ -11,9 +11,12 @@ export async function reloadForInstalledBuild({chrome,fetch,loadedBuildId}){
   if(!response.ok)return false;
   installed=(await response.json())?.buildId;
  }catch{return false;}
- if(typeof installed!=='string'||!BUILD_PATTERN.test(installed)||installed===loadedBuildId)return false;
+ if(typeof installed!=='string'||!BUILD_PATTERN.test(installed))return false;
+ onStatus({loadedBuildId,installedBuildId:installed,pending:installed!==loadedBuildId});
+ if(installed===loadedBuildId)return false;
  const stored=await chrome.storage.local.get(RELOAD_KEY);
  if(stored?.[RELOAD_KEY]===installed)return false;
+ if(!await canReload())return false;
  await chrome.storage.local.set({[RELOAD_KEY]:installed});
  chrome.runtime.reload();
  return true;

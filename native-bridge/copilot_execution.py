@@ -1,6 +1,7 @@
 """独立 Hermes 执行子进程；固定 argv、stream-json 和进程组生命周期。"""
 from __future__ import annotations
 import json
+import hashlib
 import os
 from pathlib import Path
 import selectors
@@ -21,10 +22,27 @@ class ExecutionTimeout(ExecutionError):
     pass
 
 
+RERUN_WARNING='从头重跑，可能重复第 1 步；工具回执或额度未知，确认后再执行。'
+
+
+def retain_tool_receipt(row,event,work,write):
+    if not event.get('receipt'):return
+    receipt=dict(event['receipt'])
+    # 中文注释：每个子进程的调用编号可能从 1 重计，按执行目录隔离，避免覆盖已成功的回执。
+    receipt['id']=hashlib.sha256(str(work).encode()).hexdigest()[:16]+':'+receipt['id']
+    receipts=row.setdefault('tool_receipts',[])
+    existing=next((item for item in receipts if item['id']==receipt['id']),None)
+    if existing is None:receipts.append(receipt)
+    else:existing.update(receipt)
+    row['rerun_warning']=RERUN_WARNING
+    write(work/'tool-receipts.json',json.dumps(receipts,ensure_ascii=False))
+
+
 class StreamJSON:
     def __init__(self):
         self.bytes = 0
         self.result = None
+        self.receipts = []
 
     def feed(self, line):
         self.bytes += len(line)
@@ -40,7 +58,20 @@ class StreamJSON:
             self.result = event
             if event.get('exit_code') != 0 or event.get('error'):
                 raise ExecutionError('Hermes reported failure')
-        return {key: event[key] for key in ('type', 'name','model') if key in event}
+        progress={key: event[key] for key in ('type', 'name','model') if key in event}
+        if event.get('type')=='tool_use':
+            arguments=event.get('input',{})
+            receipt={'id':str(event.get('tool_call_id') or len(self.receipts)+1)[:160],
+                     'name':str(event.get('name','unknown'))[:160],
+                     'arguments':{key:type(value).__name__ for key,value in arguments.items() if isinstance(key,str) and key.isidentifier()} if isinstance(arguments,dict) else {},
+                     'status':'unknown','quota_consumed':None}
+            self.receipts.append(receipt);progress['receipt']=dict(receipt)
+        elif event.get('type')=='tool_result':
+            candidates=[receipt for receipt in self.receipts if receipt['status']=='unknown' and (receipt['id']==str(event['tool_call_id']) if event.get('tool_call_id') else receipt['name']==event.get('name'))]
+            if len(candidates)==1:
+                receipt=candidates[0];receipt['status']='failed' if event.get('is_error') is True else 'succeeded' if event.get('is_error') is False else 'unknown'
+                progress['receipt']=dict(receipt)
+        return progress
 
     def finish(self):
         if self.result is None:

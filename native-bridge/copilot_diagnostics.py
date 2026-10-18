@@ -10,6 +10,26 @@ import threading
 _LOCK = threading.Lock()
 
 
+def redact_page(value):
+    """模型投影递归脱敏；不修改本机执行参数或压缩诊断文本。"""
+    if isinstance(value,dict):
+        return {key:'[redacted]' if re.search(r'(?i)token|secret|password|session|api.?key',key) else redact_page(item) for key,item in value.items()}
+    if isinstance(value,list):return [redact_page(item) for item in value]
+    if not isinstance(value,str):return value
+    from urllib.parse import urlsplit,urlunsplit,parse_qsl,urlencode,unquote
+    credential=r'(?i)(?:^|[_-])(?:token|key|session|sessionid|auth|secret|password|credential|signature|code)(?:$|[_-])|^(?:apiKey|accessToken|refreshToken|idToken|sessionId)$'
+    def url_text(match):
+        try:
+            url=urlsplit(match.group());netloc=url.netloc.rsplit('@',1)[-1]
+            query=[(key,'[redacted]' if re.search(credential,key) else redact_page(unquote(item))) for key,item in parse_qsl(url.query,keep_blank_values=True)]
+            return urlunsplit((url.scheme,netloc,redact_page(unquote(url.path)),urlencode(query),''))
+        except ValueError:return '[url]'
+    value=re.sub(r'https?://[^\s<>"\x27]+',url_text,value)
+    value=re.sub(r'(?i)([?&](?:(?:(?:access|refresh|id|api|auth)[_-]?)?(?:token|key)|session(?:_?id)?|auth|secret|password|signature|code)=)[^&\s<>"\x27]+',r'\1[redacted]',value)
+    value=re.sub(r'[A-Za-z0-9.!#$%&\x27*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}','[email]',value)
+    return re.sub(r'\+?\d[\d ().-]{7,}\d',lambda match:'[number]' if sum(char.isdigit() for char in match.group())>=9 else match.group(),value)
+
+
 def redact(text):
     text = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', str(text))
     if re.search(r'(?i)\b(?:authorization|cookie|password|passwd|secret|token|key|client_secret|secret_key|id_token|(?:api|access|auth|refresh)[_-]?(?:key|token))\b\s*[\"\x27 :=]', text):

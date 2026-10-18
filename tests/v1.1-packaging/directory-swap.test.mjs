@@ -3,13 +3,15 @@ import assert from 'node:assert/strict';
 import {spawn,spawnSync} from 'node:child_process';
 import {once} from 'node:events';
 import {randomUUID,createHash} from 'node:crypto';
-import {chmod,cp,mkdtemp,mkdir,writeFile,readFile,readdir,readlink,rename,rm,symlink} from 'node:fs/promises';
+import {chmod,cp,mkdtemp,mkdir,writeFile,readFile,readdir,readlink,realpath,rename,rm,symlink} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
+// 中文注释：macOS 的默认临时目录既含 /var 链接又过长，夹具使用真实短路径测试生产路径校验。
+const testTemp=process.platform==='darwin'?'/private/tmp':tmpdir();
 import {swapInstalledDirectory,rollbackDirectorySwaps,installedPluginTargets} from '../../scripts/directory-swap.mjs';
 
 async function developmentFixture(t,selectedHome){
- const base=await mkdtemp(path.join(tmpdir(),'bridge-development-'));t.after(()=>rm(base,{recursive:true,force:true}));
+ const base=await realpath(await mkdtemp(path.join(testTemp,'bridge-development-')));t.after(()=>rm(base,{recursive:true,force:true}));
  const repo=path.join(base,'repo'),home=selectedHome||path.join(base,'home'),root=path.join(home,'plugins','fast-browser-link');
  await mkdir(path.join(repo,'scripts'),{recursive:true});
  for(const file of ['directory-swap.mjs','dev-sync-local.mjs','dev-watch-desktop.mjs','dev-sync-daemon.mjs','install-cli.py','install-executor.py'])
@@ -130,7 +132,7 @@ test('dev sync uses the shared root to refuse a legacy copy before configuration
 });
 
 test('real dev sync packages and swaps the shared root once while preserving profile links',async t=>{
- const home=path.join(tmpdir(),`d${randomUUID().slice(0,3)}`);await mkdir(home,{mode:0o700});
+ const home=path.join(testTemp,`d${randomUUID().slice(0,3)}`);await mkdir(home,{mode:0o700});
  let daemon;
  t.after(async()=>{
   if(daemon&&daemon.exitCode===null&&daemon.signalCode===null){daemon.kill('SIGKILL');await once(daemon,'exit');}
@@ -199,7 +201,7 @@ for file,value in manifests:
 
 // 中文注释：验证真实目录切换时扫描根始终只有一个插件，且可以恢复原文件。
 test('directory swap keeps backup outside discovery and rollback restores original',async t=>{
- const root=await mkdtemp(path.join(tmpdir(),'bridge-swap-'));t.after(()=>rm(root,{recursive:true,force:true}));
+ const root=await realpath(await mkdtemp(path.join(testTemp,'bridge-swap-')));t.after(()=>rm(root,{recursive:true,force:true}));
  const registry=path.join(root,'plugins'),target=path.join(registry,'fast-browser-link'),source=path.join(root,'source');
  await mkdir(target,{recursive:true});await mkdir(source);await writeFile(path.join(target,'plugin.js'),'old');await writeFile(path.join(source,'plugin.js'),'new');
  const swap=await swapInstalledDirectory(target,source,path.join(root,'backups'));
@@ -209,7 +211,7 @@ test('directory swap keeps backup outside discovery and rollback restores origin
 });
 
 test('transaction directories inside the registry are rejected before replacement',async t=>{
- const root=await mkdtemp(path.join(tmpdir(),'bridge-swap-reject-'));t.after(()=>rm(root,{recursive:true,force:true}));
+ const root=await realpath(await mkdtemp(path.join(testTemp,'bridge-swap-reject-')));t.after(()=>rm(root,{recursive:true,force:true}));
  const target=path.join(root,'plugins','bridge');await mkdir(target,{recursive:true});await writeFile(path.join(target,'plugin.js'),'old');
  await assert.rejects(swapInstalledDirectory(target,target,path.join(root,'plugins','.backup')),/outside the plugin registry/);
  assert.equal(await readFile(path.join(target,'plugin.js'),'utf8'),'old');
@@ -217,7 +219,7 @@ test('transaction directories inside the registry are rejected before replacemen
 });
 
 test('directory swap refuses target and transaction ancestor links without writes',async t=>{
- const root=await mkdtemp(path.join(tmpdir(),'bridge-swap-links-'));t.after(()=>rm(root,{recursive:true,force:true}));
+ const root=await realpath(await mkdtemp(path.join(testTemp,'bridge-swap-links-')));t.after(()=>rm(root,{recursive:true,force:true}));
  const target=path.join(root,'plugins','fast-browser-link'),source=path.join(root,'source');
  await mkdir(target,{recursive:true});await mkdir(source);await writeFile(path.join(target,'plugin.js'),'old');
  await symlink(root,path.join(root,'alias'));
@@ -230,7 +232,7 @@ test('directory swap refuses target and transaction ancestor links without write
 
 // 中文注释：旧副本必须由正式升级迁移，开发同步不能自行复制或启用。
 test('legacy profile copy is refused with the formal upgrade command',async t=>{
- const home=await mkdtemp(path.join(tmpdir(),'bridge-targets-'));t.after(()=>rm(home,{recursive:true,force:true}));
+ const home=await realpath(await mkdtemp(path.join(testTemp,'bridge-targets-')));t.after(()=>rm(home,{recursive:true,force:true}));
  const root=path.join(home,'plugins','fast-browser-link'),named=path.join(home,'profiles','named','plugins','fast-browser-link');
  await mkdir(root,{recursive:true});assert.deepEqual(await installedPluginTargets(home),[root]);
  await mkdir(named,{recursive:true});
@@ -242,7 +244,7 @@ test('legacy profile copy is refused with the formal upgrade command',async t=>{
 test('discovery rejects linked roots and linked profile ancestors before returning targets',async t=>{
  for(const kind of ['home','root','registry','profile','profiles','profile-registry','missing-root']){
   await t.test(kind,async t=>{
-   const base=await mkdtemp(path.join(tmpdir(),'bridge-ancestors-'));t.after(()=>rm(base,{recursive:true,force:true}));
+   const base=await realpath(await mkdtemp(path.join(testTemp,'bridge-ancestors-')));t.after(()=>rm(base,{recursive:true,force:true}));
    let home=path.join(base,'home');const root=path.join(home,'plugins','fast-browser-link');
    await mkdir(root,{recursive:true});
    const named=path.join(home,'profiles','named');await mkdir(path.join(named,'plugins'),{recursive:true});
@@ -259,7 +261,7 @@ test('discovery rejects linked roots and linked profile ancestors before returni
 });
 
 test('profile references must be direct links to the exact shared root',async t=>{
- const home=await mkdtemp(path.join(tmpdir(),'bridge-links-'));t.after(()=>rm(home,{recursive:true,force:true}));
+ const home=await realpath(await mkdtemp(path.join(testTemp,'bridge-links-')));t.after(()=>rm(home,{recursive:true,force:true}));
  const root=path.join(home,'plugins','fast-browser-link'),registry=path.join(home,'profiles','named','plugins'),target=path.join(registry,'fast-browser-link');
  await mkdir(root,{recursive:true});await mkdir(registry,{recursive:true});
  for(const destination of [root,path.relative(registry,root)]){
@@ -282,7 +284,7 @@ const REPO=path.resolve(import.meta.dirname,'../..');
 
 // 中文注释：维护标记存在时，本地宿主、客户端自动启动、daemon 本身和云端宿主都不能拉起服务。
 async function maintenanceHome(t){
- const home=path.join(tmpdir(),`m${randomUUID().slice(0,4)}`);await mkdir(home,{mode:0o700});
+ const home=path.join(testTemp,`m${randomUUID().slice(0,4)}`);await mkdir(home,{mode:0o700});
  t.after(()=>rm(home,{recursive:true,force:true}));
  const data=path.join(home,'plugin-data','fast-browser-link-native');
  await mkdir(data,{recursive:true,mode:0o700});
@@ -367,4 +369,9 @@ test('扩展连接本地桥前先检查构建，握手前断开不快速重试',
  const connect=source.slice(source.indexOf('async function connect(){'));
  assert.ok(connect.indexOf('reloadForInstalledBuild(')>0&&connect.indexOf('reloadForInstalledBuild(')<connect.indexOf("connectNative('com.fast.browser_link')"));
  assert.match(connect,/if\(wasConnected\)setTimeout\(\(\)=>\{connect\(\);\},1500\);/);
+});
+test('connected build checks disclose pending updates and wait for verified idle before reloading',async()=>{
+ const {reloadForInstalledBuild}=await import('../../native-extension/build-reload.mjs');let idle=false,reloads=0,checks=0;const statuses=[],store={};
+ const chrome={runtime:{getURL:file=>file,reload:()=>reloads++},storage:{local:{get:async()=>store,set:async value=>Object.assign(store,value)}}},fetch=async()=>({ok:true,json:async()=>({buildId:'b'.repeat(64)})}),options={chrome,fetch,loadedBuildId:'a'.repeat(64),onStatus:value=>statuses.push(value),canReload:async()=>{checks++;return idle;}};
+ assert.equal(await reloadForInstalledBuild(options),false);assert.equal(reloads,0);assert.equal(statuses.at(-1).pending,true);assert.deepEqual(store,{});idle=true;assert.equal(await reloadForInstalledBuild(options),true);assert.equal(reloads,1);assert.equal(checks,2);await reloadForInstalledBuild(options);assert.equal(reloads,1);
 });

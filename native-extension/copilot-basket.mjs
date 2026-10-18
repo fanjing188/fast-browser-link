@@ -4,9 +4,9 @@ export class BasketPanel{
  async refresh(){this.update(await this.request('basket_state'));}
  update(state){if(!this.root||!state||this.revision===state.revision)return;this.state=state;this.revision=state.revision;this.render();}
  render(){
-  const doc=this.doc,root=this.root,open=root.open;root.replaceChildren();root.open=open;
+  const doc=this.doc,root=this.root,open=root.open;root.hidden=!this.state.items.length;root.replaceChildren();root.open=open;
   const node=(tag,text)=>{const el=doc.createElement(tag);if(text!==undefined)el.textContent=text;return el;};
-  root.append(node('summary',this.t('工作篮','Work basket')+` · ${this.state.items.length}`));const body=node('div');body.className='basket-body';root.append(body);
+  const summary=node('summary',this.t('工作篮','Work basket')+` · ${this.state.items.length}`);root.append(summary);const batch=node('button',this.t('批量执行','Run batch'));batch.type='button';batch.className='basket-run';batch.onclick=event=>{event.preventDefault();event.stopPropagation();root.open=true;this.selected=new Set(this.state.items.filter(item=>item.type==='keyword').map(item=>item.id));this.render();root.open=true;void this.preview?.('check');};summary.append(batch);const body=node('div');body.className='basket-body';root.append(body);
   const notice=node('output');notice.setAttribute('role','status');notice.className='basket-notice';body.append(notice);
   const button=(label,work)=>{const el=node('button',label);el.type='button';el.onclick=async()=>{el.disabled=true;try{await work();}catch{notice.textContent=this.t('操作未完成；请重估并核对能力、连接或导出目录。表格请先选择关键词/域名列。','Action failed. Re-estimate and check bindings, connection or export folder.');}finally{el.disabled=false;}};return el;};
   for(const id of [...this.selected])if(!this.state.items.some(item=>item.id===id))this.selected.delete(id);
@@ -32,12 +32,12 @@ export class BasketPanel{
    preview.append(node('p',this.t('未知/付费来源不会自动执行；预估变化需重新确认。','Unknown/paid sources never run automatically. Changed estimates require review.')));
    const finish=async confirmation=>{
     const result=await this.request('basket_execute',{token:plan.token,...(confirmation?{confirmation}:{})});
-    if(result.secondary_required){preview.append(node('p',this.t('这包含不可逆或对外动作。再次确认才会执行。','This includes irreversible or external actions. Confirm again to execute.')),button(this.t('再次确认执行','Confirm external action'),()=>finish(result.confirmation)));return;}
+    if(result.secondary_required){preview.append(node('p',this.t('这包含不可逆或对外动作。再次确认才会执行。','This includes irreversible or external actions. Confirm again to execute.')),button(this.t('再次确认','Confirm again'),()=>finish(result.confirmation)));return;}
     if(result.clipboard!==undefined)await doc.defaultView.navigator.clipboard.writeText(result.clipboard);
     if(result.files?.length)notice.textContent=result.files.map(file=>file.path).join('；');else notice.textContent=result.started?this.t('已在后台开始；批次进度见进行中。','Started in background. See running batches.'):this.t('已完成','Done');preview.replaceChildren();
    };
    preview.append(button(this.t('确认执行','Confirm execution'),()=>finish()),button(this.t('取消','Cancel'),()=>preview.replaceChildren()));
   };
-  for(const [operation,zh,en] of [['check','批量查词定档','Check keywords'],['expand','批量拆长尾','Expand keywords'],['trends','批量查热度','Check trends'],['competitors','批量竞品反查','Analyze competitors'],['save','全部存词池','Save to pool'],['export','导出 Excel / CSV','Export Excel / CSV'],['copy','复制','Copy']])operations.append(button(this.t(zh,en),()=>run(operation)));
+  for(const [operation,zh,en] of [['check','批量查词','Check keywords'],['expand','批量扩词','Expand keywords'],['trends','查热度','Check trends'],['competitors','查竞品','Analyze competitors'],['save','存词池','Save to pool'],['export','导出','Export Excel / CSV'],['copy','复制','Copy']])operations.append(button(this.t(zh,en),()=>run(operation)));
  }
 }

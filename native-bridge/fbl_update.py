@@ -220,12 +220,12 @@ def extension_targets(ctx):
     return [safe(path) for path in values]
 
 
-def plan(ctx,source=None):
+def plan(ctx,source=None,*,preserve_skills=False):
     roots,plugins=layouts(ctx)
     if not roots:raise ValueError('no installed runtime; run fbl setup')
     payload=verify_source(source) if source else None
-    targets=[*[root/'plugin-data/fast-browser-link-native/host-bin' for root in roots],*plugins,*extension_targets(ctx),*skill_targets(ctx)]
-    return {'runtimes':list(map(str,roots)),'targets':list(map(str,targets)),'download_required':source is None,'reload_extension':True,'source_verified':bool(payload)}
+    targets=[*[root/'plugin-data/fast-browser-link-native/host-bin' for root in roots],*plugins,*extension_targets(ctx),*([] if preserve_skills else skill_targets(ctx))]
+    return {'runtimes':list(map(str,roots)),'targets':list(map(str,targets)),'download_required':source is None,'reload_extension':True,'source_verified':bool(payload),'preserve_skills':preserve_skills}
 
 
 def _copy(source,target):
@@ -234,8 +234,8 @@ def _copy(source,target):
     else:target.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(source,target)
 
 
-def update(ctx,source,*,dry_run=False,wait=0,pause_hermes=False,health=None,yes=False,confirm=None):
-    payload=verify_source(source);summary=plan(ctx,source);cli=legacy_cli(ctx)
+def update(ctx,source,*,dry_run=False,wait=0,pause_hermes=False,health=None,yes=False,confirm=None,preserve_skills=False):
+    payload=verify_source(source);summary=plan(ctx,source,preserve_skills=preserve_skills);cli=legacy_cli(ctx)
     if dry_run:
         return preview(ctx, summary, cli)
     groups, approved = idle(ctx, cli, wait, allow_settle=True)
@@ -319,7 +319,7 @@ def update(ctx,source,*,dry_run=False,wait=0,pause_hermes=False,health=None,yes=
                     stage=transaction/('pack-'+str(len(prepared)));_copy(payload['native']/'fbl-assets/packs'/target.name,stage)
                     private_write(stage/'.fbl-pack.json',json.dumps({'version':1,'sha256':tree_digest(stage)}));prepared.append((stage,target))
             history=read(payload['native']/'fbl-assets/skill-history.json',{})
-            for path in skill_targets(ctx):
+            for path in ([] if preserve_skills else skill_targets(ctx)):
                 record=read(path/'.fbl-skill.json');current=tree_digest(path)
                 if current!=record.get('sha256') and current not in history.get(path.name,[]):raise ValueError('skill modified or ownership unknown; preserved: '+str(path))
                 source=payload['skill'] if path.name=='fast-browser-link' else payload['adapter']/'skills'/path.name
@@ -327,9 +327,9 @@ def update(ctx,source,*,dry_run=False,wait=0,pause_hermes=False,health=None,yes=
                 stage=transaction/('skill-'+str(len(prepared)));_copy(source,stage)
                 private_write(stage/'.fbl-skill.json',json.dumps({'version':1,'sha256':tree_digest(stage)}));prepared.append((stage,path))
             # 中文注释：只迁移带标记的专用配置；根和其他 profile 不进入写集合。
-            for profile in ('copilot','copilot-exec'):
-                target=ctx.hermes/'profiles'/profile
-                if not (target/'.copilot-profile.json').is_file():continue
+            profile='fast-copilot'
+            target=ctx.hermes/'profiles'/profile
+            if (target/'.copilot-profile.json').is_file():
                 staged_home=transaction/('profile-'+profile);stage=staged_home/'profiles'/profile
                 from fbl_profiles import read_config
                 private_write(stage/'config.yaml',json.dumps(read_config(target/'config.yaml',ctx.hermes)))

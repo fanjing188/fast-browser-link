@@ -11,9 +11,9 @@ from copilot import Copilot
 class HealthTests(unittest.TestCase):
  def test_zero_model_health_states(self):
   with tempfile.TemporaryDirectory() as temp,patch('subprocess.Popen',side_effect=AssertionError('no process')),patch('copilot_health.shutil.which',return_value='/synthetic/hermes'):
-   root=Path(temp);config={'hermes_home':temp,'exec_profile':'copilot-exec'}
+   root=Path(temp);config={'hermes_home':temp,'exec_profile':'fast-copilot'}
    self.assertEqual(health(config,{},None)['state'],'disconnected')
-   profile=root/'profiles/copilot-exec';profile.mkdir(parents=True);(profile/'config.yaml').write_text('synthetic')
+   profile=root/'profiles/fast-copilot';profile.mkdir(parents=True);(profile/'config.yaml').write_text('synthetic')
    self.assertEqual(health(config,{'enabled':True},None)['state'],'connecting')
    runtime=type('Runtime',(),{'closed':False})()
    result=health(config,{'ready':True,'last_call_succeeded':True},runtime)

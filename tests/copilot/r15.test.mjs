@@ -23,11 +23,11 @@ test('discovery screen preserves explicit URLs/tab consent and confirms only sel
  const html=await readFile(new URL('../../native-extension/copilot-panel.html',import.meta.url),'utf8'),dom=new JSDOM(html);const calls=[];
  try{const doc=dom.window.document;const rows=[{id:'free',capability:'keyword.expand',source:'manifest',confidence:1,cost:'zero',validation:'available',basis:'explicit',binding:{id:'free',batch_limit:10},selected:true},{id:'paid',capability:'keyword.metrics',source:'mcp',confidence:.96,cost:'unknown',validation:'available',basis:'schema',binding:{id:'paid'},selected:false}];
   const panel=new CapabilitiesPanel(doc,async(name,params)=>{calls.push([name,params]);if(name==='fbl_discover')return {candidates:rows,errors:[]};return {capabilities:{},candidates:[]};},{language:'en'});await panel.refresh();
-  const urls=doc.querySelector('textarea[placeholder]');urls.value='https://example.test/report';urls.oninput();const tabs=doc.querySelector('.capability-body input[type=checkbox]');tabs.checked=true;tabs.onchange();
-  await [...doc.querySelectorAll('.capability-body button')].find(button=>button.textContent==='Discover local tools').onclick();
+  const urls=doc.querySelector('.capability-body textarea[placeholder]');urls.value='https://example.test/report';urls.oninput();const tabs=doc.querySelector('.capability-body input[type=checkbox]');tabs.checked=true;tabs.onchange();
+  await [...doc.querySelectorAll('.capability-body button')].find(button=>button.textContent==='Find tools').onclick();
   assert.deepEqual(calls.find(([name])=>name==='fbl_discover')[1],{urls:['https://example.test/report'],scan_tabs:true});
   const candidateChecks=doc.querySelectorAll('.capability-body section input[type=checkbox]');assert.equal(candidateChecks[0].checked,true);assert.equal(candidateChecks[1].checked,false);
-  await [...doc.querySelectorAll('button')].find(button=>button.textContent==='Confirm selected bindings').onclick();assert.deepEqual(calls.find(([name])=>name==='fbl_confirm')[1].ids,['free']);
+  await [...doc.querySelectorAll('button')].find(button=>button.textContent==='Bind selected').onclick();assert.deepEqual(calls.find(([name])=>name==='fbl_confirm')[1].ids,['free']);
  }finally{dom.window.close();}
 });
 test('popup repair is extension-popup only and cannot be sent from a page',async()=>{

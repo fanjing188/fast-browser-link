@@ -47,10 +47,10 @@ function table(page,kind='url'){return {id:'0',name:'fixture',headers:['词','�
 test('background URL/button/scroll collection deduplicates, jitters, caps and saves partial on stop/block',async()=>{
  for(const kind of ['url','button','scroll']){
   let page=1,closed=0;const waits=[],updates=[],source={url:'https://example.test/?page=1',tables:[table(1,kind)]};
-  const jobs=new TableJobs({open:async()=>({owned:true}),read:async()=>({url:'https://example.test/?page='+page,tables:[table(page,kind)]}),navigate:async(_,url)=>{page=Number(new URL(url).searchParams.get('page'));},advance:async()=>page>=3?{done:true}:(page++,{advanced:true}),close:async()=>closed++,upload:async data=>data,progress:row=>updates.push(row),delay:async ms=>waits.push(ms),random:()=>.5});
+  const jobs=new TableJobs({open:async()=>({owned:true}),read:async()=>({url:'https://example.test/?page='+page,tables:[table(page,kind)]}),navigate:async(_,url)=>{page=Number(new URL(url).searchParams.get('page'));},advance:async()=>page>=3?{done:true}:(page++,{advanced:true}),close:async()=>closed++,upload:async data=>({...data,files:[{id:'fixture-file',path:'/synthetic/table.xlsx'}]}),progress:row=>updates.push(row),delay:async ms=>waits.push(ms),random:()=>.5});
   const result=await jobs.run('job',source,source.tables[0],{max_pages:50,delay_min:1.5,delay_max:3});assert.equal(result.rows.length,7);assert.equal(closed,1);assert.ok(waits.every(ms=>ms===2250));assert.equal(result.partial,false);assert.equal(updates.at(-1).status,'completed');
  }
- let jobs;const source={url:'https://example.test/?page=1',tables:[table(1)]};jobs=new TableJobs({open:async()=>({}),read:async()=>{jobs.stop('stop');return source;},navigate:async()=>{},advance:async()=>({}),close:async()=>{},upload:async d=>d,progress:()=>{},delay:async()=>{}});const partial=await jobs.run('stop',source,source.tables[0]);assert.match(partial.reason,/已停止/);assert.equal(partial.rows.length,3);
+ let jobs;const source={url:'https://example.test/?page=1',tables:[table(1)]};jobs=new TableJobs({open:async()=>({}),read:async()=>{jobs.stop('stop');return source;},navigate:async()=>{},advance:async()=>({}),close:async()=>{},upload:async d=>({...d,files:[{id:'fixture-file',path:'/synthetic/table.xlsx'}]}),progress:()=>{},delay:async()=>{}});const partial=await jobs.run('stop',source,source.tables[0]);assert.match(partial.reason,/已停止/);assert.equal(partial.rows.length,3);
  source.tables[0].pagination.totalPages=60;await assert.rejects(()=>jobs.run('cap',source,source.tables[0],{max_pages:50}),/再次确认/);
 });
 test('silent task input skips activation queue',async()=>{
@@ -62,14 +62,14 @@ test('background collector uses real local DOM pagination and leaves the user do
  const markup=page=>'<h2>本地分页样例</h2><table><tr><th>词</th><th>量</th></tr>'+[0,1,2].map(i=>`<tr><td>word ${page*3+i}</td><td>10</td></tr>`).join('')+`</table><button ${page>=3?'disabled':''}>下一页</button>`;
  const user=dom(markup(1),'https://fixture.test/'),work=dom(markup(1),'https://fixture.test/');let page=1;const original=user.serialize();
  const bind=()=>{work.window.document.querySelector('button').onclick=()=>{page++;work.window.document.body.innerHTML=markup(page);bind();};};bind();
- const captured=captureTables(user.window.document),jobs=new TableJobs({open:async()=>({}),read:async()=>captureTables(work.window.document),advance:async(_,step)=>advanceTable(step,work.window.document),close:async()=>{},navigate:async()=>{throw Error('not URL pagination');},upload:async value=>value,progress:()=>{},delay:async()=>{}});
+ const captured=captureTables(user.window.document),jobs=new TableJobs({open:async()=>({}),read:async()=>captureTables(work.window.document),advance:async(_,step)=>advanceTable(step,work.window.document),close:async()=>{},navigate:async()=>{throw Error('not URL pagination');},upload:async value=>({...value,files:[{id:'fixture-file',path:'/synthetic/table.xlsx'}]}),progress:()=>{},delay:async()=>{}});
  const result=await jobs.run('local',captured,captured.tables[0]);assert.equal(result.rows.length,9);assert.equal(result.pages,3);assert.equal(result.partial,false);assert.equal(user.serialize(),original);user.window.close();work.window.close();
 });
 test('blocker, schema drift and page cap save collected rows with an explicit reason',async()=>{
  const source={url:'https://fixture.test/?page=1',tables:[table(1)]};
  for(const failure of ['login','structure','cap']){
   let page=1;const initial={...source.tables[0],pagination:{...source.tables[0].pagination,totalPages:null}};
-  const jobs=new TableJobs({open:async()=>({}),read:async()=>failure==='login'?{url:source.url,tables:[],blocked:'遇到验证码'}:failure==='structure'?{url:source.url,tables:[{...table(1),headers:['不同','字段']}]}:{url:'https://fixture.test/?page='+page,tables:[{...table(page),pagination:{...table(page).pagination,totalPages:null,next:true}}]},navigate:async()=>page++,advance:async()=>({advanced:true}),close:async()=>{},upload:async value=>value,progress:()=>{},delay:async()=>{}});
+  const jobs=new TableJobs({open:async()=>({}),read:async()=>failure==='login'?{url:source.url,tables:[],blocked:'遇到验证码'}:failure==='structure'?{url:source.url,tables:[{...table(1),headers:['不同','字段']}]}:{url:'https://fixture.test/?page='+page,tables:[{...table(page),pagination:{...table(page).pagination,totalPages:null,next:true}}]},navigate:async()=>page++,advance:async()=>({advanced:true}),close:async()=>{},upload:async value=>({...value,files:[{id:'fixture-file',path:'/synthetic/table.xlsx'}]}),progress:()=>{},delay:async()=>{}});
   const result=await jobs.run('job',source,initial,{max_pages:2,delay_min:1.5,delay_max:3});assert.equal(result.partial,true);assert.ok(result.rows.length>=3);assert.match(result.reason,failure==='login'?/验证码/:failure==='structure'?/结构/:/上限/);
  }
 });
@@ -89,7 +89,7 @@ test('virtual rows are recycled in a local DOM and inference gets only table sum
  const draw=()=>{const page=Math.min(2,Math.ceil(top/80));root.innerHTML='<div role="row"><div role="columnheader">词</div><div role="columnheader">量</div></div>'+Array.from({length:3},(_,i)=>`<div role="row"><div role="gridcell">private-cell-${page*3+i}</div><div role="gridcell">${i}</div></div>`).join('');};
  Object.defineProperties(root,{scrollHeight:{get:()=>280},clientHeight:{get:()=>100},scrollTop:{get:()=>top,set:value=>{top=value;}}});root.addEventListener('scroll',draw);draw();
  const captured=captureTables(doc);assert.doesNotMatch(JSON.stringify(tableSummary(captured)),/private-cell/);assert.match(JSON.stringify(tableSummary(captured)),/3 行/);
- const jobs=new TableJobs({open:async()=>({}),read:async()=>captureTables(doc),advance:async(_,step)=>advanceTable(step,doc),navigate:async()=>{},close:async()=>{},upload:async value=>value,progress:()=>{},delay:async()=>{}});
+ const jobs=new TableJobs({open:async()=>({}),read:async()=>captureTables(doc),advance:async(_,step)=>advanceTable(step,doc),navigate:async()=>{},close:async()=>{},upload:async value=>({...value,files:[{id:'fixture-file',path:'/synthetic/table.xlsx'}]}),progress:()=>{},delay:async()=>{}});
  const result=await jobs.run('virtual',captured,captured.tables[0]);assert.equal(result.rows.length,9);assert.equal(result.unit,'批');assert.equal(result.partial,false);fixture.window.close();
 });
 test('blank checkbox header is retained and controls never become exported values',()=>{
@@ -110,8 +110,8 @@ test('editable cells keep column shape but never expose input text or edited lin
 test('production pagination adapter dispatches a bound Executor click instead of raw DOM click',async()=>{
  const {taskTableAdapter}=await import('../../native-extension/copilot-table-job.mjs');
  const fixture=dom('<button>下一页</button>','https://fixture.test/');let clicked=0;fixture.window.document.querySelector('button').onclick=()=>clicked++;
- const task={id:'task',generation:1,silent:true,agentTabs:new Set([2]),agentTabGroups:new Map([[2,9]])},calls=[];
+ const task={id:'task',generation:1,silent:true,policy:{modeGeneration:2},agentTabs:new Set([2]),agentTabGroups:new Map([[2,9]])},calls=[];
  const api={tabs:{get:async()=>({id:2,url:'https://fixture.test/',windowId:4,groupId:9,active:false})},windows:{get:async()=>({focused:false})},scripting:{executeScript:async({func,args})=>[{result:func(args[0],fixture.window.document)}]}};
  const executor={tasks:new Map([['task',task]]),leases:new Map([[2,'task']]),perform:async(_task,p)=>{calls.push(p);if(p.action==='semantic_snapshot'){assert.equal(clicked,0);return {binding:{taskId:'task'},snapshotId:'snapshot',items:[{ref:'next',name:'下一页',role:'button'}]};}assert.equal(p.action,'ref_click');assert.equal(p.ref,'next');clicked++;return {effect:'observed'};}};
- const adapter=taskTableAdapter(api,executor,()=>null,{});const result=await adapter.advance({taskId:'task',tabId:2,windowId:4,groupId:9,origin:'https://fixture.test'},{kind:'button',headers:[]});assert.equal(result.advanced,true);assert.equal(clicked,1);assert.deepEqual(calls.map(c=>c.action),['semantic_snapshot','ref_click']);fixture.window.close();
+ const adapter=taskTableAdapter(api,executor,()=>null,{});const result=await adapter.advance({taskId:'task',tabId:2,windowId:4,groupId:9,modeGeneration:2,origin:'https://fixture.test'},{kind:'button',headers:[]});assert.equal(result.advanced,true);assert.equal(clicked,1);assert.deepEqual(calls.map(c=>c.action),['semantic_snapshot','ref_click']);fixture.window.close();
 });

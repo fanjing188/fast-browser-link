@@ -150,7 +150,7 @@ class ManagedUpgradeTest(unittest.TestCase):
         import contextlib,io
         spec=importlib.util.spec_from_file_location('setup_profile',ROOT/'scripts/setup-copilot-profile.py');module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
         with tempfile.TemporaryDirectory() as temporary:
-            root=Path(temporary).resolve();target=root/'profiles/copilot';target.mkdir(parents=True)
+            root=Path(temporary).resolve();target=root/'profiles/fast-copilot';target.mkdir(parents=True)
             old={'model':{'default':'gpt-5.6-luna','provider':'openai-codex'},'platform_toolsets':{'acp':[]}}
             files={'config.yaml':json.dumps(old,ensure_ascii=False,indent=2)+'\n','SOUL.md':'','AGENTS.md':'','workspace/AGENTS.md':'','workspace/.hermes.md':''}
             for name,text in files.items():path=target/name;path.parent.mkdir(exist_ok=True);path.write_text(text)

@@ -17,7 +17,7 @@ export const stepLabels=Object.freeze({
 const rectOk=r=>r&&[r.x,r.y,r.width,r.height].every(Number.isFinite)&&r.x>=0&&r.y>=0&&r.width>0&&r.height>0&&r.width<=100000&&r.height<=100000;
 const highlightRectOk=r=>r&&[r.left,r.top,r.width,r.height].every(Number.isFinite)&&r.width>0&&r.height>0&&r.width<=100000&&r.height<=100000;
 
-export function createAutomationOverlay({document:doc=globalThis.document,taskId,generation,tabId,origin,documentId=null,title='',startedAt,language='zh',preferences={},onPreference=()=>{},onStop,onTakeover,onResume,commandTimeoutMs=8000}={}){
+export function createAutomationOverlay({document:doc=globalThis.document,taskId,generation,tabId,origin,documentId=null,title='',startedAt,language='zh',preferences={},onPreference=()=>{},onStop,onTakeover,onResume,onContinue,onLogin,onOpenFile,onBasket,commandTimeoutMs=8000}={}){
  if(!doc?.documentElement||doc.location?.origin!==origin||!/^https?:\/\//.test(origin)||!taskId||!Number.isSafeInteger(generation)||generation<1||!Number.isInteger(tabId)||typeof onStop!=='function'||typeof onTakeover!=='function'||typeof onResume!=='function')throw Error('overlay scope denied');
  const host=doc.createElement('div');host.dataset.fastAutomationOverlay='';host.dataset.fastOverlayTask=taskId;host.dataset.fastOverlayGeneration=String(generation);host.setAttribute?.('aria-hidden','false');
  Object.assign(host.style,{position:'fixed',inset:'0',zIndex:'2147483647',pointerEvents:'auto',background:'transparent'});
@@ -95,7 +95,7 @@ export function createAutomationOverlay({document:doc=globalThis.document,taskId
  const invoke=async(action,el,callback)=>{
    if(removed||busy)return;
    busy=true;lastCommand={action,el,callback};commandAbort=new AbortController();const controller=commandAbort;
-   overlay.update({state:action==='takeover'?'pausing':action==='resume'?'resuming':'stopping'});el.disabled=true;view.setBusy(el,true);
+   if(['takeover','resume','stop'].includes(action))overlay.update({state:action==='takeover'?'pausing':action==='resume'?'resuming':'stopping'});el.disabled=true;view.setBusy(el,true);
    try{
     // 中文注释：扩展确认仍在等待步骤时续期；断连后进度回执停止，八秒内进入可恢复提示。
     let expire;const timeout=new Promise(resolve=>{expire=resolve;});
@@ -104,6 +104,7 @@ export function createAutomationOverlay({document:doc=globalThis.document,taskId
     const onProgress=()=>{if(!removed&&commandAbort===controller&&!controller.signal.aborted)armTimeout();};
     const result=await Promise.race([callback(Object.freeze({taskId,generation,tabId,origin}),{signal:controller.signal,onProgress}),timeout]);
     if(removed||commandAbort!==controller)return;
+    if(result?.state==='handled')return;
     if(result?.state==='stopped'){remove();return;}
     if(result?.state==='paused'){overlay.update({state:'paused'});return;}
     if(result?.state==='running'){overlay.update({state:'waiting'});return;}
@@ -122,6 +123,8 @@ export function createAutomationOverlay({document:doc=globalThis.document,taskId
  const release=button(tr('放开页面','Release page'),'release',remove,true);release.title=tr('放开页面仅恢复本地输入，不代表任务已暂停；请核查任务状态','Release restores local input only. It does not pause the task; verify task status.');
  const retry=button(tr('重试','Retry'),'retry',()=>{if(lastCommand)return invoke(lastCommand.action,lastCommand.el,lastCommand.callback);},true);
  release.style.display=retry.style.display=resume.style.display='none';const takeoverWrap=doc.createElement('span');takeoverWrap.className='takeover-wrap';const tip=doc.createElement('span');tip.className='takeover-tip';tip.setAttribute('role','tooltip');tip.id='fast-takeover-tip';tip.textContent=tr('页面已锁定 · ','Page locked · ');const key=doc.createElement('kbd');key.textContent='⌃⌥⇧F12';tip.append(key,doc.createTextNode?doc.createTextNode(tr(' 接管',' Take over')):doc.createElement('span'));takeover.setAttribute('aria-describedby',tip.id);takeoverWrap.append(takeover,tip);actions.append(takeoverWrap,resume,stop,release,retry);
+ const nextActions=[];for(const [kind,zhLabel,enLabel,callback] of [['continue','继续','Continue',onContinue],['login','去登录','Sign in',onLogin],['open-file','打开文件','Open file',onOpenFile],['basket','加入工作篮','Add to basket',onBasket]]){if(typeof callback!=='function')continue;const el=button(tr(zhLabel,enLabel),kind,callback);el.hidden=true;actions.append(el);nextActions.push(el);}
+ const closeResult=button(tr('关闭','Close'),'close',remove,true);closeResult.hidden=true;actions.append(closeResult);
  shadow.append(veil,border,target,parsingScan,parsingElements,interactionTarget,dragStart,dragEnd,interactionStatus,cursor,cursorHint,ripple,bar,pulse,view.style);doc.documentElement.append(host);
  const parsingSteps=new Set(['snapshot','semantic_snapshot','page.parse','page.observe','frame_catalog']);
  const parsingFeedbackDelayMs=120;
@@ -335,7 +338,7 @@ export function createAutomationOverlay({document:doc=globalThis.document,taskId
      reason:failed?(Object.hasOwn(reasons,code)?reasons[code]:tr('请核对页面状态','Check the current page state')):''};
    }));
   },
-  setActivity({step='',completed=0,total=0}={}){if(removed)return;activityStep=String(step).slice(0,180);view.activity(completed,total);view.state(currentState,activityStep);},
+  setActivity({step='',completed=0,total=0,status,reason='',summary='',resumeFrom,metrics={},canOpen=false,canBasket=false}={}){if(removed)return;activityStep=String(step).slice(0,180);view.activity(completed,total,metrics);const terminal=['failed','stopped','completed'].includes(status);if(terminal){view.outcome({state:status,reason:String(reason).slice(0,300),summary:String(summary).slice(0,300),resumeFrom,completed,total,metrics});for(const el of nextActions)el.hidden=el.dataset.action==='continue'?!resumeFrom:el.dataset.action==='login'?!/login|登录/i.test(reason):el.dataset.action==='open-file'?!canOpen:!canBasket;closeResult.hidden=false;for(const el of [takeoverWrap,resume,stop,release,retry])el.hidden=true;}else{view.state(currentState,activityStep);for(const el of nextActions)el.hidden=true;closeResult.hidden=true;for(const el of [takeoverWrap,resume,stop,release,retry])el.hidden=false;}},
   update({state,step='',targetRect,holdMs,scrollDirection}={}){
    if(removed)return;
    if(state==='stopped'){remove();return;}

@@ -85,8 +85,8 @@ test('collector and multi-page TableJobs emit steps at their real browser calls'
  const api={tabs:{get:async()=>({id:7,active:false,status:'complete',windowId:2,groupId:3,url:`https://example.test/?page=${page}`})},windows:{get:async()=>({focused:false})},scripting:{executeScript:async({func,args})=>[{result:func.name==='captureTables'?{url:`https://example.test/?page=${page}`,tables:[table()]}:func.name==='advanceTable'?(args?.[0]?.inspect?plan:{}):{ready:true}}]}};
  const current={request:async(method,params)=>{if(method==='extension.copilot.work_create')return {id:'fixture'};if(method==='extension.task_step'){reports.push(params);return {accepted:true};}return {};}};
  const executor={tasks,leases:new Map([[7,'fixture']]),perform:async(_task,params)=>{if(params.action==='navigate')page=Number(new URL(params.url).searchParams.get('page'));if(params.action==='semantic_snapshot')return {items:[{name:'Next',ref:'next'}],snapshotId:'s',binding:{}};if(params.action==='ref_click')return {outcomeUnknown:unknown,effect:unknown?'unverified':'observed'};return {tabId:7};},release:async()=>({state:'closed'})};
- const adapter=taskTableAdapter(api,executor,()=>current,{synchronize:async()=>{task={id:'fixture',generation:1,silent:true,agentTabs:new Set([7])};tasks.set('fixture',task);}});
- const jobs=new TableJobs({...adapter,upload:async value=>value,progress:()=>{},delay:async()=>{},random:()=>0});
+ const adapter=taskTableAdapter(api,executor,()=>current,{synchronize:async()=>{task={id:'fixture',generation:1,silent:true,policy:{modeGeneration:2},agentTabs:new Set([7])};tasks.set('fixture',task);}});
+ const jobs=new TableJobs({...adapter,upload:async value=>({...value,files:[{id:'fixture-file',path:'/synthetic/table.xlsx'}]}),progress:()=>{},delay:async()=>{},random:()=>0});
  const result=await jobs.run('job',{url:'https://example.test/?page=1',incognito:false},table(),{max_pages:2},true,2);
  assert.equal(result.pages,2);assert.ok(reports.some(row=>row.action==='new_tab'));assert.ok(reports.some(row=>row.action==='table.read'));assert.ok(reports.some(row=>row.action==='navigate'));
  for(const row of reports.filter(row=>row.phase==='start')){const end=reports.find(item=>item.stepId===row.stepId&&item.phase==='succeeded');assert.ok(end);assert.ok(end.durationMs>=0);assert.equal(Object.hasOwn(row,'url'),false);}
@@ -127,7 +127,7 @@ test('workflow producer reaches overlay; execution subprocess progress reaches b
   await Promise.all(pending);
   assert.ok(steps.length>1);assert.ok(steps.some(value=>value.total>0&&value.completed>0));
   assert.ok(execution.some(event=>event.params.type==='progress'&&event.params.progress.type==='tool_use'));
-  const latest=steps.at(-1);assert.equal(h.shadow.querySelector('[data-role=detail]').textContent,latest.step);
+  const latest=steps.at(-1);assert.equal(h.shadow.querySelector('[data-role=detail]').textContent,latest.summary||latest.step);
   assert.equal(h.shadow.querySelector('progress').value,latest.completed);
  }finally{bridge.close();h.close();}
 });

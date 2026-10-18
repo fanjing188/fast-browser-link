@@ -25,7 +25,7 @@ cd fast-browser-link-2.2.0
 python3 -B -m fbl setup
 ```
 
-已有安装运行 `fbl update --dry-run`，核对后 `fbl update`；`bash install.sh --upgrade` 也支持旧独立版。升级会等待/拒绝活动任务，保留备份，失败回滚。改过的技能或配置不强制覆盖。Hermes 只管理两个带归属标记的专用 profile，保留模型迁移；核心浏览器功能无需 Hermes。
+已有安装运行 `fbl update --dry-run`，核对后 `fbl update`；`bash install.sh --upgrade` 也支持旧独立版。升级会等待/拒绝活动任务，保留备份，失败回滚。改过的技能或配置不强制覆盖。Hermes 只管理一个带归属标记的 Fast-copilot profile（标识 `fast-copilot`），保留模型迁移；核心浏览器功能无需 Hermes。
 
 本机 agent 可读取 `~/.agents/skills/fast-browser-link/SKILL.md` 并调用其中 Python 脚本。协作模式需要配置好 Hermes；其他 agent 通过 skills 或 MCP 使用核心浏览器。
 

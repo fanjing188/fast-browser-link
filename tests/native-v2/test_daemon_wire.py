@@ -1,6 +1,7 @@
 """Daemon-side native v2 validation and no-replay tests."""
 from __future__ import annotations
 
+import copy
 import importlib.util
 from pathlib import Path
 import sys
@@ -26,6 +27,31 @@ finally:
 class SafeIdleExitTests(unittest.TestCase):
     def setUp(self):
         self.daemon = daemon_module.BridgeDaemon(Path(tempfile.gettempdir()) / 'idle-unit')
+
+    def test_reload_status_reuses_terminal_and_unknown_operation_gate_without_mutating_tasks(self):
+        clean = {'id': 'clean', 'instanceId': 'browser', 'state': 'closed', 'cleanupState': 'succeeded', 'requestHistory': []}
+        self.daemon.tasks = {'clean': clean}
+        status = lambda: self.daemon._dispatch_extension('browser', 'extension.reload_status', {})
+        self.assertTrue(status()['idle'])
+        for changed in ({'state': 'running'}, {'cleanupState': 'unknown'}, {'currentOperation': {'state': 'unknown'}}):
+            row = {**clean, **changed}; self.daemon.tasks = {'clean': row}; result = status()
+            self.assertFalse(result['idle']); self.assertEqual(result['blockingCount'], 1); self.assertEqual(self.daemon.tasks['clean'], row)
+            self.assertEqual(set(result['blockingTasks'][0]), {'id', 'state', 'cleanupState'})
+        self.daemon.tasks = {'clean': clean}; self.daemon.lifecycle_operations = 1
+        self.assertFalse(status()['idle'])
+
+    def test_reload_accepts_existing_human_verification_only_until_the_next_task_change(self):
+        from datetime import datetime, timezone
+        row = {'id': 'historic', 'instanceId': 'browser', 'state': 'closed', 'cleanupState': 'succeeded',
+               'updatedAt': 100, 'currentOperation': {'state': 'unknown'}, 'requestHistory': [{'state': 'unknown'}],
+               'userVerified': {'reason': '用户已核实', 'at': datetime.fromtimestamp(101, timezone.utc).isoformat()}}
+        original = copy.deepcopy(row)
+        self.assertTrue(self.daemon._task_safe_for_reload(row)); self.assertFalse(self.daemon._task_safe_for_idle_exit(row))
+        self.assertTrue(self.daemon._task_safe_for_reload({**row, 'operationTimeline': [{'state': 'confirmed'}]}))
+        self.assertEqual(row, original)
+        for changed in ({'updatedAt': 102}, {'cleanupState': 'unknown'}, {'state': 'running'},
+                        {'requestHistory': [{'state': 'awaiting_human'}]}, {'userVerified': {'reason': '', 'at': row['userVerified']['at']}}):
+            self.assertFalse(self.daemon._task_safe_for_reload({**row, **changed}))
 
     def tick(self, now):
         with patch.object(daemon_module.time, 'monotonic', return_value=now):

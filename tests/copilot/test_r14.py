@@ -42,7 +42,7 @@ class R14Tests(unittest.TestCase):
    state=self.app.request('fixture','quick_task',{'action':'seo.keyword_check','params':{'keyword':'sample'}})
    row=self.app._state('fixture')['suggestions'][state['suggestions'][0]['id']];wait(lambda:row['status'] in {'completed','failed'})
   self.assertEqual(row['status'],'completed',row.get('reason'));self.assertTrue(row['result']['verdict'])
-  self.assertEqual(configs[0]['inference_profile'],'copilot')
+  self.assertEqual(configs[0]['inference_profile'],'fast-copilot')
   requests=[json.loads(line) for line in (self.root/'exec-acp-requests.jsonl').read_text().splitlines()]
   self.assertTrue(any(r.get('method')=='session/set_model' and r['params']['modelId']=='synthetic-execution-model' for r in requests))
  def test_failed_judgment_keeps_message_and_acquired_data_in_result_and_log(self):
@@ -84,7 +84,7 @@ class R14Tests(unittest.TestCase):
    self.assertTrue(self.app._observe('fixture',{'trace':[],'page':page})['accepted'])
    for width in (100,101,99):self.assertFalse(self.app._observe('fixture',{'trace':[],'page':{**page,'width':width}})['accepted'])
    self.assertEqual(schedule.call_count,1)
-  state.update(dirty=True,sent_page=state['page'],sent_trace=state['trace'],sent_tool_context=state['tool_context'])
+  state.update(dirty=True,sent_page=state['page'],sent_trace=state['trace'],sent_tool_context=state['tool_context'],sent_work=self.app._resume_context(state)['work_context'])
   with patch.object(self.app,'_prompt_json') as prompt:self.app._infer('fixture',state['epoch']);prompt.assert_not_called()
   self.assertEqual(len(self.logs('capture')),1)
  def test_suggestions_survive_first_miss_and_thirty_seconds_until_second_miss(self):

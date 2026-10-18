@@ -1,0 +1,27 @@
+#local-capabilities .capability-body{display:flex;flex-direction:column;gap:10px;min-width:0;padding-top:10px;font-size:12px;line-height:1.5}
+#local-capabilities .capability-field{display:flex;flex-direction:column;gap:5px;min-width:0;max-width:100%}
+#local-capabilities .capability-label{display:block;color:var(--ink-2);font-size:11px;font-weight:550;overflow-wrap:anywhere}
+#local-capabilities .capability-input,#local-capabilities select{display:block;box-sizing:border-box;width:100%;max-width:100%;min-width:0;margin:0;padding:8px 9px;border:1px solid var(--line);border-radius:var(--rc);background:var(--paper);color:var(--ink);font:inherit;line-height:1.5;resize:vertical;appearance:none}
+#local-capabilities .capability-code{font:11px/1.6 var(--mono);tab-size:2}
+#local-capabilities .capability-input::placeholder{color:var(--ink-2);opacity:1}
+#local-capabilities .capability-input:hover:not(:disabled){border-color:var(--ink-3)}
+#local-capabilities .capability-input:focus-visible{border-color:var(--brand);outline:2px solid var(--brand);outline-offset:2px}
+#local-capabilities .capability-input:disabled{background:var(--bg);color:var(--ink-2);opacity:.55;cursor:not-allowed}
+#local-capabilities .capability-input[aria-invalid=true]{border-color:var(--bad);outline-color:var(--bad)}
+#local-capabilities .capability-actions{display:flex;flex-wrap:wrap;align-items:center;gap:6px;min-width:0}
+#local-capabilities .capability-actions button{max-width:100%;white-space:normal;overflow-wrap:anywhere}
+#local-capabilities .capability-toggle{display:flex;flex-wrap:nowrap;align-items:flex-start;gap:8px;min-width:0;cursor:pointer}
+#local-capabilities .capability-toggle input{flex:none;margin:1px 0 0}
+#local-capabilities .capability-toggle span{min-width:0;overflow-wrap:anywhere}
+#local-capabilities .capability-body .capability-candidate{display:flex;flex-direction:column;gap:8px;min-width:0;padding:10px 0;border-block:1px solid var(--line-2)}
+#local-capabilities .capability-help{margin:0;color:var(--ink-2);overflow-wrap:anywhere}
+#local-capabilities .capability-error{color:var(--bad)}
+#local-capabilities .capability-binding{min-width:0;overflow-wrap:anywhere}
+#local-capabilities .capability-binding .info-button{display:block;max-width:100%;margin-top:6px}
+#local-capabilities .shared-dropdown{width:100%;max-width:100%;min-width:0}
+#local-capabilities .shared-dropdown>button{width:100%;min-width:0;max-width:100%;white-space:normal;overflow-wrap:anywhere;text-align:start}
+#local-capabilities .shared-list{max-width:100%;min-width:0}
+#local-capabilities .shared-list button{white-space:normal;overflow-wrap:anywhere}
+#local-capabilities .shared-list input{box-sizing:border-box;width:100%;max-width:100%;min-width:0}
+#capability-notice{display:block;overflow-wrap:anywhere;font-size:12px;line-height:1.5;color:var(--ink-2)}
+#capability-notice:empty{display:none}

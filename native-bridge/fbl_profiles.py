@@ -8,7 +8,7 @@ import subprocess
 OWNED = ('known_plugin_toolsets','platform_toolsets','mcp_servers','plugins','memory','command_allowlist','approvals','skills','auxiliary','agent','reasoning_effort')
 
 
-def read_config(path, home=None):
+def read_config(path, home=None, *, allow_subprocess=True):
     text=Path(path).read_text()
     try:return json.loads(text)
     except ValueError:pass
@@ -16,6 +16,7 @@ def read_config(path, home=None):
         import yaml
         return yaml.safe_load(text) or {}
     except ImportError:
+        if not allow_subprocess:raise ValueError('profile YAML reader unavailable')
         python=next((root/'hermes-agent/venv/bin/python' for root in (Path(home or path.parent),*Path(path).parents) if (root/'hermes-agent/venv/bin/python').is_file()),None)
         if python is None:raise ValueError('YAML reader unavailable; install Hermes before repairing profiles')
         code='import json,sys,yaml;print(json.dumps(yaml.safe_load(open(sys.argv[1])) or {}))'
@@ -24,15 +25,15 @@ def read_config(path, home=None):
         return json.loads(result.stdout)
 
 
-def desired(model, provider, profile):
+def desired(model, provider):
     return {'_config_version':50,'model':{'default':model,'provider':provider},
-            'known_plugin_toolsets':{'acp':['fast-browser-link']},
-            'platform_toolsets':{'acp':[],'cli':[] if profile=='copilot' else ['fast-browser-link','web','terminal','file']},
-            'plugins':{'enabled':[] if profile=='copilot' else ['fast-browser-link']},'mcp_servers':{},
+            'known_plugin_toolsets':{'acp':['fast-browser-link'],'cli':['fast-browser-link']},
+            'platform_toolsets':{'acp':[],'cli':[]},
+            'plugins':{'enabled':['fast-browser-link']},'mcp_servers':{},
             'memory':{'memory_enabled':False,'user_profile_enabled':False,'provider':''},'command_allowlist':[],
             'approvals':{'mode':'manual'},'skills':{'auto_load':[]},'reasoning_effort':'low',
             'auxiliary':{'background_review':{'enabled':False},'title_generation':{'enabled':False,'model_upgrade_enabled':False}},
-            'agent':{'max_turns':1 if profile=='copilot' else 15,'tool_use_enforcement':False,'execution_guidance':False,'task_completion_guidance':False,'parallel_tool_call_guidance':False}}
+            'agent':{'max_turns':1,'tool_use_enforcement':False,'execution_guidance':False,'task_completion_guidance':False,'parallel_tool_call_guidance':False}}
 
 
 def merge_owned(current, wanted):
@@ -46,12 +47,12 @@ def merge_owned(current, wanted):
     return result
 
 
-def profile_plan(home, profile, model='', provider='auto'):
-    if profile not in {'copilot','copilot-exec'}:raise ValueError('dedicated profiles only')
+def profile_plan(home, profile, model='', provider='auto', *, allow_subprocess=True):
+    if profile != 'fast-copilot':raise ValueError('dedicated profiles only')
     target=Path(home)/'profiles'/profile;path=target/'config.yaml';marker=target/'.copilot-profile.json'
     for item in (path,marker):
         if any(part.is_symlink() for part in (item,*item.parents)):raise ValueError('profile path contains symlink')
-    current=read_config(path,home) if path.exists() else {}
+    current=read_config(path,home,allow_subprocess=allow_subprocess) if path.exists() else {}
     if not isinstance(current,dict):raise ValueError('invalid profile configuration')
     if target.exists() and not marker.is_file():return {'profile':profile,'state':'unmanaged','changes':[]}
     if marker.is_file():
@@ -59,7 +60,21 @@ def profile_plan(home, profile, model='', provider='auto'):
         if record.get('version') not in (1,2,3) or not isinstance(record.get('files'),dict):raise ValueError('invalid profile marker')
         # 中文注释：只修配置的受管键；人格/工作区由用户修改时不覆盖，也不刷新其摘要。
         if 'config.yaml' not in record.get('files',{}):raise ValueError('profile ownership cannot be confirmed')
-    wanted=desired(model,provider,profile)
+    if not target.exists():
+        # 中文注释：只沿用有归属标记的旧配置参数，不复制认证、会话或用户文件。
+        for name in ('copilot','copilot-exec'):
+            legacy=Path(home)/'profiles'/name
+            config_path=legacy/'config.yaml';ownership=legacy/'.copilot-profile.json'
+            if not ownership.is_file() or not config_path.is_file():continue
+            if any(part.is_symlink() for item in (config_path,ownership) for part in (item,*item.parents)):
+                raise ValueError('legacy profile path contains symlink')
+            record=json.loads(ownership.read_text())
+            if record.get('version') not in (1,2,3) or not isinstance(record.get('files'),dict) or 'config.yaml' not in record['files']:
+                raise ValueError('legacy profile ownership cannot be confirmed')
+            current=read_config(config_path,home,allow_subprocess=allow_subprocess)
+            if not isinstance(current,dict):raise ValueError('invalid legacy profile configuration')
+            break
+    wanted=desired(model,provider)
     if current:
         wanted=merge_owned(current,wanted)
     elif not model:raise ValueError('available model selection required')
@@ -80,7 +95,7 @@ def profile_plan(home, profile, model='', provider='auto'):
     if previous_model and previous_model != current_model:
         details.insert(0, f'模型已变化（可能由 Hermes 迁移）：{previous_model} → {current_model}')
     details.append(f'当前模型：{current_model or "未登记"}；推理强度：{current.get("reasoning_effort", "未设置")}')
-    return {'details': details, 'fix_policy': '保留当前模型、提供商、较新的 _config_version 和非受管设置；恢复 reasoning_effort=low、ACP 空工具、MCP 空配置及其他专用 profile 受管约束。', 'profile':profile,'state':'drift' if changes else 'ready','changes':changes,'config':wanted,'target':target,'marker':marker}
+    return {'details': details, 'fix_policy': '保留当前模型、提供商、较新的 _config_version 和非受管设置；恢复 reasoning_effort=low、ACP 空工具、MCP 空配置及其他专用 profile 受管约束。', 'profile':profile,'state':'drift' if changes or not path.is_file() else 'ready','changes':changes,'config':wanted,'target':target,'marker':marker}
 
 
 def repair(home, profile, write, model='', provider='auto', dry_run=False):

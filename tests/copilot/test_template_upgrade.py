@@ -19,13 +19,13 @@ class TemplateUpgradeTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name).resolve()
-        self.data = self.root/'copilot'
+        self.data = self.root/'fast-copilot'
 
     def tearDown(self):
         self.temp.cleanup()
 
     def app(self):
-        profile=self.root/'profiles/copilot-exec';profile.mkdir(parents=True,exist_ok=True);(profile/'config.yaml').write_text('synthetic')
+        profile=self.root/'profiles/fast-copilot';profile.mkdir(parents=True,exist_ok=True);(profile/'config.yaml').write_text('synthetic')
         (self.data/'config.json').write_text(json.dumps({'hermes_home':str(self.root),'hermes_command':sys.executable,'exec_transport':'oneshot','acp_command':[sys.executable,str(ROOT/'tests/copilot/fake-acp.py')],'timeout_seconds':3}))
         return Copilot(self.data)
 
@@ -124,7 +124,7 @@ class TemplateUpgradeTests(unittest.TestCase):
             self.assertEqual(view['hermes_health']['reason'],'Hermes 命令不可用')
             logs=app.journal.view('fixture')['entries'];self.assertTrue(any(row['event']=='startup_failed' for row in logs));self.assertNotIn('PRIVATE_SENTINEL',json.dumps(logs))
             with patch('copilot_health.shutil.which',return_value='/synthetic/hermes'):
-                self.assertEqual(startup_failure({'hermes_home':str(self.root)},ValueError())['code'],'hermes_profile_missing')
+                self.assertEqual(startup_failure({'hermes_home':str(self.root),'inference_profile':'missing'},ValueError())['code'],'hermes_profile_missing')
         finally:app.close()
 
     def test_startup_transport_exit_keeps_failure_reason(self):

@@ -26,24 +26,32 @@ class Fetcher:
                 try:os.killpg(process.pid,signal.SIGTERM)
                 except ProcessLookupError:pass
 
-    def run(self,key,template,params,work,validate,progress=lambda _:None,browser_fetch=None,capability_fetch=None):
-        data={};missing=[]
+    def run(self,key,template,params,work,validate,progress=lambda _:None,browser_fetch=None,capability_fetch=None,checkpoint=None,save_checkpoint=lambda _:None):
+        checkpoint=checkpoint if checkpoint is not None else {}
+        data=dict(checkpoint);missing=[]
+        def retain(name,value):
+            data[name]=value
+            # 中文注释：成功调用的回执保留，即使结果缺字段，也不再次消耗同一查询额度。
+            if not value.get('blocked') and not value.get('source','').startswith('unavailable'):
+                checkpoint[name]=value;save_checkpoint(dict(checkpoint))
         for step in template.get('fetch',[]):
             with self.lock:
                 if self.closed or key in self.cancelled:raise ValueError('fetch stopped')
-            name=step['script'];progress({'type':'fetch','name':name})
+            name=step['script']
+            if name in checkpoint:continue
+            progress({'type':'fetch','name':name})
             validate(params,step['params_schema'])
             if capability_fetch:
                 value=capability_fetch(name,params,step['output_schema'])
                 if value is not None:
-                    validate(value,step['output_schema']);data[name]=value
+                    validate(value,step['output_schema']);retain(name,value)
                     if value.get('source','').startswith('unavailable'):missing.append(name+'：本机能力当前不可用')
                     continue
             command=self.config.get('fetch_commands',{}).get(name)
             if command is None and name=='google_suggest':command=[sys.executable,str(Path(__file__).resolve()),'--google-suggest']
             if not command and browser_fetch and name in {'google_trends','serp_top10'}:
                 try:
-                    value=browser_fetch(name,params);validate(value,step['output_schema']);data[name]=value
+                    value=browser_fetch(name,params);validate(value,step['output_schema']);retain(name,value)
                 except (ValueError,OSError,KeyError,TypeError):missing.append(name+'：后台页面未取得数据（遇阻、超时或超出128KiB预算）')
                 continue
             if not command:
@@ -59,7 +67,7 @@ class Fetcher:
                     self.jobs[key]=process
                 output,_=process.communicate(json.dumps(params,ensure_ascii=False).encode(),timeout=step['timeout'])
                 if process.returncode or len(output)>131072:raise ValueError('fetch failed')
-                value=json.loads(output);validate(value,step['output_schema']);data[name]=value
+                value=json.loads(output);validate(value,step['output_schema']);retain(name,value)
                 if value.get('failed_queries'):missing.append(name+'：部分查询失败（'+str(value['failed_queries'])+'项）')
             except (ValueError,OSError,subprocess.SubprocessError):missing.append(name+'：取数失败或格式不符')
             finally:

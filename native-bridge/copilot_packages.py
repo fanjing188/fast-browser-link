@@ -12,7 +12,10 @@ def read_package(directory):
     path=root/'package.json'
     if path.is_symlink() or path.stat().st_size>131072:raise ValueError('unsafe extension package')
     value=json.loads(path.read_text())
-    if not isinstance(value,dict) or set(value)-{'id','version','fetchers','pool','rules','tools','templates','prompts','workflows','capabilities','flows','experience','experience_file','schemas','files'} or not isinstance(value.get('id'),str) or not re.fullmatch(r'[a-z][a-z0-9-]{0,63}',value['id']) or type(value.get('version')) is not int or value['version']!=1:raise ValueError('invalid extension package')
+    if not isinstance(value,dict) or set(value)-{'id','version','fetchers','pool','rules','tools','templates','prompts','workflows','capabilities','flows','experience','experience_file','schemas','files','name','description','release'} or not isinstance(value.get('id'),str) or not re.fullmatch(r'[a-z][a-z0-9-]{0,63}',value['id']) or type(value.get('version')) is not int or value['version']!=1:raise ValueError('invalid extension package')
+    for field,limit in (('name',120),('description',500)):
+        if field in value and (not isinstance(value[field],str) or not value[field].strip() or len(value[field])>limit):raise ValueError('invalid package metadata')
+    if 'release' in value and (not isinstance(value['release'],str) or not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+',value['release'])):raise ValueError('invalid package release')
     for name in ('fetchers','pool','rules','templates','prompts','workflows','capabilities','flows','schemas'):
         if not isinstance(value.get(name,{}),dict):raise ValueError('invalid package section')
     return root,value
@@ -20,7 +23,7 @@ def read_package(directory):
 
 class Packages:
     def __init__(self,directories=(),include_builtin=True):
-        self.bindings={};self.flows={};self.experience='';self.schemas={};self.workflows={};self.fetchers={};self.pool={};self.rules={'description':{'en':'Judge intent and evidence. Missing metrics are unknown, never zero. No fixed volume or difficulty gate.','zh':'按意图与证据判断；缺指标为未知，不按零处理；没有固定量或难度门槛。'}};self.tools=[];self.templates={};self.prompts={};seen=set()
+        self.bindings={};self.flows={};self.experience='';self.experiences=[];self.schemas={};self.workflows={};self.fetchers={};self.pool={};self.rules={'description':{'en':'Judge intent and evidence. Missing metrics are unknown, never zero. No fixed volume or difficulty gate.','zh':'按意图与证据判断；缺指标为未知，不按零处理；没有固定量或难度门槛。'}};self.tools=[];self.templates={};self.prompts={};seen=set()
         builtin=Path(__file__).parent/'copilot-packages/generic'
         for directory in ([builtin] if include_builtin else [])+list(directories):
             root,value=read_package(directory)
@@ -98,11 +101,19 @@ class Packages:
                 if not file.is_relative_to(root):raise ValueError('unsafe experience path')
                 experience=file.read_text()
             if not isinstance(experience,str) or len(experience)>800:raise ValueError('experience exceeds 800 characters')
-            if experience:self.experience=experience
+            if experience:
+                self.experience=experience
+                self.experiences.append({'pack':value['id'],'text':experience,'tools':copy.deepcopy(tools)})
 
         for tool in self.tools:
             groups={binding.get('serial_group','') for bindings in self.bindings.values() for binding in bindings if binding['type']=='browser' and binding.get('tool')==tool['id']}
             if len(groups)>1:raise ValueError('one tool must share one serial group')
+
+    def experience_for(self,url):
+        parsed=urlsplit(url)
+        def active(row):
+            return not row['tools'] or any(parsed.hostname in tool['hosts'] and any(re.search(pattern,parsed.path) for page in tool.get('pages',[]) for pattern in page['paths']) for tool in row['tools'])
+        return '\n'.join(row['text'] for row in self.experiences if active(row))[:4000]
 
     def configure(self,config):
         config['fetch_commands']={**config['fetch_commands'],**self.fetchers}
@@ -118,6 +129,10 @@ def validate_binding(binding):
     if type(binding.get('priority',100)) is not int or type(binding.get('timeout',120)) is not int or not 1<=binding.get('timeout',120)<=600:raise ValueError('invalid binding bounds')
     if binding['type']=='mcp' and (not all(isinstance(binding.get(key),str) and binding[key] for key in ('config_path','server','tool_name')) or not Path(binding['config_path']).is_absolute()):raise ValueError('invalid MCP binding')
     if binding['type']=='command' and (not isinstance(binding.get('argv'),list) or not binding['argv'] or any(not isinstance(arg,str) or not arg for arg in binding['argv'])):raise ValueError('invalid command argv')
+    if 'plan_argv' in binding and (binding.get('type')!='browser' or not isinstance(binding['plan_argv'],list) or not binding['plan_argv'] or any(not isinstance(arg,str) or not arg for arg in binding['plan_argv'])):raise ValueError('invalid query planner argv')
+    if 'query_submit' in binding:
+        query=binding['query_submit']
+        if binding['type']!='browser' or not isinstance(query,dict) or set(query)!={'root','names'} or not isinstance(query['root'],str) or not 1<=len(query['root'])<=400 or not isinstance(query['names'],list) or not 1<=len(query['names'])<=4 or any(not isinstance(name,str) or name not in {'Analyze','Analyse','Search','Apply filters','分析','查询','搜索','应用筛选'} for name in query['names']):raise ValueError('invalid report query control')
     if 'output' in binding and (not isinstance(binding['output'],dict) or binding['output'].get('format','json') not in {'json','csv'} or binding['output'].get('from','stdout') not in {'stdout','file'}):raise ValueError('invalid command output format')
     if binding['type']=='browser' and not all(isinstance(binding.get(key),str) and binding[key] for key in ('tool','page','link')):raise ValueError('invalid browser binding')
     if binding['type']=='browser' and type(binding.get('verified',False)) is not bool:raise ValueError('invalid route verification')

@@ -28,12 +28,12 @@ class Element{
  remove(){this.removed=true;this.isConnected=false;if(this.parentNode)this.parentNode.children=this.parentNode.children.filter(child=>child!==this);}
  async fire(type,event){return this.listeners[type]?.(event);}
 }
-function fixture(){const body=new Element('body'),documentElement=new Element('html');documentElement.isConnected=true;const doc={location:{origin:'https://example.test'},documentElement,defaultView:{innerWidth:800,innerHeight:600,getComputedStyle:element=>({display:element.style.display||'block',opacity:element.style.opacity||'1'})},createElement:t=>new Element(t)};documentElement.append(body);return {doc,body};}
+function fixture(){const body=new Element('body'),documentElement=new Element('html');documentElement.isConnected=true;const doc={location:{origin:'https://example.test'},documentElement,defaultView:{innerWidth:800,innerHeight:600,getComputedStyle:element=>({display:element.style.display||'block',opacity:element.style.opacity||'1'})},createElement:t=>{const el=new Element(t);el.ownerDocument=doc;return el;}};documentElement.append(body);return {doc,body};}
 const scope={taskId:'task-1',generation:2,tabId:7,origin:'https://example.test'};
 function recentFixture(){
  const {doc}=fixture(),overlay=createAutomationOverlay({document:doc,...scope,onStop:async()=>({state:'stopped'}),onTakeover:async()=>({state:'paused'}),onResume:async()=>({state:'running'})});
  const bar=overlay.host.shadow.children.find(node=>node.dataset.role==='status'),recent=bar.children.find(node=>node.tagName==='details');
- return {doc,overlay,bar,recent,list:recent.children[1],detail:bar.children[2]};
+ return {doc,overlay,bar,recent,list:recent.children[1],detail:bar.children.find(node=>node.className==='now').children.find(node=>node.dataset.role==='detail')};
 }
 test('显示层覆盖守护进程、公开工具及执行器的全部动作',()=>{
  const actions=new Set([...V1_ACTIONS,'vault.fill','cdp.input','use_tab']);
@@ -48,7 +48,7 @@ test('显示层覆盖守护进程、公开工具及执行器的全部动作',()=
   overlay.setRecentSteps([{action,result:'succeeded'}]);
   assert.match(list.children[0].textContent,/[\u4e00-\u9fff]/);
   assert.doesNotMatch(list.children[0].textContent,/^处理页面 ·/);
-  assert.equal(list.children[0].textContent,`✓${['fill','ref_fill'].includes(action)?'在输入框输入内容':stepLabels[action]}`);
+  assert.equal(list.children[0].textContent,`已完成${['fill','ref_fill'].includes(action)?'在输入框输入内容':stepLabels[action]}`);
  }
  overlay.remove();
 });
@@ -66,36 +66,36 @@ test('最近步骤显示动词和脱敏目标，不泄露动作、角色或占�
  for(const [action,target,expected] of cases){
   const row={action,target,result:'succeeded'};
   for(const field of ['selector','value','key','direction','text'])Object.defineProperty(row,field,{get(){throw Error(`不允许读取 ${field}`);}});
-  overlay.setRecentSteps([row]);assert.equal(list.children[0].textContent,`✓${expected}`);
+  overlay.setRecentSteps([row]);assert.equal(list.children[0].textContent,`已完成${expected}`);
   assert.doesNotMatch(list.children[0].textContent,/ref_|page\.parse|unknown\.action|button|textbox|名称未提供|敏感字段/);
  }
  for(const [role,translated] of Object.entries({checkbox:'复选框',combobox:'下拉框',listbox:'下拉框',option:'选项',tab:'标签',menuitem:'菜单项',radio:'单选框',switch:'开关',searchbox:'搜索框'})){
   overlay.setRecentSteps([{action:'ref_click',target:`${role} · 目标`,result:'succeeded'}]);
-  assert.equal(list.children[0].textContent,`✓点击「目标」${translated}`);
+  assert.equal(list.children[0].textContent,`已完成点击「目标」${translated}`);
  }
  overlay.remove();
 });
-test('最近步骤用本地时间，短耗时省略，长耗时以秒显示',()=>{
+test('最近步骤按新三列显示图形语义、动作和用时',()=>{
  const previous=process.env.TZ;process.env.TZ='Asia/Shanghai';
  const {overlay,list}=recentFixture();
  try{
   overlay.setRecentSteps([{time:'2026-10-10T04:03:41Z',action:'ref_click',target:'button · 登录',durationMs:230,result:'succeeded'}]);
-  assert.equal(list.children[0].textContent,'✓点击「登录」按钮0.2s12:03:41');
+  assert.equal(list.children[0].textContent,'已完成点击「登录」按钮0.2s');
   overlay.setRecentSteps([{time:'invalid',action:'scroll',durationMs:1234,result:'pending'}]);
-  assert.equal(list.children[0].textContent,'◌滑动页面1.2s');
+  assert.equal(list.children[0].textContent,'执行中滑动页面1.2s');
  }finally{overlay.remove();if(previous===undefined)delete process.env.TZ;else process.env.TZ=previous;}
 });
-test('相同步骤回执不改写节点，八步窗口追加只替换过期和变化行',()=>{
+test('相同步骤回执不改写节点，四步窗口追加只替换过期和变化行',()=>{
  const {overlay,list,recent}=recentFixture();recent.open=true;
- const rows=Array.from({length:8},(_,index)=>({time:`2026-10-10T04:03:4${index}Z`,action:'ref_click',target:`button · 目标${index}`,result:'succeeded'}));
+ const rows=Array.from({length:4},(_,index)=>({time:`2026-10-10T04:03:4${index}Z`,action:'ref_click',target:`button · 目标${index}`,result:'succeeded'}));
  overlay.setRecentSteps(rows);const nodes=[...list.children];
  let writes=0;const insert=list.insertBefore.bind(list);list.insertBefore=(...args)=>{writes++;return insert(...args);};
  for(const node of nodes){let value=node.textContent;Object.defineProperty(node,'textContent',{get:()=>value,set:next=>{writes++;value=next;}});}
  overlay.setRecentSteps(structuredClone(rows));assert.deepEqual(list.children,nodes);assert.equal(writes,0);assert.equal(recent.open,true);
  overlay.setRecentSteps([...rows,{action:'page.parse',result:'succeeded'}]);
- assert.deepEqual(list.children.slice(0,7),nodes.slice(1));assert.equal(writes,1);assert.equal(nodes[0].isConnected,false);
+ assert.deepEqual(list.children.slice(0,3),nodes.slice(1));assert.equal(writes,1);assert.equal(nodes[0].isConnected,false);
  const kept=[...list.children];overlay.setRecentSteps([...rows.slice(1),{action:'page.parse',result:'unknown',errorCode:'stale_ref'}]);
- assert.deepEqual(list.children.slice(0,7),kept.slice(0,7));assert.notEqual(list.children[7],kept[7]);assert.match(list.children[7].textContent,/页面引用已失效/);assert.equal(list.children[7].title,'stale_ref');
+ assert.deepEqual(list.children.slice(0,3),kept.slice(0,3));assert.notEqual(list.children[3],kept[3]);assert.match(list.children[3].textContent,/页面引用已失效/);assert.equal(list.children[3].title,'stale_ref');
  overlay.remove();
 });
 test('连续动作跳过短等待文案，等待阶段立即收回派发窗口',context=>{
@@ -377,7 +377,7 @@ test('最近步骤说明内容保护拒绝、失效引用和缺失选项，保�
   {action:'ref_click',result:'unknown',errorCode:'PRIVATE_ERROR_CANARY https://private.invalid/?token=SECRET_CANARY'},
  ]);
  const panel=overlay.host.shadow.children.find(x=>x.dataset.role==='status').children.find(x=>x.tagName==='details');
- const lines=panel.children[1].children.map(x=>x.textContent);
+ panel.children[3].children[0].listeners.click({isTrusted:true});const lines=panel.children[1].children.map(x=>x.textContent);
  assert.match(lines[0],/遮挡/);
  assert.match(lines[1],/引用已失效/);assert.equal(panel.children[1].children[1].children[0].children[0].getAttribute('aria-label'),'结果不确定');
  assert.match(lines[2],/未找到指定选项/);assert.equal(panel.children[1].children[2].children[0].children[0].getAttribute('aria-label'),'失败');

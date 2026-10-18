@@ -9,17 +9,31 @@ def context(copilot):
 
 
 def readiness(ctx,diagnostic):
-    checks=diagnostic['checks'];state=read(ctx.copilot/'fbl-state.json')
-    items=[{'id':'setup','ok':state.get('setup_complete') is True,'command':'fbl setup'},
-           {'id':'browser','ok':all(any(row['component']==name and row['ok'] and row.get('code')!='unregistered' for row in checks) for name in ('runtime','daemon','extension','runtime_integrity','version')) and any(row['ok'] for row in checks if row['component'].startswith('host_')),'command':'fbl doctor --fix'},
-           {'id':'templates','ok':any(row['component']=='templates' and row['ok'] for row in checks),'command':'fbl doctor --fix'},
-           {'id':'profiles','repairable':any(row['component'] in {'copilot','copilot-exec'} and row.get('code')=='drift' for row in checks),'ok':all(any(row['component']==name and row['ok'] for row in checks) for name in ('copilot','copilot-exec')),'command':'fbl setup'},
-           {'id':'discovery','ok':state.get('discovery_reviewed') is True and not changes(ctx),'command':'fbl packs discover'}]
+    checks=diagnostic['checks']
+    def ok(*names):return all(any(row['component']==name and row['ok'] for row in checks) for name in names)
+    registered=any(row['ok'] for row in checks if row['component'].startswith('host_'))
+    items=[{'id':'setup','ok':registered and ok('runtime','templates','fast-copilot'),'command':'fbl setup'},
+           {'id':'browser','ok':ok('runtime','daemon','extension') and registered,'command':'fbl doctor --fix'},
+           {'id':'integrity','ok':ok('runtime_integrity'),'command':'fbl update'},
+           {'id':'templates','ok':ok('templates'),'command':'fbl doctor --fix'},
+           {'id':'profiles','repairable':any(row['component']=='fast-copilot' and row.get('code')=='drift' for row in checks),'ok':ok('fast-copilot'),'command':'fbl setup'},
+           {'id':'discovery','ok':not changes(ctx),'command':'fbl packs discover'}]
     return {'ready':all(row['ok'] for row in items),'items':items,'chains':checks}
 
 
 def request(copilot,method,params):
     ctx=context(copilot)
+    if method=='fbl_pack_state' and not params:
+        from fbl_cli import pack_state
+        return pack_state(ctx,copilot.registry.inspect(copilot._tool_context(copilot.active or 'pack-manager')),busy=any(state['enabled'] for state in copilot.states.values()) or bool(copilot.registry.jobs) or copilot.tool_health_running)
+    if method in {'fbl_pack_install','fbl_pack_remove'} and set(params)=={'name'} and isinstance(params['name'],str):
+        with copilot.lock:
+            if any(state['enabled'] for state in copilot.states.values()) or copilot.registry.jobs or copilot.tool_health_running:raise ValueError('close collaboration and wait for jobs before managing packs')
+            if method=='fbl_pack_install' and params['name'] not in {'general','seo'} and not Path(params['name']).is_absolute():raise ValueError('absolute plugin folder required')
+            from fbl_cli import install_pack,pack_state
+            install_pack(ctx,params['name'],remove=method=='fbl_pack_remove')
+            config=read(ctx.copilot/'config.json');copilot.config.update({key:config[key] for key in ('extension_dirs','managed_packs') if key in config});copilot._reload_tools()
+            return pack_state(ctx,copilot.registry.inspect(copilot._tool_context(copilot.active or 'pack-manager')))
     if method in {'fbl_readiness','fbl_fix'} and not params:
         return readiness(ctx,doctor(ctx,fix=method=='fbl_fix'))
     if method=='fbl_layout' and set(params)=={'url','tables'}:

@@ -207,7 +207,7 @@ async function fakePackager(f){
  const cloudHost=await readFile(path.join(f.home,'plugins/fast-browser-link/cloud_link/native_host.py'),'utf8');
  const cli=await readFile(path.join(f.home,'plugins/fast-browser-link/maintenance/install-cli.py'),'utf8');
  const copilotFiles={'fast-browser-link/native_bridge/copilot-templates/workflow.run.json':await readFile(path.join(REPO,'native-bridge/copilot-templates/workflow.run.json'),'utf8'),'fast-browser-link/native_bridge/copilot-packages/generic/neutral_judge.py':await readFile(path.join(REPO,'native-bridge/copilot-packages/generic/neutral_judge.py'),'utf8'),'fast-browser-link/native_bridge/copilot-packages/generic/package.json':await readFile(path.join(REPO,'native-bridge/copilot-packages/generic/package.json'),'utf8'),'fast-browser-link/native_bridge/copilot-templates/browser.open.json':await readFile(path.join(REPO,'native-bridge/copilot-templates/browser.open.json'),'utf8'),'fast-browser-link/native_bridge/copilot-templates/general.task.json':await readFile(path.join(REPO,'native-bridge/copilot-templates/general.task.json'),'utf8')};
- for(const name of ['copilot_diagnostics.py','copilot_health.py','copilot_journal.py','copilot_setup.py','copilot.py','copilot_acp.py','copilot_execution.py','copilot_usage.py','copilot_models.py','copilot_exec_acp.py','copilot_fetch.py','copilot_results.py','copilot_tables.py','copilot_packages.py','copilot_capabilities.py','copilot_tools.py'])
+ for(const name of ['copilot_diagnostics.py','copilot_health.py','copilot_journal.py','copilot_setup.py','copilot.py','copilot_acp.py','copilot_execution.py','copilot_usage.py','copilot_models.py','copilot_exec_acp.py','copilot_fetch.py','copilot_results.py','copilot_tables.py','copilot_directories.py','copilot_agents.py','copilot_packages.py','copilot_capabilities.py','copilot_tools.py'])
   copilotFiles[`fast-browser-link/native_bridge/${name}`]=await readFile(path.join(REPO,'native-bridge',name),'utf8');
  for(const name of (await readdir(path.join(REPO,'native-bridge/copilot-templates/seo'))).filter(name=>name.endsWith('.json')))
   copilotFiles[`fast-browser-link/native_bridge/copilot-templates/seo/${name}`]=await readFile(path.join(REPO,'native-bridge/copilot-templates/seo',name),'utf8');
@@ -403,7 +403,7 @@ test('copilot 初始化使用真实暂存运行时并保留既有配置；失败
  initializeCopilot(home,plugin);
  const config=path.join(home,'plugin-data/fast-browser-link-native/copilot/config.json');
  const parsed=JSON.parse(await readFile(config,'utf8'));
- assert.equal(parsed.context_limit,6000);assert.equal(parsed.inference_profile,'copilot');assert.equal(parsed.exec_profile,'copilot-exec');
+ assert.equal(parsed.context_limit,6000);assert.equal(parsed.inference_profile,'fast-copilot');assert.equal(parsed.exec_profile,'fast-copilot');
  await writeFile(config,'user-owned-config');
  initializeCopilot(home,plugin);
  assert.equal(await readFile(config,'utf8'),'user-owned-config');

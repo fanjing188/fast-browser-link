@@ -9,7 +9,7 @@ test('offline popup status and local-only diagnostics export retain envelope',as
  let listener,receiveCloud;const noop={addListener(){}};const data={};
  // 中文注释：云端 hello 在内存中回执，避免离线本地连接测试遗留重连定时器。
  const cloudPort={onMessage:{addListener:f=>receiveCloud=f},onDisconnect:noop,postMessage:m=>queueMicrotask(()=>receiveCloud({id:m.id,result:{state:'unavailable',online:false,paired:false,fullAccess:false}}))};
- globalThis.chrome={notifications:{onClicked:noop},storage:{local:{get:async k=>({[k]:data[k]}),set:async x=>Object.assign(data,x)},session:{get:async k=>({[k]:data[k]}),set:async x=>Object.assign(data,x)}},runtime:{sendMessage:async()=>{},getManifest:()=>({version:packageVersion}),id:'test',onMessage:{addListener:f=>listener=f},connectNative(name){if(name==='com.fast.browser_link.cloud')return cloudPort;throw Error('offline');}},alarms:{create(){},onAlarm:noop},tabs:{onCreated:noop,onRemoved:noop,onUpdated:noop},debugger:{onDetach:noop}};
+ globalThis.chrome={notifications:{onClicked:noop},storage:{local:{get:async k=>({[k]:data[k]}),set:async x=>Object.assign(data,x)},session:{get:async k=>({[k]:data[k]}),set:async x=>Object.assign(data,x)}},runtime:{sendMessage:async()=>{},getManifest:()=>({version:packageVersion}),id:'test',onMessage:{addListener:f=>listener=f},connectNative(name){if(name==='com.fast.browser_link.cloud')return cloudPort;throw Error('offline');}},alarms:{create(){},onAlarm:noop},windows:{onFocusChanged:noop},tabs:{onCreated:noop,onRemoved:noop,onUpdated:noop},debugger:{onDetach:noop}};
  await import('../../native-extension/background.mjs');await new Promise(r=>setTimeout(r,5));
  const sender={id:'test',url:'chrome-extension://test/popup.html'};
  const rpc=m=>new Promise(resolve=>listener(m,sender,resolve));

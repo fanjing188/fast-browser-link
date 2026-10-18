@@ -15,6 +15,17 @@ const copilot=new CopilotBackground(chrome,(method,params)=>{if(!connected||!bri
 let bridge=null,connected=false,connecting=false,lastError='尚未连接本地桥';
 let notifier=null,approvalInstance=null,approvalRefresh=Promise.resolve();
 let connectedInstanceId=null,connectedGeneration=null;
+let buildStatus={loadedBuildId:BUILD_ID,installedBuildId:BUILD_ID,pending:false},checkingBuild=false;
+const locallyIdle=()=>!connecting&&!accessWindow&&!copilot.tableConfirmation&&!copilot.tableJobs?.jobs.size&&!([...copilot.rows.values()].some(row=>['queued','executing','stopping'].includes(row.status)))&&![...executor.tasks.values()].some(task=>!task.revoked);
+async function checkInstalledUpdate(){
+ if(checkingBuild||!connected||!bridge)return;checkingBuild=true;const current=bridge;
+ try{await reloadForInstalledBuild({chrome,fetch:(...args)=>fetch(...args),loadedBuildId:BUILD_ID,onStatus:value=>{buildStatus=value;},canReload:async()=>{
+  if(!locallyIdle()){buildStatus={...buildStatus,waiting:'busy'};return false;}
+  let proof;try{proof=await current.request('extension.reload_status');}catch{buildStatus={...buildStatus,waiting:'unverified'};return false;}
+  const idle=proof?.idle===true&&bridge===current&&connected&&locallyIdle();if(!idle)buildStatus={...buildStatus,waiting:proof?.idle===false?'tasks_unsettled':'unverified'};return idle;
+ }});}catch{/* 中文注释：目录交换期间读不到新构建时等待下次检查，不能中断现有连接。 */}
+ finally{checkingBuild=false;}
+}
 // Hermes asks us to show the authorization management UI. A toolbar popup
 // cannot be opened reliably from a background request, so open the same page
 // as a centered, focused extension window instead.
@@ -85,7 +96,7 @@ async function overlayCommand(scope){
 async function performOverlayCommand({taskId,generation,tabId,origin:site,kind}){
  const unknown={state:'unknown'};
  const current=bridge,instanceId=connectedInstanceId,local=executor.tasks.get(taskId);
- if(!connected||!current||!instanceId||!['stop','takeover','resume'].includes(kind)
+ if(!connected||!current||!instanceId||!['stop','takeover','resume','continue','login','open-file','basket'].includes(kind)
   ||!Number.isInteger(tabId)||!local||local.revoked||local.releasing
   ||local.id!==taskId||local.generation!==generation||local.instanceId!==instanceId
   ||executor.leases.get(tabId)!==taskId||!local.allowedOrigins?.includes(site))return unknown;
@@ -93,7 +104,7 @@ async function performOverlayCommand({taskId,generation,tabId,origin:site,kind})
   const tasks=await current.request('extension.tasks');
   const host=tasks.find(t=>t.id===taskId);
   if(!host||host.instanceId!==instanceId||host.generation!==generation
-   ||(kind==='resume'?!['paused','ready','running'].includes(host.state):kind==='stop'?!['ready','running','paused'].includes(host.state):!['ready','running'].includes(host.state))
+   ||(kind==='resume'?!['paused','ready','running'].includes(host.state):['stop','continue','login','open-file','basket'].includes(kind)?!['ready','running','paused'].includes(host.state):!['ready','running'].includes(host.state))
    ||!host.tabIds?.includes(tabId)||!host.allowedOrigins?.includes(site)
    ||bridge!==current||!connected||connectedInstanceId!==instanceId
    ||executor.tasks.get(taskId)!==local||local.revoked||local.releasing
@@ -102,6 +113,24 @@ async function performOverlayCommand({taskId,generation,tabId,origin:site,kind})
   if(origin(tab.url)!==site||bridge!==current||!connected||connectedInstanceId!==instanceId
    ||executor.tasks.get(taskId)!==local||local.revoked||local.releasing
    ||executor.leases.get(tabId)!==taskId)return unknown;
+  if(['continue','login','open-file','basket'].includes(kind)){
+   // 中文注释：只用宿主绑定的协作行；网页不能提供任务 ID、文件路径或登录地址。
+   if(!local.copilotRowId||host.copilotRowId!==local.copilotRowId)return unknown;
+   const state=await copilot.request('state'),row=state.suggestions?.find(item=>item.id===local.copilotRowId);
+   if(!row||!['failed','stopped','completed'].includes(row.status)||bridge!==current||executor.tasks.get(taskId)!==local||local.revoked||local.generation!==generation||executor.leases.get(tabId)!==taskId)return unknown;
+   if(kind==='continue'){if(!row.resume_from)return unknown;await copilot.request('retry',{id:row.id});}
+   if(kind==='login'){
+    if(!/login|登录/i.test(row.reason||''))return unknown;
+    if(host.state!=='paused'){const paused=await performOverlayCommand({taskId,generation,tabId,origin:site,kind:'takeover'});if(paused.verified!==true)return unknown;}
+    await chrome.tabs.update(tabId,{active:true});
+   }
+   if(kind==='open-file'){const full=await copilot.request('result',{id:row.id}),file=full.result?.export?.files?.[0];if(!file?.id)return unknown;await copilot.request('table_open',{id:file.id});}
+   if(kind==='basket'){
+    const value=row.params?.object||row.params?.keyword;if(!value)return unknown;
+    await copilot.request('basket_add',{items:[{type:'keyword',value,source:tab.url}]});
+   }
+   return {state:'handled',verified:true,taskId,generation};
+  }
   if(kind==='takeover'){
    // 中文注释：先冻结扩展后续动作并等待当前动作结束，再确认桥接任务进入暂停态。
    await Promise.all([executor.pause(taskId,generation),current.request('extension.pause',{taskId,generation})]);
@@ -314,12 +343,12 @@ async function connect(){if(bridge||connecting)return;connecting=true;try{
    disconnectBarrier=executor.disconnect().catch(()=>{});
   }
  }finally{connecting=false;}}
-chrome.alarms.create('reconnect',{periodInMinutes:0.5});chrome.alarms.onAlarm.addListener(()=>{connect();refreshApprovals();void cloud.refresh();});
+chrome.alarms.create('reconnect',{periodInMinutes:0.5});chrome.alarms.onAlarm.addListener(()=>{void checkInstalledUpdate();connect();refreshApprovals();void cloud.refresh();});
 chrome.windows?.onRemoved?.addListener(windowId=>{accessWindowClosed(windowId);notifier?.panelClosed(windowId).catch(()=>{});});
 chrome.tabs.onCreated.addListener(tab=>{copilot.tabEvent(tab.id,'打开标签页',tab);return executor.tabCreated(tab).catch(()=>{});});
 chrome.tabs.onRemoved.addListener(id=>{copilot.tabEvent(id,'关闭标签页');return executor.tabEvent(id,'closed').catch(()=>{});});
 // 中文注释：完整事件信息用于区分同文档 URL 改写、加载和真正换页；下载与高级事件监听继续共存。
-chrome.tabs.onUpdated.addListener((id,change,tab)=>{if(change.url)copilot.tabEvent(id,'导航到新页面',tab);if(change.url||change.status==='loading'||change.status==='complete')executor.tabEvent(id,'navigated',change.url||tab.url,{status:change.status||null,urlChanged:!!change.url}).catch(()=>{});});
+chrome.tabs.onUpdated.addListener((id,change,tab)=>{if(change.url||change.status==='loading')copilot.tabEvent(id,'导航到新页面',tab);if(change.status==='complete')copilot.tabEvent(id,'页面加载完成',tab);if(change.url||change.status==='loading'||change.status==='complete')executor.tabEvent(id,'navigated',change.url||tab.url,{status:change.status||null,urlChanged:!!change.url}).catch(()=>{});});
 if(chrome.downloads&&executor.downloads){
  chrome.downloads.onCreated.addListener(item=>executor.downloads.created(item));
  chrome.downloads.onDeterminingFilename.addListener((item,suggest)=>executor.downloads.determine(item,suggest));
@@ -384,9 +413,9 @@ chrome.runtime.onMessage.addListener((m,sender,respond)=>{
  // 中文注释：弹窗只读取当前浏览器的任务摘要和实际归属页，不返回输入或日志正文。
  if(m.type==='popup_status'){
   // 中文注释：弹窗状态版本与 Native 握手共用当前扩展清单。
-  const base={connected,browserFullConsentStatus:await consent.readStatus(),browser:/Edg/.test(navigator.userAgent)?'Edge':'Chrome',instanceId:connectedInstanceId,cloud:cloud.view(),copilot:{board_name:copilot.boardName,hermes_health:copilot.hermesHealth,enabled:copilot.enabled,running:[...copilot.rows.values()].filter(row=>['queued','executing','stopping'].includes(row.status)).length+[...copilot.localJobs.values()].filter(row=>row.status==='executing').length,unread:copilot.unread.size},observedAt:Date.now(),version:chrome.runtime.getManifest().version};
+  const base={connected,build:buildStatus,browserFullConsentStatus:await consent.readStatus(),browser:/Edg/.test(navigator.userAgent)?'Edge':'Chrome',instanceId:connectedInstanceId,cloud:cloud.view(),copilot:{agent:copilot.agent,board_name:copilot.boardName,hermes_health:copilot.hermesHealth,enabled:copilot.enabled,running:[...copilot.rows.values()].filter(row=>['queued','executing','stopping'].includes(row.status)).length+[...copilot.localJobs.values()].filter(row=>row.status==='executing').length,unread:copilot.unread.size},observedAt:Date.now(),version:chrome.runtime.getManifest().version};
   if(!connected||!bridge)return {...base,tasks:[],page:null};
-  try{const current=await copilot.request('state',{});copilot.hermesHealth=current.hermes_health;copilot.boardName=current.board_name;base.copilot.hermes_health=current.hermes_health;base.copilot.board_name=current.board_name;}catch{base.copilot.hermes_health={state:'error',reason:'Local status unavailable'};}
+  try{const current=await copilot.request('state',{});copilot.hermesHealth=current.hermes_health;copilot.boardName=current.board_name;Object.assign(base.copilot,{agent:current.agent,hermes_health:current.hermes_health,board_name:current.board_name,ready:current.ready,execution_health:current.execution_health});}catch{base.copilot.hermes_health={state:'error',reason:'Local status unavailable'};}
   const tasks=await bridge.request('extension.tasks');
   const active=(await chrome.tabs.query({active:true,currentWindow:true}))[0];
   const owner=active?executor.leases.get(active.id):null;
@@ -428,4 +457,5 @@ chrome.runtime.onMessage.addListener((m,sender,respond)=>{
  })().then(result=>respond({result}),e=>respond({error:typeof m.type==='string'&&m.type.startsWith('cookie_mirror_')?'Cookie 镜像请求不可用，请核实扩展权限和连接。':e.message}));return true;
 });
 chrome.tabs.onActivated?.addListener(info=>{chrome.tabs.get(info.tabId).then(tab=>copilot.tabEvent(info.tabId,'切换标签页',tab)).catch(()=>{});});
+chrome.windows.onFocusChanged?.addListener(id=>{if(id<0)return;chrome.tabs.query({active:true,windowId:id}).then(([tab])=>{if(tab)copilot.tabEvent(tab.id,'切换标签页',tab);}).catch(()=>{});});
 connect();

@@ -321,10 +321,17 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
     }
     return {visible:true,inViewport:iv,occluded:oc,target:el};
   }
+  // 中文注释：只剪掉后代无法重新显现的隐藏分支；visibility、透明度和屏外位置仍逐节点判断。
+  const excludedBranch=node=>isOverlay(node)||node.matches('[hidden],[aria-hidden="true"],[inert]')||computed(node).display==='none';
+  function* lightElements(scope,coverage){
+    const accept=node=>{if(!excludedBranch(node))return 1;coverage.prunedSubtrees=(coverage.prunedSubtrees||0)+1;return 2;};
+    if(accept(scope)===2)return;
+    const walker=doc.createTreeWalker(scope,1,{acceptNode:accept});yield scope;let node;while((node=walker.nextNode()))yield node;
+  }
   function* composedElements(scope,coverage){
     const stack=[scope];
     while(stack.length){
-      const node=stack.pop();if(isOverlay(node))continue;yield node;
+      const node=stack.pop();if(excludedBranch(node)){coverage.prunedSubtrees=(coverage.prunedSubtrees||0)+1;continue;}yield node;
       for(let i=node.children.length-1;i>=0;i--)stack.push(node.children[i]);
       if(node.localName==='iframe' || node.localName==='frame'){
         // 中文注释：隐藏/私密框架不在语义范围内，不能因不可读取而误报可见页面缺口。
@@ -493,8 +500,8 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
     const output={version:2,title:clip(doc.title||''),binding,snapshotId:currentId,kind:'full',mode,items:[],nextCursor:null,resync,coverage:{scanned:0,matched:0,returned:0,omitted:0,filtered:0,truncated:0,offset,complete:true,traversalComplete:true,scope:composed?'light-dom + open-shadow + accessible same-origin-frame; closed-shadow/cross-origin-frame excluded':'light-dom; no iframe/shadow traversal',unsupportedCanvas:0,...(composed?{skippedFrames:0}:{})},budget:{kind:'estimated',method:'ceil(JSON.stringify(response).length/4)',limit:budget}};
     observer.disconnect();observer.observe(doc,{subtree:true,childList:true,attributes:true,characterData:true});
     frameDocs=new Map();
-    const candidates=[];let pendingFragment=false;const walker=doc.createTreeWalker(scope,1);
-    const nodes=composed?composedElements(scope,output.coverage):(function*(){let node=scope;do{yield node;}while((node=walker.nextNode()));})();
+    const candidates=[];let pendingFragment=false;
+    const nodes=composed?composedElements(scope,output.coverage):lightElements(scope,output.coverage);
     for(const node of nodes){
       if(isOverlay(node))continue;
       if(output.coverage.scanned>=maxScan){output.coverage.traversalComplete=false;break;}
@@ -611,7 +618,7 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
     option:node=>{truncated=false;return {text:bounded(node.label||node.textContent||'',1024),truncated};},
     attribute:(node,key)=>{truncated=false;return {text:bounded(node.getAttribute(key)||'',1024),truncated};},
     source:node=>({sourceRef:ref(node),documentId:identityFor(node.ownerDocument),targetPath:item(node).targetPath||[]}),
-    scan:function*(scope,composed,coverage){if(composed)yield* composedElements(scope,coverage);else{const walker=doc.createTreeWalker(scope,1);yield scope;let n;while((n=walker.nextNode()))yield n;}}
+    scan:function*(scope,composed,coverage){if(composed)yield* composedElements(scope,coverage);else yield* lightElements(scope,coverage);}
   });
   return {snapshot,resolve,recoveryHint,relocation,revoke,stats,parsingContext,accessibilityNode,applyAccessibility,interaction,interactionVisibility};
 }

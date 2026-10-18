@@ -10,7 +10,7 @@ if (dest === source) throw Error('output must not replace source');
 await mkdir(dest, {recursive: true});
 // 中文注释：内容过滤模块随扩展打包，保持源码和加载版本一致。
 // 中文注释：扩展和系统通知共用的品牌图标也在清单内；清单内不放注释，集成检查器按字面量解析它。
-for (const file of ['copilot-annotations.mjs','copilot-basket.mjs','copilot-readiness.mjs','copilot-retry.mjs','copilot-controls.mjs','copilot-controls.css','copilot-table-confirm.mjs','copilot-logs.mjs','brand-mark.svg','brand.css','brand.mjs','brand-logo.svg','brand-logo-small.svg','overlay-view.mjs','overlay-logs.mjs','copilot-tool-reports.mjs','copilot-capabilities-panel.mjs','copilot-selection.mjs','copilot-browser-data.mjs','copilot-i18n.mjs','copilot-tables.mjs','copilot-table-job.mjs','copilot-table-panel.mjs','copilot-result-view.mjs','copilot-result.mjs','copilot-result.html','copilot-settings.mjs', 'copilot-view.mjs', 'copilot-entry.js', 'copilot-collector.mjs', 'copilot-background.mjs', 'copilot-observation.mjs', 'copilot-panel.html', 'copilot-panel.css', 'copilot-panel.mjs', 'manifest.json', 'work-window.mjs', 'work-window.html', 'action-effects.mjs', 'request-ledger.mjs', 'target-recovery.mjs', 'password-values.mjs', 'bridge.mjs', 'background.mjs', 'automation-overlay.mjs', 'interaction-highlight.mjs', 'official-actions.mjs', 'downloads.mjs', 'page-runtime.mjs', 'network-evidence.mjs', 'cdp-policy.mjs', 'page-observers.mjs', 'page-observation.mjs', 'vault.mjs',
+for (const file of ['ui-design.mjs','copilot-annotations.mjs','copilot-basket.mjs','copilot-readiness.mjs','copilot-retry.mjs','copilot-controls.mjs','copilot-table-confirm.mjs','copilot-logs.mjs','copilot-task-logs.mjs','copilot-result.css','brand-mark.svg','brand.css','brand.mjs','brand-logo.svg','brand-logo-small.svg','overlay-view.mjs','overlay-logs.mjs','copilot-tool-reports.mjs','copilot-capabilities-panel.mjs','copilot-capabilities.css','copilot-agent-panel.mjs','copilot-agents.css','copilot-agents.css','copilot-packs-panel.mjs','copilot-selection.mjs','copilot-browser-data.mjs','copilot-i18n.mjs','copilot-tables.mjs','copilot-table-job.mjs','copilot-table-panel.mjs','copilot-result-view.mjs','copilot-result.mjs','copilot-result.html','copilot-settings.mjs', 'copilot-view.mjs', 'copilot-entry.js', 'copilot-collector.mjs', 'copilot-background.mjs', 'copilot-observation.mjs', 'copilot-panel.html', 'copilot-panel.css', 'copilot-panel.mjs', 'manifest.json', 'work-window.mjs', 'work-window.html', 'action-effects.mjs', 'request-ledger.mjs', 'target-recovery.mjs', 'password-values.mjs', 'bridge.mjs', 'background.mjs', 'automation-overlay.mjs', 'interaction-highlight.mjs', 'official-actions.mjs', 'downloads.mjs', 'page-runtime.mjs', 'network-evidence.mjs', 'cdp-policy.mjs', 'page-observers.mjs', 'page-observation.mjs', 'vault.mjs',
   'oauth-popups.mjs', 'approval-notifier.mjs', 'approval-panel.html', 'approval-panel.css', 'approval-panel.mjs',
   'icon-16.png', 'icon-32.png', 'icon-48.png', 'icon-128.png',
   'popup.html', 'popup.css', 'popup.mjs', 'cloud-link.mjs', 'cloud-popup.mjs', 'build-reload.mjs']) {
@@ -45,7 +45,11 @@ for (const [relative, canonical] of Object.entries(dependencies)) {
   };
 }
 
-await writeFile(path.join(dest,'copilot-observation.mjs'),(await readFile(path.join(source,'copilot-observation.mjs'),'utf8')).replace("from '../page-semantics/index.js'", "from './vendor/page-semantics.mjs'"));
+for(const file of ['copilot-observation.mjs','copilot-selection.mjs','copilot-annotations.mjs','copilot-background.mjs']){
+  await writeFile(path.join(dest,file),(await readFile(path.join(source,file),'utf8'))
+    .replace("from '../page-semantics/index.js'", "from './vendor/page-semantics.mjs'")
+    .replace("from '../page-semantics/redact.mjs'", "from './vendor/redact.mjs'"));
+}
 const sourceCore = await readFile(path.join(source, 'core.mjs'), 'utf8');
 await writeFile(path.join(dest,'oauth-popups.mjs'),(await readFile(path.join(source,'oauth-popups.mjs'),'utf8'))
   .replace("from '../page-semantics/oauth-providers.mjs'", "from './vendor/oauth-providers.mjs'"));

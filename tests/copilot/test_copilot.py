@@ -76,7 +76,7 @@ class CopilotTest(unittest.TestCase):
         receipt=json.loads(next((self.directory/'pool').glob('*.receipt')).read_text())
         self.assertIn('copilot',receipt['csv']);self.assertEqual(receipt['args'],[]);self.assertEqual(receipt['payload']['date'],date.today().isoformat());self.assertEqual(receipt['payload']['keywords'][0]['keyword'],'sample keyword')
         argv=json.loads(next((self.directory/'tasks').glob('*/argv.json')).read_text())
-        for flag,value in [('-p','copilot-exec'),('--source','copilot'),('--max-turns','1'),('-m','fixture-small'),('--format','stream-json')]:self.assertEqual(argv[argv.index(flag)+1],value)
+        for flag,value in [('-p','fast-copilot'),('--source','copilot'),('--max-turns','1'),('-m','fixture-small'),('--format','stream-json')]:self.assertEqual(argv[argv.index(flag)+1],value)
         self.assertEqual(argv[argv.index('-t')+1],'none')
         self.assertTrue(argv[argv.index('-c')+1].startswith('协作·关键词检查·'))
         brief=json.loads(next((self.directory/'tasks').glob('*/query.txt')).read_text());self.assertIn('Fast-browser-link ·',brief['browser'])
@@ -140,7 +140,8 @@ class CopilotTest(unittest.TestCase):
 
     def test_prefilter_increment_snapshot_and_limits(self):
         self.infer('first');before=len(self.state['input_metrics'])
-        self.assertFalse(self.observe('first','滚动到 页面 60%')['accepted']);self.assertFalse(self.observe('first','悬停 链接')['accepted'])
+        self.assertTrue(self.observe('first','滚动到 页面 60%')['accepted']);wait_for(lambda:not self.state['dirty'] and not self.state['running'])
+        before=len(self.state['input_metrics']);self.assertFalse(self.observe('first','悬停 链接')['accepted'])
         self.assertEqual(len(self.state['input_metrics']),before)
         self.now[0]+=5
         self.module.request('browser','observe',{'trace':[{'at':self.now[0],'description':'选中 keyword'}], 'page':{'url':'https://example.test/','title':'first','items':[{'role':'heading','name':'new'}]}})
@@ -341,17 +342,17 @@ class ModelCatalogTest(unittest.TestCase):
             def requests():return [json.loads(line) for line in (directory/'acp-requests.jsonl').read_text().splitlines()]
             value=catalogs(config,directory,private_write)
             self.assertEqual(value['inference']['current'],'openai-codex:gpt-5.6-luna')
-            self.assertEqual(sum(r['method']=='session/new' for r in requests()),2)
+            self.assertEqual(sum(r['method']=='session/new' for r in requests()),1)
             self.assertFalse(any(r['method'] in {'session/prompt','session/set_model'} for r in requests()))
             self.assertTrue(catalogs(config,directory,private_write)['execution']['cached'])
-            self.assertEqual(sum(r['method']=='session/new' for r in requests()),2)
+            self.assertEqual(sum(r['method']=='session/new' for r in requests()),1)
             catalogs(config,directory,private_write,force=True)
-            self.assertEqual(sum(r['method']=='session/new' for r in requests()),4)
+            self.assertEqual(sum(r['method']=='session/new' for r in requests()),2)
             with patch('copilot_models.time.time',return_value=time.time()+86401):catalogs(config,directory,private_write)
-            self.assertEqual(sum(r['method']=='session/new' for r in requests()),6)
+            self.assertEqual(sum(r['method']=='session/new' for r in requests()),3)
             config['exec_profile']=config['inference_profile']
             catalogs(config,directory,private_write,force=True)
-            self.assertEqual(sum(r['method']=='session/new' for r in requests()),7)
+            self.assertEqual(sum(r['method']=='session/new' for r in requests()),4)
 
     def test_catalog_failure_returns_chinese_manual_fallback(self):
         from copilot import DEFAULTS
@@ -392,21 +393,21 @@ class ProfileSetupTest(unittest.TestCase):
             root=Path(temporary).resolve()
             existing=root/'profiles/existing-profile';existing.mkdir(parents=True);sentinel=existing/'config.yaml';sentinel.write_text('user-owned')
             fake=root/'hermes'
-            fake.write_text('#!/usr/bin/env python3\nimport os,sys\nfrom pathlib import Path\nassert sys.argv[1:]==["profile","create","copilot","--no-alias","--no-skills"]\n(Path(os.environ["HERMES_HOME"])/"profiles/copilot").mkdir()\n')
+            fake.write_text('#!/usr/bin/env python3\nimport os,sys\nfrom pathlib import Path\nassert sys.argv[1:]==["profile","create","fast-copilot","--no-alias","--no-skills"]\n(Path(os.environ["HERMES_HOME"])/"profiles/fast-copilot").mkdir()\n')
             fake.chmod(0o700)
             with contextlib.redirect_stdout(io.StringIO()) as output:
                 module.setup(root,'fixture-fast')
-                self.assertFalse((root/'profiles/copilot').exists())
+                self.assertFalse((root/'profiles/fast-copilot').exists())
                 module.setup(root,'fixture-fast',apply=True,command=str(fake))
-                config_path=root/'profiles/copilot/config.yaml';before=config_path.read_bytes();modified=config_path.stat().st_mtime_ns
+                config_path=root/'profiles/fast-copilot/config.yaml';before=config_path.read_bytes();modified=config_path.stat().st_mtime_ns
                 module.setup(root,'fixture-fast',apply=True,command=str(fake))
                 self.assertEqual(config_path.stat().st_mtime_ns,modified)
                 self.assertEqual(config_path.read_bytes(),before)
                 with self.assertRaises(ValueError):module.setup(root,'different',apply=True,command=str(fake))
             config=json.loads(before);self.assertEqual(config['_config_version'],50);self.assertEqual(config['platform_toolsets']['acp'],[])
-            self.assertEqual(config['plugins']['enabled'],[]);self.assertEqual(config['mcp_servers'],{})
+            self.assertEqual(config['plugins']['enabled'],['fast-browser-link']);self.assertEqual(config['mcp_servers'],{})
             self.assertFalse(config['memory']['memory_enabled']);self.assertFalse(config['memory']['user_profile_enabled'])
-            self.assertEqual((root/'profiles/copilot/SOUL.md').read_text(),'')
+            self.assertEqual((root/'profiles/fast-copilot/SOUL.md').read_text(),'')
             self.assertEqual(sentinel.read_text(),'user-owned');self.assertIn('Plan: create only',output.getvalue())
 
     def test_exec_profile_and_template_caps(self):
@@ -416,15 +417,15 @@ class ProfileSetupTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root=Path(temporary).resolve();(root/'plugins/fast-browser-link').mkdir(parents=True)
             fake=root/'hermes'
-            fake.write_text('#!/usr/bin/env python3\nimport os\nfrom pathlib import Path\n(Path(os.environ["HERMES_HOME"])/"profiles/copilot-exec").mkdir(parents=True)\n');fake.chmod(0o700)
+            fake.write_text('#!/usr/bin/env python3\nimport os\nfrom pathlib import Path\n(Path(os.environ["HERMES_HOME"])/"profiles/fast-copilot").mkdir(parents=True)\n');fake.chmod(0o700)
             with contextlib.redirect_stdout(io.StringIO()):
-                module.setup(root,'gpt-5.6-luna','openai-codex',True,str(fake),'copilot-exec')
-                config_path=root/'profiles/copilot-exec/config.yaml';before=config_path.stat().st_mtime_ns
-                module.setup(root,'gpt-5.6-luna','openai-codex',True,str(fake),'copilot-exec')
+                module.setup(root,'gpt-5.6-luna','openai-codex',True,str(fake),'fast-copilot')
+                config_path=root/'profiles/fast-copilot/config.yaml';before=config_path.stat().st_mtime_ns
+                module.setup(root,'gpt-5.6-luna','openai-codex',True,str(fake),'fast-copilot')
             config=json.loads(config_path.read_text());self.assertEqual(config['_config_version'],50)
             self.assertEqual(config_path.stat().st_mtime_ns,before)
             self.assertEqual(config['plugins']['enabled'],['fast-browser-link'])
-            self.assertEqual(config['platform_toolsets']['cli'],['fast-browser-link','web','terminal','file'])
+            self.assertEqual(config['platform_toolsets']['cli'],[])
             self.assertEqual(config['platform_toolsets']['acp'],[])
             self.assertEqual(config['command_allowlist'],[])
             self.assertEqual(config['approvals']['mode'],'manual')

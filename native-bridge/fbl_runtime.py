@@ -92,9 +92,13 @@ def manifests(user):
     return [Path(user)/'Library/Application Support'/browser/'NativeMessagingHosts'/(HOST+'.json') for browser in ('Google/Chrome','Microsoft Edge')]
 
 
-def agent_roots(ctx):
+def agent_roots(ctx,profiles=()):
     rows=[{'agent':name,'path':str(ctx.hermes/'skills' if name=='hermes' else ctx.user/path),'detected':(ctx.hermes if name=='hermes' else (ctx.user/path).parent).is_dir() or bool(shutil.which({'claude':'claude','hermes':'hermes'}.get(name,name)))} for name,path in AGENTS.items()]
-    rows.extend({'agent':'hermes','path':str(path),'detected':True} for path in (ctx.hermes/'profiles').glob('*/skills') if not path.is_symlink())
+    import re
+    for profile in dict.fromkeys(('fast-copilot',*profiles)):
+        if not re.fullmatch(r'[a-zA-Z0-9_-]{1,80}',profile):raise ValueError('invalid agent profile')
+        path=ctx.hermes/'profiles'/profile
+        if path.is_dir() and not path.is_symlink():rows.append({'agent':'hermes','path':str(path/'skills'),'detected':True})
     return rows
 
 
@@ -179,18 +183,18 @@ def doctor(ctx,fix=False,probe=None,deep=False,start=False):
     add('extension_path',bool(packages),'present' if packages else 'missing','fbl update --dry-run')
     command=shutil.which('hermes');add('hermes',bool(command),'available' if command else 'optional_missing','Install Hermes only for collaboration')
     model_references=checked(ctx.copilot/'config.json')
-    for profile in ('copilot','copilot-exec'):
-        try:
-            plan=profile_plan(ctx.hermes,profile)
-            details=plan.get('details',[]);policy=plan.get('fix_policy','')
-            reference=model_references.get('inference_model' if profile=='copilot' else 'exec_model')
-            selected=plan.get('config',{}).get('model',{})
-            selected=selected.get('default') if isinstance(selected,dict) else selected
-            if reference and selected and reference!=selected:
-                details.insert(0,f'协作配置记录模型 → 当前 profile 模型：{reference} → {selected}（可能由 Hermes 迁移；--fix 保留当前模型）')
-            if fix and plan['state']=='drift':plan=repair(ctx.hermes,profile,private_write);actions.append(profile)
-            add(profile,plan['state']=='ready',plan['state'],'fbl setup' if plan['state']=='unmanaged' else 'fbl doctor --fix',changes=plan.get('changes',[]),details=details,fix_policy=policy)
-        except (OSError,ValueError):add(profile,False,'missing_or_unreadable','fbl setup')
+    profile='fast-copilot'
+    try:
+        plan=profile_plan(ctx.hermes,profile)
+        details=plan.get('details',[]);policy=plan.get('fix_policy','')
+        reference=model_references.get('inference_model')
+        selected=plan.get('config',{}).get('model',{})
+        selected=selected.get('default') if isinstance(selected,dict) else selected
+        if reference and selected and reference!=selected:
+            details.insert(0,f'协作配置记录模型 → 当前 profile 模型：{reference} → {selected}（可能由 Hermes 迁移；--fix 保留当前模型）')
+        if fix and plan['state']=='drift':plan=repair(ctx.hermes,profile,private_write);actions.append(profile)
+        add(profile,plan['state']=='ready',plan['state'],'fbl setup' if plan['state']=='unmanaged' else 'fbl doctor --fix',changes=plan.get('changes',[]),details=details,fix_policy=policy)
+    except (OSError,ValueError):add(profile,False,'missing_or_unreadable','fbl setup')
     config=checked(ctx.copilot/'config.json');extensions=config.get('extension_dirs',[])
     add('packages',all(Path(path).is_dir() for path in extensions),'present' if all(Path(path).is_dir() for path in extensions) else 'missing_path','fbl packs list')
     model_state=checked(ctx.copilot/'available-models.json');model_code='cached_unverified' if model_state.get('available') else 'not_probed';models_ok=False

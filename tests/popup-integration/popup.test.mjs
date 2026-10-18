@@ -1,3 +1,4 @@
+import {renderStatus,readableCopy} from '../../native-extension/ui-design.mjs';
 import {renderChains} from '../../native-extension/copilot-readiness.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -7,7 +8,7 @@ import { JSDOM } from 'jsdom'
 const root = new URL('../../native-extension/', import.meta.url)
 const [html, popupModule, cloudScript, controlsModule] = await Promise.all(['popup.html', 'popup.mjs', 'cloud-popup.mjs', 'copilot-controls.mjs'].map(file => readFile(new URL(file, root), 'utf8')))
 // 中文注释：jsdom 的 eval 只执行经典脚本；把弹窗依赖的共享组件模块内联成同一作用域，行为与浏览器按模块加载一致。
-const script = '(()=>{' + controlsModule.replace(/^export (const|function) /gm, '$1 ') + '\n' + popupModule.replace(/^import .*;\n/gm,'') + '\n})()'
+const script = '(()=>{' + controlsModule.replace(/^import .*;\n/gm,'').replace(/^export (const|function) /gm, '$1 ') + '\n' + popupModule.replace(/^import .*;\n/gm,'') + '\n})()'
 
 async function mount(initial) {
   const dom = new JSDOM(html, { url: 'chrome-extension://test/popup.html', runScripts: 'outside-only' })
@@ -38,8 +39,8 @@ async function mount(initial) {
   } }
   dom.window.setInterval = () => 1
   // 中文注释：先注册云端订阅再读取首次快照，测试中不等待浏览器定时轮询。
-  dom.window.eval(cloudScript)
-  dom.window.renderChains=renderChains
+  dom.window.renderStatus=renderStatus;dom.window.eval(cloudScript.replace(/^import .*;\n/gm,''))
+  dom.window.readableCopy=readableCopy;dom.window.renderChains=renderChains
   dom.window.eval(script)
   const flush = async () => { for (let i = 0; i < 5; i++) await new Promise(resolve => setImmediate(resolve)) }
   await flush()
@@ -134,21 +135,21 @@ test('新云端连接码不继承旧连接码的复制成功提示', async () =>
     const button=dom.window.document.querySelector('#cloud-copy-code')
     button.addEventListener=(_type,handler)=>{click=handler}
     Object.defineProperty(dom.window.navigator,'clipboard',{value:{writeText:async code=>{clipboard=code;if(finish)await finish.promise}}})
-    dom.window.eval(cloudScript)
+    dom.window.renderStatus=renderStatus;dom.window.eval(cloudScript.replace(/^import .*;\n/gm,''))
     const update=code=>dom.window.dispatchEvent(new dom.window.CustomEvent('fast-browser-link-status',{detail:{state:'pending_pairing',paired:false,online:false,code,expiresAt:Date.now()+300000}}))
     update('QADEMO-0001')
     await click({isTrusted:true})
     assert.equal(clipboard,'QADEMO-0001')
     assert.equal(button.textContent,'已复制')
     update('QADEMO-0002')
-    assert.equal(button.textContent,'复制连接码')
+    assert.equal(button.textContent,'复制')
     let resolve
     finish={promise:new Promise(done=>{resolve=done})}
     const copying=click({isTrusted:true})
     update('QADEMO-0003')
     resolve();await copying
     assert.equal(clipboard,'QADEMO-0002')
-    assert.equal(button.textContent,'复制连接码')
+    assert.equal(button.textContent,'复制')
   } finally { dom.window.close() }
 })
 
@@ -184,7 +185,7 @@ test('当前任务停止失败后不自动重发，切页也不会误停其他�
  try{
   const base=h.dom.window.chrome.runtime.sendMessage;
   h.dom.window.chrome.runtime.sendMessage=async message=>{if(message.type==='popup_action'){h.calls.push(message);throw Error('断线');}return base(message);};
-  h.document.querySelector('#stop-task').click();await h.flush();
+  h.document.querySelector('#stop-task').click();h.document.querySelector('#stop-task').click();await h.flush();
   assert.equal(h.document.querySelector('#stop-task').disabled,true);
   h.setStatus(current);await h.flush();
   assert.equal(h.calls.filter(row=>row.type==='popup_action').length,1);
@@ -239,7 +240,7 @@ test('接管结果未知不阻止用户显式停止任务',async()=>{
   h.dom.window.chrome.runtime.sendMessage=async message=>{if(message.type==='popup_action'){h.calls.push(message);return {result:{state:'unknown'}};}return send(message);};
   h.document.querySelector('#takeover').click();await h.flush();
   assert.equal(h.document.querySelector('#stop-task').disabled,false);
-  h.document.querySelector('#stop-task').click();await h.flush();assert.equal(h.calls.filter(row=>row.type==='popup_action').at(-1).kind,'stop');
+  h.document.querySelector('#stop-task').click();h.document.querySelector('#stop-task').click();await h.flush();assert.equal(h.calls.filter(row=>row.type==='popup_action').at(-1).kind,'stop');
  }finally{h.dom.window.close();}
 });
 

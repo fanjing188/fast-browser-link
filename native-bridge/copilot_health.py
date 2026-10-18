@@ -5,7 +5,7 @@ import shutil
 
 def health(config, state, runtime):
     home=Path(config.get('hermes_home') or Path.home()/'.hermes').expanduser()
-    profile=config.get('exec_profile','copilot-exec')
+    profile=config.get('exec_profile','fast-copilot')
     profile_exists=isinstance(profile,str) and '/' not in profile and profile not in {'.','..'} and (home/'profiles'/profile/'config.yaml').is_file()
     command=config.get('hermes_command','hermes')
     executable=isinstance(command,str) and bool(shutil.which(command))
@@ -36,7 +36,7 @@ def health(config, state, runtime):
 def startup_failure(config, error, *, execution=False):
     command = config.get('exec_acp_command' if execution else 'acp_command')
     home = Path(config.get('hermes_home') or Path.home()/'.hermes').expanduser()
-    profile = config.get('exec_profile' if execution else 'inference_profile', 'copilot-exec' if execution else 'copilot')
+    profile = config.get('exec_profile' if execution else 'inference_profile', 'fast-copilot')
     if isinstance(error, FileNotFoundError) or (not command and not shutil.which(config.get('hermes_command','hermes'))):
         code, reason, english = 'hermes_command_missing', 'Hermes 命令不可用', 'Hermes command unavailable'
     elif not command and not (home/'profiles'/profile/'config.yaml').is_file():

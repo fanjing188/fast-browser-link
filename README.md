@@ -25,7 +25,7 @@ cd fast-browser-link-2.2.0
 python3 -B -m fbl setup
 ```
 
-For existing installations, preview `fbl update --dry-run`, then run `fbl update`. Legacy independent installs also support `bash install.sh --upgrade`. Updates refuse or wait for active tasks, keep backups and roll back failures. Modified skills/configuration are preserved. Only marked dedicated Hermes profiles are managed; migrated model choices remain intact. Core browser use requires no Hermes.
+For existing installations, preview `fbl update --dry-run`, then run `fbl update`. Legacy independent installs also support `bash install.sh --upgrade`. Updates refuse or wait for active tasks, keep backups and roll back failures. Modified skills/configuration are preserved. Only the marked Fast-copilot Hermes profile (`fast-copilot`) is managed; migrated model choices remain intact. Core browser use requires no Hermes.
 
 A local agent can read `~/.agents/skills/fast-browser-link/SKILL.md` and use its Python entrypoint. Copilot requires configured Hermes; other agents use core browsing through skills or MCP.
 

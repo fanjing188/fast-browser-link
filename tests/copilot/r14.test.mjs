@@ -5,6 +5,7 @@ import {JSDOM} from 'jsdom';
 import {captureTables} from '../../native-extension/copilot-tables.mjs';
 import {pageIdentity} from '../../native-extension/copilot-observation.mjs';
 import {renderDashboard} from '../../native-extension/copilot-view.mjs';
+import {renderResult} from '../../native-extension/copilot-result-view.mjs';
 import {tableConfirmation} from '../../native-extension/copilot-table-confirm.mjs';
 const panel=await readFile(new URL('../../native-extension/copilot-panel.html',import.meta.url),'utf8');
 function fixture(html){const dom=new JSDOM(html,{url:'https://seo.example.test/report',pretendToBeVisual:true});dom.window.HTMLElement.prototype.getClientRects=function(){return this.hidden?[]:[{width:300,height:20}];};return dom;}
@@ -45,7 +46,7 @@ test('failed acquired-data results and partial workflow outcomes are readable',(
  const dom=fixture(panel);try{
   const result={verdict:'保留已取数据',level:'info',metrics:[],missing:[{field:'judgment',reason:'判断 profile 含工具'}],process:[],next:[],bullets:['synthetic 量100'],links:[],artifacts:[]};
   const row={id:'failed',title:'failed',action:'seo.keyword_check',status:'failed',render_as:'general.task',reason:'判断 profile 含工具',result};renderDashboard(dom.window.document,{enabled:true,ready:true,suggestions:[row]},{command:async()=>{}});
-  assert.match(dom.window.document.querySelector('#results').textContent,/判断 profile 含工具/);assert.match(dom.window.document.querySelector('#results').textContent,/synthetic 量100/);
-  row.completion_status='partial';renderDashboard(dom.window.document,{enabled:true,ready:true,suggestions:[row]},{command:async()=>{}});assert.match(dom.window.document.querySelector('#results').textContent,/部分完成（缺 1 项）/);assert.match(dom.window.document.querySelector('.result-preview>summary').textContent,/部分完成（缺 1 项）/);
+  const doc=dom.window.document,detail=doc.createElement('section');doc.body.append(detail);assert.match(doc.querySelector('#results').textContent,/判断 配置 含工具/);assert.ok(doc.querySelector('#results [data-action=open_result]'));renderResult(doc,detail,row,{command:async()=>{},full:true});assert.match(detail.textContent,/判断 配置 含工具/);assert.match(detail.textContent,/synthetic 量100/);
+  row.completion_status='partial';renderDashboard(dom.window.document,{enabled:true,ready:true,suggestions:[row]},{command:async()=>{}});assert.match(dom.window.document.querySelector('#results').textContent,/部分完成（缺 1 项）/);assert.match(dom.window.document.querySelector('.meta .st').textContent,/部分完成（缺 1 项）/);
  }finally{dom.window.close();}
 });

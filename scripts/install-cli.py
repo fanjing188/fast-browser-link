@@ -800,8 +800,20 @@ def stop_daemon(home, env, timeout=30):
     while time.monotonic() < deadline:
         current = verified_daemon_pid(home, env)
         if current is None:
-            return True
-        if current != pid:
+            # 中文注释：daemon 先删除 PID/套接字再退出；必须等生命周期锁释放，不能只凭文件消失放行。
+            lock=home/'plugin-data/fast-browser-link-native/daemon.lock'
+            EXECUTOR.reject_target_symlinks([lock])
+            try:descriptor=os.open(lock,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
+            except FileNotFoundError:return True
+            try:
+                info=os.fstat(descriptor)
+                if not stat.S_ISREG(info.st_mode) or info.st_uid!=os.getuid() or stat.S_IMODE(info.st_mode)&0o077:raise InstallError('桥接启动锁不安全 / Unsafe bridge lock.','核对私有桥接目录后重试。')
+                try:
+                    acquire_bridge_lock(descriptor)
+                    return True
+                except CloudGateError:pass
+            finally:os.close(descriptor)
+        elif current != pid:
             raise InstallError('桥接进程已更换 / Bridge process changed.', '确认维护标记存在且无其他启动来源后重试。')
         time.sleep(0.1)
     raise InstallError('桥接未在限定时间内退出 / Bridge did not exit in time.', '查看 daemon 日志；未发送其他信号。')

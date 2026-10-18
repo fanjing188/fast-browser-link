@@ -69,8 +69,8 @@ class R15(unittest.TestCase):
                     for agent in ('.agents','.codex'):
                         skill=self.user/agent/'skills/fast-browser-link';skill.mkdir(parents=True);(skill/'SKILL.md').write_text('legacy fixture skill');write(skill/'.fbl-skill.json',{'version':1,'sha256':tree_digest(skill)});skills.append(skill)
                     template=self.ctx.copilot/'templates/general.task.json';original_template=template.read_text();template.write_text(original_template+'\n')
-                    repair(self.hermes,'copilot',private_write,'old-model');config=self.hermes/'profiles/copilot/config.yaml';value=json.loads(config.read_text());value['model']['default']='migrated-model';value['reasoning_effort']='high';value['_config_version']=99;write(config,value)
-                    auth=self.hermes/'profiles/copilot/auth.json';auth.write_text('DO_NOT_COPY_CREDENTIAL')
+                    repair(self.hermes,'fast-copilot',private_write,'old-model');config=self.hermes/'profiles/fast-copilot/config.yaml';value=json.loads(config.read_text());value['model']['default']='migrated-model';value['reasoning_effort']='high';value['_config_version']=99;write(config,value)
+                    auth=self.hermes/'profiles/fast-copilot/auth.json';auth.write_text('DO_NOT_COPY_CREDENTIAL')
                     cli=legacy_cli(self.ctx);self.assertTrue(cli.cloud_never_configured(self.ctx.runtime,self.user))
                     original=cli.command
                     def command(argv,env):
@@ -108,19 +108,19 @@ class R15(unittest.TestCase):
         self.assertFalse(cli.cloud_never_configured(self.ctx.runtime,self.user))
         with self.assertRaises(cli.CloudGateError):cli.assert_cloud_fenced(self.ctx.runtime)
     def test_profile_merge_ownership_and_unknown_config_preservation(self):
-        repair(self.hermes,'copilot',private_write,'initial');target=self.hermes/'profiles/copilot/config.yaml'
+        repair(self.hermes,'fast-copilot',private_write,'initial');target=self.hermes/'profiles/fast-copilot/config.yaml'
         value=json.loads(target.read_text());value.update(_config_version=101,reasoning_effort='high',custom={'keep':True});value['model']['default']='migrated';value['platform_toolsets']['acp']=['unsafe'];write(target,value)
-        repair(self.hermes,'copilot',private_write,'ignored')
+        repair(self.hermes,'fast-copilot',private_write,'ignored')
         value=json.loads(target.read_text());self.assertEqual(value['model']['default'],'migrated');self.assertEqual(value['custom'],{'keep':True});self.assertEqual(value['reasoning_effort'],'low');self.assertEqual(value['platform_toolsets']['acp'],[]);self.assertEqual(value['known_plugin_toolsets']['acp'],['fast-browser-link'])
-        before=target.read_bytes();repair(self.hermes,'copilot',private_write);self.assertEqual(before,target.read_bytes());self.assertEqual(profile_plan(self.hermes,'copilot')['state'],'ready')
-        unknown=self.hermes/'profiles/copilot-exec/config.yaml';write(unknown,{'model':'USER'});self.assertEqual(repair(self.hermes,'copilot-exec',private_write)['state'],'unmanaged');self.assertEqual(json.loads(unknown.read_text()),{'model':'USER'})
+        before=target.read_bytes();repair(self.hermes,'fast-copilot',private_write);self.assertEqual(before,target.read_bytes());self.assertEqual(profile_plan(self.hermes,'fast-copilot')['state'],'ready')
+        (self.hermes/'profiles/fast-copilot/.copilot-profile.json').unlink();unknown=self.hermes/'profiles/fast-copilot/config.yaml';write(unknown,{'model':'USER'});self.assertEqual(repair(self.hermes,'fast-copilot',private_write)['state'],'unmanaged');self.assertEqual(json.loads(unknown.read_text()),{'model':'USER'})
     def test_doctor_each_chain_safe_fix_and_malformed_preservation(self):
-        self.install();repair(self.hermes,'copilot',private_write,'fixture');repair(self.hermes,'copilot-exec',private_write,'fixture')
-        config=self.hermes/'profiles/copilot/config.yaml';value=json.loads(config.read_text());value['reasoning_effort']='high';write(config,value)
+        self.install();repair(self.hermes,'fast-copilot',private_write,'fixture')
+        config=self.hermes/'profiles/fast-copilot/config.yaml';value=json.loads(config.read_text());value['reasoning_effort']='high';write(config,value)
         manifests(self.user)[0].unlink();live=lambda _: {'ok':True,'browsers':[{'connected':True,'version':'2.2.0'}]}
         result=doctor(self.ctx,probe=live);self.assertFalse(next(row for row in result['checks'] if row['component']=='host_chrome')['ok'])
-        result=doctor(self.ctx,fix=True,probe=live);self.assertIn('manifest',result['actions']);self.assertIn('copilot',result['actions']);self.assertEqual(json.loads(config.read_text())['reasoning_effort'],'low')
-        names={row['component'] for row in result['checks']};self.assertTrue({'runtime','daemon','extension','version','runtime_integrity','runtime_root','hermes','copilot','copilot-exec','packages','models','templates','logs','discovery','cloud'}<=names)
+        result=doctor(self.ctx,fix=True,probe=live);self.assertIn('manifest',result['actions']);self.assertIn('fast-copilot',result['actions']);self.assertEqual(json.loads(config.read_text())['reasoning_effort'],'low')
+        names={row['component'] for row in result['checks']};self.assertTrue({'runtime','daemon','extension','version','runtime_integrity','runtime_root','hermes','fast-copilot','packages','models','templates','logs','discovery','cloud'}<=names)
         manifests(self.user)[0].write_text('{broken');doctor(self.ctx,fix=True,probe=live);self.assertEqual(manifests(self.user)[0].read_text(),'{broken')
     def test_available_model_selection_is_metadata_driven(self):
         self.assertEqual(choose_model({'availableModels':[{'modelId':'vendor:large'},{'modelId':'vendor:fixture','speed':'fast'}]}),('fixture','vendor'))
@@ -187,8 +187,8 @@ class R15(unittest.TestCase):
             text=''.join(archive.extractfile(member).read().decode() for member in archive.getmembers());self.assertNotIn('PRIVATE_PAGE_SENTINEL',text);self.assertNotIn('secret-value',text)
     def test_first_readiness_discovery_and_symlink_refusal(self):
         result=readiness(self.ctx,{'checks':[]});self.assertFalse(result['ready']);self.assertIn('discovery',[row['id'] for row in result['items']])
-        write(self.ctx.copilot/'fbl-state.json',{'setup_complete':True,'discovery_reviewed':True});checks=[{'component':name,'ok':True} for name in ('runtime','daemon','extension','runtime_integrity','version','host_chrome','templates','copilot','copilot-exec')];self.assertTrue(readiness(self.ctx,{'checks':checks})['ready'])
-        (self.ctx.copilot/'extensions').symlink_to(self.user/'outside',target_is_directory=True)
+        write(self.ctx.copilot/'fbl-state.json',{'setup_complete':True,'discovery_reviewed':True});checks=[{'component':name,'ok':True} for name in ('runtime','daemon','extension','runtime_integrity','version','host_chrome','templates','fast-copilot')];self.assertTrue(readiness(self.ctx,{'checks':checks})['ready'])
+        (self.ctx.copilot/'drafts').symlink_to(self.user/'outside',target_is_directory=True)
         with self.assertRaises(ValueError):init_pack(self.ctx,'unsafe')
     def test_update_tampered_release_rejected_before_install_mutation(self):
         self.install();copy=self.user/'release';shutil.copytree(self.release,copy);(copy/'fbl.py').write_text('tampered')

@@ -32,6 +32,7 @@ _EVENT_TYPES = frozenset(
         "task_state",
         "request_state",
         "connection_state",
+        "extension_request",
         "action_state",
         "buffer_state",
         "sink_state",

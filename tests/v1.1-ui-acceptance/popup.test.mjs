@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises'
 import { JSDOM } from 'jsdom'
 
 const html = await readFile(new URL('../../native-extension/popup.html', import.meta.url), 'utf8')
+const awaitBrandCSS=await readFile(new URL('../../native-extension/brand.css',import.meta.url),'utf8')
 const css = await readFile(new URL('../../native-extension/popup.css', import.meta.url), 'utf8')
 
 test('弹窗入口保留中文状态语义、连接授权说明和任务控制', () => {
@@ -14,7 +15,7 @@ test('弹窗入口保留中文状态语义、连接授权说明和任务控制',
   assert.equal(document.querySelector('#connection-label').getAttribute('aria-live'), 'polite')
   assert.equal(document.querySelector('#access-toggle,#confirm,#cloud-access-toggle,#cloud-confirm'), null)
   assert.equal(document.querySelector('#filter-toggle'), null)
-  assert.equal(document.querySelector('#connect').getAttribute('aria-describedby'), 'connection-detail')
+  assert.equal(document.querySelector('#local-connect').getAttribute('aria-describedby'), 'connection-detail access-detail')
   assert.equal(document.querySelector('#cloud-connect').getAttribute('aria-describedby'), 'cloud-access-detail')
   assert.match(document.querySelector('#cloud-access-detail').textContent, /确认配对.*允许.*直接/)
   assert.ok(document.querySelector('#takeover'))
@@ -27,6 +28,6 @@ test('弹窗入口保留中文状态语义、连接授权说明和任务控制',
   assert.ok(document.querySelector('.header-meta #version-label'))
   assert.equal(document.querySelector('#fast-browser-links,#set-primary,details.settings'),null)
   assert.equal(document.querySelector('#diagnostics'), null)
-  assert.match(css, /:focus-visible/)
+  assert.match(css+awaitBrandCSS, /:focus-visible/)
   dom.window.close()
 })

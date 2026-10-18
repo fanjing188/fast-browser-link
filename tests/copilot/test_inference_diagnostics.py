@@ -33,7 +33,7 @@ class DiagnosticsTests(unittest.TestCase):
     def setUp(self):
         backoff=patch.object(Copilot,'RECOVERY_BACKOFF',(.01,.02,.04));backoff.start();self.addCleanup(backoff.stop)
         self.temp=tempfile.TemporaryDirectory();self.root=Path(self.temp.name).resolve();setup(self.root)
-        profile=self.root/'profiles/copilot-exec';profile.mkdir(parents=True);(profile/'config.yaml').write_text('synthetic')
+        profile=self.root/'profiles/fast-copilot';profile.mkdir(parents=True);(profile/'config.yaml').write_text('synthetic')
         self.config={'hermes_home':str(self.root),'hermes_command':sys.executable,'acp_command':[sys.executable,str(ROOT/'tests/copilot/fake-acp.py'),'--stderr-fixture'],'exec_transport':'oneshot','timeout_seconds':2,'min_interval':0}
         private_write(self.root/'config.json',json.dumps(self.config));self.app=Copilot(self.root,debounce=.01)
 
@@ -60,9 +60,9 @@ class DiagnosticsTests(unittest.TestCase):
         self.start()
         rows=[{'title':'标题'*30,'why':'理由'*30,'action':'general.task','params':{'task':str(i),'unknown':'drop'},'unknown':'drop'} for i in range(10)]
         self.app._replace('fixture',{'scene':'general','suggestions':rows,'extra':'drop'})
-        result=self.app.view('fixture')['suggestions'];self.assertEqual(len(result),8)
+        result=self.app.view('fixture')['suggestions'];self.assertEqual(len(result),10)
         for row in result:
-            self.assertEqual(len(row['title']),20);self.assertEqual(len(row['why']),30);self.assertTrue(row['title'].endswith('…'))
+            self.assertEqual(len(row['title']),32);self.assertEqual(len(row['why']),30);self.assertTrue(row['title'].endswith('…'))
             self.assertNotIn('unknown',row);self.assertNotIn('unknown',row['params']);self.assertEqual(len(row['id']),24)
         self.assertEqual(len(self.logs('output_repaired')),1);self.assertFalse(self.logs('output_repaired')[0]['error'])
         self.assertIsNone(self.app.view('fixture')['diagnostic'])
@@ -170,9 +170,9 @@ class DiagnosticsTests(unittest.TestCase):
 
     def test_profile_creation_and_managed_upgrade_write_verified_version_only(self):
         spec=importlib.util.spec_from_file_location('profile_fixture',ROOT/'scripts/setup-copilot-profile.py');module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
-        for name in ('copilot','copilot-exec'):
+        for name in ('fast-copilot',):
             root=self.root/name;target=root/'profiles'/name;target.mkdir(parents=True)
-            if name=='copilot-exec':
+            if name=='fast-copilot':
                 shared=root/'plugins/fast-browser-link';shared.mkdir(parents=True);(target/'plugins').mkdir();(target/'plugins/fast-browser-link').symlink_to(shared)
             config={'model':{'default':'synthetic','provider':'auto'},'_config_version':12}
             files={'config.yaml':json.dumps(config),'SOUL.md':'','AGENTS.md':'','workspace/AGENTS.md':'','workspace/.hermes.md':''}

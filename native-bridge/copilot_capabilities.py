@@ -109,6 +109,13 @@ def discover(roots):
     return found
 
 
+def command_status(command):
+    executable=command[0]
+    if not (Path(executable).is_file() and os.access(executable,os.X_OK) if '/' in executable else shutil.which(executable)):return 'missing_command'
+    if any(not Path(arg).is_file() for arg in command[1:] if arg.endswith(('.py','.sh','.js','.mjs')) and '{' not in arg and not arg.startswith('-') and '://' not in arg):return 'missing_script'
+    return 'available'
+
+
 class Stopped(ValueError):pass
 
 
@@ -140,17 +147,20 @@ class Registry:
         current=recognize(self.packages.tools,(context or {}).get('url','')) or {}
         return sorted(self.packages.bindings.get(capability,[]),key=lambda item:(bool(current.get('tool')) and item.get('tool')!=current['tool'],item.get('priority',100)))
 
-    def structural(self,binding,context=None):
-        if self.disabled(binding):return 'disabled_today'
+    def structural(self,binding,context=None,recheck_page=False):
+        entry=self.memory['disabled'].get(binding.get('serial_group') or binding['id'],{})
+        if self.disabled(binding) and not (recheck_page and entry.get('reason')=='scope_or_page_unavailable'):return 'disabled_today'
         if binding.get('browser') and binding['browser']!=(context or {}).get('browser'):return 'wrong_browser'
         if binding['type']=='mcp':return 'available' if Path(binding['config_path']).is_file() else 'missing_command'
         if binding['type']=='command':
-            command=binding['argv'];executable=command[0]
-            if not (Path(executable).is_file() and os.access(executable,os.X_OK) if '/' in executable else shutil.which(executable)):return 'missing_command'
-            if any(not Path(arg).is_file() for arg in command[1:] if arg.endswith(('.py','.sh','.js','.mjs')) and '{' not in arg and not arg.startswith('-') and '://' not in arg):return 'missing_script'
+            status=command_status(binding['argv'])
+            if status!='available':return status
             if any(not Path(path).expanduser().exists() for path in binding.get('required_paths',[])):return 'missing_local_data'
             return 'available'
         if binding['type']=='hermes':return 'available' if self.hermes and (context or {}).get('hermes') else 'needs_explicit_fallback'
+        if binding.get('plan_argv'):
+            status=command_status(binding['plan_argv'])
+            if status!='available':return status
         tool=next((tool for tool in self.packages.tools if tool['id']==binding.get('tool')),None)
         if not tool:return 'missing_profile'
         if binding.get('verified') is not True or not tool.get('links',{}).get(binding.get('link')):return 'needs_route_confirmation'
@@ -344,7 +354,7 @@ class Registry:
         for bindings in self.packages.bindings.values():
             for binding in bindings:
                 if binding['type']!='browser' or binding['id'] in self.health:continue
-                status=self.structural(binding,context)
+                status=self.structural(binding,context,recheck_page=True)
                 if status!='needs_browser_check':continue
                 if not browser_probe:continue
                 stop=threading.Event();lane=self._lane(binding,stop)
@@ -352,6 +362,10 @@ class Registry:
                     key=(binding.get('tool'),binding.get('browser'))
                     if key not in probes:probes[key]=browser_probe(binding,context)
                     result=probes[key]
+                    if result.get('ready') is True:
+                        lane_key=binding.get('serial_group') or binding['id']
+                        with self.lock:
+                            if self.memory['disabled'].get(lane_key,{}).get('reason')=='scope_or_page_unavailable':self.memory['disabled'].pop(lane_key);self.save()
                     if result.get('blocked')=='cleanup_unverified' or result.get('blocked') in binding.get('disable_on',['login','captcha','quota','rate_limit']):self.disable(binding,result['blocked'])
                     self.health[binding['id']]={'status':'available' if result.get('ready') is True else result.get('blocked','needs_login_or_readable_report')}
                 except (ValueError,OSError,KeyError,TypeError):self.health[binding['id']]={'status':'probe_unavailable'}
@@ -426,15 +440,25 @@ def transform(name,records,options,context):
 class Workflows:
     def __init__(self,registry):self.registry=registry
 
-    def run(self,key,identity,object_value,context,work,model=None,progress=lambda _:None):
+    def run(self,key,identity,object_value,context,work,model=None,progress=lambda _:None,checkpoint=None,save_checkpoint=lambda _:None):
         registry=self.registry;flow=registry.packages.flows[identity]
         from copilot_risk import declared
         if context.get('automatic') and (declared(flow)!='zero' or flow.get('judgment') is not False or any(declared(step)!='zero' or step.get('model') for step in flow['steps'])):raise ValueError('automatic workflow must be explicitly zero-cost and model-free')
         if (declared(flow)=='external' or any(declared(step)=='external' for step in flow['steps'])) and context.get('secondary_confirmed') is not True:raise ValueError('external workflow requires secondary confirmation')
-        stop=threading.Event();job={'stop':stop};registry.jobs[key]=job;steps=[];missing=[];artifacts=[];state={'input':{'object':object_value},'steps':{},'item':{}};verdict='待判断，现有数据仅供核对' if context.get('language','zh')=='zh' else 'Judgment unavailable; review evidence';records=[];stopped=False;calls=0
+        stop=threading.Event();job={'stop':stop};steps=[];missing=[];artifacts=[];state={'input':{'object':object_value},'steps':{},'item':{}};verdict='待判断，现有数据仅供核对' if context.get('language','zh')=='zh' else 'Judgment unavailable; review evidence';records=[];stopped=False;calls=0;failed=False
         work.mkdir(parents=True,exist_ok=True,mode=0o700)
+        # 中文注释：断点绑定工作流定义与对象；只接受宿主持有的记录，定义变化时拒绝重放。
+        signature=hashlib.sha256(json.dumps([flow,object_value],sort_keys=True,ensure_ascii=False).encode()).hexdigest()
+        checkpoint=checkpoint if checkpoint is not None else {}
+        if checkpoint and checkpoint.get('signature')!=signature:raise ValueError('workflow changed; review a new task')
+        checkpoint.setdefault('signature',signature);checkpoint.setdefault('steps',{});checkpoint.setdefault('items',{})
+        def persist():save_checkpoint(copy.deepcopy(checkpoint))
+        registry.jobs[key]=job
         try:
+            persist()
             for index,step in enumerate(flow['steps']):
+                if step['id'] in checkpoint['steps']:
+                    saved=checkpoint['steps'][step['id']];output=copy.deepcopy(saved['output']);state['steps'][step['id']]=output;records=output.get('records',records);missing+=output.get('missing',[]);steps.append(saved['summary']);artifacts.append(saved['artifact']);verdict=saved.get('verdict',verdict);calls+=int(bool(step.get('model')));progress({'step_index':index+1,'completed_steps':len(steps),'step':saved['summary']['label'],'phase':'restored'});continue
                 if stop.is_set():raise Stopped('stopped')
                 caption=label(step.get('name',step['id']),context.get('language','zh'));started=time.monotonic();step_status=None
                 metadata={'step_index':index+1,'step_name':caption,'capability':step.get('capability',''),'step':f"{index+1}/{len(flow['steps'])} · {caption}"}
@@ -443,11 +467,13 @@ class Workflows:
                     if step['capability']=='pool.save':raise ValueError('pool writes require the explicit save action')
                     values=resolve(step.get('input',{}),state);values={key:value for key,value in values.items() if value is not None}
                     foreach=resolve(step.get('foreach'),state) if step.get('foreach') else [None]
-                    output={'records':[],'source':'','missing':[]}
+                    output=copy.deepcopy(checkpoint['items'].get(step['id'],{}).get('output',{'records':[],'source':'','missing':[]}))
+                    completed_items=checkpoint['items'].get(step['id'],{}).get('completed',0)
                     if not registry.candidates(step['capability'],context):
                         step_status='skipped';output['missing']=['跳过（未绑定 '+step['capability']+'）'];foreach=[]
                     elif not foreach:output['missing']=['no evidenced upstream objects']
-                    for item in foreach or []:
+                    for item_index,item in enumerate(foreach or []):
+                        if item_index<completed_items:continue
                         if stop.is_set():raise Stopped('stopped')
                         if item is not None:state['item']=item;values={key:value for key,value in resolve(step.get('input',{}),state).items() if value is not None}
                         if step['capability']=='keyword.judge':
@@ -464,12 +490,15 @@ class Workflows:
                         try:result=registry.execute(step['capability'],values,work/step['id'],stop,context,lambda event:progress({**metadata,**event}))
                         except Stopped:raise
                         except (ValueError,OSError,KeyError,TypeError,RuntimeError):
+                            if not step.get('optional'):raise
                             output['missing'].append('跳过（能力不可用 '+step['capability']+'）');step_status='skipped';continue
                         for row in result.get('records',[]):
                             if values.get('domain'):row.setdefault('domain',values['domain'])
                         if step.get('optional') and not result.get('records') and values.get('records'):result['records']=values['records']
+                        if result.get('blocked') or result.get('source','').startswith('unavailable'):raise ValueError('source blocked or unavailable; login or access review required')
                         output['records']+=result.get('records',[]);output['source']=';'.join(dict.fromkeys([output['source'],result.get('source','')])).strip(';');output['missing']+=result.get('missing',[])
                         if 'series' in result:output.setdefault('series',[]).extend(result['series'])
+                        checkpoint['items'][step['id']]={'completed':item_index+1,'output':copy.deepcopy(output)};persist()
                 elif 'transform' in step:
                     data=resolve(step['from'],state) or []
                     values,absent=transform(step['transform'],data,step.get('options',{}),state);output={'records':values,'source':'local transform','missing':absent}
@@ -477,10 +506,10 @@ class Workflows:
                     if calls or not model or not (resolve(step.get('from'),state) or resolve(step.get('series'),state)):output={'records':resolve(step.get('from'),state) or [],'source':'local','missing':['single-turn judgment unavailable']}
                     else:
                         data=resolve(step.get('from'),state) or [];calls+=1;judgment_error=False
-                        try:decision=model({'object':object_value,'records':data,'series':resolve(step.get('series'),state),'experience':registry.packages.experience[:800]},stop)
+                        try:decision=model({'object':object_value,'records':data,'series':resolve(step.get('series'),state),'experience':context.get('adapter_experience',registry.packages.experience[:800])},stop)
                         except Stopped:raise
                         except (ValueError,OSError,KeyError,TypeError,RuntimeError) as error:decision={'verdict':'判断未完成，现有数据仅供核对','notes':[]};judgment_error=True;missing.append('判断失败：'+redact(str(error))[:280])
-                        known={normalize(row.get('keyword') or row.get('url') or row.get('domain') or '') for row in data};annotations={normalize(item['key']):item for item in decision.get('notes',[])}
+                        known={normalize(row.get('keyword') or row.get('url') or row.get('domain') or '') for row in data};known.update(normalize(item['keyword']) for item in resolve(step.get('series'),state) or []);annotations={normalize(item['key']):item for item in decision.get('notes',[])}
                         if set(annotations)-known:decision={'verdict':'判断未完成，现有数据仅供核对','notes':[]};annotations={};judgment_error=True
                         verdict=decision['verdict'];output={'records':[],'source':'single model judgment','missing':['缺少模型判断'] if judgment_error else []}
                         for row in data:
@@ -495,21 +524,31 @@ class Workflows:
                                         month=int(point['date'].split('-')[1]);today=date.today();target=date(today.year+(month<today.month),month,1);peaks.append(f"{item['keyword']} · {item['region']} · peak month {month} · about {max(0,(target-today).days+6)//7} weeks; historical signal only")
                                     except (ValueError,IndexError):continue
                             output['missing']+=[] if peaks else ['no verified peak months'];output['seasonal_notes']=peaks
+                            if not data:
+                                for keyword in dict.fromkeys(item['keyword'] for item in series if item.get('points')):
+                                    notes=[note for note in peaks if note.startswith(keyword+' · ')]
+                                    output['records'].append({'keyword':keyword,'reason':'; '.join(notes)[:500],'source':'observed trend chart tables','trend_source':'US/world · 12m/5y; historical signals only'})
                 else:raise ValueError('invalid workflow step')
                 registry.write(work/(step['id']+'.json'),json.dumps(output,ensure_ascii=False));artifacts.append({'label':caption,'path':str(work/(step['id']+'.json'))})
                 state['steps'][step['id']]=output;missing+=output.get('missing',[]);records=output.get('records',records)
                 steps.append({'label':caption,'status':step_status or ('partial' if output.get('missing') else 'completed'),'source':output.get('source',''),'count':len(output.get('records',[]))})
+                if not step_status and not output.get('blocked') and not (step.get('model') and output.get('missing')):
+                    checkpoint['steps'][step['id']]={'output':copy.deepcopy(output),'summary':copy.deepcopy(steps[-1]),'artifact':copy.deepcopy(artifacts[-1]),'verdict':verdict};checkpoint['items'].pop(step['id'],None);persist()
                 progress({**metadata,'phase':'done','provider':'unbound' if step_status=='skipped' else output.get('source') or 'local','count':len(output.get('records',[])),'duration_ms':(time.monotonic()-started)*1000,'completed_steps':len(steps)})
+                if output.get('blocked'):raise ValueError('source blocked; login or access review required')
         except Stopped:stopped=True;missing.append('stopped; completed steps retained')
-        except (ValueError,OSError,KeyError,TypeError,RuntimeError):
-            stopped=stop.is_set();missing.append('workflow stopped on invalid or unavailable step; completed steps retained')
+        except (ValueError,OSError,KeyError,TypeError,RuntimeError) as error:
+            stopped=stop.is_set();failed=True;missing.append('workflow stopped: '+redact(str(error))[:250]+'; completed steps retained')
         finally:registry.jobs.pop(key,None)
         target=resolve(flow.get('result',''),state)
         if isinstance(target,list):records=target
-        if records and model and not calls and not stopped and flow.get('judgment') is not False:
+        judgment_ready=not failed and not stopped and all(step.get('optional') or step['id'] in checkpoint['steps'] for step in flow['steps'])
+        if judgment_ready and checkpoint.get('judgment'):
+            verdict=checkpoint['judgment']['verdict'];calls+=1
+        if records and model and not calls and judgment_ready and flow.get('judgment') is not False:
             calls+=1
             try:
-                decision=model({'object':object_value,'records':records,'series':[],'experience':registry.packages.experience[:800]},stop);verdict=decision['verdict']
+                decision=model({'object':object_value,'records':records,'series':[],'experience':context.get('adapter_experience',registry.packages.experience[:800])},stop);verdict=decision['verdict'];checkpoint['judgment']={'verdict':verdict};persist()
             except (ValueError,OSError,KeyError,TypeError,RuntimeError) as error:missing.extend(['缺少模型判断','判断失败：'+redact(str(error))[:280]]);verdict='判断未完成，现有数据仅供核对'
         if records and not calls and not stopped and flow.get('judgment') is not False:missing.append('缺少模型判断');verdict='判断未完成，现有数据仅供核对'
         if records and flow.get('judgment') is False:verdict='已自动查到本机/公开证据' if context.get('automatic') else '已读取证据，无模型调用'

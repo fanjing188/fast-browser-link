@@ -27,6 +27,26 @@ def assets(ctx):
     return next((path for path in candidates if path.is_dir()),candidates[-1])
 
 
+def pack_state(ctx,capabilities=None,*,busy=False):
+    from copilot_packages import read_package
+    config=read(ctx.copilot/'config.json');registered={str(Path(path).expanduser().resolve()) for path in config.get('extension_dirs',[])}
+    paths=[Path(path) for path in sorted(registered)]
+    paths += [path.parent for area in ('packs','extensions') for path in (ctx.copilot/area).glob('*/package.json')]
+    builtin=HERE/'copilot-packages/generic'
+    if not config.get('managed_packs') and (builtin/'package.json').is_file():paths.insert(0,builtin)
+    rows=[]
+    for path in dict.fromkeys(paths):
+        try:
+            root,value=read_package(safe(path));managed=read(root/'.fbl-pack.json').get('sha256')==tree_digest(root)
+            protected=not root.is_relative_to(ctx.copilot/'packs') and not root.is_relative_to(ctx.copilot/'extensions')
+            loaded=str(root) in registered or root.parent==ctx.copilot/'extensions' or root==builtin and not config.get('managed_packs')
+            names=list(value.get('capabilities',{}));missing=[name for name in names if (capabilities or {}).get(name,{}).get('status')!='available']
+            rows.append({'id':value['id'],'name':value.get('name',value['id']),'release':value.get('release'),'schema_version':value['version'],'description':value.get('description',''),'path':str(root),'source':'builtin' if root==builtin else 'managed' if managed else 'local','loaded':loaded,'modified':not managed and root!=builtin,'can_remove':managed and not protected,'capabilities':names,'workflows':list(value.get('flows',{})),'needs_setup':missing})
+        except (OSError,ValueError,KeyError,TypeError):
+            rows.append({'id':path.name,'name':path.name,'path':str(path),'source':'local','loaded':False,'modified':True,'can_remove':False,'error':'invalid_or_unreadable_package','capabilities':[],'workflows':[],'needs_setup':[]})
+    return {'plugins':rows,'available':[{'id':name,'installed':any(row['id']==name for row in rows)} for name in ('general','seo')],'busy':busy}
+
+
 def install_pack(ctx,name,*,remove=False):
     import re
     from copilot_packages import Packages
@@ -34,7 +54,8 @@ def install_pack(ctx,name,*,remove=False):
     source=assets(ctx)/'packs'/str(name) if name in {'general','seo'} else Path(name or '').expanduser()
     if remove:
         if not re.fullmatch(r'[a-z][a-z0-9-]{0,50}',name or ''):raise ValueError('invalid pack name')
-        target=next((ctx.copilot/area/name for area in ('packs','extensions') if (ctx.copilot/area/name/'package.json').is_file()),ctx.copilot/'packs'/name)
+        target=next((ctx.copilot/area/name for area in ('packs','extensions') if (ctx.copilot/area/name/'package.json').is_file()),None)
+        if target is None:raise ValueError('pack not installed')
     else:
         source=safe(source)
         if not (source/'package.json').is_file():raise ValueError('pack payload missing')
@@ -118,12 +139,12 @@ def install_core(ctx):
     return payload
 
 
-def install_skills(ctx,selected):
+def install_skills(ctx,selected,profiles=(),preserved=None):
     source=(ctx.source/'skills/fast-browser-link') if ctx.source else None
     if not source or not source.is_dir():source=ctx.data/'host-bin/fbl-assets/core-skill'
     if not source.is_dir():raise ValueError('core skill payload missing')
     installed=[]
-    roots=agent_roots(ctx)
+    roots=agent_roots(ctx,profiles)
     for row in roots:
         if row['agent'] not in selected:continue
         target=safe(Path(row['path'])/'fast-browser-link')
@@ -131,7 +152,9 @@ def install_skills(ctx,selected):
             record=read(target/'.fbl-skill.json')
             if tree_digest(target)==record.get('sha256'):continue
             history=read(assets(ctx)/'skill-history.json',{})
-            if tree_digest(target) not in history.get(target.name,[]):raise ValueError('existing agent skill modified or unknown; preserved')
+            if tree_digest(target) not in history.get(target.name,[]):
+                if preserved is not None:preserved.append({'path':str(target),'status':'preserved_unmanaged','message':'保留未接管'})
+                continue
             # 中文注释：已知历史技能的首次接管只写归属摘要，程序升级仍由 update 事务处理。
             private_write(target/'.fbl-skill.json',json.dumps({'version':1,'sha256':tree_digest(target)}));continue
         target.parent.mkdir(parents=True,exist_ok=True);shutil.copytree(source,target)
@@ -140,11 +163,11 @@ def install_skills(ctx,selected):
 
 
 def model_drafter(ctx):
-    if not (ctx.hermes/'profiles/copilot/config.yaml').is_file():return None
+    if not (ctx.hermes/'profiles/fast-copilot/config.yaml').is_file():return None
     def draft(rows):
         from copilot import parse_model_json
         from copilot_acp import ACP
-        runtime=ACP({'inference_profile':'copilot','hermes_home':str(ctx.hermes),'timeout_seconds':30},ctx.copilot)
+        runtime=ACP({'inference_profile':'fast-copilot','hermes_home':str(ctx.hermes),'timeout_seconds':30},ctx.copilot)
         try:
             runtime.start()
             from copilot_capabilities import CAPABILITIES
@@ -180,14 +203,15 @@ def confirmation(ctx,value,*,yes=False,input_fn=input):
     return confirm(ctx,selected,edits)
 
 
-def setup(ctx,*,yes=False,dry_run=False,seo=None,urls=(),scan_tabs=False,input_fn=input):
-    agents=agent_roots(ctx);selected=list(dict.fromkeys([row['agent'] for row in agents if row['detected']]+['generic']))
+def setup(ctx,*,yes=False,dry_run=False,seo=None,urls=(),scan_tabs=False,agent_profiles=(),input_fn=input):
+    agents=agent_roots(ctx,agent_profiles);selected=list(dict.fromkeys(row['agent'] for row in agents if row['detected']))
     if dry_run:return {'status':'dry_run','runtime':str(ctx.runtime),'agents':selected,'commands':['fbl setup --yes','fbl doctor','fbl update --dry-run'],'profiles':'only dedicated managed profiles; no credentials copied'}
     if not (ctx.data/'host-bin').is_dir():install_core(ctx)
     elif not (ctx.data/'host-bin/fbl_cli.py').is_file():
         if not ctx.source:raise ValueError('legacy runtime needs a complete release; run python3 -B -m fbl setup from that release')
         update(ctx,ctx.source)
-    command_path=launcher(ctx);installed=install_skills(ctx,selected)
+    preserved=[]
+    command_path=launcher(ctx)
     config=read(ctx.copilot/'config.json');config.setdefault('hermes_home',str(ctx.hermes));config['bridge_home']=str(ctx.runtime);config['fbl_user_home']=str(ctx.user)
     private_write(ctx.copilot/'config.json',json.dumps(config,ensure_ascii=False,indent=2))
     profiles=[]
@@ -195,14 +219,18 @@ def setup(ctx,*,yes=False,dry_run=False,seo=None,urls=(),scan_tabs=False,input_f
         try:
             catalog=available_models(ctx);model,provider=choose_model(catalog)
             private_write(ctx.copilot/'available-models.json',json.dumps({'current':catalog.get('currentModelId'),'available':[row['modelId'] for row in catalog.get('availableModels',[])]}))
-            for profile in ('copilot','copilot-exec'):profiles.append(repair(ctx.hermes,profile,private_write,model,provider))
-            shared=ctx.hermes/'plugins/fast-browser-link';local=ctx.hermes/'profiles/copilot-exec/plugins/fast-browser-link'
+            profiles.append(repair(ctx.hermes,'fast-copilot',private_write,model,provider))
+            shared=ctx.hermes/'plugins/fast-browser-link';local=ctx.hermes/'profiles/fast-copilot/plugins/fast-browser-link'
             if profiles[-1]['state']=='ready' and shared.is_dir() and not local.exists():
                 safe(local.parent).mkdir(parents=True,exist_ok=True);local.symlink_to(shared,target_is_directory=True)
             elif profiles[-1]['state']=='ready' and not local.exists() and ctx.source:
                 payload=verify_source(ctx.source)
                 if payload['adapter'].is_dir():safe(local.parent).mkdir(parents=True,exist_ok=True);shutil.copytree(payload['adapter'],local)
+            if profiles[-1]['state']=='ready':
+                config.update(inference_profile='fast-copilot',exec_profile='fast-copilot')
+                private_write(ctx.copilot/'config.json',json.dumps(config,ensure_ascii=False,indent=2))
         except (OSError,RuntimeError,ValueError,subprocess.SubprocessError):profiles.append({'state':'pending','code':'metadata_or_managed_profile_unavailable','command':'fbl doctor'})
+    installed=install_skills(ctx,selected,agent_profiles,preserved)
     packs=[install_pack(ctx,'general')]
     if seo is None:seo=False if yes else input_fn('安装仅公开免费来源的 SEO 通用包？[y/N] ').strip().lower()=='y'
     if seo:packs.append(install_pack(ctx,'seo'))
@@ -216,7 +244,10 @@ def setup(ctx,*,yes=False,dry_run=False,seo=None,urls=(),scan_tabs=False,input_f
     from copilot import validate
     from copilot_packages import Packages
     configured=read(ctx.copilot/'config.json');capabilities=Registry(Packages(configured.get('extension_dirs',[]),include_builtin=False),ctx.copilot,private_write,validate).probe({})
-    return {'status':'configured','capabilities':capabilities,'profiles':profiles,'skills':installed,'packs':packs,'discovery':confirmation_result,'readiness':doctor(ctx)}
+    diagnostic=doctor(ctx)
+    required=['keyword.metrics','keyword.expand','trends.series'] if seo else []
+    onboarding={'core_ready':diagnostic['ok'],'capabilities_ready':all(capabilities.get(name,{}).get('status')=='available' for name in required),'required_capabilities':required,'missing_capabilities':[name for name in required if capabilities.get(name,{}).get('status')!='available'],'next_steps':['Load the extension and connect the browser','Open Settings > Functional plugins to install an adapter','Open Local capabilities, confirm providers and run health checks','Run one read-only workflow and verify its real output']}
+    return {'status':'configured','capabilities':capabilities,'onboarding':onboarding,'profiles':profiles,'skills':installed,'preserved_skills':preserved,'packs':packs,'discovery':confirmation_result,'readiness':diagnostic}
 
 
 def logs(ctx,*,follow=False,kind=None,errors=False,bundle=None):
@@ -271,7 +302,7 @@ def logs(ctx,*,follow=False,kind=None,errors=False,bundle=None):
 def init_pack(ctx,name,argv=None,url=None,capability=None):
     import re
     if not re.fullmatch(r'[a-z][a-z0-9-]{0,50}',name) or name in {'general','seo','discovered'}:raise ValueError('invalid or reserved local pack name')
-    target=safe(ctx.copilot/'extensions'/name)
+    target=safe(ctx.copilot/'drafts'/name)
     if target.exists():raise ValueError('pack already exists')
     package={'id':name,'version':1,'capabilities':{}}
     if argv:
@@ -305,8 +336,9 @@ def parser():
     for name in ('setup','update','doctor','logs','packs','browser'):
         s=sub.add_parser(name);common(s)
         if name=='setup':
+            s.add_argument('--agent-profile',action='append',default=[],help='Explicit Hermes profile for the agent skill')
             s.add_argument('--yes',action='store_true');s.add_argument('--dry-run',action='store_true');s.add_argument('--seo',action='store_true',default=None);s.add_argument('--url',action='append',default=[]);s.add_argument('--scan-tabs',action='store_true')
-        elif name=='update':s.add_argument('--yes',action='store_true');s.add_argument('--dry-run',action='store_true');s.add_argument('--wait',type=float,default=0);s.add_argument('--pause-hermes',action='store_true')
+        elif name=='update':s.add_argument('--preserve-skills',action='store_true',help='Preserve installed agent skills; update runtime and browser extension only');s.add_argument('--yes',action='store_true');s.add_argument('--dry-run',action='store_true');s.add_argument('--wait',type=float,default=0);s.add_argument('--pause-hermes',action='store_true')
         elif name=='doctor':s.add_argument('--fix',action='store_true')
         elif name=='logs':s.add_argument('--follow',action='store_true');s.add_argument('--type',choices=['system','execution','inference','capture','stderr']);s.add_argument('--errors',action='store_true');s.add_argument('--bundle',nargs='?',const='fbl-diagnostics.tar.gz')
         elif name=='packs':
@@ -327,20 +359,21 @@ def main(argv=None):
         ctx=Context.locate(args.user_home,args.hermes_home,args.runtime,args.source)
         if ctx.source is None:
             ctx.source=next((path for path in (HERE.parent,HERE.parent.parent) if (path/'SHA256SUMS.json').is_file()),None)
-        if args.command=='setup':result=setup(ctx,yes=args.yes,dry_run=args.dry_run,seo=args.seo,urls=args.url,scan_tabs=args.scan_tabs)
+        if args.command=='setup':result=setup(ctx,yes=args.yes,dry_run=args.dry_run,seo=args.seo,urls=args.url,scan_tabs=args.scan_tabs,agent_profiles=args.agent_profile)
         elif args.command=='update':
             if not args.source:
                 if args.dry_run:
                     from fbl_update import preview
-                    result=preview(ctx)
+                    from fbl_update import plan
+                    result=preview(ctx,plan(ctx,preserve_skills=args.preserve_skills))
                 else:
                     from fbl_update import fetch_update
-                    result=fetch_update(ctx,wait=args.wait,pause_hermes=args.pause_hermes,yes=args.yes,confirm=confirm_update)
-            else:result=update(ctx,args.source,dry_run=args.dry_run,wait=args.wait,pause_hermes=args.pause_hermes,yes=args.yes,confirm=confirm_update)
+                    result=fetch_update(ctx,wait=args.wait,pause_hermes=args.pause_hermes,yes=args.yes,confirm=confirm_update,preserve_skills=args.preserve_skills)
+            else:result=update(ctx,args.source,dry_run=args.dry_run,wait=args.wait,pause_hermes=args.pause_hermes,yes=args.yes,confirm=confirm_update,preserve_skills=args.preserve_skills)
         elif args.command=='doctor':result=doctor(ctx,fix=args.fix,deep=True,start=args.fix)
         elif args.command=='logs':result=logs(ctx,follow=args.follow,kind=args.type,errors=args.errors,bundle=args.bundle)
         elif args.command=='packs':
-            if args.action=='list':result={'installed':[path.parent.name for path in (ctx.copilot/'packs').glob('*/package.json')],'available':['general','seo'],'local':[path.parent.name for path in (ctx.copilot/'extensions').glob('*/package.json')]}
+            if args.action=='list':result={**pack_state(ctx),'available':['general','seo'],'installed':[path.parent.name for path in (ctx.copilot/'packs').glob('*/package.json')],'local':[path.parent.name for path in (ctx.copilot/'extensions').glob('*/package.json')]}
             elif args.action in {'install','remove'}:result=install_pack(ctx,args.name,remove=args.action=='remove')
             elif args.action=='init':
                 interactive=not(args.argv or args.url or args.capability)
@@ -374,6 +407,7 @@ def main(argv=None):
                 if value is not None: retry.extend(['--' + key.replace('_', '-'), str(value.expanduser().resolve())])
             if args.wait: retry.extend(['--wait', str(args.wait)])
             if args.pause_hermes: retry.append('--pause-hermes')
+            if args.preserve_skills: retry.append('--preserve-skills')
             if args.yes or result['reason'] == 'confirmation_required': retry.append('--yes')
             result['retry_command'] = shlex.join(retry)
             result['preview_command'] = shlex.join([*retry, '--dry-run'])

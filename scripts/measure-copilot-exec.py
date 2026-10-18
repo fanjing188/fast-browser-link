@@ -8,12 +8,12 @@ import subprocess
 import tempfile
 
 
-def measure(command='hermes',profile='copilot-exec',root=None,timeout=180):
+def measure(command='hermes',profile='fast-copilot',root=None,timeout=180):
     env={**os.environ,'HERMES_HOME':str(Path(root or Path.home()/'.hermes').expanduser())}
     argv=[command,'-p',profile,'chat','--oneshot','-Q','--format','stream-json',
           '-t','fast-browser-link,web,terminal,file','--max-turns','1',
           '-q','不要调用任何工具，只回复 OK。']
-    with tempfile.TemporaryDirectory(prefix='copilot-exec-measure-') as directory:
+    with tempfile.TemporaryDirectory(prefix='copilot-measure-') as directory:
         process=subprocess.Popen(argv,env=env,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,start_new_session=True,cwd=directory)
         try:
             output,_=process.communicate(timeout=timeout)
@@ -43,7 +43,7 @@ def measure(command='hermes',profile='copilot-exec',root=None,timeout=180):
 if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--command',default='hermes')
-    parser.add_argument('--profile',default='copilot-exec')
+    parser.add_argument('--profile',default='fast-copilot')
     parser.add_argument('--root',type=Path)
     args=parser.parse_args()
     print(json.dumps(measure(args.command,args.profile,args.root),ensure_ascii=False,indent=2))

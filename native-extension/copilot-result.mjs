@@ -1,5 +1,5 @@
 import { localize } from './copilot-i18n.mjs';
-import { renderResult, actionNames } from './copilot-result-view.mjs';
+import { renderResult, actionName } from './copilot-result-view.mjs';
 import { TaskLogPanel } from './copilot-task-logs.mjs';
 
 export async function mountResultDocument(
@@ -60,7 +60,7 @@ export async function mountResultDocument(
     if (!id) throw Error('缺少结果标识');
     row = await command('result', { id });
     doc.getElementById('result-title').textContent =
-      row.title || actionNames[row.action] || '任务结果';
+      row.flow_name || row.title || actionName(row) || '任务结果';
     doc.getElementById('result-context').textContent =
       row.params?.keyword || row.params?.url || row.params?.task || '';
     const article = doc.createElement('article');

@@ -21,10 +21,23 @@
           "paths": [
             "^/cases$"
           ],
-          "object_param": "q",
           "flows": [
             "support_materials"
-          ]
+          ],
+          "columns": {
+            "case_id": [
+              "case_id"
+            ],
+            "customer": [
+              "customer"
+            ],
+            "missing_materials": [
+              "missing_materials"
+            ],
+            "status": [
+              "status"
+            ]
+          }
         }
       ]
     }
@@ -34,225 +47,14 @@
       "input": {
         "type": "object",
         "properties": {
-          "keyword": {
-            "type": "string",
-            "maxLength": 2000
-          },
-          "keywords": {
-            "type": "array",
-            "items": {
-              "type": "string",
-              "maxLength": 2000
-            },
-            "maxItems": 1000
-          },
-          "domain": {
-            "type": "string",
-            "maxLength": 300
-          },
-          "domains": {
-            "type": "array",
-            "items": {
-              "type": "string",
-              "maxLength": 300
-            },
-            "maxItems": 1000
-          },
-          "url": {
-            "type": "string",
-            "maxLength": 4000
-          },
-          "urls": {
-            "type": "array",
-            "items": {
-              "type": "string",
-              "maxLength": 4000
-            },
-            "maxItems": 1000
-          },
-          "records": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "keyword": {
-                  "type": "string",
-                  "maxLength": 2000
-                },
-                "vol": {
-                  "type": "number"
-                },
-                "kd": {
-                  "type": "number"
-                },
-                "cpc": {
-                  "type": "number"
-                },
-                "source": {
-                  "type": "string",
-                  "maxLength": 500
-                },
-                "position": {
-                  "type": "number"
-                },
-                "url": {
-                  "type": "string",
-                  "maxLength": 2000
-                },
-                "opportunity": {
-                  "type": "boolean"
-                },
-                "field_sources": {
-                  "type": "object",
-                  "properties": {},
-                  "additionalProperties": true
-                },
-                "domain": {
-                  "type": "string",
-                  "maxLength": 300
-                },
-                "traffic": {
-                  "type": "number"
-                },
-                "authority": {
-                  "type": "number"
-                },
-                "authority_kind": {
-                  "type": "string",
-                  "maxLength": 100
-                },
-                "reg_date": {
-                  "type": "string",
-                  "maxLength": 40
-                },
-                "weak": {
-                  "type": "boolean"
-                },
-                "intent": {
-                  "type": "string",
-                  "maxLength": 300
-                },
-                "intent_tool": {
-                  "type": "integer"
-                },
-                "excluded": {
-                  "type": "integer"
-                },
-                "host": {
-                  "type": "string",
-                  "maxLength": 300
-                },
-                "host_duplicate": {
-                  "type": "integer"
-                },
-                "trend12": {
-                  "type": "array",
-                  "items": {
-                    "type": "number"
-                  },
-                  "maxItems": 400
-                },
-                "serp_json": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "properties": {},
-                    "additionalProperties": true
-                  },
-                  "maxItems": 20
-                },
-                "tier": {
-                  "type": "string",
-                  "maxLength": 100
-                },
-                "verdict": {
-                  "type": "string",
-                  "maxLength": 500
-                },
-                "reason": {
-                  "type": "string",
-                  "maxLength": 1000
-                },
-                "group": {
-                  "type": "string",
-                  "maxLength": 100
-                },
-                "already_checked": {
-                  "type": "boolean"
-                },
-                "is_home": {
-                  "type": "integer"
-                },
-                "rank": {
-                  "type": "integer"
-                },
-                "page_type": {
-                  "type": "string",
-                  "maxLength": 60
-                },
-                "small_site": {
-                  "type": "boolean"
-                },
-                "title": {
-                  "type": "string",
-                  "maxLength": 500
-                },
-                "kd_source": {
-                  "type": "string",
-                  "maxLength": 100
-                },
-                "trend_source": {
-                  "type": "string",
-                  "maxLength": 100
-                },
-                "metric_quality": {
-                  "type": "object",
-                  "properties": {},
-                  "additionalProperties": true
-                },
-                "measurement": {
-                  "type": "string",
-                  "maxLength": 30
-                }
-              },
-              "required": [],
-              "additionalProperties": false
-            },
-            "maxItems": 5000
-          },
-          "n": {
-            "type": "integer"
-          },
-          "report": {
-            "type": "string",
-            "maxLength": 100
-          },
-          "market": {
+          "case_id": {
             "type": "string",
             "maxLength": 40
-          },
-          "language": {
-            "type": "string",
-            "maxLength": 40
-          },
-          "period": {
-            "type": "string",
-            "maxLength": 40
-          },
-          "region": {
-            "type": "string",
-            "maxLength": 40
-          },
-          "fields": {
-            "type": "array",
-            "items": {
-              "type": "string",
-              "maxLength": 40
-            },
-            "maxItems": 20
           }
         },
-        "required": [],
+        "required": [
+          "case_id"
+        ],
         "additionalProperties": false
       },
       "output": {
@@ -263,150 +65,33 @@
             "items": {
               "type": "object",
               "properties": {
-                "keyword": {
-                  "type": "string",
-                  "maxLength": 2000
-                },
-                "vol": {
-                  "type": "number"
-                },
-                "kd": {
-                  "type": "number"
-                },
-                "cpc": {
-                  "type": "number"
-                },
-                "source": {
-                  "type": "string",
-                  "maxLength": 500
-                },
-                "position": {
-                  "type": "number"
-                },
-                "url": {
-                  "type": "string",
-                  "maxLength": 2000
-                },
-                "opportunity": {
-                  "type": "boolean"
-                },
-                "field_sources": {
-                  "type": "object",
-                  "properties": {},
-                  "additionalProperties": true
-                },
-                "domain": {
-                  "type": "string",
-                  "maxLength": 300
-                },
-                "traffic": {
-                  "type": "number"
-                },
-                "authority": {
-                  "type": "number"
-                },
-                "authority_kind": {
-                  "type": "string",
-                  "maxLength": 100
-                },
-                "reg_date": {
+                "case_id": {
                   "type": "string",
                   "maxLength": 40
                 },
-                "weak": {
-                  "type": "boolean"
-                },
-                "intent": {
+                "customer": {
                   "type": "string",
-                  "maxLength": 300
+                  "maxLength": 100
                 },
-                "intent_tool": {
-                  "type": "integer"
-                },
-                "excluded": {
-                  "type": "integer"
-                },
-                "host": {
-                  "type": "string",
-                  "maxLength": 300
-                },
-                "host_duplicate": {
-                  "type": "integer"
-                },
-                "trend12": {
+                "missing_materials": {
                   "type": "array",
                   "items": {
-                    "type": "number"
-                  },
-                  "maxItems": 400
-                },
-                "serp_json": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "properties": {},
-                    "additionalProperties": true
+                    "type": "string",
+                    "maxLength": 100
                   },
                   "maxItems": 20
                 },
-                "tier": {
+                "status": {
                   "type": "string",
-                  "maxLength": 100
-                },
-                "verdict": {
-                  "type": "string",
-                  "maxLength": 500
-                },
-                "reason": {
-                  "type": "string",
-                  "maxLength": 1000
-                },
-                "group": {
-                  "type": "string",
-                  "maxLength": 100
-                },
-                "already_checked": {
-                  "type": "boolean"
-                },
-                "is_home": {
-                  "type": "integer"
-                },
-                "rank": {
-                  "type": "integer"
-                },
-                "page_type": {
-                  "type": "string",
-                  "maxLength": 60
-                },
-                "small_site": {
-                  "type": "boolean"
-                },
-                "title": {
-                  "type": "string",
-                  "maxLength": 500
-                },
-                "kd_source": {
-                  "type": "string",
-                  "maxLength": 100
-                },
-                "trend_source": {
-                  "type": "string",
-                  "maxLength": 100
-                },
-                "metric_quality": {
-                  "type": "object",
-                  "properties": {},
-                  "additionalProperties": true
-                },
-                "measurement": {
-                  "type": "string",
-                  "maxLength": 30
+                  "maxLength": 40
                 }
               },
-              "required": [],
+              "required": [
+                "case_id"
+              ],
               "additionalProperties": false
             },
-            "maxItems": 5000
+            "maxItems": 100
           },
           "source": {
             "type": "string",
@@ -419,12 +104,6 @@
               "maxLength": 500
             },
             "maxItems": 50
-          },
-          "partial": {
-            "type": "boolean"
-          },
-          "pages": {
-            "type": "integer"
           }
         },
         "required": [
@@ -458,7 +137,7 @@
         "zh": "核对工单材料",
         "en": "Review case materials"
       },
-      "object": "keyword",
+      "object": "case_id",
       "judgment": false,
       "risk": "zero",
       "steps": [
@@ -467,8 +146,78 @@
           "capability": "case.inspect",
           "risk": "zero",
           "input": {
-            "keyword": "$input.object"
+            "case_id": "$input.object"
           }
+        }
+      ],
+      "description": {
+        "zh": "读取合成工单并核对缺失材料。",
+        "en": "Read a synthetic case and review missing materials."
+      },
+      "when": {
+        "zh": "在工单页有明确工单号，需要确认材料是否齐全时。",
+        "en": "When an explicit case ID is present and materials need review."
+      },
+      "result": {
+        "columns": [
+          {
+            "field": "case_id",
+            "label": {
+              "zh": "工单号",
+              "en": "Case"
+            }
+          },
+          {
+            "field": "customer",
+            "label": {
+              "zh": "客户",
+              "en": "Customer"
+            }
+          },
+          {
+            "field": "missing_materials",
+            "label": {
+              "zh": "缺失材料",
+              "en": "Missing materials"
+            }
+          },
+          {
+            "field": "status",
+            "label": {
+              "zh": "状态",
+              "en": "Status"
+            }
+          }
+        ],
+        "primary": "case_id"
+      }
+    }
+  },
+  "scene": {
+    "id": "support",
+    "name": {
+      "zh": "工单协作",
+      "en": "Support"
+    }
+  },
+  "objects": {
+    "case_id": {
+      "name": {
+        "zh": "工单号",
+        "en": "Case ID"
+      },
+      "from": [
+        {
+          "url_param": "q"
+        },
+        {
+          "column": [
+            "Case",
+            "工单号"
+          ]
+        },
+        {
+          "selection": "^[A-Z]{2}-\\d{4,}$"
         }
       ]
     }

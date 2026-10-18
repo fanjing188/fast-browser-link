@@ -42,6 +42,7 @@ for (const file of [
   'copilot-table-job.mjs',
   'copilot-table-panel.mjs',
   'copilot-result-view.mjs',
+  'copilot-generic-result.mjs',
   'copilot-result.mjs',
   'copilot-result.html',
   'copilot-settings.mjs',

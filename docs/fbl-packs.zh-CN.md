@@ -8,6 +8,14 @@
 
 ## 通用工作流
 
+`package.json` 仍为 `version: 1`。现在可选声明 `scene`（`id`、双语 `name`，默认包 ID）、`objects`（双语名与 `from` URL 参数/表头列/完整匹配选区正则），流程 `object` 引用该类型。保留 `keyword/domain/url`，旧包无需修改。
+
+`schemas.<能力>.input/output` 可定义本领域记录；页面 `columns` 可映射包内输出 schema 的字段。`templates` 允许 `<包id>.<名字>` 前缀，仍限制包内路径并经过宿主模板校验。流程新增可选双语 `description`、`when`、独立 `decision_schema` 和 `result:{columns:[{field,label:{zh,en}}],primary}`；未写判断合同沿用旧 `DECISION`，未写列时自定义记录按最终输出 schema 展示，原字符串结果引用保持兼容。
+
+当前页匹配的流程可在自己的场景或 `general` 推荐；不匹配页面或没有明确对象时不由模型猜测。`filter`（等于/包含/数值区间）、`dedupe`（按字段）、`sort`、`top`、`pick`（选字段/改名）是 `risk:zero` 的本地转换。通用结果支持排序、筛选、复制、导出及作为已确认表格加入工作篮；缺失显示“未知”，真实零保留，SEO 继续使用专用视图。
+
+完整字段、限制、转换参数与兼容说明见[通用领域声明](adapter-packs.zh-CN.md#通用领域声明version-1)，机器格式见 [package schema](fbl-pack.schema.json)。[工单示例](examples/adapter-pack/package.json) 使用 `support/case_id` 和独立记录，可在隔离测试中运行，无需真实服务。
+
 `general/pack.json` 中的 recipes 是 agent 执行步骤，不是新 RPC 方法。读页使用 `fbl browser browsers` → create/get 就绪 → new_tab → semantic_snapshot → close；每个任务独立私有 session。表格导出、多页采集使用侧栏识别与确认，保留页数上限和部分读取状态；摘要由调用 agent 判断已读内容；表单普通字段先拟定并确认，最终提交交用户，敏感项始终人工处理。核心浏览器本身不调用模型。
 
 SEO 包仅含公开联想、公开搜索结果、Trends 页面、sitemap 页面族；不附带私人账号或付费指标。缺量/KD 保持未知；中性判档不硬编码业务阈值，本机规则可配置。agent 推理仍可能产生用户配置的模型费用；发现阶段不执行查询。

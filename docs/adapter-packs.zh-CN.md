@@ -59,9 +59,44 @@ my-adapter/
 fbl packs install /absolute/path/to/docs/examples/adapter-pack
 ```
 
-页面对象约定为 `https://support.example.test/cases?q=invoice`；该域名只用于测试，不是实际服务。也可以在隔离测试中直接调用能力，输入 `{"keyword":"invoice"}`，返回合成工单的材料缺项。在自己的插件中替换域名、路由和数据源后重新验收。
+页面对象约定为 `https://support.example.test/cases?q=CS-1001`；该域名只用于测试，不是实际服务。也可以在隔离测试中直接调用能力，输入 `{"case_id":"CS-1001"}`，返回合成工单的材料缺项。在自己的插件中替换域名、路由和数据源后重新验收。
 
 ## 能力与数据契约
+
+### 通用领域声明（version 1）
+
+以下字段均可选，旧包不需要迁移。参见 [package.json 格式](fbl-pack.schema.json) 和 [工单示例](examples/adapter-pack/package.json)。
+
+| 字段 | 格式与默认行为 |
+| --- | --- |
+| `scene` | `{"id":"support","name":{"zh":"工单协作","en":"Support"}}`；省略时场景 ID 为包 ID。显式声明时名称中英文必填、各不超过 100 字。 |
+| `objects` | 自定义对象类型字典。每项有双语 `name` 和 `from` 来源数组；`keyword`、`domain`、`url` 是保留类型，不能重定义。对象类型 ID 为小写字母起始的字母、数字、下划线，最长 64 字符。 |
+| `objects.<id>.from` | `{"url_param":"q"}`、`{"column":["Case","工单号"]}`、`{"selection":"^[A-Z]{2}-\\d{4,}$"}` 三种声明。列别名忽略大小写和首尾空白；只消费当前页已经取得的可见、脱敏单元格。选中文字必须完整匹配声明正则才成为该类型对象；匹配的选区优先于页面对象。无匹配则不猜测。 |
+| `schemas.<capability>` | 含 `input`、`output`。自定义能力使用自己的 `output.properties.records.items` 记录结构，输出信封保持 `records`、`source` 和可选 `missing`。记录可用 `case_id`、`customer` 等字段，不自动追加 SEO 字段；建议对象合同均设 `additionalProperties:false`。内置 SEO 能力合同不能覆盖。 |
+| `tools[].pages[].columns` | 字段必须来自内置 SEO 字段或当前包的输出记录 schema，值为表头别名数组。JSON 原样校验；CSV/可见表格按字段 schema 转换数字、布尔和 JSON 数组/对象，再校验。 |
+| `templates` | 继续允许内置动作命名空间，并允许 `<包id>.<名字>`，例如 `support-triage-example.review`。模板文件必须在包内、最长 128 KiB，仍由宿主检查身份、参数、输出、风险等合同。 |
+| `flows.<id>.object` | 引用保留对象或当前包声明的类型；省略时使用旧的 `keyword` 行为。 |
+| `flows.<id>.description` / `when` | 可选双语说明与适用时机，各语言最多 500 字；与流程名称、对象类型和明确对象一同提供给推理模型。 |
+| `flows.<id>.decision_schema` | 可选本流程单轮判断合同；省略时使用现有 SEO `DECISION`。自定义判断读取该流程记录，单独保存在结果的 `decision`，不会改写原始记录。可选 `verdict` 用作摘要，没有则显示判断已完成。 |
+| `flows.<id>.result` | 可为 `{"columns":[{"field":"case_id","label":{"zh":"工单号","en":"Case"}}],"primary":"case_id"}`。列必须来自最终步骤记录 schema，不能重复，`primary` 必须在列中。省略时自定义记录按最终输出 schema 推导列；旧的 `"$steps.read.records"` 结果引用继续有效。 |
+
+自定义 schema 使用宿主已有子集：`type`、`properties`、`required`、`additionalProperties`、`items`、`maxItems`、`minLength`、`maxLength`、`enum`。单份合同最多 32 KiB、嵌套最多 8 层，每个对象最多 100 个字段；字符串上限 12000 字、数组上限 5000 项，未写界限时沿用宿主默认值。`decision_schema` 同样受这些限制。不支持 `$ref`、`pattern` 等其他关键字；选区正则仅在 `objects.from.selection` 声明。
+
+推理模型每轮收到当前 URL 匹配的工具页面与流程合同。匹配的包流程既可在自身场景，也可在 `general` 场景推荐；场景外或没有明确对象时拒绝模型推荐。已完成、忽略和稍后的任务不重复；风险、能力可用性和执行授权仍由宿主独立判定。SEO 内置动作及其特化视图保持原路径。
+
+通用结果表格支持每列排序、全列筛选、行选择、复制和 CSV 导出。没有选中行时处理当前筛选结果；选中后处理筛选范围内的选中行。缺失值显示“未知”，真实的 `0` 保留。加入工作篮先通过现有导出合同生成已确认表格，再作为表格加入，不将工单强行当关键词。可见列采样最多 3 表、每表前 10 行，总计不超过 2400 字节，超过范围的对象须通过明确选区或 URL 提供。
+
+### 通用本地转换
+
+步骤格式仍为 `{"id":"筛选步骤id","transform":"filter","from":"$steps.read_case.records","options":{...},"risk":"zero"}`。以下转换不调用浏览器、模型或外部来源，风险固定为 `zero`；其余步骤和整个流程的风险仍单独核定。
+
+| 转换 | `options` | 行为 |
+| --- | --- | --- |
+| `filter` | `{"field":"status","equals":"open"}`、`{"field":"customer","contains":"Example"}` 或 `{"field":"count","min":1,"max":5}` | 等于、字符串/数组包含、闭区间；可组合，全部满足才保留。缺失值不匹配，不将其当零。 |
+| `dedupe` | `{"field":"case_id"}` | 按字段值稳定去重、保留第一行；缺该字段的行保留。 |
+| `sort` | `{"field":"count","direction":"desc"}` | 默认 `asc`，数字按数值排序，其余按文本；缺失值始终在末尾。 |
+| `top` | `{"n":10}` | 取前 N 行，N 为 0–5000 整数。 |
+| `pick` | `{"fields":["case_id","status"]}` 或 `{"fields":{"case_id":"ticket","status":"state"}}` | 只保留指定字段，可按“原字段 → 新字段”改名；不补造缺值。 |
 
 - 本机命令使用 argv 数组和相对包路径，例如 `['python3', './inspect_case.py']`；不拼接 shell 命令。stdin 为输入 JSON，也可使用 `{input_json}`、`{output_json}` 等受支持占位符。
 - 标准输出返回 `records`、`source`、`missing`；趋势能力返回 `series`、`source`、`missing`。缺失指标留空，不填零，不将 PKD 当作 KD。

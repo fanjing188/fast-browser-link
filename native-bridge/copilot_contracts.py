@@ -201,7 +201,9 @@ class Templates:
             return None
 
     def get(self, action):
-        if action not in SEO_ACTIONS | {"general.task", "browser.open", "local.lookup"}:
+        if action not in SEO_ACTIONS | {"general.task", "browser.open", "local.lookup"} and not (
+            self.packages and action in self.packages.templates
+        ):
             raise ValueError("unknown template")
         path = self.directory / (action + ".json")
         if (
@@ -219,7 +221,11 @@ class Templates:
 
         declared(template)
         if "decision_schema" not in template:
-            template["decision_schema"] = decision_schema(action)
+            template["decision_schema"] = (
+                decision_schema(action)
+                if action in SEO_ACTIONS | {"general.task", "browser.open"}
+                else copy.deepcopy(template["result_schema"])
+            )
         for field in ("prompt", "name"):
             if not isinstance(template.get(field), str) or not template[field].strip():
                 raise ValueError("missing template " + field)

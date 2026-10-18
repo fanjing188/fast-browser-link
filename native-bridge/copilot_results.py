@@ -808,6 +808,8 @@ def report(result, title):
             for field in ("keyword", "domain", "url", "vol", "kd", "tier", "source")
             if any(field in row for row in rows)
         ]
+        if not columns:
+            columns = list(dict.fromkeys(field for row in rows for field in row))[:100]
         if columns:
             lines += [
                 "",

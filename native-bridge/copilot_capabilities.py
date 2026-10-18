@@ -120,10 +120,12 @@ def normalize(value):
     return " ".join(str(value).casefold().split())
 
 
-def map_table(table, columns, source):
+def map_table(table, columns, source, schema=None):
     """只消费扩展已过滤的可见单元格；原文不作指标时不造零。"""
     from copilot_tables import number
 
+    fields = schema.get("properties", {}) if schema is not None else FIELDS
+    generic = schema is not None and schema != RECORD
     headers = [normalize(header) for header in table["headers"]]
     records = []
     indices = {
@@ -136,10 +138,10 @@ def map_table(table, columns, source):
             None,
         )
         for field, aliases in columns.items()
-        if field in FIELDS
+        if field in fields
     }
     for row in table["rows"]:
-        record = {"source": source, "field_sources": {}}
+        record = {} if generic else {"source": source, "field_sources": {}}
         for field, index in indices.items():
             if index is None or index >= len(row):
                 continue
@@ -147,7 +149,31 @@ def map_table(table, columns, source):
             raw = cell.get("text", "").strip()
             if field in {"url", "domain"} and cell.get("links"):
                 raw = cell["links"][0]
-            if field in {"intent_tool", "excluded", "host_duplicate"}:
+            if generic:
+                kind = fields[field].get("type")
+                kind = (
+                    next((item for item in kind if item != "null"), "null")
+                    if isinstance(kind, list)
+                    else kind
+                )
+                if not raw:
+                    continue
+                if kind in {"integer", "number"}:
+                    value = number(raw)
+                    if value is None or kind == "integer" and value != int(value):
+                        continue
+                    value = int(value) if kind == "integer" else value
+                elif kind in {"array", "object", "boolean"}:
+                    try:
+                        value = json.loads(raw)
+                    except ValueError:
+                        continue
+                else:
+                    value = raw
+                from copilot_contracts import validate
+
+                validate(value, fields[field])
+            elif field in {"intent_tool", "excluded", "host_duplicate"}:
                 if raw not in {"0", "1"}:
                     continue
                 value = int(raw)
@@ -177,8 +203,11 @@ def map_table(table, columns, source):
             if field == "domain" and "://" in str(value):
                 value = urlsplit(value).hostname or ""
             record[field] = value
-            record["field_sources"][field] = source
-        if len(record) > 2:
+            if not generic:
+                record["field_sources"][field] = source
+        if record and (generic or len(record) > 2):
+            if generic:
+                validate(record, schema)
             records.append(record)
     return records
 
@@ -427,22 +456,31 @@ class Registry:
             "page": "unknown",
             "flows": [],
         }
-        wanted = current.get("flows") or list(self.packages.flows)
+        matched = self.packages.matching_flows(context)
+        wanted = current.get("flows") or list(matched)
+        # 中文注释：旧包的无页面流程保持原有划词入口；新对象只在声明的页面上提取。
+        if not wanted:
+            wanted = [
+                identity
+                for identity, flow in self.packages.flows.items()
+                if flow.get("object", "keyword") in {"keyword", "domain", "url"}
+                and self.packages.flow_packages.get(identity) in {None, "generic", "seo"}
+            ]
         rows = []
         health = self.inspect(context)
         for identity in wanted:
             flow = self.packages.flows.get(identity)
             if not flow:
                 continue
-            object_value = selection.strip() or current.get("object", "")
-            if flow.get("object") == "domain":
-                parsed = urlsplit(object_value if "://" in object_value else "//" + object_value)
-                domain = parsed.hostname if not re.search(r"\s", object_value) else None
-                object_value = domain if domain and "." in domain else current.get("object", "")
-                if not object_value or "." not in object_value:
-                    continue
-            if not object_value:
+            if (
+                flow.get("object", "keyword") not in {"keyword", "domain", "url"}
+                and identity not in matched
+            ):
                 continue
+            objects = self.packages.flow_objects(identity, context, selection)
+            if not objects:
+                continue
+            object_value = objects[0]
             required = sorted(
                 {
                     step["capability"]
@@ -483,6 +521,10 @@ class Registry:
                 {
                     "id": identity,
                     "action": "workflow.run",
+                    "scene": self.packages.scenes.get(
+                        self.packages.flow_packages.get(identity), {"id": "general"}
+                    )["id"],
+                    "flow_name": label(flow["name"], language),
                     "title": label(flow["name"], language),
                     "why": label(flow.get("description", {}), language),
                     "params": {"flow": identity, "object": object_value},
@@ -663,7 +705,13 @@ class Registry:
                 "headers": list(rows[0]) if rows else [],
                 "rows": [[{"text": str(cell)} for cell in row.values()] for row in rows],
             }
-            value = {"records": map_table(table, mapping, binding["id"]), "source": binding["id"]}
+            record = (
+                binding.get("_schema", {}).get("properties", {}).get("records", {}).get("items")
+            )
+            value = {
+                "records": map_table(table, mapping, binding["id"], record),
+                "source": binding["id"],
+            }
         if process.returncode:
             value["partial"] = True
             value.setdefault("missing", []).append("partial command output")
@@ -829,6 +877,10 @@ class Registry:
                     sources.append(value["source"])
                     series += value.get("series", [])
                     for row in value.get("records", []):
+                        if capability not in CAPABILITIES:
+                            identity = json.dumps(row, sort_keys=True, ensure_ascii=False)
+                            accepted.setdefault(identity, copy.deepcopy(row))
+                            continue
                         if any(
                             not isinstance(source, str) or len(source) > 500
                             for source in row.get("field_sources", {}).values()
@@ -992,6 +1044,10 @@ def resolve(value, context):
 def transform(name, records, options, context):
     records = copy.deepcopy(records)
     missing = []
+    from copilot_pack_contracts import TRANSFORMS, local_transform
+
+    if name in TRANSFORMS:
+        return local_transform(name, records, options), missing
     if name == "domains":
         domains = []
         for row in records:
@@ -1166,6 +1222,8 @@ class Workflows:
         records = []
         stopped = False
         calls = 0
+        decision = None
+        custom_decision = "decision_schema" in flow
         failed = False
         work.mkdir(parents=True, exist_ok=True, mode=0o700)
         # 中文注释：断点绑定工作流定义与对象；只接受宿主持有的记录，定义变化时拒绝重放。
@@ -1291,7 +1349,7 @@ class Workflows:
                             step_status = "skipped"
                             continue
                         for row in result.get("records", []):
-                            if values.get("domain"):
+                            if step["capability"] in CAPABILITIES and values.get("domain"):
                                 row.setdefault("domain", values["domain"])
                         if (
                             step.get("optional")
@@ -1352,95 +1410,121 @@ class Workflows:
                                 },
                                 stop,
                             )
+                            if custom_decision:
+                                registry.validate(decision, flow["decision_schema"])
                         except Stopped:
                             raise
                         except (ValueError, OSError, KeyError, TypeError, RuntimeError) as error:
                             decision = {"verdict": "判断未完成，现有数据仅供核对", "notes": []}
                             judgment_error = True
                             missing.append("判断失败：" + redact(str(error))[:280])
-                        known = {
-                            normalize(
-                                row.get("keyword") or row.get("url") or row.get("domain") or ""
+                        if custom_decision:
+                            if judgment_error:
+                                decision = None
+                            verdict = (
+                                str(decision.get("verdict", "判断已完成"))[:30]
+                                if decision is not None
+                                else "判断未完成，现有数据仅供核对"
                             )
-                            for row in data
-                        }
-                        known.update(
-                            normalize(item["keyword"])
-                            for item in resolve(step.get("series"), state) or []
-                        )
-                        annotations = {
-                            normalize(item["key"]): item for item in decision.get("notes", [])
-                        }
-                        if set(annotations) - known:
-                            decision = {"verdict": "判断未完成，现有数据仅供核对", "notes": []}
-                            annotations = {}
-                            judgment_error = True
-                        verdict = decision["verdict"]
-                        output = {
-                            "records": [],
-                            "source": "single model judgment",
-                            "missing": ["缺少模型判断"] if judgment_error else [],
-                        }
-                        for row in data:
-                            note = annotations.get(
+                            output = {
+                                "records": data,
+                                **({"decision": decision} if decision is not None else {}),
+                                "source": "single model judgment",
+                                "missing": ["缺少模型判断"] if judgment_error else [],
+                            }
+                        else:
+                            known = {
                                 normalize(
                                     row.get("keyword") or row.get("url") or row.get("domain") or ""
-                                ),
-                                {},
-                            )
-                            added = {
-                                field: note[field]
-                                for field in ("intent_tool", "excluded", "reason", "group")
-                                if field in note
-                                and (
-                                    field not in {"intent_tool", "excluded"}
-                                    or row.get(field) is None
                                 )
+                                for row in data
                             }
-                            output["records"].append(
-                                {
-                                    **row,
-                                    **added,
-                                    "field_sources": {
-                                        **row.get("field_sources", {}),
-                                        **{field: "single model judgment" for field in added},
-                                    },
-                                }
+                            known.update(
+                                normalize(item["keyword"])
+                                for item in resolve(step.get("series"), state) or []
                             )
-                        if step.get("series"):
-                            from datetime import datetime
-
-                            series = resolve(step["series"], state) or []
-                            peaks = []
-                            for item in series:
-                                if item.get("points"):
-                                    point = max(item["points"], key=lambda point: point["value"])
-                                    try:
-                                        month = int(point["date"].split("-")[1])
-                                        today = date.today()
-                                        target = date(today.year + (month < today.month), month, 1)
-                                        peaks.append(
-                                            f"{item['keyword']} · {item['region']} · peak month {month} · about {max(0, (target - today).days + 6) // 7} weeks; historical signal only"
-                                        )
-                                    except (ValueError, IndexError):
-                                        continue
-                            output["missing"] += [] if peaks else ["no verified peak months"]
-                            output["seasonal_notes"] = peaks
-                            if not data:
-                                for keyword in dict.fromkeys(
-                                    item["keyword"] for item in series if item.get("points")
-                                ):
-                                    notes = [
-                                        note for note in peaks if note.startswith(keyword + " · ")
-                                    ]
-                                    output["records"].append(
-                                        {
-                                            "keyword": keyword,
-                                            "reason": "; ".join(notes)[:500],
-                                            "source": "observed trend chart tables",
-                                            "trend_source": "US/world · 12m/5y; historical signals only",
-                                        }
+                            annotations = {
+                                normalize(item["key"]): item for item in decision.get("notes", [])
+                            }
+                            if set(annotations) - known:
+                                decision = {"verdict": "判断未完成，现有数据仅供核对", "notes": []}
+                                annotations = {}
+                                judgment_error = True
+                            verdict = decision["verdict"]
+                            output = {
+                                "records": [],
+                                "source": "single model judgment",
+                                "missing": ["缺少模型判断"] if judgment_error else [],
+                            }
+                            for row in data:
+                                note = annotations.get(
+                                    normalize(
+                                        row.get("keyword")
+                                        or row.get("url")
+                                        or row.get("domain")
+                                        or ""
+                                    ),
+                                    {},
+                                )
+                                added = {
+                                    field: note[field]
+                                    for field in ("intent_tool", "excluded", "reason", "group")
+                                    if field in note
+                                    and (
+                                        field not in {"intent_tool", "excluded"}
+                                        or row.get(field) is None
                                     )
+                                }
+                                output["records"].append(
+                                    {
+                                        **row,
+                                        **added,
+                                        "field_sources": {
+                                            **row.get("field_sources", {}),
+                                            **{field: "single model judgment" for field in added},
+                                        },
+                                    }
+                                )
+                            if step.get("series"):
+                                from datetime import datetime
+
+                                series = resolve(step["series"], state) or []
+                                peaks = []
+                                for item in series:
+                                    if item.get("points"):
+                                        point = max(
+                                            item["points"], key=lambda point: point["value"]
+                                        )
+                                        try:
+                                            month = int(point["date"].split("-")[1])
+                                            today = date.today()
+                                            target = date(
+                                                today.year + (month < today.month), month, 1
+                                            )
+                                            peaks.append(
+                                                f"{item['keyword']} · {item['region']} · peak month {month} · about {max(0, (target - today).days + 6) // 7} weeks; historical signal only"
+                                            )
+                                        except (ValueError, IndexError):
+                                            continue
+                                output["missing"] += [] if peaks else ["no verified peak months"]
+                                output["seasonal_notes"] = peaks
+                                if not data:
+                                    for keyword in dict.fromkeys(
+                                        item["keyword"] for item in series if item.get("points")
+                                    ):
+                                        notes = [
+                                            note
+                                            for note in peaks
+                                            if note.startswith(keyword + " · ")
+                                        ]
+                                        output["records"].append(
+                                            {
+                                                "keyword": keyword,
+                                                "reason": "; ".join(notes)[:500],
+                                                "source": "observed trend chart tables",
+                                                "trend_source": "US/world · 12m/5y; historical signals only",
+                                            }
+                                        )
                 else:
                     raise ValueError("invalid workflow step")
                 registry.write(
@@ -1497,7 +1581,11 @@ class Workflows:
             )
         finally:
             registry.jobs.pop(key, None)
-        target = resolve(flow.get("result", ""), state)
+        target = (
+            resolve(flow.get("result", ""), state)
+            if isinstance(flow.get("result", ""), str)
+            else None
+        )
         if isinstance(target, list):
             records = target
         judgment_ready = (
@@ -1509,6 +1597,7 @@ class Workflows:
         )
         if judgment_ready and checkpoint.get("judgment"):
             verdict = checkpoint["judgment"]["verdict"]
+            decision = checkpoint["judgment"].get("decision")
             calls += 1
         if records and model and not calls and judgment_ready and flow.get("judgment") is not False:
             calls += 1
@@ -1524,10 +1613,16 @@ class Workflows:
                     },
                     stop,
                 )
-                verdict = decision["verdict"]
-                checkpoint["judgment"] = {"verdict": verdict}
+                if custom_decision:
+                    registry.validate(decision, flow["decision_schema"])
+                verdict = str(decision.get("verdict", "判断已完成"))[:30]
+                checkpoint["judgment"] = {
+                    "verdict": verdict,
+                    **({"decision": decision} if custom_decision else {}),
+                }
                 persist()
             except (ValueError, OSError, KeyError, TypeError, RuntimeError) as error:
+                decision = None
                 missing.extend(["缺少模型判断", "判断失败：" + redact(str(error))[:280]])
                 verdict = "判断未完成，现有数据仅供核对"
         if records and not calls and not stopped and flow.get("judgment") is not False:
@@ -1585,6 +1680,17 @@ class Workflows:
             "steps": steps,
             "artifacts": artifacts,
         }
+        if custom_decision:
+            decision = decision or next(
+                (
+                    output["decision"]
+                    for output in reversed(list(state["steps"].values()))
+                    if "decision" in output
+                ),
+                None,
+            )
+            if decision is not None:
+                result["decision"] = decision
         result["process"].append(
             "状态："
             + (

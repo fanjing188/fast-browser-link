@@ -6,6 +6,13 @@ from pathlib import Path
 from copilot_results import UNIFIED
 import re
 from urllib.parse import urlsplit
+from copilot_pack_contracts import (
+    declarations,
+    bounded_schema,
+    validate_flow,
+    extracted,
+    record_schema,
+)
 
 
 def read_package(directory):
@@ -36,6 +43,8 @@ def read_package(directory):
             "name",
             "description",
             "release",
+            "scene",
+            "objects",
         }
         or not isinstance(value.get("id"), str)
         or not re.fullmatch(r"[a-z][a-z0-9-]{0,63}", value["id"])
@@ -78,6 +87,10 @@ class Packages:
         self.experience = ""
         self.experiences = []
         self.schemas = {}
+        self.scenes = {}
+        self.objects = {}
+        self.flow_packages = {}
+        self.tool_packages = {}
         self.workflows = {}
         self.fetchers = {}
         self.pool = {}
@@ -97,6 +110,22 @@ class Packages:
             if value["id"] in seen:
                 raise ValueError("duplicate extension package")
             seen.add(value["id"])
+            scene, objects = declarations(value)
+            self.scenes[value["id"]] = scene
+            self.objects[value["id"]] = objects
+            column_fields = set(UNIFIED["properties"])
+            for schema in value.get("schemas", {}).values():
+                if not isinstance(schema, dict) or set(schema) != {"input", "output"}:
+                    raise ValueError("invalid capability schema")
+                for contract in schema.values():
+                    bounded_schema(contract)
+                column_fields.update(
+                    schema["output"]
+                    .get("properties", {})
+                    .get("records", {})
+                    .get("items", {})
+                    .get("properties", {})
+                )
             for name, command in value.get("fetchers", {}).items():
                 if (
                     not re.fullmatch(r"[a-z][a-z0-9_]{0,63}", name)
@@ -166,7 +195,7 @@ class Packages:
                         raise ValueError("invalid table selector")
                     for field, aliases in page.get("columns", {}).items():
                         if (
-                            field not in UNIFIED["properties"]
+                            field not in column_fields
                             or not isinstance(aliases, list)
                             or not aliases
                             or any(not isinstance(alias, str) for alias in aliases)
@@ -188,9 +217,11 @@ class Packages:
                 if any(existing["id"] == tool["id"] for existing in self.tools):
                     raise ValueError("duplicate tool id")
                 self.tools.append(copy.deepcopy(tool))
+                self.tool_packages[tool["id"]] = value["id"]
             for action, relative in value.get("templates", {}).items():
                 if not re.fullmatch(
-                    r"(?:seo|general|browser|local)\.[a-z_]+", action
+                    rf"(?:seo|general|browser|local|{re.escape(value['id'])})\.[a-z][a-z0-9_]*",
+                    action,
                 ) or not isinstance(relative, str):
                     raise ValueError("invalid package template")
                 file = (root / relative).resolve()
@@ -233,10 +264,9 @@ class Packages:
                     schema
                 ) != {"input", "output"}:
                     raise ValueError("invalid capability schema")
-                from copilot import check_schema
-
-                check_schema(schema["input"])
-                check_schema(schema["output"])
+                existing = CAPABILITIES.get(capability) or self.schemas.get(capability)
+                if existing is not None and existing != schema:
+                    raise ValueError("conflicting capability schema")
                 self.schemas[capability] = copy.deepcopy(schema)
             for capability, bindings in value.get("capabilities", {}).items():
                 if (
@@ -262,6 +292,9 @@ class Packages:
                     clean = copy.deepcopy(binding)
                     clean["_root"] = str(root)
                     clean["_package"] = value["id"]
+                    clean["_schema"] = copy.deepcopy(
+                        (self.schemas.get(capability) or CAPABILITIES[capability])["output"]
+                    )
                     for name in ("argv", "plan_argv"):
                         if name in clean:
                             clean[name] = [
@@ -297,12 +330,14 @@ class Packages:
                         raise ValueError("unknown step capability")
                 if models > 1:
                     raise ValueError("workflow has more than one model turn")
+                validate_flow(flow, objects, {**CAPABILITIES, **self.schemas})
                 from copilot_risk import declared
 
                 declared(flow)
                 for step in flow["steps"]:
                     declared(step)
                 self.flows[identity] = copy.deepcopy(flow)
+                self.flow_packages[identity] = value["id"]
             experience = value.get("experience", "")
             if value.get("experience_file"):
                 file = (root / value["experience_file"]).resolve()
@@ -326,6 +361,76 @@ class Packages:
             }
             if len(groups) > 1:
                 raise ValueError("one tool must share one serial group")
+
+    def matching_flows(self, context):
+        from copilot_capabilities import recognize
+
+        current = recognize(self.tools, context.get("url", "")) or {}
+        pack = self.tool_packages.get(current.get("tool"))
+        return {
+            identity: flow
+            for identity, flow in self.flows.items()
+            if pack is not None
+            and current.get("page") != "unknown"
+            and (
+                identity in current["flows"]
+                if current.get("flows")
+                else self.flow_packages.get(identity) == pack
+            )
+        }
+
+    def flow_objects(self, identity, context, selection=""):
+        from copilot_capabilities import recognize
+
+        flow = self.flows[identity]
+        kind = flow.get("object", "keyword")
+        spec = self.objects.get(self.flow_packages.get(identity), {}).get(kind)
+        if spec:
+            return extracted(spec, context, selection.strip())
+        current = recognize(self.tools, context.get("url", "")) or {}
+        value = selection.strip() or current.get("object", "")
+        if kind in {"domain", "url"}:
+            if (
+                kind == "domain"
+                and selection
+                and ("." not in selection or re.search(r"\s", selection))
+            ):
+                value = current.get("object", "")
+            try:
+                parsed = urlsplit(value if "://" in value else "https://" + value)
+                if (
+                    not parsed.hostname
+                    or "." not in parsed.hostname
+                    or re.search(r"\s", value)
+                    or parsed.username
+                    or parsed.password
+                    or parsed.scheme not in {"http", "https"}
+                ):
+                    return []
+                value = parsed.hostname if kind == "domain" else parsed.geturl()
+            except ValueError:
+                return []
+        return [value] if value else []
+
+    def catalog(self, context, selection=""):
+        return [
+            {
+                "action": "workflow.run",
+                "flow": identity,
+                "name": flow.get("name", identity),
+                "description": flow.get("description", {}),
+                "when": flow.get("when", {}),
+                "scene": self.scenes.get(self.flow_packages.get(identity), {"id": "general"})["id"],
+                "object_type": flow.get("object", "keyword"),
+                "objects": self.flow_objects(identity, context, selection),
+            }
+            for identity, flow in self.matching_flows(context).items()
+        ]
+
+    def result_contract(self, identity):
+        from copilot_capabilities import CAPABILITIES
+
+        return record_schema(self.flows[identity], {**CAPABILITIES, **self.schemas})
 
     def experience_for(self, url):
         parsed = urlsplit(url)

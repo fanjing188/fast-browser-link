@@ -7,6 +7,33 @@ import { captureTables, tableRowKey, tableIdentity } from './copilot-tables.mjs'
 import { TableJobs } from './copilot-table-job.mjs';
 import { ordinaryPage, appendStep, safeURL, pageIdentity } from './copilot-observation.mjs';
 import { redactPageText } from '../page-semantics/redact.mjs';
+export function capabilityTables(tables) {
+  const result = [];
+  for (const table of tables.slice(0, 3)) {
+    const summary = {
+      headers: table.headers.slice(0, 40).map((header) => redactPageText(header).slice(0, 100)),
+      rows: table.rows.length,
+      samples: [],
+    };
+    result.push(summary);
+    if (new TextEncoder().encode(JSON.stringify(result)).length > 2400) {
+      result.pop();
+      break;
+    }
+    for (const row of table.rows.slice(0, 10)) {
+      summary.samples.push(
+        row.slice(0, summary.headers.length).map((cell) => ({
+          text: redactPageText(typeof cell === 'string' ? cell : cell.text || '').slice(0, 80),
+        })),
+      );
+      if (new TextEncoder().encode(JSON.stringify(result)).length > 2400) {
+        summary.samples.pop();
+        break;
+      }
+    }
+  }
+  return result;
+}
 export class CopilotBackground {
   constructor(api, request, isWorkTab = () => false, reconnect = async () => {}) {
     this.sessionRetry = new SessionRetry(async () => {
@@ -579,9 +606,7 @@ export class CopilotBackground {
     });
     const capabilities = await this.request('capability_context', {
       browser: /Edg\//.test(globalThis.navigator?.userAgent || '') ? 'edge' : 'chrome',
-      tables: (this.tableCaptures.get(sender.tab.id)?.tables || [])
-        .slice(0, 3)
-        .map((table) => ({ headers: table.headers.map(redactPageText), rows: table.rows.length })),
+      tables: capabilityTables(this.tableCaptures.get(sender.tab.id)?.tables || []),
     });
     this.tableHints.set(sender.tab.id, capabilities.table_hints || {});
     this.annotationProfiles.set(sender.tab.id, capabilities.annotation_profiles || []);
@@ -851,9 +876,7 @@ export class CopilotBackground {
           });
           await this.request('capability_context', {
             browser: /Edg\//.test(globalThis.navigator?.userAgent || '') ? 'edge' : 'chrome',
-            tables: (this.tableCaptures.get(sender.tab.id)?.tables || [])
-              .slice(0, 3)
-              .map((table) => ({ headers: table.headers, rows: table.rows.length })),
+            tables: capabilityTables(this.tableCaptures.get(sender.tab.id)?.tables || []),
           });
           const info = await this.request('selection_info', params);
           return {

@@ -6,12 +6,12 @@ import sys
 
 if "--help" in sys.argv:
     print(
-        'Read one bundled synthetic case from stdin JSON {"keyword":"invoice"}; emit records/source/missing.'
+        'Read one bundled synthetic case from stdin JSON {"case_id":"CS-1001"}; emit records/source/missing.'
     )
 else:
     request = json.load(sys.stdin)
     case = json.loads((Path(__file__).parent / "cases.json").read_text()).get(
-        request.get("keyword")
+        request.get("case_id")
     )
     print(
         json.dumps(

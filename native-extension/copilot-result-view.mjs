@@ -1,4 +1,5 @@
 import { readableCopy } from './ui-design.mjs';
+import { renderGenericTable } from './copilot-generic-result.mjs';
 export const actionNames = {
   'local.lookup': '读取本机信息',
   'seo.keyword_check': '检查关键词',
@@ -16,8 +17,9 @@ export const actionNames = {
   'table.export': '表格导出',
 };
 export const levels = { go: '建议做', test: '测一页', skip: '不做', info: '无档位' };
+export const actionName = (row) => row.flow_name || actionNames[row.action] || row.title;
 export const flatten = (result) =>
-  result.records?.filter((row) => row.keyword) ||
+  result.records ||
   result.groups?.flatMap((group) =>
     group.keywords.map((word) => ({ ...word, group: group.name })),
   ) ||
@@ -326,7 +328,7 @@ export function renderResult(
     metrics.append(el(doc, 'span', metric.label + ' ' + metric.value));
   if (metrics.childNodes.length) summary.append(metrics);
   const missing = result.missing || [],
-    allWords = flatten(result),
+    allWords = row.result_view ? [] : flatten(result).filter((item) => item.keyword),
     noVol = allWords.length && !allWords.some((w) => w.vol != null),
     noKD = allWords.length && !allWords.some((w) => w.kd != null);
   if (missing.length || noVol || noKD) {
@@ -545,7 +547,13 @@ export function renderResult(
   }
   function draw() {
     content.replaceChildren();
-    if (full && allWords.length && row.action !== 'workflow.run' && !result.groups) {
+    if (row.result_view && !row.action.startsWith('seo.')) {
+      renderGenericTable(doc, content, row, { command, clipboard });
+      for (const step of result.steps || [])
+        content.append(el(doc, 'p', `${step.label} · ${step.status} · ${step.count}`, 'small'));
+      if (result.decision)
+        content.append(el(doc, 'p', JSON.stringify(result.decision), 'result-text'));
+    } else if (full && allWords.length && row.action !== 'workflow.run' && !result.groups) {
       const filter = el(doc, 'input');
       filter.type = 'search';
       filter.placeholder = '筛选关键词';
@@ -858,8 +866,10 @@ export function renderResult(
       for (const file of result.artifacts || [])
         content.append(el(doc, 'p', file.label + ' · ' + file.path, 'small'));
     }
-    content.append(batches);
-    refresh();
+    if (!row.result_view) {
+      content.append(batches);
+      refresh();
+    }
   }
   draw();
   const actions = el(doc, 'div', undefined, 'actions');

@@ -993,6 +993,8 @@ class Copilot(ObservationSupport, InferenceSupport, ResultSupport, ToolSupport):
                 return output
             if method == "export_results":
                 row = state["suggestions"].get(params.get("id"))
+                if row and row.get("result_view") and row.get("result"):
+                    return self._export_generic_result(instance, row, params)
                 if not row or set(params) - {"id", "keywords"}:
                     raise ValueError("result unavailable")
                 selected = params.get("keywords")

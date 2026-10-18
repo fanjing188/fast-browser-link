@@ -66,6 +66,45 @@ PROFILE = obj(
 
 
 class ToolSupport:
+    def _save_work_memory(self, instance):
+        self.work_memory.save_work(
+            self._state(instance), self._tool_context(instance), self.packages
+        )
+
+    def _record_habit(self, instance, row, event):
+        if row["action"] != "workflow.run" or row.get("automatic"):
+            return
+        state = self._state(instance)
+        identity = row["params"]["flow"]
+        flow = self.packages.flows.get(identity, {})
+        current = recognize(self.packages.tools, self._tool_context(instance)["url"]) or {}
+        self.work_memory.record(
+            row.get("tool", current.get("tool", "unknown")),
+            row.get("page", current.get("page", "unknown")),
+            identity,
+            flow.get("object", "keyword"),
+            event,
+            "",
+        )
+        if event == "accepted" and state.get("last_completed_flow"):
+            self.work_memory.record(
+                current.get("tool", "unknown"),
+                current.get("page", "unknown"),
+                identity,
+                flow.get("object", "keyword"),
+                event,
+                state["last_completed_flow"],
+            )
+
+    def _limit_suggestions(self, instance):
+        from copilot_follow import limit_pending
+
+        state = self._state(instance)
+        kept = limit_pending(state["suggestions"])
+        for key in state["suggestions"].keys() - kept.keys():
+            self._emit(instance, "remove", id=key)
+        state["suggestions"] = kept
+
     def _initialize_tools(self):
         from copilot import private_write, validate
 
@@ -76,6 +115,7 @@ class ToolSupport:
             validate,
             self._cap_browser,
             self._cap_hermes,
+            work_memory=self.work_memory,
         )
         self.workflow_runner = Workflows(self.registry)
         self.tool_health_running = False
@@ -95,6 +135,8 @@ class ToolSupport:
         context["url"] = context.get("url") or state["page"].get("url", "")
         context["adapter_experience"] = self.packages.experience_for(context["url"])
         context["tables"] = state.get("table_summary", [])
+        context["dwell_seconds"] = max(0, self.clock() - state["page_since"])
+        context["follow_completed"] = state.get("follow_completed", [])
         return context
 
     def _reload_tools(self):
@@ -506,13 +548,24 @@ class ToolSupport:
             }
             if row["missing_capabilities"]:
                 row["why"] = (
-                    "需要先绑定 " if state["locale"] == "zh" else "Bind first: "
+                    (row.get("trigger_reason", "") + " · " if row.get("trigger_reason") else "")
+                    + ("需要先绑定 " if state["locale"] == "zh" else "Bind first: ")
                 ) + ", ".join(row["missing_capabilities"])
             previous = state["suggestions"].get(identity)
             state["suggestions"][identity] = row
             if previous != row:
                 self._emit(instance, "update" if previous else "add", suggestion=dict(row))
+        ordered = {
+            suggestion_id("workflow.run", proposal["params"]): state["suggestions"][
+                suggestion_id("workflow.run", proposal["params"])
+            ]
+            for proposal in rows
+            if suggestion_id("workflow.run", proposal["params"]) in state["suggestions"]
+        }
+        state["suggestions"] = {**ordered, **state["suggestions"]}
+        self._limit_suggestions(instance)
         state["tool_context"] = {
+            "trigger_covered": any(row.get("trigger_reason") for row in rows),
             "adapter_experience": context.get("adapter_experience", ""),
             "current": recognize(self.packages.tools, context["url"]),
             "selection": state.get("selected_object", ""),

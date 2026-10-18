@@ -73,6 +73,7 @@ NODE_TESTS = (
     "tests/copilot/ui.test.mjs",
     "tests/copilot/results-tables.test.mjs",
     "tests/copilot/generic-packs.test.mjs",
+    "tests/copilot/active-follow.test.mjs",
     "tests/copilot/selection.test.mjs",
     "tests/copilot/capabilities.test.mjs",
     "tests/copilot/popup-overlay-brand.test.mjs",

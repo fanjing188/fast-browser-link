@@ -326,7 +326,9 @@ class Stopped(ValueError):
 
 
 class Registry:
-    def __init__(self, packages, directory, write, validate, browser=None, hermes=None):
+    def __init__(
+        self, packages, directory, write, validate, browser=None, hermes=None, work_memory=None
+    ):
         self.packages = packages
         self.schemas = {**CAPABILITIES, **packages.schemas}
         self.directory = Path(directory)
@@ -334,6 +336,7 @@ class Registry:
         self.validate = validate
         self.browser = browser
         self.hermes = hermes
+        self.work_memory = work_memory
         self.lock = threading.RLock()
         self.jobs = {}
         self.health = {}
@@ -477,10 +480,13 @@ class Registry:
                 and identity not in matched
             ):
                 continue
-            objects = self.packages.flow_objects(identity, context, selection)
-            if not objects:
+            from copilot_follow import follow_matches
+
+            if identity not in matched and "triggers" in flow:
                 continue
-            object_value = objects[0]
+            matches = follow_matches(self.packages, identity, context, selection, current, language)
+            if not matches:
+                continue
             required = sorted(
                 {
                     step["capability"]
@@ -517,25 +523,33 @@ class Registry:
             score = self.memory["choices"].get(
                 "|".join([current["tool"], current["page"], identity]), {}
             )
-            rows.append(
-                {
-                    "id": identity,
-                    "action": "workflow.run",
-                    "scene": self.packages.scenes.get(
-                        self.packages.flow_packages.get(identity), {"id": "general"}
-                    )["id"],
-                    "flow_name": label(flow["name"], language),
-                    "title": label(flow["name"], language),
-                    "why": label(flow.get("description", {}), language),
-                    "params": {"flow": identity, "object": object_value},
-                    "missing_capabilities": missing,
-                    "available": not missing,
-                    "score": score.get("clicked", 0) - score.get("ignored", 0),
-                    "tool": current["tool"],
-                    "page": current["page"],
-                    "contextual": True,
-                }
+            ranking = (
+                self.work_memory.score(current["tool"], current["page"], identity)
+                if self.work_memory is not None
+                else score.get("clicked", 0) - score.get("ignored", 0)
             )
+            for object_value, reason in matches.items():
+                rows.append(
+                    {
+                        "id": identity,
+                        "action": "workflow.run",
+                        "scene": self.packages.scenes.get(
+                            self.packages.flow_packages.get(identity), {"id": "general"}
+                        )["id"],
+                        "flow_name": label(flow["name"], language),
+                        "title": label(flow["name"], language),
+                        "why": reason or label(flow.get("description", {}), language),
+                        "trigger_reason": reason,
+                        "recommendation_only": reason.startswith(("接续流程：", "Next after: ")),
+                        "params": {"flow": identity, "object": object_value},
+                        "missing_capabilities": missing,
+                        "available": not missing,
+                        "score": ranking,
+                        "tool": current["tool"],
+                        "page": current["page"],
+                        "contextual": True,
+                    }
+                )
         rows.sort(key=lambda row: (not row["available"], -row["score"]))
         return rows
 

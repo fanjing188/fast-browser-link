@@ -175,9 +175,14 @@ export async function start() {
           await chrome.runtime.sendMessage({ type: 'copilot.tables', capture: captured });
         }
         if (stopped) return;
-        const page = pageSnapshot(document, location.href, 2200, captured.tables.length > 0);
+        const page = pageSnapshot(
+          document,
+          location.href,
+          3072,
+          captured.tables.length > 0,
+          tableSummary(captured),
+        );
         if (!page) return;
-        if (captured.tables.length) page.items = [...tableSummary(captured), ...page.items];
         const serialized = pageIdentity(page);
         if (
           !descriptions.some((text) => !['页面显著变化', '导航到新页面'].includes(text)) &&

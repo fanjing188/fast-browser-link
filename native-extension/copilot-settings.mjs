@@ -1,4 +1,5 @@
 import { boardName } from './copilot-controls.mjs';
+import { MemoryPanel } from './copilot-memory-panel.mjs';
 export const modeNames = { saving: '省钱', balanced: '均衡', quality: '高质量', custom: '自定义' };
 const keys = [
   'inference_model',
@@ -51,6 +52,7 @@ export class SettingsForm {
   constructor(doc, request) {
     this.doc = doc;
     this.request = request;
+    this.memory = new MemoryPanel(doc, request);
     this.models = {};
     this.state = null;
     this.dirty = false;
@@ -238,6 +240,7 @@ export class SettingsForm {
   }
   update(state) {
     this.state = state;
+    this.memory.update(state.memory, state.locale);
     for (const [id, key] of [
       ['page-annotations', 'page_annotations'],
       ['auto-zero', 'auto_zero'],
@@ -612,6 +615,7 @@ export class SettingsForm {
   }
   dispose() {
     this.disposed = true;
+    this.memory.dispose();
     this.directoryVersion = (this.directoryVersion || 0) + 1;
     if (this.directoryTimer) this.doc.defaultView.clearTimeout(this.directoryTimer);
     this.directoryWait?.();

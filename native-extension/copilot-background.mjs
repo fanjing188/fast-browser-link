@@ -1015,6 +1015,7 @@ export class CopilotBackground {
         'agent_setup_cancel',
         'agent_select',
         'work_update',
+        'memory',
         'feedback',
         'basket_state',
         'basket_add',

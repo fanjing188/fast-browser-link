@@ -35,3 +35,32 @@ Discovery uses declarations deterministically. Without one, SKILL text and bound
 Websites are found from user-provided URLs or explicit opt-in to open-tab URL/title inventory (normal tabs only; no history). Discovery opens owned work pages and reads only login state and report headers. Matching uses structural aliases, not domains. Unknown, paid, model-drafted or login-blocked candidates are unchecked. Only declared available zero-cost candidates with confidence at least 95% default checked. Review source, evidence, confidence, cost, validation and editable priority/arguments/bounds; confirmation saves a generated local `extensions/discovered` package, never the repository. Newly seen report headers produce a sidebar review notice, without a query.
 
 Doctor compares file digests, help summaries and MCP schema hashes. Collaboration startup checks local files/new skills and refreshes help/MCP metadata asynchronously. Doctor can refresh previously confirmed report headers when connected; startup uses subsequent observed headers and never opens pages. New URLs/tabs require explicit opt-in. Changed sources prompt reconfirmation and never rewrite confirmed bindings. A missing probe cannot certify unchanged remote state.
+
+## Active following: triggers and next
+
+Flows optionally declare `triggers` (up to 20 clauses). Clauses are OR; keys within one clause are AND, independent of key order. Supported keys are `page: {tool, page}`, `table_columns: {all: ["Case", "Status"]}`, `selection: {object: "case_id"}`, `after: {flow, status: "completed"}`, and `dwell_seconds: 20` (0–86400). Columns must occur in the same already captured table, compared case-insensitively. Selection must fully match the object's declared selection regex. Completion requires the same object and a successful result in the current work. Dwell resets on page/tab changes and is checked every five seconds. Flows remain confined to their declared matching pages. Omitting triggers preserves existing recommendations; `[]` permits continuation only.
+
+A match creates a suggestion with its trigger reason without starting a model inference. The model can rank and handle uncovered cases, but cannot bypass triggers. Model and deterministic proposals are deduplicated by flow/object and limited to 10 automatically proposed pending items. Explicit user tasks and existing execution/results are retained. Completed, Later, Wrong direction and today's ignored proposals remain suppressed. Habits can rank eligible flows, never create out-of-scene ones.
+
+`next` accepts up to 20 `{flow, when}` entries; the target must exist and use the same object type. Every `when` requires `field` and `records: "any" | "all"`. Choose one operator: `empty: true | false`, `equals: scalar`, `contains: scalar`, or inclusive numeric `min`/`max` (either or both). Missing fields and empty record sets never match; null, empty strings/arrays/objects are empty, whereas 0 and false are not. Equality checks both type and value; contains handles string substrings and array membership. Conditions inspect successful result records only. The next proposal inherits the completed object's value, still requires a page-matched target, and is never automatically executed.
+
+Synthetic support example additions, merged into the existing flow declarations (include the target in the page's `flows` list):
+
+```json
+{
+  "support_materials": {
+    "triggers": [
+      {"page": {"tool": "support-triage-example", "page": "case"}},
+      {"table_columns": {"all": ["Case", "Status"]}},
+      {"selection": {"object": "case_id"}},
+      {"dwell_seconds": 20}
+    ],
+    "next": [{"flow": "support_reply_draft", "when": {"field": "missing_materials", "records": "all", "empty": true}}]
+  },
+  "support_reply_draft": {"object": "case_id", "triggers": []}
+}
+```
+
+These are additions, not complete runnable flows: retain names and steps, declare `judgment: false` and `risk: "zero"` on each model-free flow and `risk: "zero"` on its local steps, and supply the target's reviewed read-only steps. The Chinese field reference includes a complete flow fragment. This example does not send a reply.
+
+Captures add visible field labels (`label`, `aria-label`, `placeholder`) and h1–h3 text, at most five per level. Values are never read. Password, verification and payment fields contribute only a sensitive-fields-present marker. Snapshots remain within 3KB, prioritizing table summaries, headings and selected objects over form labels, with existing redaction and permissions.

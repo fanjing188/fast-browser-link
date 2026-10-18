@@ -5,6 +5,7 @@ import time
 from copilot_acp import ACP,ACPError
 from copilot_execution import ExecutionError
 from copilot_usage import counts
+from copilot_diagnostics import failure
 
 
 def compact_memory(lines,limit=500):
@@ -38,8 +39,8 @@ class ExecutionTransport(ACP):
 
 
 class ACPExecutions:
-    def __init__(self,config,directory,on_error=lambda _:None):
-        self.on_error=on_error
+    def __init__(self,config,directory,on_error=lambda _:None,on_process=lambda _:None):
+        self.on_error=on_error;self.on_process=on_process
         self.config=config;self.directory=directory
         self.lock=threading.RLock();self.start_lock=threading.Lock()
         self.runtime=None;self.closed=False;self.restarts=0;self.jobs={};self.cancelled=set()
@@ -50,25 +51,29 @@ class ACPExecutions:
             if self.runtime and not self.runtime.closed and self.runtime.process.poll() is None and not self.runtime.failure:return self.runtime
             while True:
                 if self.runtime:
-                    if self.restarts>=1:raise ExecutionError('execution ACP restart exhausted')
+                    if self.restarts>=1:
+                        error=ExecutionError('execution ACP restart exhausted');error.failure=failure(error,self.runtime);raise error
                     self.restarts+=1;self.runtime.close()
-                config={**self.config,'inference_profile':self.config['exec_profile']}
+                config={**self.config,'inference_profile':self.config['exec_profile'],'stderr_role':'execution'}
                 config.pop('acp_command',None)
                 if config.get('exec_acp_command'):config['acp_command']=config['exec_acp_command']
                 runtime=ExecutionTransport(config,self.directory,self.disconnected)
                 self.runtime=runtime
+                runtime.exit_observer=self.on_process
                 try:
                     runtime.start(initialize_only=True)
                     if self.closed:
                         runtime.close();raise ExecutionError('execution ACP closed')
                     return runtime
-                except (ACPError,OSError):
+                except (ACPError,OSError) as error:
                     runtime.close()
-                    if self.restarts>=1:raise ExecutionError('execution ACP restart exhausted') from None
+                    if self.restarts>=1:
+                        exc=ExecutionError('execution ACP restart exhausted');exc.failure=failure(error,runtime);raise exc from None
 
     def disconnected(self,runtime):
         if self.closed or runtime is not self.runtime:return
         runtime.failure='disconnected'
+        self.on_process({**(runtime.transport_failure or {'reason':'acp_disconnected'}),'phase':'execution'})
         # 中文注释：只重建传输给后续新任务使用；已发出的任务可能有副作用，不自动重放。
         def restart():
             try:self.start()
@@ -119,7 +124,7 @@ class ACPExecutions:
                 if key in self.cancelled or response.get('stopReason')!='end_turn':raise ExecutionError('execution stopped')
             result=parse(job['text']);write(result_path,json.dumps(result,ensure_ascii=False));return result,metrics
         except (ACPError,ValueError,OSError,ExecutionError) as error:
-            exc=ExecutionError(str(error))
+            exc=ExecutionError(str(error));exc.failure=failure(error,runtime)
             if metrics:exc.metrics=metrics
             elif prompt_sent:exc.metrics={'usage':counts((len(prompt.encode())+3)//4),'tokens':(len(prompt.encode())+3)//4,'model':model or 'unknown','estimated':True,'source':'estimated_interrupted_execution_input'}
             raise exc from None

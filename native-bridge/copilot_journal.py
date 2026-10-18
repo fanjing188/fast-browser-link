@@ -6,11 +6,15 @@ import os
 import re
 import threading
 import time
+from copilot_diagnostics import stderr_summary
 
 MESSAGES={
  'capture':('capture','采集操作轨迹与页面摘要','Captured activity and page summary'),
  'table':('capture','识别页面表格','Recognized page tables'),
  'inference_send':('inference','发送增量推理','Sent incremental inference'),
+ 'output_repaired':('inference','模型建议已规范化','Model suggestions normalized'),
+ 'process_exit':('system','Hermes 进程已退出','Hermes process exited'),
+ 'inference_recovering':('system','Hermes 推理连接已断开，正在重连','Hermes inference disconnected; reconnecting'),
  'inference_failed':('inference','推理未完成，保留已有建议','Inference failed; existing suggestions retained'),
  'connecting':('system','正在连接协作会话','Connecting Copilot session'),
  'inference_return':('inference','推理返回，更新建议','Inference returned; suggestions updated'),
@@ -27,11 +31,13 @@ MESSAGES={
  'configuration':('system','设置已更新，后续调用生效','Settings updated for subsequent calls'),
  'capabilities':('system','本机能力体检完成','Local capability check completed'),
  'idle':('system','空闲已暂停，继续浏览可恢复','Paused while idle; browse to resume'),
+ 'template_disabled':('system','模板无效，已跳过','Invalid template skipped'),
+ 'startup_failed':('system','协作会话启动失败','Copilot session failed to start'),
  'error':('system','协作请求未完成','Copilot request did not complete')}
-NUMBERS={'snapshot_bytes','increment_bytes','estimated_tokens','duration_ms','input','cache_read','output','tokens','added','updated','removed','steps','items','tables','rows','page','batch','available','missing'}
-IDENTIFIERS={'task_id','action','provider','capability','phase','model'}
+NUMBERS={'snapshot_bytes','increment_bytes','estimated_tokens','duration_ms','input','cache_read','output','tokens','added','updated','removed','steps','items','tables','rows','page','batch','available','missing','total','waiting','repairs'}
+IDENTIFIERS={'task_id','action','provider','capability','phase','model','error_type'}
 CHANGES={'inference_model','exec_model','max_parallel','context_limit','mode','turn_multiplier','exec_transport','show_ball','selection_popup','enabled'}
-REASONS={'invalid_configuration','execution_or_persistence_failed','inference_failed','acp_start_blocked','execution_acp_start_blocked','execution_acp_restart_exhausted','event_log_write_failed'}
+REASONS={'model_output_invalid','acp_disconnected','acp_timeout','acp_process_exited','internal_error','user_closed','idle_closed','daemon_closed','transport_error','invalid_template','hermes_command_missing','hermes_profile_missing','inference_start_failed','execution_start_failed','invalid_configuration','execution_or_persistence_failed','inference_failed','acp_start_blocked','execution_acp_start_blocked','execution_acp_restart_exhausted','event_log_write_failed'}
 KINDS={'navigate','click','selection','dwell','snapshot','table'}
 
 
@@ -40,7 +46,13 @@ def safe_details(values):
     result={}
     if not isinstance(values,dict):return result
     for key,value in values.items():
-        if key=='estimated' and type(value) is bool:result[key]=value
+        if key=='exit_code' and type(value) is int and -65536<=value<=65536:result[key]=value
+        elif key=='stderr_tail' and isinstance(value,list):result[key]=stderr_summary(value)
+        elif key=='field' and isinstance(value,str) and value in {'json','suggestions','summary','params','result','ready'}:result[key]=value
+        elif key=='detail' and isinstance(value,str) and value in {'invalid_json','non_finite_number','object_required','scene_and_array_required','invalid_text','schema_mismatch','not_ready'}:result[key]=value
+        elif key=='fields' and isinstance(value,list):result[key]=[field for field in value if field in {'title','why','id','suggestions','extra_fields','params','action','row'}]
+        elif key=='capability_statuses' and isinstance(value,dict):result[key]={name:status for name,status in value.items() if re.fullmatch(r'[a-z][a-z0-9._]{0,80}',name) and status in {'available','waiting','missing'}}
+        elif key in {'estimated','close_requested'} and type(value) is bool:result[key]=value
         elif key=='reason' and isinstance(value,str) and value in REASONS:result[key]=value
         elif key in NUMBERS and type(value) in (int,float) and 0<=value<=10**18:result[key]=value
         elif key in IDENTIFIERS and isinstance(value,str) and len(value)<=256 and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._:/@+~ -]*',value) and '://' not in value and not re.search(r'(?i)(?:bearer|cookie|secret|sk[-_])',value):result[key]=value
@@ -74,6 +86,14 @@ class Journal:
     def _row(self,instance,event,identity,stamp,details,error):
         kind,summary,english=MESSAGES[event]
         if type(stamp) not in (int,float) or not 0<=stamp<=time.time()+86400:stamp=time.time()
+        if event=='disconnected':
+            reason=safe_details(details).get('reason','transport_error')
+            summary+=' · '+{'user_closed':'用户关闭','idle_closed':'空闲关闭','daemon_closed':'服务关闭','acp_process_exited':'进程退出','acp_timeout':'响应超时','transport_error':'传输错误','acp_disconnected':'传输错误'}.get(reason,'启动失败')
+            english+=' · '+reason
+        if event=='capabilities':
+            clean=safe_details(details)
+            summary=f"能力 {clean.get('total',0)} 项：可用 {clean.get('available',0)}、需登录/待浏览器确认 {clean.get('waiting',0)}、未绑定 {clean.get('missing',0)}"
+            english=f"Capabilities {clean.get('total',0)}: available {clean.get('available',0)}, awaiting login/browser {clean.get('waiting',0)}, unbound {clean.get('missing',0)}"
         return {'id':identity,'instance':instance,'time':stamp,'type':kind,'event':event,'summary':summary,'summary_en':english,'error':bool(error),'details':safe_details(details)}
 
     def _roll_day(self):

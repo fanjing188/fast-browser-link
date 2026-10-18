@@ -14,7 +14,8 @@ def setup(root, model, provider='auto', apply=False, command='hermes',profile='c
     toolsets=[] if profile=='copilot' else ['fast-browser-link','web','terminal','file']
     if any(part.is_symlink() for part in (target,*target.parents)):
         raise ValueError('refusing symlink profile path')
-    config={'model':{'default':model,'provider':provider},'platform_toolsets':{'acp':[],'cli':toolsets},
+    # 中文注释：已核对 Hermes config_defaults.DEFAULT_CONFIG 与迁移入口；其余缺省值由读取时合并。
+    config={'_config_version':50,'model':{'default':model,'provider':provider},'platform_toolsets':{'acp':[],'cli':toolsets},
             'mcp_servers':{},'plugins':{'enabled':[] if profile=='copilot' else ['fast-browser-link']},'memory':{'memory_enabled':False,'user_profile_enabled':False,'provider':''},
             'command_allowlist':[],'approvals':{'mode':'manual'},'skills':{'auto_load':[]},'auxiliary':{'background_review':{'enabled':False},'title_generation':{'enabled':False,'model_upgrade_enabled':False}},
             'agent':{'max_turns':1 if profile=='copilot' else 15,
@@ -44,6 +45,7 @@ def setup(root, model, provider='auto', apply=False, command='hermes',profile='c
                 elif isinstance(value,dict) and isinstance(merged[key],dict):merged[key]=additions(merged[key],value)
             return merged
         upgraded=additions(old,config)
+        upgraded['_config_version']=max(old.get('_config_version',0),config['_config_version'])
         # 中文注释：R5 执行 profile 的 ACP 四工具配置只在文件摘要仍匹配时升级；CLI 工具保持，供显式后备使用。
         if profile=='copilot-exec' and old.get('platform_toolsets',{}).get('acp')==toolsets:
             upgraded['platform_toolsets']['acp']=[]

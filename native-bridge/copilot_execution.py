@@ -10,9 +10,14 @@ import threading
 import time
 from copilot_acp import hermes_environment
 from copilot_usage import stream_metrics
+from copilot_diagnostics import StderrLog,failure
 
 
 class ExecutionError(RuntimeError):
+    pass
+
+
+class ExecutionTimeout(ExecutionError):
     pass
 
 
@@ -61,8 +66,9 @@ def execution_argv(config, template, title, query):
 
 
 class Executions:
-    def __init__(self, config):
+    def __init__(self, config, directory=None, on_process=lambda _:None):
         self.config = config
+        self.directory=directory;self.on_process=on_process
         self.lock = threading.RLock()
         self.jobs = {}
         self.cancelled = set()
@@ -92,21 +98,23 @@ class Executions:
         done, cancelled = threading.Event(), threading.Event()
         process = None
         parser = StreamJSON()
+        stderr=StderrLog(self.directory or result_path.parent,'execution')
         selector = selectors.DefaultSelector()
         try:
             with self.lock:
                 if self.closed or key in self.cancelled:
                     raise ExecutionError('execution stopped')
                 process = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                                           stderr=subprocess.DEVNULL, start_new_session=True,
+                                           stderr=subprocess.PIPE, start_new_session=True,
                                            env=hermes_environment(self.config,env_extra),cwd=result_path.parent)
                 self.jobs[key] = {'process': process, 'cancel': cancelled, 'done': done}
+            stderr.start(process.stderr)
             selector.register(process.stdout, selectors.EVENT_READ)
             buffer = b''
             eof = False
             while not eof:
-                if cancelled.is_set() or time.monotonic() - started > self.config['timeout_seconds']:
-                    raise ExecutionError('execution stopped or timed out')
+                if cancelled.is_set():raise ExecutionError('execution stopped')
+                if time.monotonic()-started>self.config['timeout_seconds']:raise ExecutionTimeout('execution timed out')
                 for _, _ in selector.select(.1):
                     chunk = os.read(process.stdout.fileno(), 65536)
                     if not chunk:
@@ -136,6 +144,9 @@ class Executions:
             metrics=stream_metrics(event,len(raw),time.monotonic()-started)
             return result, metrics
         except (ExecutionError,ValueError,OSError,subprocess.SubprocessError) as exc:
+            exc.failure=failure(exc)
+            if process and process.poll() not in (None,0):
+                exc.failure={'reason':'acp_process_exited','exit_code':process.returncode,'error_type':type(exc).__name__,'stderr_tail':stderr.finish()}
             if parser.result:exc.metrics=stream_metrics(parser.result,seconds=time.monotonic()-started)
             raise
         finally:
@@ -150,6 +161,8 @@ class Executions:
                         self._signal(process, signal.SIGKILL)
                         process.wait()
                 process.stdout.close()
+                tail=stderr.finish();process.stderr.close()
+                self.on_process({'reason':'acp_process_exited','exit_code':process.returncode,'stderr_tail':tail,'phase':'execution'})
             with self.lock:
                 self.jobs.pop(key, None)
                 self.cancelled.discard(key)

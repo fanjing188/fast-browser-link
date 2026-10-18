@@ -2,10 +2,14 @@
 """纯推理 ACP 替身，无工具、无委派、无浏览器。"""
 from fake_result import judgment
 import json
+import os
 import sys
 import uuid
 from pathlib import Path
 
+if '--stderr-fixture' in sys.argv:
+    print('synthetic Hermes warning',file=sys.stderr,flush=True)
+    print('api_key='+('fixture-'+'x'*30),file=sys.stderr,flush=True)
 session='';counter=0;usage=0
 
 def send(message):print(json.dumps(message,ensure_ascii=False),flush=True)
@@ -29,6 +33,8 @@ for line in sys.stdin:
         if text=='/tools':output='Available tools (1): terminal' if '--has-tools' in sys.argv else 'No tools available.'
         elif data.get('action')=='general.task':output=json.dumps(judgment(data))
         elif data.get('type')=='infer':
+            if '--crash-first-infer' in sys.argv and not Path('inference-crashed-once').exists():
+                Path('inference-crashed-once').touch();os._exit(4)
             page=data.get('page',data.get('page_delta',{}));title=page.get('title','first')
             rows=[{'title':'检查词 '+str(title or ''),'why':'合成关键词表','action':'seo.keyword_check','params':{'keyword':'sample keyword'}}]
             if title=='second':rows.append({'title':'拆长尾','why':'合成补充','action':'seo.longtail','params':{'keyword':'other'}})

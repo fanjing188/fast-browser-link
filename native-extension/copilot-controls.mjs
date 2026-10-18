@@ -5,7 +5,7 @@ export function connectionState(value){
  const state=value.state||'disconnected';return {state,zh:{connected:'已连接',connecting:'连接中',disconnected:'未连接',error:'出错'}[state],en:{connected:'Connected',connecting:'Connecting',disconnected:'Disconnected',error:'Error'}[state]};
 }
 export function renderConnection(el,value,language='zh'){
- if(!el)return;const view=connectionState(value);el.classList.add('status-component');el.dataset.state=view.state;el.setAttribute('role','status');el.textContent=language.startsWith('zh')?view.zh:view.en;el.title=value?.reason||'';
+ if(!el)return;const view=connectionState(value);el.classList.add('status-component');el.dataset.state=view.state;el.setAttribute('role','status');el.textContent=language.startsWith('zh')?view.zh:view.en;el.title=(language.startsWith('zh')?value?.reason:value?.reason_en||value?.reason)||'';
 }
 export function mountControls(doc){
  const win=doc.defaultView,widgets=new Map(),closers=new Map();

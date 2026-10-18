@@ -9,6 +9,7 @@ import threading
 import time
 import uuid
 from copilot_usage import counts
+from copilot_diagnostics import StderrLog
 
 
 def hermes_environment(config, extra=None):
@@ -22,6 +23,10 @@ def hermes_environment(config, extra=None):
 
 
 class ACPError(RuntimeError):
+    pass
+
+
+class ACPTimeout(ACPError):
     pass
 
 
@@ -44,6 +49,9 @@ class ACP:
         self.closed = False
         self.capabilities = {}
         self.failure = None
+        self.transport_failure = None
+        self.exit_observer = lambda _:None
+        self.stderr_log = StderrLog(cwd,config.get('stderr_role','inference'))
         self.last_usage = 0
         self.last_components = counts()
         self.tools_verified = False
@@ -58,8 +66,9 @@ class ACP:
             if not isinstance(command, list) or any(not isinstance(item, str) for item in command):
                 raise ACPError('acp_command must be argv')
             self.process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                            stderr=subprocess.DEVNULL, text=True, start_new_session=True, cwd=self.cwd,
+                                            stderr=subprocess.PIPE, text=True, start_new_session=True, cwd=self.cwd,
                                             env=hermes_environment(self.config,{'HERMES_ACP_SKIP_CONFIGURED_MCP':'1'}))
+        self.stderr_log.start(self.process.stderr)
         self.reader = threading.Thread(target=self._read, daemon=True)
         self.reader.start()
         try:
@@ -79,7 +88,7 @@ class ACP:
                 self.process.stdin.write(json.dumps(message, ensure_ascii=False) + '\n')
                 self.process.stdin.flush()
             except (OSError, ValueError) as exc:
-                raise ACPError('ACP write failed') from exc
+                raise ACPDisconnected('ACP write failed') from exc
 
     def call(self, method, params):
         request_id = uuid.uuid4().hex
@@ -92,7 +101,7 @@ class ACP:
             self._send({'jsonrpc': '2.0', 'id': request_id, 'method': method, 'params': params})
             if not pending['event'].wait(self.config.get('timeout_seconds', 180)):
                 self.cancel()
-                raise ACPError('ACP request timed out; not replayed')
+                raise ACPTimeout('ACP request timed out; not replayed')
             if 'error' in pending:
                 if pending.get('disconnected'):raise ACPDisconnected('ACP disconnected')
                 raise ACPError('ACP request failed')
@@ -127,14 +136,20 @@ class ACP:
                         self._send({'jsonrpc': '2.0', 'id': message['id'], 'error': {'code': -32601, 'message': 'Client operation unavailable'}})
         except (OSError, ValueError, TypeError, ACPError) as exc:
             self.failure = type(exc).__name__
-            self.on_update({'sessionUpdate':'copilot_transport_error'})
         finally:
-            if not self.closed:self.on_update({'sessionUpdate':'copilot_transport_error'})
+            if not self.closed:
+                code=self.process.poll()
+                if code is None:
+                    try:code=self.process.wait(timeout=.1)
+                    except subprocess.TimeoutExpired:pass
+                self.transport_failure={'reason':'acp_process_exited' if code is not None else 'acp_disconnected','error_type':self.failure or 'ACPDisconnected','stderr_tail':self.stderr_log.finish()}
+                if code is not None:self.transport_failure['exit_code']=code
             with self.lock:
                 for pending in self.pending.values():
                     pending['error'] = {'message': 'ACP disconnected'}
                     pending['disconnected']=True
                     pending['event'].set()
+            if not self.closed:self.on_update({'sessionUpdate':'copilot_transport_error',**self.transport_failure})
 
     def permission(self, params):
         return {'outcome':'cancelled'}
@@ -252,3 +267,6 @@ class ACP:
             except ProcessLookupError:
                 process.wait()
         process.stdout.close()
+        tail=self.stderr_log.finish()
+        process.stderr.close()
+        if self.transport_failure is None:self.exit_observer({'reason':'acp_process_exited','exit_code':process.returncode,'stderr_tail':tail,'close_requested':True,'phase':self.config.get('stderr_role','inference')})

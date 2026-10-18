@@ -297,10 +297,11 @@ class CopilotTest(unittest.TestCase):
     def test_ignore_atomic_invalid_output_and_bad_output_billing(self):
         self.infer('first');row=next(iter(self.state['suggestions'].values()));self.module.request('browser','ignore',{'id':row['id']});self.infer('second');self.assertNotIn(row['id'],self.state['suggestions'])
         before=copy.deepcopy(self.state['suggestions'])
-        with self.assertRaises(ValueError):self.module._replace('browser',{'scene':'general','suggestions':[row]})
+        with self.assertRaises(ValueError):self.module._replace('browser',{'scene':'general','suggestions':{}})
         self.assertEqual(before,self.state['suggestions']);billed=self.state['tokens']
         with patch.object(self.module.runtime,'prompt',return_value=('broken JSON',{'tokens':2,'source':'fixture','input_bytes':1,'estimated_input_tokens':1,'seconds':0})):
-            self.observe('bad');wait_for(lambda:self.state['diagnostic'])
+            self.observe('bad');wait_for(lambda:self.state['inference_failures']==1)
+            self.assertIsNone(self.state['diagnostic'])
         self.assertEqual(self.state['tokens'],billed+4)
         self.assertEqual(before,self.state['suggestions'])
         self.assertEqual(suggestion_id('x',{'keyword':' Ｔｅｓｔ  WORD '}),suggestion_id('x',{'keyword':'test word'}))
@@ -400,7 +401,7 @@ class ProfileSetupTest(unittest.TestCase):
                 self.assertEqual(config_path.stat().st_mtime_ns,modified)
                 self.assertEqual(config_path.read_bytes(),before)
                 with self.assertRaises(ValueError):module.setup(root,'different',apply=True,command=str(fake))
-            config=json.loads(before);self.assertEqual(config['platform_toolsets']['acp'],[])
+            config=json.loads(before);self.assertEqual(config['_config_version'],50);self.assertEqual(config['platform_toolsets']['acp'],[])
             self.assertEqual(config['plugins']['enabled'],[]);self.assertEqual(config['mcp_servers'],{})
             self.assertFalse(config['memory']['memory_enabled']);self.assertFalse(config['memory']['user_profile_enabled'])
             self.assertEqual((root/'profiles/copilot/SOUL.md').read_text(),'')
@@ -418,7 +419,7 @@ class ProfileSetupTest(unittest.TestCase):
                 module.setup(root,'gpt-5.6-luna','openai-codex',True,str(fake),'copilot-exec')
                 config_path=root/'profiles/copilot-exec/config.yaml';before=config_path.stat().st_mtime_ns
                 module.setup(root,'gpt-5.6-luna','openai-codex',True,str(fake),'copilot-exec')
-            config=json.loads(config_path.read_text())
+            config=json.loads(config_path.read_text());self.assertEqual(config['_config_version'],50)
             self.assertEqual(config_path.stat().st_mtime_ns,before)
             self.assertEqual(config['plugins']['enabled'],['fast-browser-link'])
             self.assertEqual(config['platform_toolsets']['cli'],['fast-browser-link','web','terminal','file'])

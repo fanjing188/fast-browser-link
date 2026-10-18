@@ -20,5 +20,5 @@ macOS 版本，适用于已登录的 Chrome / Edge。日期：2026-10-11。
 
 - 离线门禁：`npm test` 1023/1023；固定 Hermes 源码下 `npm run verify` 全部测试通过（本机运行时仓库外工具改写了未跟踪的 status-cache.json，判定为源码漂移，与产品代码无关）；`npm run lint` 0 错误。
 - 真实浏览器（临时 profile、完整 background/daemon 链路、本地模拟身份提供方）：`real-login-windows.mjs` Chrome 25/25、Edge 25/25（含带跨源小 iframe 的账号页按邮箱选择并登录回源）；`real-content-shield.mjs` Chrome、Edge 通过（含工具站功能介绍不误判、动态页面结构读取、iframe 跳过诊断、封闭组件保护不泄漏）；`real-overlay`、`real-takeover`、`real-tabs-interaction` 通过。
-- 已知：Edge 上“顶层 popover”场景在一次运行中出现过 `stale_reference`，复跑通过，根因未确认。真实 Google 账号登录流程将在发布后复测。3UE 误判的修复以合成文案验证，未在 3UE 现场复现。
+- 已知：Edge 上“顶层 popover”场景在一次运行中出现过 `stale_reference`，复跑通过，根因未确认。真实 Google 账号登录流程将在发布后复测。付费 SEO 工具 误判的修复以合成文案验证，未在 付费 SEO 工具 现场复现。
 - 支持范围为 macOS + Chrome / Edge；Windows、Linux 未完成安装验收。

@@ -1,3 +1,4 @@
+import {SessionRetry} from './copilot-retry.mjs';
 import {tableConfirmation} from './copilot-table-confirm.mjs';
 import {collectToolReport} from './copilot-tool-reports.mjs';
 import {collectBrowserData} from './copilot-browser-data.mjs';
@@ -6,6 +7,7 @@ import {TableJobs} from './copilot-table-job.mjs';
 import {ordinaryPage,appendStep,safeURL} from './copilot-observation.mjs';
 export class CopilotBackground {
  constructor(api,request,isWorkTab=()=>false,reconnect=async()=>{}){
+  this.sessionRetry=new SessionRetry(async()=>{const state=await this.request('settings',{enabled:true});await this.settings(state);});
   this.reconnectBridge=reconnect;this.protectedHosts=null;this.selectionSeen=new Map();this.selectionPopup=true;this.tableCaptures=new Map();this.tableTab=null;this.tableJobs=null;this.localJobs=new Map();
   this.api=api;this.request=request;this.liveWorkTab=isWorkTab;this.workspaceTabs=new Set();this.workspaceWindows=new Set();this.isWorkTab=id=>this.liveWorkTab(id)||this.workspaceTabs.has(id);this.panelPorts=new Set();this.lastNavigation=new Map();this.enabled=false;this.showBall=true;this.trace=[];this.pages=new Map();this.rows=new Map();this.unread=new Set();this.suggestionsUnread=new Set();this.queue=Promise.resolve();
  }
@@ -73,7 +75,7 @@ export class CopilotBackground {
  }
  async synchronize(){const state=await this.request('state',{});this.trace=(await this.api.storage.session.get('copilotTrace')).copilotTrace||[];this.rows=new Map(state.suggestions.map(row=>[row.id,row]));await this.settings(state);return state;}
  async settings(state){
-  this.locale=state.locale;this.boardName=state.board_name;this.hermesHealth=state.hermes_health;
+  this.locale=state.locale;this.boardName=state.board_name;this.hermesHealth=state.hermes_health||(state.startup_error?{state:'error',reason:state.startup_error.reason,reason_en:state.startup_error.reason_en}:this.hermesHealth);
   const started=!this.enabled&&state.enabled;this.protectedHosts=state.protected_hosts||this.protectedHosts||[];
   await this.refreshOwnership();
   if(this.enabled&&!state.enabled&&this.tableConfirmation)await this.resolveTableConfirmation('cancel',this.tableConfirmation.token);
@@ -132,6 +134,8 @@ export class CopilotBackground {
 
   if(event.type==='add'||event.type==='update'){const previous=this.rows.get(event.suggestion.id);this.rows.set(event.suggestion.id,event.suggestion);if(!this.panelPorts.size){if(event.type==='add'&&event.suggestion.status==='pending')this.suggestionsUnread.add(event.suggestion.id);if(event.suggestion.status==='completed'&&previous?.status!=='completed')this.unread.add(event.suggestion.id);}}
   if(event.type==='remove'){this.rows.delete(event.id);this.unread.delete(event.id);this.suggestionsUnread.delete(event.id);}
+  if(event.type==='ready'&&!this.sessionRetry.recovery||event.type==='inference'&&event.succeeded===true)this.sessionRetry.reset();
+  if(event.type==='settings'&&event.enabled===false){if(event.startup_error)this.sessionRetry.failed(event.startup_error.recovery_exhausted===true);else this.sessionRetry.reset();}
   if(event.type==='settings')await this.settings({...event,enabled:event.enabled??this.enabled,show_ball:event.show_ball??this.showBall});
   void this.api.runtime.sendMessage({type:'copilot.changed',event}).catch(()=>{});
   const tabs=await this.api.tabs.query({});
@@ -156,7 +160,7 @@ export class CopilotBackground {
   if(content&&message.type==='copilot.table_confirmation_error'){work=this.api.runtime.sendMessage({type:'copilot.table_notice',failed:true});}
   else if(content&&message.type==='copilot.table_confirmation'&&sender.tab.id===this.tableConfirmation?.tab){work=this.resolveTableConfirmation(message.kind,message.token);}
   else if(panel&&message.type==='copilot.reconnect'){work=this.reconnectBridge().then(()=>this.request('state',{}));}
-  else   if(popup&&message.type==='copilot.popup_settings'&&typeof message.enabled==='boolean'){work=this.request('settings',{enabled:message.enabled}).then(async state=>{await this.settings(state);return {enabled:state.enabled};});}
+  else   if(popup&&message.type==='copilot.popup_settings'&&typeof message.enabled==='boolean'){this.sessionRetry.reset();work=this.request('settings',{enabled:message.enabled}).then(async state=>{await this.settings(state);return {enabled:state.enabled};});}
   else if(content&&this.enabled&&message.type==='copilot.selection'){
    if(message.command==='open_capabilities'){try{void this.api.sidePanel.open({windowId:sender.tab.windowId});}catch{}}
     if(message.command==='open_cached'){try{void this.api.sidePanel.open({windowId:sender.tab.windowId});}catch{}}
@@ -181,6 +185,7 @@ export class CopilotBackground {
   }else if(content&&this.enabled&&message.type==='copilot.mini')work=Promise.resolve({suggestions:[...this.rows.values()].filter(row=>row.status==='pending')});
   else if(content&&this.enabled&&message.type==='copilot.hide_ball')work=this.request('settings',{show_ball:false}).then(state=>this.settings(state));
   else if(panel&&message.type==='copilot.command'&&['preferences','logs_read','logs_clear','logs_export','log_client','capability_state','capability_reload','capability_health','capability_discover','capability_bind','tool_learn_context','tool_draft','tool_save','locale','quick_task','selection_context','open_result','export_results','result','clear_read','batch','replenish','next_action','table_begin','table_append','table_finish','table_read','table_column_action','table_open','models','configure','state','settings','execute','ignore','stop','open_report','save_result','followup','retry','retry_inference'].includes(message.command)){
+   if(message.command==='settings'&&typeof message.params?.enabled==='boolean')this.sessionRetry.reset();
    work=(message.command==='open_result'?this.localCommand('open_result',message.params||{}):this.request(message.command,message.params||{})).then(async state=>{
     if(message.command==='settings'||message.command==='preferences')await this.settings(state);if(state.hermes_health)this.hermesHealth=state.hermes_health;if(state.protected_hosts)this.protectedHosts=state.protected_hosts;
     if(state.suggestions){this.rows=new Map(state.suggestions.map(row=>[row.id,row]));this.unread.clear();this.suggestionsUnread.clear();}

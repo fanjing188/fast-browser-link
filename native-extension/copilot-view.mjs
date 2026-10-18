@@ -4,6 +4,9 @@ export {actionNames};
 export const objectName=row=>row.params?.keyword||row.params?.url||row.params?.object||row.title;
 export function statePresentation(state){
  if(state.diagnostic==='bridge_disconnected')return {label:'出错',tone:'danger',message:'本地连接已断开，请重新连接。',action:'重新连接'};
+ if(state.recovering)return {label:'正在重连',tone:'busy',message:state.inference_failure?.message||'Hermes 推理进程已退出，正在重连'};
+ if(state.startup_error)return {label:'出错 · 重试',tone:'danger',message:state.locale==='en'?state.startup_error.reason_en:state.startup_error.reason,action:'重试'};
+ if(state.diagnostic&&state.inference_failure)return {label:'出错',tone:'danger',message:state.inference_failure.message,action:'重试'};
  if(state.diagnostic?.startsWith('execution_acp'))return {label:'出错',tone:'danger',message:'执行会话连接失败，自动重连机会已用完。请检查执行 profile 后重新连接。',action:'重新连接'};
  if(state.diagnostic)return {label:'出错',tone:'danger',message:state.diagnostic.startsWith('acp_start')?'推理会话启动失败。请确认精简 profile 可用，然后重试。':state.diagnostic.startsWith('acp_transport')?'推理连接已断开，请重新开启协作。':'本次推理未完成，已保留原建议。继续浏览可重试。',action:'重试'};
  if(!state.enabled)return {label:'未开启',tone:'muted',message:'开启后只读跟随你的浏览操作。'};
@@ -20,6 +23,7 @@ export function renderDashboard(doc,state,{command,clipboard=globalThis.navigato
  $('enabled').checked=!!state.enabled;$('enabled').disabled=$('enabled').dataset.busy==='true'||state.diagnostic==='bridge_disconnected';$('ball').checked=state.show_ball!==false;
  $('status').textContent=status.label;$('status').dataset.tone=status.tone;$('status').title=status.message;
  $('retry-session').textContent=status.action||'重试';
+ const notice=$('notice');if(state.inference_failure&&!state.diagnostic){notice.textContent=state.inference_failure.message;notice.dataset.source='inference';}else if(notice.dataset.source==='inference'){notice.textContent='';delete notice.dataset.source;}
  $('error').hidden=!state.diagnostic;$('error-copy').textContent=status.message;$('error-code').textContent=state.diagnostic||'';
  const total=usage=>Object.values(usage||{}).reduce((sum,value)=>sum+Number(value||0),0),en=state.locale==='en';
  const short=value=>!en&&value>=10000?(value/10000).toLocaleString('zh-CN',{maximumFractionDigits:1})+' 万':num(value);

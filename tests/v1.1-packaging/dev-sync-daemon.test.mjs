@@ -207,7 +207,7 @@ async function fakePackager(f){
  const cloudHost=await readFile(path.join(f.home,'plugins/fast-browser-link/cloud_link/native_host.py'),'utf8');
  const cli=await readFile(path.join(f.home,'plugins/fast-browser-link/maintenance/install-cli.py'),'utf8');
  const copilotFiles={'fast-browser-link/native_bridge/copilot-templates/workflow.run.json':await readFile(path.join(REPO,'native-bridge/copilot-templates/workflow.run.json'),'utf8'),'fast-browser-link/native_bridge/copilot-packages/generic/neutral_judge.py':await readFile(path.join(REPO,'native-bridge/copilot-packages/generic/neutral_judge.py'),'utf8'),'fast-browser-link/native_bridge/copilot-packages/generic/package.json':await readFile(path.join(REPO,'native-bridge/copilot-packages/generic/package.json'),'utf8'),'fast-browser-link/native_bridge/copilot-templates/browser.open.json':await readFile(path.join(REPO,'native-bridge/copilot-templates/browser.open.json'),'utf8'),'fast-browser-link/native_bridge/copilot-templates/general.task.json':await readFile(path.join(REPO,'native-bridge/copilot-templates/general.task.json'),'utf8')};
- for(const name of ['copilot_health.py','copilot_journal.py','copilot_setup.py','copilot.py','copilot_acp.py','copilot_execution.py','copilot_usage.py','copilot_models.py','copilot_exec_acp.py','copilot_fetch.py','copilot_results.py','copilot_tables.py','copilot_packages.py','copilot_capabilities.py','copilot_tools.py'])
+ for(const name of ['copilot_diagnostics.py','copilot_health.py','copilot_journal.py','copilot_setup.py','copilot.py','copilot_acp.py','copilot_execution.py','copilot_usage.py','copilot_models.py','copilot_exec_acp.py','copilot_fetch.py','copilot_results.py','copilot_tables.py','copilot_packages.py','copilot_capabilities.py','copilot_tools.py'])
   copilotFiles[`fast-browser-link/native_bridge/${name}`]=await readFile(path.join(REPO,'native-bridge',name),'utf8');
  for(const name of (await readdir(path.join(REPO,'native-bridge/copilot-templates/seo'))).filter(name=>name.endsWith('.json')))
   copilotFiles[`fast-browser-link/native_bridge/copilot-templates/seo/${name}`]=await readFile(path.join(REPO,'native-bridge/copilot-templates/seo',name),'utf8');
@@ -239,7 +239,7 @@ test('dev-sync 一条命令：暂停 Hermes、写维护标记、停止已核实 
  assert.equal(output.status,'synced');
  const copilot=JSON.parse(await readFile(path.join(f.data,'copilot/config.json'),'utf8'));
  assert.equal(copilot.context_limit,6000);
- assert.deepEqual((await readdir(path.join(f.data,'copilot/templates'))).sort(),['browser.open.json','seo.competitor_keywords.json','seo.domain_rating.json','seo.keyword_check.json','seo.longtail.json','seo.ranking_sites.json','seo.save_pool.json','seo.serp_breakdown.json','seo.top_pages.json','seo.trends.json']);
+ assert.deepEqual((await readdir(path.join(f.data,'copilot/templates'))).sort(),['browser.open.json','general.task.json','seo.competitor_keywords.json','seo.domain_rating.json','seo.keyword_check.json','seo.longtail.json','seo.ranking_sites.json','seo.save_pool.json','seo.serp_breakdown.json','seo.top_pages.json','seo.trends.json','workflow.run.json']);
  assert.equal(output.daemonStopped,true);
  assert.equal(output.hermesPausedBefore,false);
  // 中文注释：daemon 收到 SIGTERM 后自行收尾，退出码为 0 而不是被强杀。

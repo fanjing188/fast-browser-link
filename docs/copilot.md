@@ -49,4 +49,30 @@ The board defaults to “Hermes Copilot” (Chinese: “Hermes协作看板”). 
 
 Table extraction requires synchronized confirmation in the sidebar and a closed-shadow decoration on the source page. No export or multipage work starts before confirmation. Escape, cancellation and target removal clear it; changed ownership, navigation or changed captured rows reject stale confirmation. Multipage confirmation opens the same URL in a background work page, retaining the 200-page ceiling.
 
-Local Hermes health reads ACP readiness, execution-profile file and executable existence, and the latest call result. `execution_startable` denotes a structural check, not a live launch or model proof. Reading or retrying health starts no model and consumes no tokens. A disconnected state can mean collaboration is off. Renaming and export preferences only write this extension instance's Copilot configuration.
+Local Hermes health reads ACP readiness, execution-profile file and executable existence, and the latest call result. `execution_startable` denotes a structural check, not a live launch or model proof. Reading health starts no model and consumes no tokens; Retry after a startup failure starts a new collaboration session. A disconnected state can mean collaboration is off. Renaming and export preferences only write this extension instance's Copilot configuration.
+
+
+## Managed templates and startup recovery
+
+Install, sync and initialization share `copilot_setup.py`. The instance's `copilot/managed-templates.json` contains `version: 1` and a `templates` map keyed by filename. Each entry stores a content version (`sha256:` plus the first 12 digest characters) and the full `sha256`. Unmodified files upgrade automatically; missing and newly introduced templates are filled. Existing configuration is preserved.
+
+Modified or unknown templates stay intact. The new version is written to `templates/<name>.json.new`, with `pending_version` and `pending_sha256` in the manifest; Settings → Local capabilities lists merge requests. After reviewing and adopting the new file, initialization records its digest and removes an unchanged candidate. Custom merges remain user modifications.
+
+For installations without a manifest, only exact raw-byte digests from `native-bridge/copilot-templates/managed-history.json` or the current source qualify as managed. The history contains filenames and hashes from actual Git versions. To maintain it, extract each shipped template with `git show <commit>:<template-path>`, compute SHA-256 over the exact bytes, and append deduplicated hashes without deleting older entries. Never collect personal templates or infer ownership from missing fields.
+
+Missing `decision_schema` receives the action's default contract. Irrecoverable templates are excluded from inference contracts and suggestions and logged once; other templates can still start the session. Local capabilities lists disabled templates. Startup errors expose a short reason, with fixed error codes and exception types in logs rather than arbitrary exception text.
+
+The browser background retries failed session starts after 5, 15 and 60 seconds, then stops at Error · retry. Ready or a manual toggle resets the startup budget; recovery-failure retries require a successful inference to reset automatically; turning collaboration off cancels waiting. Reopening or repainting the panel does not reset the background budget. Destroyed background timers are not restored. No tasks are replayed. Native browser-bridge reconnection remains independent.
+
+Health summaries count all capabilities: available if a usable binding exists; otherwise awaiting login/browser/route confirmation if such a binding exists; otherwise unbound (including bindings that are currently unusable). The three counts add up to the capability total; details retain each capability's category.
+
+
+## Inference diagnostics and recovery
+
+Errors distinguish `model_output_invalid`, `acp_disconnected`, `acp_timeout`, `acp_process_exited` and `internal_error`, with fixed field/validation codes, exception types and exit codes. The first two consecutive inference failures retain suggestions and show a notice; the third marks an error. Success clears the count. Long titles/reasons are truncated with an ellipsis, suggestions are capped at eight, IDs are host-generated and unknown fields are discarded. Invalid actions/parameters are skipped without expanding permissions. Normalization creates one informational event, not an error alert.
+
+Inference ACP, execution ACP and oneshot stderr are drained continuously and conservatively redacted into `copilot/logs/YYYY-MM-DD.hermes-stderr.log`. Each file is capped at 2 MiB with one same-day `.log.1` archive, seven-day retention and mode 0600. Credential-bearing lines, known token prefixes, long opaque strings, URLs and personal directory paths are masked. Raw model stdout is not included. Process-exit events carry the exit code and last twenty redacted lines. Disconnect events distinguish user, idle, service shutdown, process exit and transport failure.
+
+An unexpected inference disconnect or process exit receives one immediate recovery per enabled collaboration session: revalidate the zero-tool profile, resume using the saved summary, completed-task memory and suggestion statuses, then resend current page deltas. Execution tasks are never replayed. A failed recovery or another exit uses the existing bounded 5/15/60-second startup retry policy and eventually waits for manual Retry. Brief ready states preserve this recovery budget until a valid inference succeeds or the user toggles collaboration.
+
+The managed-profile generator was checked against Hermes configuration source. Creation or verified managed upgrades of `copilot` and `copilot-exec` write `_config_version: 50`, preserve higher versions and model/provider settings, and reject user-modified profiles. No global Hermes migration runs; other defaults merge at read time. Updating source alone does not modify installed profiles.

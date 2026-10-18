@@ -390,7 +390,13 @@ def ensure_service(home: os.PathLike[str] | str, timeout: float = 5.0) -> None:
             fcntl.flock(lock_fd, fcntl.LOCK_EX)
             if _probe(home_path):
                 return
-            daemon_path = Path(__file__).with_name("daemon.py")
+            installed = data_dir / 'host-bin/daemon.py'
+            # 中文注释：从下载包运行维护命令时也启动所选安装的宿主，避免进程身份落到下载目录。
+            if installed.exists():
+                if any(part.is_symlink() for part in (installed,*installed.parents)):
+                    raise BridgeError('insecure_daemon_path','installed daemon path contains symlink')
+                daemon_path=installed
+            else:daemon_path = Path(__file__).with_name("daemon.py")
             _spawn_detached([sys.executable, str(daemon_path), "--home", str(home_path)])
             deadline = time.monotonic() + timeout
             while time.monotonic() < deadline:

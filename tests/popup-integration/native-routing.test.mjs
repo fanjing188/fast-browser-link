@@ -1,3 +1,4 @@
+import {renderChains} from '../../native-extension/copilot-readiness.mjs';
 import {mountControls,boardName,renderConnection} from '../../native-extension/copilot-controls.mjs';
 import {taskTableAdapter} from '../../native-extension/copilot-table-job.mjs';
 import {CopilotBackground} from '../../native-extension/copilot-background.mjs';
@@ -65,7 +66,7 @@ async function harness(initialStorage={},manifestVersion=packageVersion){
  const send=m=>new Promise(resolve=>{popupCalls.push(clone(m));assert.equal(dispatch(m,sender,resolve),true);});
  const dom=new JSDOM(html,{url:sender.url,runScripts:'outside-only',pretendToBeVisual:true});
  dom.window.chrome={i18n:{getUILanguage:()=> 'zh-CN'},tabs:api.tabs,runtime:{getManifest:api.runtime.getManifest,sendMessage:send,onMessage:{addListener(){}}}};dom.window.setInterval=f=>{poll=f;return 1;};dom.window.clearInterval=()=>{};
- Object.assign(dom.window,{mountControls,boardName,renderConnection});dom.window.eval(popup.replace(/^import .*;\n/gm,''));await flush();
+ Object.assign(dom.window,{renderChains,mountControls,boardName,renderConnection});dom.window.eval(popup.replace(/^import .*;\n/gm,''));await flush();
  const d=dom.window.document;
  const click=async selector=>{const b=d.querySelector(selector);assert.ok(b,selector);assert.equal(b.disabled,false,selector);b.click();await flush();};
  return {dom,d,click,send,flush,storage,api,poll:async()=>{await poll();await flush();},nativeCalls,popupCalls,dispatch,executor,queue:(nonce='nonce-real-routing')=>{queue=[{taskId:task.id,nonce,digest:'digest-real-routing',request:{action:'click',tabId:7,selector:'#save'}}];},reset:()=>{task={...seed(),generation:4};executor.tasks.clear();executor.leases.clear();}};

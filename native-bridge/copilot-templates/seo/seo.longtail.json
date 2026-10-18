@@ -434,5 +434,6 @@
     ],
     "additionalProperties": false
   },
-  "prompt_en": "Group only supplied keywords by intent, recommend evidenced groups, never invent keywords."
+  "prompt_en": "Group only supplied keywords by intent, recommend evidenced groups, never invent keywords.",
+  "risk": "metered"
 }

@@ -79,3 +79,8 @@ export function stableSnapshots(capture,{quiet=800,maxWait=5000,schedule=setTime
 export function tableSummary(capture){
  return (capture.tables||[]).slice(0,3).map(table=>({role:'table',name:clipBytes(`识别到表格：${table.headers.length} 列 · ${table.rows.length} 行${table.incomplete?' · 可能不完整':''}；列名 ${table.headers.join(' / ')}`,280)}));
 }
+
+
+export function pageIdentity(page){
+ return JSON.stringify([page?.url,page?.title,[...new Set((page?.items||[]).map(item=>JSON.stringify([item.role,item.name?.replace(/\s+/g,' ').trim()])))].sort()]);
+}

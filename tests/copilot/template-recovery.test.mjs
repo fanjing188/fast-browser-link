@@ -70,14 +70,9 @@ test('single inference failure shows a notice, three failures show the reason, a
 });
 
 
-test('repeated recovery failures keep the retry budget across brief ready states',async()=>{
+test('daemon recovery exhaustion cannot trigger a second frontend restart budget',async()=>{
  const clock=timers(),api={storage:{local:{get:async()=>({})},session:{remove:async()=>{}}},runtime:{sendMessage:async()=>{}},tabs:{query:async()=>[]},scripting:{getRegisteredContentScripts:async()=>[]}};
  const app=new CopilotBackground(api,async()=>({enabled:true}));app.sessionRetry=new SessionRetry(async()=>{},clock);
- for(let i=0;i<3;i++){
-  await app.notification({type:'settings',enabled:false,startup_error:{reason:'synthetic',recovery_exhausted:true}});
-  await clock.tick();await app.notification({type:'ready'});
- }
- await app.notification({type:'settings',enabled:false,startup_error:{reason:'synthetic',recovery_exhausted:true}});
- assert.deepEqual(clock.delays,[5000,15000,60000]);assert.equal(clock.jobs.size,0);
- await app.notification({type:'inference',succeeded:true});assert.equal(app.sessionRetry.attempts,0);assert.equal(app.sessionRetry.recovery,false);
+ for(let i=0;i<4;i++)await app.notification({type:'settings',enabled:false,startup_error:{reason:'synthetic',recovery_exhausted:true}});
+ assert.equal(clock.jobs.size,0);assert.deepEqual(clock.delays,[]);
 });

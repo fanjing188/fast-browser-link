@@ -21,8 +21,12 @@ def redact(text):
     return ''.join(char for char in text if char=='\t' or ord(char)>=32)[:2048]
 
 
+def info_noise(line):
+    return bool(re.search(r'(?i)\bINFO\b',line) and not re.search(r'(?i)\b(?:WARNING|WARN|ERROR|CRITICAL)\b',line))
+
+
 def stderr_summary(lines):
-    selected=[redact(line) for line in list(lines)[-20:] if isinstance(line,str)]
+    selected=[redact(line) for line in lines if isinstance(line,str) and not info_noise(line)][-20:]
     limit=1024//max(1,len(selected))
     return [line.encode()[:limit].decode(errors='ignore') for line in selected]
 
@@ -35,14 +39,19 @@ class ModelOutputInvalid(ValueError):
 
 def failure(error, runtime=None):
     recorded = getattr(error, 'failure', None)
-    if isinstance(recorded, dict):return dict(recorded)
+    if isinstance(recorded,dict):
+        result=dict(recorded)
+        if type(error).__name__=='ExecutionError':result.update(error_type='ExecutionError',cause_type=recorded.get('error_type',''),detail=redact(str(error))[:300])
+        return result
     kind = type(error).__name__
     if kind in {'ACPTimeout','ExecutionTimeout','TimeoutExpired'} or isinstance(error, TimeoutError):reason='acp_timeout'
     elif runtime and getattr(runtime, 'transport_failure', None):return dict(runtime.transport_failure)
     elif isinstance(error, (ModelOutputInvalid, json.JSONDecodeError)):reason='model_output_invalid'
+    elif kind=='ExecutionError':reason='execution_error'
     elif kind in {'ACPDisconnected','BrokenPipeError'}:reason='acp_disconnected'
     else:reason='internal_error'
     result={'reason':reason, 'error_type':kind}
+    if kind=='ExecutionError':result['detail']=redact(str(error))[:300]
     if isinstance(error,ModelOutputInvalid):result.update(field=error.field,detail=error.detail)
     elif kind=='JSONDecodeError':result.update(field='json',detail='invalid_json')
     return result
@@ -60,7 +69,9 @@ class StderrLog:
         self.tail=deque(maxlen=20);self.thread=None;self.error=False
 
     def append(self, line):
-        clean=redact(line.decode(errors='replace') if isinstance(line,bytes) else line).strip()
+        raw=line.decode(errors='replace') if isinstance(line,bytes) else str(line)
+        if info_noise(raw):return
+        clean=redact(raw).strip()
         if not clean:return
         self.tail.append(clean)
         data=(self.role+': '+clean+'\n').encode()[:self.limit]

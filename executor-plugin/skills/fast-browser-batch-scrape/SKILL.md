@@ -128,3 +128,7 @@ For network inspection, use `network_start`, `network_list(capture_id)`, `networ
 | 同站至少三张慢页需同时读取 | 在同任务打开最多四张模型标签；`parallel(lambda tab: read_page(tab=tab), tabs)` 并行读取。 |
 | 换站且以后还要返回 | `fast_browser_open` 建新任务并保留旧任务。 |
 | 会话结束或人工接手 | 关闭自动化任务；人工接手页用 `keep_tabs=true` 保留。 |
+
+## 初始化与协作
+
+包内 `python3 -B -m fbl setup`；无需 Node，核心无需 Hermes，协作需 Hermes。`fbl doctor --fix` 修受管项，`fbl logs --bundle` 导出脱敏诊断；`fbl update --dry-run` 预览空闲升级与失败回滚。`fbl packs discover` 或侧栏“本机能力 › 发现”审阅保存；私有声明只留本机。见 `docs/fbl.md`、`docs/fbl-packs.md`。

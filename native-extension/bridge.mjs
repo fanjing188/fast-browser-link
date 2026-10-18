@@ -216,6 +216,10 @@ export class Bridge {
    } else p.resolve(m.result);
    return;
   }
+  if(m.method==='fbl.tabs'){
+   if(!m.id||!m.params||Object.keys(m.params).length){if(m.id)this.send({id:m.id,error:{code:'invalid_params',message:'invalid tab inventory'}});return;}
+   Promise.resolve().then(()=>this.executor.api.tabs.query({})).then(tabs=>this.send({id:m.id,result:tabs.filter(tab=>/^https?:\/\//.test(tab.url||'')&&!tab.incognito).map(tab=>({url:tab.url,title:tab.title||''}))}),()=>this.send({id:m.id,error:{code:'unavailable',message:'tab inventory unavailable'}}));return;
+  }
   if(m.method==='extension.incognito_status'){
    if(!m.id||!m.params||Object.keys(m.params).length){if(m.id)this.send({id:m.id,error:{code:'invalid_params',message:'invalid incognito status request'}});return;}
    Promise.resolve().then(()=>this.executor.api.extension?.isAllowedIncognitoAccess()).then(allowed=>this.send({id:m.id,result:{allowed:allowed===true}}),()=>this.send({id:m.id,result:{allowed:false}}));

@@ -1,0 +1,17 @@
+{
+  "id": "seo",
+  "version": 1,
+  "dependencies": [
+    "browser.core",
+    "agent.judgment"
+  ],
+  "sources": [
+    "public search suggestions",
+    "public search result pages",
+    "public trend pages",
+    "public sitemaps"
+  ],
+  "cost": "no paid data source; agent inference cost is separate",
+  "rules": "neutral; thresholds configurable through local bindings",
+  "upgrade": "managed digest; modified files preserved"
+}

@@ -138,7 +138,7 @@ test('real dev sync packages and swaps the shared root once while preserving pro
  });
  const f=await developmentFixture(t,home),{extension,data}=await syncConfiguration(f);
  const sourceRepo=path.resolve(import.meta.dirname,'../..');
- const inputs=['scripts','package.json','package-lock.json','executor-plugin','native-bridge','native-extension','cloud-link','browser-workspaces','browser-diagnostics','page-semantics','browser-interactions','approval-policy','CHANGELOG.md','docs','install.sh','LICENSE','THIRD_PARTY_NOTICES.md','third-party'];
+ const inputs=['fbl.py','scripts','package.json','package-lock.json','executor-plugin','native-bridge','native-extension','cloud-link','browser-workspaces','browser-diagnostics','page-semantics','browser-interactions','approval-policy','CHANGELOG.md','docs','install.sh','LICENSE','THIRD_PARTY_NOTICES.md','third-party','skills','agent-link'];
  const skip=new Set(['node_modules','.git','__pycache__','dist-native','evidence']);
  for(const input of inputs)await cp(path.join(sourceRepo,input),path.join(f.repo,input),{recursive:true,filter:file=>!skip.has(path.basename(file))});
  await cp(path.join(f.repo,'native-extension','manifest.json'),path.join(extension,'manifest.json'));

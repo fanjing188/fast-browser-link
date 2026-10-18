@@ -302,5 +302,6 @@
     ],
     "additionalProperties": false
   },
-  "prompt_en": "Local keyword pool operation; no model is called."
+  "prompt_en": "Local keyword pool operation; no model is called.",
+  "risk": "metered"
 }

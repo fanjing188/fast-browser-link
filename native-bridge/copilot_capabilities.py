@@ -18,6 +18,7 @@ from urllib.parse import quote, urlsplit
 from copilot_results import obj,text,array,NUMBER,BOOL
 
 from copilot_results import UNIFIED
+from copilot_diagnostics import redact
 FIELDS=UNIFIED['properties']
 RECORD=UNIFIED
 INPUT=obj({'keyword':text(2000),'keywords':array(text(2000),1000),'domain':text(300),'domains':array(text(300),1000),'url':text(4000),'urls':array(text(4000),1000),'records':array(RECORD,5000),'n':{'type':'integer'},'report':text(100),'market':text(40),'language':text(40),'period':text(40),'region':text(40),'fields':array(text(40),20)},[])
@@ -142,6 +143,7 @@ class Registry:
     def structural(self,binding,context=None):
         if self.disabled(binding):return 'disabled_today'
         if binding.get('browser') and binding['browser']!=(context or {}).get('browser'):return 'wrong_browser'
+        if binding['type']=='mcp':return 'available' if Path(binding['config_path']).is_file() else 'missing_command'
         if binding['type']=='command':
             command=binding['argv'];executable=command[0]
             if not (Path(executable).is_file() and os.access(executable,os.X_OK) if '/' in executable else shutil.which(executable)):return 'missing_command'
@@ -227,9 +229,14 @@ class Registry:
         with (work/'input.json').open('rb') as input_handle,(work/'stdout').open('wb') as stdout,(work/'stderr').open('wb') as stderr:
             os.chmod(work/'stdout',0o600);os.chmod(work/'stderr',0o600)
             if stop.is_set():raise Stopped('stopped')
+            if binding.get('_automatic'):
+                sandbox=shutil.which('sandbox-exec')
+                if not sandbox:raise ValueError('automatic local reads require a network-denying sandbox')
+                policy='(version 1)(allow default)(deny network*)(deny file-write*)(allow file-write* (subpath '+json.dumps(str(work.resolve()))+'))'
+                argv=[sandbox,'-p',policy,*argv]
             process=subprocess.Popen(argv,stdin=input_handle,stdout=stdout,stderr=stderr,cwd=work,start_new_session=True)
             try:
-                deadline=time.monotonic()+binding.get('timeout',120)
+                deadline=min(time.monotonic()+binding.get('timeout',120),binding.get('_deadline',float('inf')))
                 while process.poll() is None:
                     if stop.wait(.05) or time.monotonic()>deadline:raise Stopped('stopped') if stop.is_set() else ValueError('command timed out')
                     if (work/'stdout').stat().st_size+(work/'stderr').stat().st_size>2097152:raise ValueError('command output too large')
@@ -256,6 +263,8 @@ class Registry:
     def execute(self,capability,inputs,work,stop,context=None,progress=lambda _:None):
         if capability not in self.schemas:raise ValueError('unknown capability')
         self.validate(inputs,self.schemas[capability]['input'])
+        context=dict(context or {})
+        if context.get('automatic'):context.setdefault('deadline',time.monotonic()+3)
         if capability=='serp.top' and (type(inputs.get('n',10)) is not int or not 1<=inputs.get('n',10)<=10):raise ValueError('SERP result count must be 1–10')
         missing=[];accepted={};series=[];sources=[];required=inputs.get('fields',(['vol','kd'] if capability=='keyword.metrics' else []))
         def complete():
@@ -270,6 +279,8 @@ class Registry:
             wanted=(inputs.get('keywords') or ([inputs['keyword']] if inputs.get('keyword') else [])) if capability=='keyword.metrics' else []
             return not wanted or {normalize(row.get('keyword','')) for row in accepted.values()} >= {normalize(word) for word in wanted}
         for binding in self.candidates(capability,context):
+            from copilot_risk import authorize_binding
+            if not authorize_binding(binding,context or {}):missing.append(binding['id']+': risk_or_confirmation_required');continue
             if (context or {}).get('local_only') and binding['type']!='command':continue
             if stop.is_set():raise Stopped('stopped')
             status=self.structural(binding,context)
@@ -286,13 +297,19 @@ class Registry:
                     size=binding.get('batch_limit',100);chunks=[{**inputs,sequence:inputs[sequence][start:start+size]} for start in range(0,len(inputs[sequence]),size)]
                 for chunk_no,chunk in enumerate(chunks):
                     if stop.is_set():raise Stopped('stopped')
+                    if context.get('deadline') and time.monotonic()>context['deadline']:missing.append('automatic read deadline reached');break
                     if self.disabled(binding):break
-                    step=work/binding['id']/str(chunk_no);step.mkdir(parents=True,exist_ok=True,mode=0o700);progress({'provider':binding['id'],'capability':capability,'batch':chunk_no+1,'implementation':binding['type']})
-                    if binding['type']=='command':value=self._command(binding,chunk,step,stop)
+                    step=work/binding['id']/str(chunk_no);step.mkdir(parents=True,exist_ok=True,mode=0o700)
+                    started=time.monotonic()
+                    if binding['type']=='command':value=self._command({**binding,'_automatic':(context or {}).get('automatic',False),'_deadline':context.get('deadline',float('inf'))},chunk,step,stop)
+                    elif binding['type']=='mcp':
+                        from fbl_discovery import mcp_call
+                        value=mcp_call(binding,chunk)
                     elif binding['type']=='hermes':value=self.hermes(binding,chunk,step,stop,{**(context or {}),'capability':capability})
                     else:value=self.browser(binding,chunk,step,stop,{**(context or {}),'capability':capability})
                     blocked=value.pop('blocked',None)
                     self.validate(value,self.schemas[capability]['output'])
+                    progress({'provider':binding['id'],'capability':capability,'batch':chunk_no+1,'implementation':binding['type'],'phase':'done','count':len(value.get('records',value.get('series',[]))),'duration_ms':(time.monotonic()-started)*1000})
                     if capability=='pool.save':return value
                     sources.append(value['source']);series+=value.get('series',[])
                     for row in value.get('records',[]):
@@ -374,7 +391,7 @@ def transform(name,records,options,context):
         found={}
         for row in records:
             if row.get('keyword'):found.setdefault(normalize(row['keyword']),row)
-        return list(found.values())[:options.get('limit',100)],missing if len(found)<=options.get('limit',100) else ['candidate budget reached; full upstream data retained']
+        return list(found.values())[:options.get('limit',100)],missing if len(found)<=options.get('limit',100) else [f"候选上限 {options.get('limit',100)}：去重后 {len(found)}，截断 {len(found)-options.get('limit',100)}；完整上游已保留"]
     if name=='intersection':
         groups={};domains=set()
         for row in records:
@@ -410,18 +427,26 @@ class Workflows:
     def __init__(self,registry):self.registry=registry
 
     def run(self,key,identity,object_value,context,work,model=None,progress=lambda _:None):
-        registry=self.registry;flow=registry.packages.flows[identity];stop=threading.Event();job={'stop':stop};registry.jobs[key]=job;steps=[];missing=[];artifacts=[];state={'input':{'object':object_value},'steps':{},'item':{}};verdict='流程完成，核对来源与缺项' if context.get('language','zh')=='zh' else 'Review sources and gaps';records=[];stopped=False;calls=0
+        registry=self.registry;flow=registry.packages.flows[identity]
+        from copilot_risk import declared
+        if context.get('automatic') and (declared(flow)!='zero' or flow.get('judgment') is not False or any(declared(step)!='zero' or step.get('model') for step in flow['steps'])):raise ValueError('automatic workflow must be explicitly zero-cost and model-free')
+        if (declared(flow)=='external' or any(declared(step)=='external' for step in flow['steps'])) and context.get('secondary_confirmed') is not True:raise ValueError('external workflow requires secondary confirmation')
+        stop=threading.Event();job={'stop':stop};registry.jobs[key]=job;steps=[];missing=[];artifacts=[];state={'input':{'object':object_value},'steps':{},'item':{}};verdict='待判断，现有数据仅供核对' if context.get('language','zh')=='zh' else 'Judgment unavailable; review evidence';records=[];stopped=False;calls=0
         work.mkdir(parents=True,exist_ok=True,mode=0o700)
         try:
             for index,step in enumerate(flow['steps']):
                 if stop.is_set():raise Stopped('stopped')
-                caption=label(step.get('name',step['id']),context.get('language','zh'));progress({'step':f"{index+1}/{len(flow['steps'])} · {caption}"})
+                caption=label(step.get('name',step['id']),context.get('language','zh'));started=time.monotonic();step_status=None
+                metadata={'step_index':index+1,'step_name':caption,'capability':step.get('capability',''),'step':f"{index+1}/{len(flow['steps'])} · {caption}"}
+                progress({**metadata,'phase':'start'})
                 if 'capability' in step:
                     if step['capability']=='pool.save':raise ValueError('pool writes require the explicit save action')
                     values=resolve(step.get('input',{}),state);values={key:value for key,value in values.items() if value is not None}
                     foreach=resolve(step.get('foreach'),state) if step.get('foreach') else [None]
                     output={'records':[],'source':'','missing':[]}
-                    if not foreach:output['missing']=['no evidenced upstream objects']
+                    if not registry.candidates(step['capability'],context):
+                        step_status='skipped';output['missing']=['跳过（未绑定 '+step['capability']+'）'];foreach=[]
+                    elif not foreach:output['missing']=['no evidenced upstream objects']
                     for item in foreach or []:
                         if stop.is_set():raise Stopped('stopped')
                         if item is not None:state['item']=item;values={key:value for key,value in resolve(step.get('input',{}),state).items() if value is not None}
@@ -436,7 +461,10 @@ class Workflows:
                             source=resolve(step['words_from'],state) or [];values['keywords']=list(dict.fromkeys(row['keyword'] for row in source if row.get('keyword')))
                         if step.get('words_from') and not values.get('keywords'):
                             output['missing'].append('no evidenced upstream keywords');continue
-                        result=registry.execute(step['capability'],values,work/step['id'],stop,context,progress)
+                        try:result=registry.execute(step['capability'],values,work/step['id'],stop,context,lambda event:progress({**metadata,**event}))
+                        except Stopped:raise
+                        except (ValueError,OSError,KeyError,TypeError,RuntimeError):
+                            output['missing'].append('跳过（能力不可用 '+step['capability']+'）');step_status='skipped';continue
                         for row in result.get('records',[]):
                             if values.get('domain'):row.setdefault('domain',values['domain'])
                         if step.get('optional') and not result.get('records') and values.get('records'):result['records']=values['records']
@@ -448,10 +476,13 @@ class Workflows:
                 elif step.get('model'):
                     if calls or not model or not (resolve(step.get('from'),state) or resolve(step.get('series'),state)):output={'records':resolve(step.get('from'),state) or [],'source':'local','missing':['single-turn judgment unavailable']}
                     else:
-                        data=resolve(step.get('from'),state) or [];decision=model({'object':object_value,'records':data,'series':resolve(step.get('series'),state),'experience':registry.packages.experience[:800]},stop);calls+=1
+                        data=resolve(step.get('from'),state) or [];calls+=1;judgment_error=False
+                        try:decision=model({'object':object_value,'records':data,'series':resolve(step.get('series'),state),'experience':registry.packages.experience[:800]},stop)
+                        except Stopped:raise
+                        except (ValueError,OSError,KeyError,TypeError,RuntimeError) as error:decision={'verdict':'判断未完成，现有数据仅供核对','notes':[]};judgment_error=True;missing.append('判断失败：'+redact(str(error))[:280])
                         known={normalize(row.get('keyword') or row.get('url') or row.get('domain') or '') for row in data};annotations={normalize(item['key']):item for item in decision.get('notes',[])}
-                        if set(annotations)-known:raise ValueError('unknown model keyword')
-                        verdict=decision['verdict'];output={'records':[],'source':'single model judgment','missing':[]}
+                        if set(annotations)-known:decision={'verdict':'判断未完成，现有数据仅供核对','notes':[]};annotations={};judgment_error=True
+                        verdict=decision['verdict'];output={'records':[],'source':'single model judgment','missing':['缺少模型判断'] if judgment_error else []}
                         for row in data:
                             note=annotations.get(normalize(row.get('keyword') or row.get('url') or row.get('domain') or ''),{});added={field:note[field] for field in ('intent_tool','excluded','reason','group') if field in note and (field not in {'intent_tool','excluded'} or row.get(field) is None)};output['records'].append({**row,**added,'field_sources':{**row.get('field_sources',{}),**{field:'single model judgment' for field in added}}})
                         if step.get('series'):
@@ -467,19 +498,29 @@ class Workflows:
                 else:raise ValueError('invalid workflow step')
                 registry.write(work/(step['id']+'.json'),json.dumps(output,ensure_ascii=False));artifacts.append({'label':caption,'path':str(work/(step['id']+'.json'))})
                 state['steps'][step['id']]=output;missing+=output.get('missing',[]);records=output.get('records',records)
-                steps.append({'label':caption,'status':'partial' if output.get('missing') else 'completed','source':output.get('source',''),'count':len(output.get('records',[]))})
-                progress({'step':f"{index+1}/{len(flow['steps'])} · {caption}",'completed_steps':len(steps)})
+                steps.append({'label':caption,'status':step_status or ('partial' if output.get('missing') else 'completed'),'source':output.get('source',''),'count':len(output.get('records',[]))})
+                progress({**metadata,'phase':'done','provider':'unbound' if step_status=='skipped' else output.get('source') or 'local','count':len(output.get('records',[])),'duration_ms':(time.monotonic()-started)*1000,'completed_steps':len(steps)})
         except Stopped:stopped=True;missing.append('stopped; completed steps retained')
         except (ValueError,OSError,KeyError,TypeError,RuntimeError):
             stopped=stop.is_set();missing.append('workflow stopped on invalid or unavailable step; completed steps retained')
         finally:registry.jobs.pop(key,None)
         target=resolve(flow.get('result',''),state)
         if isinstance(target,list):records=target
+        if records and model and not calls and not stopped and flow.get('judgment') is not False:
+            calls+=1
+            try:
+                decision=model({'object':object_value,'records':records,'series':[],'experience':registry.packages.experience[:800]},stop);verdict=decision['verdict']
+            except (ValueError,OSError,KeyError,TypeError,RuntimeError) as error:missing.extend(['缺少模型判断','判断失败：'+redact(str(error))[:280]]);verdict='判断未完成，现有数据仅供核对'
+        if records and not calls and not stopped and flow.get('judgment') is not False:missing.append('缺少模型判断');verdict='判断未完成，现有数据仅供核对'
+        if records and flow.get('judgment') is False:verdict='已自动查到本机/公开证据' if context.get('automatic') else '已读取证据，无模型调用'
+        if not records and not stopped:verdict='没有可判断的数据，请核对来源'
+        completion='failed' if not records or any('缺少模型判断' in reason for reason in missing) else 'partial' if missing else 'completed'
         preview=[];size=0
         for row in records[:1000]:
             size+=len(json.dumps(row,ensure_ascii=False).encode())
             if size>200000:break
             preview.append(row)
-        if len(preview)<len(records):missing.append('preview row/byte budget reached; full step files retained')
+        if len(preview)<len(records):missing.append(f'结果预览截断 {len(records)-len(preview)} 行；完整步骤文件已保留');completion='partial'
         result={'verdict':('已停止，保留已完成步骤' if context.get('language','zh')=='zh' else 'Stopped; completed steps saved') if stopped else verdict[:30],'level':'info','metrics':[{'label':'已保存步骤','value':str(len(steps))},{'label':'记录','value':str(len(records))},{'label':'判断轮次','value':str(calls)}],'missing':[{'field':'workflow','reason':reason[:300]} for reason in list(dict.fromkeys(missing))[:20]],'process':['本机能力按优先级取数；原始数字不由模型填写']+[note[:600] for output in state['steps'].values() for note in output.get('seasonal_notes',[])][:29],'next':[],'records':preview,'steps':steps,'artifacts':artifacts}
+        result['process'].append('状态：'+('失败' if completion=='failed' else f'部分完成（缺 {len(result["missing"])} 项）' if completion=='partial' else '完成'))
         registry.write(work/'result.json',json.dumps(result,ensure_ascii=False));return result,stopped

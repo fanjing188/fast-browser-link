@@ -20,3 +20,7 @@ JavaScript 对话框会阻塞页面脚本；用 `dialog` 处理后继续。`unsu
 点击成功但 `effect=unobserved` 表示已点中、页面没有可见变化；读页面确认即可，不要重复点。点击后页面跳转时回执带 `navigation` 和 `url`，直接在同一工作页读取新页面。
 
 登录弹窗用 `popup_catalog` 查候选、`popup_adopt` 直接接管，无需确认（含白名单外候选），再选返回的 `tabId` 读取。收到 `popupClosed.returnedTo` 后回读源页。密码、支付、验证码字段（`inputRequired: vault_or_user`）不能直接填写，走凭据工具或交给用户。
+
+## 初始化与协作
+
+包内 `python3 -B -m fbl setup`；无需 Node，核心无需 Hermes，协作需 Hermes。`fbl doctor --fix` 修受管项，`fbl logs --bundle` 导出脱敏诊断；`fbl update --dry-run` 预览空闲升级与失败回滚。`fbl packs discover` 或侧栏“本机能力 › 发现”审阅保存；私有声明只留本机。见 `docs/fbl.md`、`docs/fbl-packs.md`。

@@ -11,10 +11,10 @@ from copilot_capabilities import Registry,Workflows,discover,recognize,label,CAP
 from copilot_packages import Packages,validate_binding
 from copilot_results import obj,text,array,BOOL,NUMBER
 from copilot_exec_acp import ACPExecutions
-from copilot_diagnostics import ModelOutputInvalid
+from copilot_diagnostics import ModelOutputInvalid,failure
 
 DECISION=obj({'verdict':text(30),'notes':array(obj({'key':text(4000),'intent_tool':{'type':'integer'},'excluded':{'type':'integer'},'reason':text(500),'group':text(100)},['key']),1000)})
-PROFILE=obj({'id':text(80),'hosts':array(text(253),10),'name':obj({'zh':text(100),'en':text(100)}),'links':{'type':'object','properties':{},'additionalProperties':True},'pages':array(obj({'id':text(80),'paths':array(text(400),10),'columns':{'type':'object','properties':{},'additionalProperties':True},'actions':array(text(100),20),'flows':array(text(80),20),'object_param':text(80)},['id','paths','columns','actions','flows']),20)})
+PROFILE=obj({'id':text(80),'hosts':array(text(253),10),'name':obj({'zh':text(100),'en':text(100)}),'links':{'type':'object','properties':{},'additionalProperties':True},'pages':array(obj({'id':text(80),'paths':array(text(400),10),'table_selectors':array(text(400),20),'columns':{'type':'object','properties':{},'additionalProperties':True},'actions':array(text(100),20),'flows':array(text(80),20),'object_param':text(80)},['id','paths','columns','actions','flows']),20)})
 
 
 class ToolSupport:
@@ -23,13 +23,13 @@ class ToolSupport:
         self.registry=Registry(self.packages,self.directory,private_write,validate,self._cap_browser,self._cap_hermes);self.workflow_runner=Workflows(self.registry);self.tool_health_running=False;self.tool_drafts={};self.resource_tasks={}
 
     def _tool_context(self,instance):
-        state=self._state(instance);context={**state.get('page_context',{}),'language':state['locale'],'hermes':self.config['exec_transport']=='oneshot','instance':instance,'epoch':state['epoch']}
+        state=self._state(instance);context={**state.get('page_context',{}),'language':state['locale'],'hermes':self.config['exec_transport']=='oneshot','instance':instance,'epoch':state['epoch'],'secondary_confirmed':False}
         context['url']=context.get('url') or state['page'].get('url','');return context
 
     def _reload_tools(self):
         directories=list(self.config['extension_dirs']);local=self.directory/'extensions'
         if local.is_dir():directories += [str(path.parent) for path in sorted(local.glob('*/package.json')) if str(path.parent) not in directories]
-        self.packages=Packages(directories);self.templates.packages=self.packages;self.registry.packages=self.packages;self.registry.schemas={**CAPABILITIES,**self.packages.schemas};self.registry.health.clear()
+        self.packages=Packages(directories,include_builtin=not self.config.get('managed_packs',False));self.templates.packages=self.packages;self.registry.packages=self.packages;self.registry.schemas={**CAPABILITIES,**self.packages.schemas};self.registry.health.clear()
 
     def _resource_policy(self):
         policies={}
@@ -102,6 +102,7 @@ class ToolSupport:
 
 
     def _tool_model(self,instance,row,payload,stop,execution_config=None):
+        if row.get('automatic'):raise ValueError('automatic actions cannot call a model')
         from copilot import private_write,parse_model_json,validate
         with self.lock:
             if stop.is_set() or not self._valid(instance,self._state(instance)['epoch']):raise ValueError('judgment unavailable')
@@ -112,10 +113,11 @@ class ToolSupport:
         if len(json.dumps(brief).encode())>131072:raise ValueError('judgment context too large')
         work=self.directory/'tasks'/(row['id']+'-judgment');work.mkdir(parents=True,exist_ok=True,mode=0o700)
         if self.acp_executions is None or self.acp_executions.closed:self.acp_executions=ACPExecutions(self.config,self.directory,lambda _:None,lambda detail:self.journal.add(instance,'process_exit',**detail))
-        self.journal.add(instance,'execute_step',task_id=row['id'],phase='judgment')
+        self.journal.add(instance,'execute_step',task_id=row['id'],phase='judgment',step_index=row.get('workflow_index',1),step_name='单轮判断',provider='model',count=len(payload.get('records',[])))
         try:
             result,metrics=self.acp_executions.run(instance+':'+row['id']+':judgment',brief,work/'result.json',parse_model_json,private_write,selected_model=(execution_config or self.config)['inference_model'] or self.runtime.active_model)
         except RuntimeError as error:
+            row['judgment_failure']=failure(error)
             if getattr(error,'metrics',None):
                 with self.lock:self._account(instance,error.metrics,row)
             raise
@@ -131,8 +133,9 @@ class ToolSupport:
         state=self._state(instance)
         if selection is not None:state['selected_object']=selection
         context=self._tool_context(instance);rows=self.registry.recommendations(context,state.get('selected_object',''),state['locale']) if self.templates.optional('workflow.run') else []
+        incoming={suggestion_id('workflow.run',proposal['params']) for proposal in rows}
         for identity,row in list(state['suggestions'].items()):
-            if row.get('tool_aware') and not row.get('explicit') and row['status']=='pending':del state['suggestions'][identity];self._emit(instance,'remove',id=identity)
+            if identity not in incoming and row.get('tool_aware') and not row.get('explicit') and row['status']=='pending' and identity not in state['held_suggestions']:del state['suggestions'][identity];self._emit(instance,'remove',id=identity)
         for current in state['suggestions'].values():
             if current.get('explicit') and current['status']=='pending' and current['action']=='workflow.run':
                 options=self.registry.recommendations({**context,**current.get('page_context',{})},current['params']['object'],state['locale'])
@@ -145,7 +148,8 @@ class ToolSupport:
             if state['suggestions'].get(identity,{}).get('explicit'):continue
             row={**proposal,'id':identity,'action':'workflow.run','status':'pending','scene':'seo','tool_aware':True}
             if row['missing_capabilities']:row['why']=('需要先绑定 ' if state['locale']=='zh' else 'Bind first: ')+', '.join(row['missing_capabilities'])
-            state['suggestions'][identity]=row;self._emit(instance,'add',suggestion=dict(row))
+            previous=state['suggestions'].get(identity);state['suggestions'][identity]=row
+            if previous!=row:self._emit(instance,'update' if previous else 'add',suggestion=dict(row))
         state['tool_context']={'current':recognize(self.packages.tools,context['url']),'selection':state.get('selected_object',''),'table_summary':state.get('table_summary',[]),'available_workflows':[row['params']['flow'] for row in rows if row['available']],'needs_binding':[{'flow':row['params']['flow'],'capabilities':row['missing_capabilities']} for row in rows if not row['available']],'pool':state.get('pool_context',{'status':'not_checked'})}
         selected=state.get('selected_object','')
         if selected and state.get('pool_queried')!=selected and any(binding['type']=='command' and self.registry.structural(binding,context)=='available' for binding in self.registry.candidates('pool.lookup')):
@@ -187,7 +191,7 @@ class ToolSupport:
             if params.get('browser') not in {'edge','chrome','unknown'}:raise ValueError('invalid browser name')
             state['page_context']['browser']=params['browser'];state['table_summary']=params.get('tables',[])[:3]
             if len(json.dumps(state['table_summary']).encode())>2500:raise ValueError('table summary too large')
-            self._refresh_tool_suggestions(instance);return self.view(instance)
+            self._refresh_tool_suggestions(instance);view=self.view(instance);host=urlsplit(state.get('page_context',{}).get('url','')).hostname;view['annotation_profiles']=[{key:tool[key] for key in ('hosts','pages') if key in tool} for tool in self.packages.tools if host in tool.get('hosts',[])];return view
         if method=='capability_state':return self._capability_view(instance)
         if method=='capability_health':
             context=self._tool_context(instance)
@@ -236,9 +240,16 @@ class ToolSupport:
             Packages([*others,str(target)])
         private_write(path,json.dumps(package,ensure_ascii=False,indent=2)+'\n')
 
+    def _table_hints(self,instance):
+        current=recognize(self.packages.tools,self._tool_context(instance).get('url','')) or {}
+        tool=next((tool for tool in self.packages.tools if tool['id']==current.get('tool')),{})
+        page=next((page for page in tool.get('pages',[]) if page['id']==current.get('page')),{})
+        return {'headers':list(dict.fromkeys(alias for aliases in page.get('columns',{}).values() for alias in aliases))[:100],
+                'selectors':page.get('table_selectors',[])[:20]}
+
     def _capability_view(self,instance):
         from copilot_setup import pending_templates
-        state=self._state(instance);return {'pending_templates':pending_templates(self.directory),'disabled_templates':dict(self.templates.disabled),'capabilities':self.registry.inspect(self._tool_context(instance)),'running':self.tool_health_running,'candidates':state.get('skill_candidates',[]),'schemas':self.registry.schemas,'tool':state.get('tool_context',{}).get('current'),'protected_hosts':list(self._resource_policy())}
+        state=self._state(instance);return {'table_hints':self._table_hints(instance),'pending_templates':pending_templates(self.directory),'disabled_templates':dict(self.templates.disabled),'capabilities':self.registry.inspect(self._tool_context(instance)),'running':self.tool_health_running,'candidates':state.get('skill_candidates',[]),'schemas':self.registry.schemas,'tool':state.get('tool_context',{}).get('current'),'protected_hosts':list(self._resource_policy())}
 
     def _draft_profile(self,instance,context):
         from copilot import private_write,parse_model_json,validate
@@ -264,25 +275,32 @@ class ToolSupport:
     def _execute_workflow(self,instance,row,epoch,execution_config):
         from copilot import private_write
         from copilot_results import report
-        context={**self._tool_context(instance),**row.get('page_context',{}),'job_key':instance+':'+row['id'],'row_id':row['id'],'execution_config':execution_config,'hermes':execution_config['exec_transport']=='oneshot'};work=self.directory/'tasks'/('workflow-'+row['id']+'-'+str(int(time.time()*1000)))
+        context={**self._tool_context(instance),**row.get('page_context',{}),'job_key':instance+':'+row['id'],'row_id':row['id'],'execution_config':execution_config,'secondary_confirmed':row.get('secondary_confirmed',False),'automatic':row.get('automatic',False),'hermes':execution_config['exec_transport']=='oneshot'};work=self.directory/'tasks'/('workflow-'+row['id']+'-'+str(int(time.time()*1000)))
         def progress(event):
             with self.lock:
+                if event.get('step_index'):row['workflow_index']=event['step_index']
                 if event.get('step'):row['step']=event['step'];row['workflow_step']=event['step']
                 elif event.get('provider'):row['step']=str(row.get('step',''))[:180]+' · '+event['provider']+((' · batch '+str(event['batch'])) if event.get('batch') else '')
                 self._state(instance)['last_work_activity']=self.clock();self._emit(instance,'update',suggestion=dict(row))
-                if event.get('provider'):self.journal.add(instance,'execute_step',task_id=row['id'],provider=event['provider'],capability=event.get('capability',''),phase=event.get('implementation','fetch'),batch=event.get('batch',0),steps=event.get('completed_steps',0))
-        result,stopped=self.workflow_runner.run(context['job_key'],row['params']['flow'],row['params']['object'],context,work,lambda payload,stop:self._tool_model(instance,row,payload,stop,execution_config),progress)
+                self.journal.add(instance,'execute_step',task_id=row['id'],provider=event.get('provider',''),capability=event.get('capability',''),phase=event.get('phase',event.get('implementation','fetch')),step_index=event.get('step_index',0),step_name=event.get('step_name',''),count=event.get('count',0),duration_ms=event.get('duration_ms',0),batch=event.get('batch',0),steps=event.get('completed_steps',0))
+        model=None if row.get('automatic') or self.packages.flows[row['params']['flow']].get('judgment') is False else lambda payload,stop:self._tool_model(instance,row,payload,stop,execution_config)
+        result,stopped=self.workflow_runner.run(context['job_key'],row['params']['flow'],row['params']['object'],context,work,model,progress)
         if stopped or row['status']=='stopping' or not self._valid(instance,epoch):
             path=self._report_path(row['id']);private_write(path,report(result,row['title']))
             with self.lock:row.update(status='stopped',result=result,report=str(path),finished_at=time.time());self._emit(instance,'update',suggestion=dict(row))
-        else:self._complete(instance,row,result)
+        else:
+            row['completion_status']='failed' if not result['records'] or any(item['reason']=='缺少模型判断' for item in result['missing']) else 'partial' if result['missing'] else 'completed'
+            if row['completion_status']=='failed':
+                detail=row.pop('judgment_failure',None) or {'reason':'execution_error','error_type':'ExecutionError','detail':next((item['reason'][5:] for item in result['missing'] if item['reason'].startswith('判断失败：')),result['verdict'])}
+                row.update(error='workflow_incomplete',reason=detail.get('detail') or result['verdict'],failure=detail)
+            self._complete(instance,row,result)
 
     def _pool_context(self,instance,selected,context,key,stop):
         import uuid
         from copilot_capabilities import Stopped
         work=self.directory/'tasks'/('pool-context-'+uuid.uuid4().hex)
         try:
-            output=self.registry.execute('pool.lookup',{'keyword':selected},work,stop,{**context,'local_only':True})
+            output=self.registry.execute('pool.lookup',{'keyword':selected},work,stop,{**context,'local_only':True,'automatic':True})
             projection={'status':'checked','source':output['source'],'records':[{key:row[key] for key in ('keyword','tier','host','verdict') if key in row} for row in output['records'][:20]],'missing':output.get('missing',[])}
             with self.lock:
                 state=self._state(instance)

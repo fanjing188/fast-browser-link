@@ -704,5 +704,6 @@
     ],
     "additionalProperties": false
   },
-  "prompt_en": "Judge keyword intent and evidence. For a batch include every keyword in checks. Do not copy metrics or invent SERP rankings."
+  "prompt_en": "Judge keyword intent and evidence. For a batch include every keyword in checks. Do not copy metrics or invent SERP rankings.",
+  "risk": "metered"
 }

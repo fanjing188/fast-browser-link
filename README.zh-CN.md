@@ -10,27 +10,26 @@
 
 本候选尚未发布。[协作模式](docs/copilot.zh-CN.md)已有精简 profile 本机测量，真实浏览器验收仍待完成；下方下载命令为正式 Release 的安装流程。
 
-## 安装独立 skills 模式
+## 三步上手
 
-下载 Release 安装包，不要使用 GitHub 自动生成的 Source code ZIP。需要 Python 3.11+；安装包已包含构建后的扩展，不需要 Node.js 或 Hermes。
+1. 下载 Release 安装 ZIP 并解压（不是 Source code ZIP）。需要 Python 3.11+；包内有已构建扩展，运行时不需要 Node 或 Hermes。本候选尚未发布。
+2. 在解压目录执行 `python3 -B -m fbl setup`；无人交互可用 `--yes`（只默认确认高置信、零成本绑定）。命令安装至 `~/.local/bin/fbl`，未加入 PATH 时仍可在包内用 `python3 -B -m fbl`。先看范围可用 `python3 -B -m fbl setup --dry-run`。
+3. 在 `chrome://extensions` 或 `edge://extensions` 加载初始化输出的 extension 目录，启用连接并打开侧栏，按简短就绪清单处理剩余项。浏览器确认不能自动绕过。
+
+
 
 ```sh
 curl -fL https://github.com/fanjing188/fast-browser-link/releases/download/v2.2.0/fast-browser-link-2.2.0.zip -o fast-browser-link-2.2.0.zip
 unzip fast-browser-link-2.2.0.zip
 cd fast-browser-link-2.2.0
-bash install.sh --dry-run
-bash install.sh
+python3 -B -m fbl setup
 ```
 
-安装器校验包内 `SHA256SUMS.json`，识别已有 agent 目录并安装技能。也可用 `--agent all` 或 `--agent codex` 选择目标。原有 Hermes 插件、配置和 Native host 保留；已有同名安装不会自动覆盖。
+已有安装运行 `fbl update --dry-run`，核对后 `fbl update`；`bash install.sh --upgrade` 也支持旧独立版。升级会等待/拒绝活动任务，保留备份，失败回滚。改过的技能或配置不强制覆盖。Hermes 只管理两个带归属标记的专用 profile，保留模型迁移；核心浏览器功能无需 Hermes。
 
-在 `edge://extensions` 或 `chrome://extensions` 中开启开发者模式，加载安装器输出的 **extension 目录**，打开扩展确认已连接。未上架扩展仍需浏览器确认，安装器不会绕过浏览器限制。
+本机 agent 可读取 `~/.agents/skills/fast-browser-link/SKILL.md` 并调用其中 Python 脚本。协作模式需要配置好 Hermes；其他 agent 通过 skills 或 MCP 使用核心浏览器。
 
-可以直接给本机 agent 发送：
-
-> 读取 ~/.agents/skills/fast-browser-link/SKILL.md，使用其中的 scripts/browser.py 打开 https://example.com、读取页面，然后关闭本次任务。保留原有标签页及 Hermes 配置。
-
-agent 必须能读取本机文件并执行 Python。独立 skills 模式无需 MCP 配置；纯云端 agent 仍需单独配对。详见[通用接入](docs/agent-integration.md)和[完整安装提示词](docs/agent-install-prompt.md)。
+[命令参考](docs/fbl.zh-CN.md) · [排障](docs/fbl-troubleshooting.zh-CN.md) · [技能包与能力清单](docs/fbl-packs.zh-CN.md)
 
 ## 普通与无痕任务
 

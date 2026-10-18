@@ -39,6 +39,9 @@ SKIP_FILES = {'CODEX-AUDIT-REPORT.md', 'CODEX-STREAM-REPORT.md', '.DS_Store', 'b
 NODE_BOUNDARIES = ('.', 'cloud-link/site')
 # Explicit runner inventory: no glob expands into browser, install, or evidence suites.
 NODE_TESTS = (
+    'tests/copilot/r16.test.mjs',
+    'tests/copilot/r15.test.mjs',
+    'tests/copilot/r14.test.mjs',
     'tests/copilot/template-recovery.test.mjs',
     'tests/copilot/copilot.test.mjs',
     'tests/copilot/ui.test.mjs',
@@ -165,7 +168,7 @@ PYTHON_SUITES = (
 )
 # Some directories contain explicitly unsafe runners: select files by fixed name.
 PYTHON_FILES = {
-    'tests/copilot': ('test_inference_diagnostics.py','test_template_upgrade.py','test_copilot.py','test_copilot_exec.py','test_copilot_results.py','test_copilot_selection.py','test_copilot_capabilities.py','test_copilot_journal.py','test_copilot_health.py'),
+    'tests/copilot': ('test_r16.py','test_r15.py','test_r14.py','test_inference_diagnostics.py','test_template_upgrade.py','test_copilot.py','test_copilot_exec.py','test_copilot_results.py','test_copilot_selection.py','test_copilot_capabilities.py','test_copilot_journal.py','test_copilot_health.py'),
     'tests/agent-link': ('test_agent_link.py',),
     'cloud-link/tests': ('test_cloud.py', 'test_native.py', 'test_scheduler.py', 'test_service.py'),
     'tests/auto-update': ('test_update.py',),

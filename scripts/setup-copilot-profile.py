@@ -5,6 +5,10 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
+base=Path(__file__).resolve().parents[1]
+sys.path.insert(0,str(next((path for path in (base/'native-bridge',base/'native_bridge',base) if (path/'copilot.py').is_file()),base/'native-bridge')))
+from fbl_profiles import desired
 
 
 def setup(root, model, provider='auto', apply=False, command='hermes',profile='copilot'):
@@ -14,13 +18,7 @@ def setup(root, model, provider='auto', apply=False, command='hermes',profile='c
     toolsets=[] if profile=='copilot' else ['fast-browser-link','web','terminal','file']
     if any(part.is_symlink() for part in (target,*target.parents)):
         raise ValueError('refusing symlink profile path')
-    # 中文注释：已核对 Hermes config_defaults.DEFAULT_CONFIG 与迁移入口；其余缺省值由读取时合并。
-    config={'_config_version':50,'model':{'default':model,'provider':provider},'platform_toolsets':{'acp':[],'cli':toolsets},
-            'mcp_servers':{},'plugins':{'enabled':[] if profile=='copilot' else ['fast-browser-link']},'memory':{'memory_enabled':False,'user_profile_enabled':False,'provider':''},
-            'command_allowlist':[],'approvals':{'mode':'manual'},'skills':{'auto_load':[]},'auxiliary':{'background_review':{'enabled':False},'title_generation':{'enabled':False,'model_upgrade_enabled':False}},
-            'agent':{'max_turns':1 if profile=='copilot' else 15,
-              'tool_use_enforcement':False,'execution_guidance':False,
-              'task_completion_guidance':False,'parallel_tool_call_guidance':False}}
+    config=desired(model,provider,profile)
     # 中文注释：JSON 是 YAML 子集，不依赖用户安装 PyYAML；空 SOUL 防止默认长人格再次被播种。
     files={'config.yaml':json.dumps(config,ensure_ascii=False,indent=2)+'\n', 'SOUL.md':'',
            'AGENTS.md':'','workspace/AGENTS.md':'','workspace/.hermes.md':''}

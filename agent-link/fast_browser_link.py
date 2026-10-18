@@ -11,10 +11,17 @@ import sys
 import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location('fast_bridge_client', (ROOT / 'native-bridge/client.py').resolve())
+client_path=next(path for path in (ROOT/'native-bridge/client.py',ROOT/'native_bridge/client.py') if path.is_file())
+spec = importlib.util.spec_from_file_location('fast_bridge_client',client_path.resolve())
 bridge = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(bridge)
-VERSION = json.loads(next(path for path in (ROOT / 'native-extension/manifest.json', ROOT / 'extension/manifest.json', ROOT.parent / 'extension/manifest.json') if path.is_file()).read_text())['version']
+version_path=next((path for path in (ROOT/'native-extension/manifest.json',ROOT/'extension/manifest.json',ROOT.parent/'extension/manifest.json',ROOT.parent/'native-extension/manifest.json') if path.is_file()),None)
+if version_path:VERSION=json.loads(version_path.read_text())['version']
+else:
+    import re
+    match=re.search(r'^version:\s*(\S+)',(ROOT/'plugin.yaml').read_text(),re.M) if (ROOT/'plugin.yaml').is_file() else None
+    VERSION=match.group(1) if match else 'unknown'
+
 HOME = Path(os.environ.get('FAST_BROWSER_LINK_HOME', Path.home() / '.fast-browser-link'))
 METHODS = {'health': 'health', 'browsers': 'browser.list', 'create': 'shared.create',
            'get': 'shared.get', 'list': 'shared.list', 'run': 'shared.run',

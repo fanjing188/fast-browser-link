@@ -260,8 +260,21 @@ def paused_cloud_launcher(home, user_home, env):
             original.unlink(missing_ok=True)
 
 
+def cloud_never_configured(home,user_home=None):
+    home=Path(home)
+    if os.path.lexists(home/'plugin-data/fast-browser-link-cloud'):return False
+    if user_home is not None and any(path.exists() or path.is_symlink() for path in registrations(user_home,HOST+'.cloud')):return False
+    # 中文注释：代码存在不是启用证据；无配对目录/注册/安装围栏才视为从未配置。
+    state=home/'plugin-data/fast-browser-link-native/install-state.json'
+    try:return not state.exists() or not json.loads(state.read_text()).get('cloudFence')
+    except (OSError,ValueError):return False
+
+
 @contextmanager
 def cloud_gate(home, *, installed, user_home=None, env=None, maintenance=False):
+    if cloud_never_configured(home,user_home):
+        yield None
+        return
     if maintenance:
         with paused_cloud_launcher(home, user_home, env) as original, idle_cloud(home):
             yield original
@@ -505,6 +518,13 @@ def load_task_records(home):
 
 def assert_tasks_idle(home, *, daemon_stopped=False):
     try:
+        activity=home/'plugin-data/fast-browser-link-native/copilot/basket-active.json'
+        EXECUTOR.reject_target_symlinks([activity])
+        if activity.exists():
+            info=activity.stat()
+            if info.st_uid!=os.getuid() or stat.S_IMODE(info.st_mode)&0o077:raise ValueError('unsafe basket activity record')
+            state=json.loads(activity.read_text())
+            if not isinstance(state,dict) or state.get('version')!=1 or not isinstance(state.get('jobs'),dict) or state['jobs']:raise ValueError('active or unsettled Copilot basket work')
         value = load_task_records(home)
         for task in value['tasks']:
             if (not isinstance(task, dict) or not isinstance(task.get('id'), str)

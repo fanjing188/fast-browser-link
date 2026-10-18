@@ -19,10 +19,10 @@ def read_package(directory):
 
 
 class Packages:
-    def __init__(self,directories=()):
+    def __init__(self,directories=(),include_builtin=True):
         self.bindings={};self.flows={};self.experience='';self.schemas={};self.workflows={};self.fetchers={};self.pool={};self.rules={'description':{'en':'Judge intent and evidence. Missing metrics are unknown, never zero. No fixed volume or difficulty gate.','zh':'按意图与证据判断；缺指标为未知，不按零处理；没有固定量或难度门槛。'}};self.tools=[];self.templates={};self.prompts={};seen=set()
         builtin=Path(__file__).parent/'copilot-packages/generic'
-        for directory in [builtin,*directories]:
+        for directory in ([builtin] if include_builtin else [])+list(directories):
             root,value=read_package(directory)
             if value['id'] in seen:raise ValueError('duplicate extension package')
             seen.add(value['id'])
@@ -42,6 +42,7 @@ class Packages:
                 if not isinstance(tool,dict) or set(tool)-{'id','hosts','name','links','pages','probe','cost','batch_limit','serial_group','disable_on'} or not isinstance(tool.get('id'),str) or not isinstance(tool.get('hosts'),list) or any(not isinstance(host,str) for host in tool['hosts']):raise ValueError('invalid tool profile')
                 for page in tool.get('pages',[]):
                     if not isinstance(page,dict) or not isinstance(page.get('id'),str) or not isinstance(page.get('paths'),list) or any(not isinstance(pattern,str) or len(pattern)>400 for pattern in page['paths']):raise ValueError('invalid tool page')
+                    if not isinstance(page.get('table_selectors',[]),list) or any(not isinstance(item,str) or len(item)>400 for item in page.get('table_selectors',[])):raise ValueError('invalid table selector')
                     for field,aliases in page.get('columns',{}).items():
                         if field not in UNIFIED['properties'] or not isinstance(aliases,list) or not aliases or any(not isinstance(alias,str) for alias in aliases):raise ValueError('invalid column mapping')
                     for pattern in page['paths']:re.compile(pattern)
@@ -51,7 +52,7 @@ class Packages:
                 if any(existing['id']==tool['id'] for existing in self.tools):raise ValueError('duplicate tool id')
                 self.tools.append(copy.deepcopy(tool))
             for action,relative in value.get('templates',{}).items():
-                if not re.fullmatch(r'(?:seo|general|browser)\.[a-z_]+',action) or not isinstance(relative,str):raise ValueError('invalid package template')
+                if not re.fullmatch(r'(?:seo|general|browser|local)\.[a-z_]+',action) or not isinstance(relative,str):raise ValueError('invalid package template')
                 file=(root/relative).resolve()
                 if not file.is_relative_to(root) or not file.is_file() or file.stat().st_size>131072:raise ValueError('unsafe package template')
                 self.templates[action]=json.loads(file.read_text())
@@ -87,6 +88,9 @@ class Packages:
                     seen_steps.add(step['id']);models+=bool(step.get('model'))
                     if step.get('capability') and step['capability'] not in CAPABILITIES and step['capability'] not in self.schemas:raise ValueError('unknown step capability')
                 if models>1:raise ValueError('workflow has more than one model turn')
+                from copilot_risk import declared
+                declared(flow)
+                for step in flow['steps']:declared(step)
                 self.flows[identity]=copy.deepcopy(flow)
             experience=value.get('experience','')
             if value.get('experience_file'):
@@ -107,10 +111,14 @@ class Packages:
 
 
 def validate_binding(binding):
-    if not isinstance(binding,dict) or not re.fullmatch(r'[a-z][a-z0-9_.-]{0,80}',binding.get('id','')) or binding.get('type') not in {'browser','command','hermes'}:raise ValueError('invalid capability binding')
+    from copilot_risk import declared
+    if isinstance(binding,dict):declared(binding)
+    if not isinstance(binding,dict) or not re.fullmatch(r'[a-z][a-z0-9_.-]{0,80}',binding.get('id','')) or binding.get('type') not in {'browser','command','hermes','mcp'}:raise ValueError('invalid capability binding')
     if type(binding.get('batch_limit',100)) is not int or not 1<=binding.get('batch_limit',100)<=1000:raise ValueError('invalid batch limit')
     if type(binding.get('priority',100)) is not int or type(binding.get('timeout',120)) is not int or not 1<=binding.get('timeout',120)<=600:raise ValueError('invalid binding bounds')
+    if binding['type']=='mcp' and (not all(isinstance(binding.get(key),str) and binding[key] for key in ('config_path','server','tool_name')) or not Path(binding['config_path']).is_absolute()):raise ValueError('invalid MCP binding')
     if binding['type']=='command' and (not isinstance(binding.get('argv'),list) or not binding['argv'] or any(not isinstance(arg,str) or not arg for arg in binding['argv'])):raise ValueError('invalid command argv')
+    if 'output' in binding and (not isinstance(binding['output'],dict) or binding['output'].get('format','json') not in {'json','csv'} or binding['output'].get('from','stdout') not in {'stdout','file'}):raise ValueError('invalid command output format')
     if binding['type']=='browser' and not all(isinstance(binding.get(key),str) and binding[key] for key in ('tool','page','link')):raise ValueError('invalid browser binding')
     if binding['type']=='browser' and type(binding.get('verified',False)) is not bool:raise ValueError('invalid route verification')
     if binding.get('serial_group') and (not isinstance(binding['serial_group'],str) or len(binding['serial_group'])>120):raise ValueError('invalid serial group')

@@ -6,9 +6,11 @@ import os
 import re
 import threading
 import time
+from copilot_diagnostics import redact
 from copilot_diagnostics import stderr_summary
 
 MESSAGES={
+ 'batch_complete':('execution','批量执行回执','Batch receipt'),
  'capture':('capture','采集操作轨迹与页面摘要','Captured activity and page summary'),
  'table':('capture','识别页面表格','Recognized page tables'),
  'inference_send':('inference','发送增量推理','Sent incremental inference'),
@@ -34,10 +36,10 @@ MESSAGES={
  'template_disabled':('system','模板无效，已跳过','Invalid template skipped'),
  'startup_failed':('system','协作会话启动失败','Copilot session failed to start'),
  'error':('system','协作请求未完成','Copilot request did not complete')}
-NUMBERS={'snapshot_bytes','increment_bytes','estimated_tokens','duration_ms','input','cache_read','output','tokens','added','updated','removed','steps','items','tables','rows','page','batch','available','missing','total','waiting','repairs'}
-IDENTIFIERS={'task_id','action','provider','capability','phase','model','error_type'}
+NUMBERS={'snapshot_bytes','increment_bytes','estimated_tokens','duration_ms','input','cache_read','output','tokens','added','updated','removed','steps','items','tables','rows','page','batch','available','missing','total','waiting','repairs','step_index','count','repeats','context_tokens','skipped','failed','batch'}
+IDENTIFIERS={'task_id','action','provider','capability','phase','model','error_type','cause_type'}
 CHANGES={'inference_model','exec_model','max_parallel','context_limit','mode','turn_multiplier','exec_transport','show_ball','selection_popup','enabled'}
-REASONS={'model_output_invalid','acp_disconnected','acp_timeout','acp_process_exited','internal_error','user_closed','idle_closed','daemon_closed','transport_error','invalid_template','hermes_command_missing','hermes_profile_missing','inference_start_failed','execution_start_failed','invalid_configuration','execution_or_persistence_failed','inference_failed','acp_start_blocked','execution_acp_start_blocked','execution_acp_restart_exhausted','event_log_write_failed'}
+REASONS={'model_output_invalid','acp_disconnected','acp_timeout','acp_process_exited','internal_error','execution_error','user_closed','idle_closed','daemon_closed','transport_error','invalid_template','hermes_command_missing','hermes_profile_missing','inference_start_failed','execution_start_failed','invalid_configuration','execution_or_persistence_failed','inference_failed','acp_start_blocked','execution_acp_start_blocked','execution_acp_restart_exhausted','event_log_write_failed'}
 KINDS={'navigate','click','selection','dwell','snapshot','table'}
 
 
@@ -46,13 +48,16 @@ def safe_details(values):
     result={}
     if not isinstance(values,dict):return result
     for key,value in values.items():
-        if key=='exit_code' and type(value) is int and -65536<=value<=65536:result[key]=value
+        if key=='completion_status' and isinstance(value,str) and value in {'completed','partial','failed'}:result[key]=value
+        elif key=='exit_code' and type(value) is int and -65536<=value<=65536:result[key]=value
         elif key=='stderr_tail' and isinstance(value,list):result[key]=stderr_summary(value)
         elif key=='field' and isinstance(value,str) and value in {'json','suggestions','summary','params','result','ready'}:result[key]=value
+        elif key=='detail' and (values.get('reason')=='execution_error' or values.get('error_type')=='ExecutionError') and isinstance(value,str):result[key]=redact(value)[:300]
+        elif key=='step_name' and isinstance(value,str):result[key]=redact(value)[:80]
         elif key=='detail' and isinstance(value,str) and value in {'invalid_json','non_finite_number','object_required','scene_and_array_required','invalid_text','schema_mismatch','not_ready'}:result[key]=value
         elif key=='fields' and isinstance(value,list):result[key]=[field for field in value if field in {'title','why','id','suggestions','extra_fields','params','action','row'}]
         elif key=='capability_statuses' and isinstance(value,dict):result[key]={name:status for name,status in value.items() if re.fullmatch(r'[a-z][a-z0-9._]{0,80}',name) and status in {'available','waiting','missing'}}
-        elif key in {'estimated','close_requested'} and type(value) is bool:result[key]=value
+        elif key in {'estimated','close_requested','slow','automatic'} and type(value) is bool:result[key]=value
         elif key=='reason' and isinstance(value,str) and value in REASONS:result[key]=value
         elif key in NUMBERS and type(value) in (int,float) and 0<=value<=10**18:result[key]=value
         elif key in IDENTIFIERS and isinstance(value,str) and len(value)<=256 and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._:/@+~ -]*',value) and '://' not in value and not re.search(r'(?i)(?:bearer|cookie|secret|sk[-_])',value):result[key]=value
@@ -86,6 +91,17 @@ class Journal:
     def _row(self,instance,event,identity,stamp,details,error):
         kind,summary,english=MESSAGES[event]
         if type(stamp) not in (int,float) or not 0<=stamp<=time.time()+86400:stamp=time.time()
+        clean=safe_details(details)
+        if event=='execute_step':
+            names={'keyword.expand':'扩词','keyword.questions':'问题词','keyword.metrics':'关键词指标','keyword.judge':'关键词判断','serp.top':'搜索结果','pool.lookup':'词池查询'}
+            operation=names.get(clean.get('capability'),clean.get('step_name') or clean.get('phase') or '执行')
+            provider={'unbound':'未绑定','local':'本机','local transform':'本机变换','single model judgment':'模型判断','model':'模型'}.get(clean.get('provider'),clean.get('provider') or '本机')
+            summary=f"第 {clean.get('step_index',1)} 步 · {operation} · {provider} · {clean.get('count',0)} 条 / {clean.get('duration_ms',0)/1000:.1f}s"
+            english=f"Step {clean.get('step_index',1)} · {clean.get('capability') or clean.get('step_name','execution')} · {clean.get('provider','local')} · {clean.get('count',0)} rows"
+        if event=='execute_complete' and clean.get('completion_status')=='partial':summary=f"任务部分完成（缺 {clean.get('missing',0)} 项）";english=f"Task partially completed ({clean.get('missing',0)} gaps)"
+        if clean.get('automatic'):summary='自动 · '+summary;english='Automatic · '+english
+        if clean.get('repeats',1)>1:summary+=f" ×{clean['repeats']}";english+=f" ×{clean['repeats']}"
+        if clean.get('slow'):summary+=' · 慢请求 >5s';english+=' · slow >5s'
         if event=='disconnected':
             reason=safe_details(details).get('reason','transport_error')
             summary+=' · '+{'user_closed':'用户关闭','idle_closed':'空闲关闭','daemon_closed':'服务关闭','acp_process_exited':'进程退出','acp_timeout':'响应超时','transport_error':'传输错误','acp_disconnected':'传输错误'}.get(reason,'启动失败')
@@ -107,7 +123,12 @@ class Journal:
         with self.lock:
             if self.closed:return
             self._roll_day()
-            self.revision+=1;row=self._row(instance,event,self.revision,time.time(),details,error);self.rows.append(row)
+            self.revision+=1;previous=self.rows[-1] if self.rows else None
+            folded=event=='execute_step' and previous and previous['instance']==instance and previous['event']==event and all(previous['details'].get(key)==details.get(key) for key in ('task_id','step_index','capability','provider'))
+            if folded:details={**previous['details'],**details,'repeats':previous['details'].get('repeats',1)+1}
+            row=self._row(instance,event,previous['id'] if folded else self.revision,time.time(),details,error)
+            if folded:self.rows[-1]=row
+            else:self.rows.append(row)
             self.pending.setdefault(instance,[]).append(row)
             self.pending[instance]=self.pending[instance][-self.limit:];self.wake.set()
 

@@ -199,6 +199,8 @@ class BridgeDaemon:
             raise ValueError("request_history_limit must be a positive integer")
         self.home = home.resolve()
         self.data_dir = self.home / "plugin-data" / "fast-browser-link-native"
+        try:self.runtime_version=json.loads((Path(__file__).parent/'runtime-version.json').read_text()).get('version')
+        except (OSError,ValueError):self.runtime_version=None
         self.socket_path = self.data_dir / "bridge.sock"
         self.token_path = self.data_dir / "token"
         self.tasks_path = self.data_dir / "tasks.json"
@@ -1120,12 +1122,19 @@ class BridgeDaemon:
                 return self.cookie_mirror.dispatch(params, owner)
             except (MirrorDenied, TypeError):
                 raise ProtocolError('cookie_mirror_denied', 'Cookie 镜像请求不可用，请在扩展中核实。') from None
+        if method=='fbl.version' and params=={}:return {'version':self.runtime_version}
         if method == "health" and params == {}:
             return {"ok": True, "protocolVersion": 1}
         if method == 'ui.set_primary':
             if set(params) != {'instanceId'} or not isinstance(params['instanceId'], str):
                 raise ProtocolError('invalid_params', 'invalid primary browser')
             return self._set_primary_browser(params['instanceId'])
+        if method == 'fbl.tabs':
+            if set(params)!={'instanceId','confirm'} or params.get('confirm') is not True or not isinstance(params.get('instanceId'),str):
+                raise ProtocolError('invalid_params','explicit tab inventory consent required')
+            with self.state_lock:extension=self.extensions.get(params['instanceId'])
+            if not extension:raise ProtocolError('browser_unavailable','browser unavailable')
+            return self._extension_call(extension,'fbl.tabs',{},timeout=5.0)
         if method == "browser.list" and params == {}:
             with self.state_lock:
                 extensions = list(self.extensions.values())

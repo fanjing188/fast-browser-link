@@ -1,0 +1,40 @@
+{
+  "id": "general",
+  "version": 1,
+  "dependencies": [
+    "browser.core"
+  ],
+  "upgrade": "managed digest; modified files preserved",
+  "recipes": {
+    "read-page": [
+      "browsers",
+      "create",
+      "new_tab",
+      "semantic_snapshot",
+      "close"
+    ],
+    "table-export": [
+      "recognize_tables",
+      "confirm_table",
+      "save_table"
+    ],
+    "multipage": [
+      "recognize_tables",
+      "confirm_table",
+      "collect_table"
+    ],
+    "page-summary": [
+      "new_tab",
+      "semantic_snapshot",
+      "agent_summary",
+      "close"
+    ],
+    "form-assist": [
+      "semantic_snapshot",
+      "draft_values",
+      "user_confirm",
+      "ref_fill",
+      "user_submit"
+    ]
+  }
+}

@@ -29,6 +29,7 @@ def wait(check):
 
 class ExecutionACPTest(unittest.TestCase):
     def setUp(self):
+        backoff=patch.object(ACPExecutions,'BACKOFF',(.01,.02,.04));backoff.start();self.addCleanup(backoff.stop)
         self.tmp=tempfile.TemporaryDirectory();self.root=Path(self.tmp.name).resolve()
         self.config={**DEFAULTS,'exec_acp_command':[sys.executable,str(ROOT/'tests/copilot/fake-exec-acp.py')],'timeout_seconds':3}
         self.pool=ACPExecutions(self.config,self.root);self.pool.start()
@@ -66,6 +67,10 @@ class ExecutionACPTest(unittest.TestCase):
         self.assertEqual(sum('pid' in r for r in self.records()),2)
         self.assertEqual(sum(r.get('method')=='session/new' for r in self.records()),2)
         errors=[];self.pool.on_error=errors.append
+        for attempt in (2,3):
+            previous=self.pool.runtime;previous.process.kill();previous.process.wait()
+            wait(lambda:self.pool.runtime is not previous and self.pool.runtime.process is not None and self.pool.runtime.process.poll() is None)
+            self.assertEqual(self.pool.restarts,attempt)
         self.pool.runtime.process.kill();self.pool.runtime.process.wait()
         wait(lambda:bool(errors))
         self.assertEqual(errors[-1],'execution_acp_restart_exhausted')

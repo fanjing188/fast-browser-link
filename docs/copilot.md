@@ -76,3 +76,19 @@ Inference ACP, execution ACP and oneshot stderr are drained continuously and con
 An unexpected inference disconnect or process exit receives one immediate recovery per enabled collaboration session: revalidate the zero-tool profile, resume using the saved summary, completed-task memory and suggestion statuses, then resend current page deltas. Execution tasks are never replayed. A failed recovery or another exit uses the existing bounded 5/15/60-second startup retry policy and eventually waits for manual Retry. Brief ready states preserve this recovery budget until a valid inference succeeds or the user toggles collaboration.
 
 The managed-profile generator was checked against Hermes configuration source. Creation or verified managed upgrades of `copilot` and `copilot-exec` write `_config_version: 50`, preserve higher versions and model/provider settings, and reject user-modified profiles. No global Hermes migration runs; other defaults merge at read time. Updating source alone does not modify installed profiles.
+
+
+## Judgment and partial results
+
+ACP judgment uses the zero-tool `inference_profile` (default `copilot`) and selects an explicitly configured execution model through `session/set_model`. With no selection, that zero-tool profile's default applies. `/tools` is still verified. `copilot-exec` remains for tool-enabled oneshot tasks; source updates do not modify Hermes profiles.
+
+Failures persist `tasks/failed-<id>/result.json` with classified errors, redacted messages and acquired evidence, plus a report. Cards explicitly mark missing judgment without inventing tiers. Workflows skip unbound capabilities, retain their step artifacts and continue toward one judgment when evidence exists. `completion_status` and card/log labels distinguish completed, partial and failed outcomes. Candidate budgets report deduplicated and omitted counts.
+
+Unchanged semantic captures and same-second duplicates are discarded or merged locally; empty increments do not trigger inference. Model suggestions survive at least 30 seconds and require two consecutive omissions before withdrawal, except a page change. Hovered/expanded cards are retained by both UI and host; release uses the existing fade. Closing the sidebar clears holds.
+
+Step logs name the step/capability/provider and returned count/duration, folding consecutive equivalents. INFO stderr noise is filtered. Inference over five seconds is informational, not an error. Context uses ACP's current `usage_update.used`; fallback estimates add incremental input/output rather than cached billing usage. The threshold stays 6000.
+
+Table reading covers native/ARIA tables, split headers/bodies, virtual rows, open shadow roots and readable same-origin frames. Page profiles may declare `table_selectors` and `columns` header aliases. Only visible rows are sampled; control values, inaccessible frames and closed roots are excluded. Nested-context pagination is withheld and marked incomplete. Confirmation and workspace ownership checks remain required.
+
+
+[Page annotations, basket and execution risk](copilot-page-work.md)

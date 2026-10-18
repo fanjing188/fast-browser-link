@@ -39,11 +39,12 @@ class ExecutionTransport(ACP):
 
 
 class ACPExecutions:
+    BACKOFF=(1,2,4)
     def __init__(self,config,directory,on_error=lambda _:None,on_process=lambda _:None):
         self.on_error=on_error;self.on_process=on_process
         self.config=config;self.directory=directory
         self.lock=threading.RLock();self.start_lock=threading.Lock()
-        self.runtime=None;self.closed=False;self.restarts=0;self.jobs={};self.cancelled=set()
+        self.runtime=None;self.closed=False;self.restarts=0;self.stop_event=threading.Event();self.jobs={};self.cancelled=set()
 
     def start(self):
         with self.start_lock:
@@ -51,10 +52,11 @@ class ACPExecutions:
             if self.runtime and not self.runtime.closed and self.runtime.process.poll() is None and not self.runtime.failure:return self.runtime
             while True:
                 if self.runtime:
-                    if self.restarts>=1:
+                    if self.restarts>=len(self.BACKOFF):
                         error=ExecutionError('execution ACP restart exhausted');error.failure=failure(error,self.runtime);raise error
-                    self.restarts+=1;self.runtime.close()
-                config={**self.config,'inference_profile':self.config['exec_profile'],'stderr_role':'execution'}
+                    delay=self.BACKOFF[self.restarts];self.restarts+=1;self.runtime.close()
+                    if self.stop_event.wait(delay):raise ExecutionError('execution ACP closed')
+                config={**self.config,'inference_profile':self.config['inference_profile'],'stderr_role':'execution'}
                 config.pop('acp_command',None)
                 if config.get('exec_acp_command'):config['acp_command']=config['exec_acp_command']
                 runtime=ExecutionTransport(config,self.directory,self.disconnected)
@@ -67,7 +69,7 @@ class ACPExecutions:
                     return runtime
                 except (ACPError,OSError) as error:
                     runtime.close()
-                    if self.restarts>=1:
+                    if self.restarts>=len(self.BACKOFF):
                         exc=ExecutionError('execution ACP restart exhausted');exc.failure=failure(error,runtime);raise exc from None
 
     def disconnected(self,runtime):
@@ -108,7 +110,7 @@ class ACPExecutions:
             progress({'type':'model','model':model,'source':'acp.session'})
             # 当前 Hermes ACP 不接线会话工具/轮数设置。只在可核实零工具的判读路径调用模型。
             runtime.call('session/prompt',{'sessionId':session,'prompt':[{'type':'text','text':'/tools'}]})
-            if job['text'].strip()!='No tools available.':raise ExecutionError('ACP 无法按会话限制工具，请升级受管 profile 或明确选择 oneshot 后备')
+            if job['text'].strip()!='No tools available.':raise ExecutionError('ACP 无法按会话限制工具：判断 profile 含工具，请升级受管 copilot profile')
             if brief['action']=='general.task' and brief.get('single_judgment') is not True:raise ExecutionError('当前 Hermes ACP 缺少工具/轮数会话控制，通用任务请明确选择 oneshot 后备')
             with self.lock:
                 if key in self.cancelled:raise ExecutionError('execution stopped')
@@ -138,6 +140,7 @@ class ACPExecutions:
             with self.lock:self.jobs.pop(key,None);self.cancelled.discard(key)
 
     def close(self):
+        self.stop_event.set()
         with self.lock:self.closed=True;keys=list(self.jobs)
         for key in keys:self.cancel(key)
         runtime=self.runtime

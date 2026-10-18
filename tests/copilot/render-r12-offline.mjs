@@ -1,3 +1,4 @@
+import {renderChains} from '../../native-extension/copilot-readiness.mjs';
 import {mountControls,boardName,renderConnection} from '../../native-extension/copilot-controls.mjs';
 import {TablePanel} from '../../native-extension/copilot-table-panel.mjs';
 import {tableConfirmation} from '../../native-extension/copilot-table-confirm.mjs';
@@ -33,7 +34,7 @@ const popupHTML=await readFile(new URL('popup.html',source),'utf8'),popupCSS=awa
 for(const theme of ['light','dark']){
  for(const status of ['connected','connecting','disconnected','error','off']){
   const dom=new JSDOM(popupHTML,{url:'chrome-extension://fixture/popup.html',runScripts:'outside-only'}),doc=dom.window.document;
-  dom.window.setInterval=()=>1;Object.assign(dom.window,{mountControls,boardName,renderConnection});dom.window.chrome={i18n:{getUILanguage:()=> 'zh-CN'},runtime:{getManifest:()=>({version:'2.2.0'}),onMessage:{addListener(){}},sendMessage:async()=>({result:{connected:true,tasks:[],cloud:{state:'unpaired'},copilot:{enabled:status!=='off',hermes_health:{state:status==='off'?'disconnected':status,reason:status==='error'?'合成失败 / Synthetic error':''}}}})}};
+  dom.window.setInterval=()=>1;Object.assign(dom.window,{renderChains,mountControls,boardName,renderConnection});dom.window.chrome={i18n:{getUILanguage:()=> 'zh-CN'},runtime:{getManifest:()=>({version:'2.2.0'}),onMessage:{addListener(){}},sendMessage:async()=>({result:{connected:true,tasks:[],cloud:{state:'unpaired'},copilot:{enabled:status!=='off',hermes_health:{state:status==='off'?'disconnected':status,reason:status==='error'?'合成失败 / Synthetic error':''}}}})}};
   dom.window.eval(popupJS);await new Promise(done=>setImmediate(done));
   doc.querySelectorAll('script,link').forEach(node=>node.remove());for(const img of doc.querySelectorAll('img'))img.src='data:image/svg+xml,'+encodeURIComponent(logo);
   const file=`r12-popup-${status}-${theme}.html`;await writeFile(new URL(file,out),`<!doctype html><meta charset="utf-8"><style>${baseBrand}${popupCSS}${controlsCSS}${theme==='dark'?dark:''}:root{color-scheme:${theme}}</style>`+doc.body.outerHTML);files.push([theme,'popup '+status,file]);dom.window.close();

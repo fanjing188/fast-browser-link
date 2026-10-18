@@ -1,7 +1,7 @@
 import {actionNames,renderResult} from './copilot-result-view.mjs';
 // 中文注释：看板文案集中映射；原始诊断只放在用户主动展开的详情里。
 export {actionNames};
-export const objectName=row=>row.params?.keyword||row.params?.url||row.params?.object||row.title;
+export const objectName=row=>row.params?.keyword||row.params?.url||row.params?.object||row.params?.value||row.title;
 export function statePresentation(state){
  if(state.diagnostic==='bridge_disconnected')return {label:'出错',tone:'danger',message:'本地连接已断开，请重新连接。',action:'重新连接'};
  if(state.recovering)return {label:'正在重连',tone:'busy',message:state.inference_failure?.message||'Hermes 推理进程已退出，正在重连'};
@@ -49,14 +49,14 @@ export function renderDashboard(doc,state,{command,clipboard=globalThis.navigato
  const older=$('older-results');if(older){older.hidden=groups.results.length<=20;if(older._filter!==wanted){older.open=!!wanted;older._filter=wanted;}}
  const button=(label,action,row,extra={})=>{const b=node(doc,'button',label);b.type='button';b.dataset.action=action;b.setAttribute('aria-label',`${label}：${objectName(row)}`);b.onclick=async()=>{b.disabled=true;try{await command(action,{id:row.id,...extra});}catch{doc.getElementById('notice').textContent='操作未完成，请核对本地连接后重试。';}finally{b.disabled=false;}};return b;};
  const alive=new Set((state.suggestions||[]).map(row=>row.id));
- for(const article of doc.querySelectorAll('article[data-id]'))if(!alive.has(article.dataset.id)&&!article._removeTimer){article.classList.add('leaving');article.setAttribute('aria-hidden','true');article._removeTimer=setTimeout(()=>article.remove(),180);}
+ for(const article of doc.querySelectorAll('article[data-id]'))if(!alive.has(article.dataset.id)&&!article._removeTimer&&!article._held&&!article.contains(doc.activeElement)&&!article.querySelector('details[open]')){article.classList.add('leaving');article.setAttribute('aria-hidden','true');article._removeTimer=setTimeout(()=>article.remove(),180);}
  for(const [group,rows] of Object.entries(groups)){
   const container=$(group),empty=container.querySelector('.empty');empty?.remove();
   if(!rows.length&&(group!=='running'||!doc.querySelector('#running .table-job[data-active=true]')))container.append(node(doc,'p',group==='pending'?'暂无建议':group==='running'?'暂无进行中的任务':'暂无结果','empty'));
   let queueIndex=0,resultIndex=0;
   for(const row of rows){
    let article=[...doc.querySelectorAll('article[data-id]')].find(el=>el.dataset.id===row.id);
-   if(!article){article=node(doc,'article',undefined,'task new');article.dataset.id=row.id;}
+   if(!article){article=node(doc,'article',undefined,'task new');article.dataset.id=row.id;const hold=()=>{void Promise.resolve(command?.('suggestion_hold',{id:row.id,held:!!article._held||!!article.querySelector('details[open]')})).catch(()=>{});};article.addEventListener('toggle',hold,true);article.addEventListener('pointerenter',()=>{article._held=true;clearTimeout(article._removeTimer);article._removeTimer=null;article.classList.remove('leaving');hold();});article.addEventListener('pointerleave',()=>{article._held=false;hold();});}
    if(group==='results'){
     article.hidden=!!wanted&&!visibleResults.has(row.id);article.classList.toggle('filter-context',!!wanted&&row.action!==wanted&&visibleResults.has(row.id));
     const parent=row.parent_id&&[...doc.querySelectorAll('article[data-id]')].find(item=>item.dataset.id===row.parent_id&&item!==article);
@@ -69,8 +69,9 @@ export function renderDashboard(doc,state,{command,clipboard=globalThis.navigato
    if(group==='results'&&article._signature===JSON.stringify(row))continue;
    if(group==='results')article._signature=JSON.stringify(row);
    article.classList.toggle('child-result',!!row.parent_id);
+   const outcome=row.completion_status==='partial'?(en?`Partial (${row.result?.missing?.length||0} gaps)`:`部分完成（缺 ${row.result?.missing?.length||0} 项）`):row.status==='failed'?(en?'Failed':'失败'):row.completion_status==='completed'?(en?'Completed':'完成'):'';
    const title=node(doc,'h3',row.title),meta=node(doc,'div',undefined,'meta');
-   const symbol=node(doc,'span',({'seo.keyword_check':'⌕','seo.longtail':'⋈','seo.competitor_keywords':'↔','seo.serp_breakdown':'≡','seo.save_pool':'✓','table.export':'▦'})[row.action]||'○');symbol.setAttribute('aria-hidden','true');meta.append(symbol);
+   const symbol=node(doc,'span',({'seo.keyword_check':'⌕','seo.longtail':'⋈','seo.competitor_keywords':'↔','seo.serp_breakdown':'≡','seo.save_pool':'✓','table.export':'▦'})[row.action]||'○');symbol.setAttribute('aria-hidden','true');meta.append(symbol);if(row.automatic)meta.append(node(doc,'span',en?'Automatic':'自动','tag'));
    meta.append(node(doc,'span',row.scene==='general'?'通用':'SEO','tag'),node(doc,'span',actionNames[row.action]||'通用任务'));
    article.replaceChildren(meta,title,node(doc,'p',objectName(row),'object'));
    const actions=node(doc,'div',undefined,'actions');
@@ -84,7 +85,8 @@ export function renderDashboard(doc,state,{command,clipboard=globalThis.navigato
    }
    if(group==='results'){
     article.classList.toggle('failed',row.status==='failed');
-    if(row.status==='completed'||row.action==='workflow.run'&&row.result)renderResult(doc,article,row,{command,clipboard});
+    if(outcome)article.append(node(doc,'p',outcome,'completion-status'));
+    if(row.result)renderResult(doc,article,row,{command,clipboard});
     else{article.append(node(doc,'p',row.status==='stopped'?'已停止，已发生的操作不会撤销。':row.reason||'执行未完成，请检查本地连接或数据源后重试。','failure'));actions.append(button('重试','retry',row));}
    }
    if(row.usage){const details=node(doc,'details',undefined,'task-usage');details.append(node(doc,'summary','任务用量明细'),node(doc,'p',`输入 ${num(row.usage.input)} · 缓存读 ${num(row.usage.cache_read)} · 输出 ${num(row.usage.output)}`));article.append(details);}
@@ -92,7 +94,7 @@ export function renderDashboard(doc,state,{command,clipboard=globalThis.navigato
     const label=row.model_source==='local'?'模型：本地处理，无模型调用':row.model?`模型：${row.model}${row.model_source==='acp'?' · ACP 会话':row.model_source==='hermes'?' · Hermes 启动回报':row.model_source==='cache'?' · 缓存来源':' · 已选择，待回报'}`:'模型：尚未回报';
     article.append(node(doc,'p',label,'model-label'));
    }
-   article.append(actions);if(group==='results'){const preview=node(doc,'details',undefined,'result-preview'),summary=node(doc,'summary',row.title);preview.append(summary,...article.childNodes);article.append(preview);}if(attachedChildren)article.append(attachedChildren);
+   article.append(actions);if(group==='results'){const preview=node(doc,'details',undefined,'result-preview'),summary=node(doc,'summary',row.title+(outcome?' · '+outcome:'')+(row.status==='failed'&&row.reason?'：'+row.reason.slice(0,80):''));summary.title=row.reason||row.title;preview.append(summary,...article.childNodes);article.append(preview);}if(attachedChildren)article.append(attachedChildren);
    [...article.querySelectorAll('details')].forEach((detail,index)=>{detail.open=!!openDetails[index];});
   }
  }

@@ -5,11 +5,11 @@ description: Standard workflow and safety rules for working in the user's own lo
 
 # Working in the user's browser
 
-Regular mode shares browser logins. Connection authorization permits reads, navigation, writes and JS/CDP/Python. Ownership, leases, takeover and stop still apply; offline/unknown grants nothing.
+Regular mode shares logins. Connection authorization permits reads, navigation, writes and JS/CDP/Python. Ownership, leases, takeover and stop still apply; offline/unknown grants nothing.
 
 ## Page output and recovery
 
-Read page content as returned. `coverage` describes missing areas without blocking readable content. Password values are not echoed; password/payment/OTP fields require Vault or user input.
+Read returned content. `coverage` describes missing areas without blocking readable content. Password values are not echoed; password/payment/OTP fields require Vault or user input.
 
 Location recovery rescans frame/Shadow DOM up to three rounds; `recovery` reports target/method. On failure, change the locator or skip. Unknown writes require a read.
 
@@ -63,14 +63,14 @@ For multi-step work, use one `fast_browser_script`: locate → act → check in 
 - 目标文件已存在时拒绝覆盖。`..` 和软链接越出允许根会拒绝，错误列出允许根。`screenshot(path, name='控件名称')` 或 `screenshot(path, selector='#result')` 会先把目标滚到视口中央再截图。
 - 截图里可见的敏感字段及无法检查的框架会以实色块遮罩，回执的 `masked` 只给类别、角色和固定名称。若返回 `capture_sensitive_blocked` 或 `capture_frame_uninspectable`，请隐藏相关区域或交给用户手动截图；不要读取字段值。密码、支付和验证码的填写规则不变。
 
-- **Upload**: when the user gives local file paths in the conversation (`~` is fine), call `fast_browser_run(task_id=..., tab_id=..., action='files.upload', selector=..., paths=[...])` — at most 10 files, 100 MiB each. The files are copied into this task's private area and selected into the page's unique, visible file input. This only means *selected*: read the page to confirm the site received them. Do not click the final submit on your own, and never pick files the user did not name.
+- **Upload**: only user-named paths (`~` allowed): `fast_browser_run(task_id=..., tab_id=..., action='files.upload', selector=..., paths=[...])`; max 10 files, 100 MiB each. Copies to private task storage and selects the unique visible input. Read back site receipt; final submit needs user confirmation.
 - **Download**: after triggering a download, use `fast_browser_downloads(task_id, action='list')`, then `claim` (returns a verified `localPath`) or `cancel`. Downloads that cannot be attributed to the task are only counted, never claimed.
 
 ## Page scripts and CDP
 
 Browser connection authorization permits page JavaScript, raw CDP, CDP event reads and `browser_exec` directly; no per-action approval is needed. Use `fast_browser_run` actions `js.evaluate`, `cdp.send`, `cdp.events` (or `browser_console`, `browser_cdp`, `browser_exec`). A page where a credential was filled cannot run arbitrary scripts/CDP. Raw CDP events include other frame origins; credential headers and Bearer values are removed.
 
-Use a new `request_id` for independent scripts/Vault operations; never replay unknown results. Vault still requires its optional capability, manager unlock, official masked prompts, exact origin checks and private credential channel. Connection authorization does not grant access to secrets or let scripts replace manual entry.
+Use a new `request_id` for independent scripts/Vault operations; never replay unknown results. Vault still requires its optional capability, manager unlock, official masked prompts, exact origin checks and private credential channel. Connection authorization never grants secrets or replaces manual entry.
 
 Errors: `fast-browser-link:fast-browser-troubleshoot`.
 
@@ -99,3 +99,7 @@ Errors: `fast-browser-link:fast-browser-troubleshoot`.
 用户要求无痕时，在 `fast_browser_open` 或 `fast_browser_create` 增加 `incognito=true`。先确认扩展允许无痕/InPrivate 访问；`incognito_access_required` 时不得降级为普通窗口。普通与无痕任务不会互相复用，同浏览器的无痕任务仍共享无痕 Cookie。无痕不隐藏插件任务日志，也不阻止下载文件落盘。
 
 表单、截图、iframe、JS/CDP、Python 工作流和上传下载沿用既有任务接口。登录弹窗和下载优先用 `ref_click` 提供可信手势；刷新后继续原 taskId。原任务的最近日志在新页面恢复，超出面板五步的历史用 `fast_browser_get(include_log=true)` 查看。普通 Cookie 镜像保持原规则，不支持无痕会话镜像。密码、验证码与支付字段仍必须交给用户或已经授权的私有 Vault。
+
+## 初始化与协作
+
+包内 `python3 -B -m fbl setup`；无需 Node，核心无需 Hermes，协作需 Hermes。`fbl doctor --fix` 修受管项，`fbl logs --bundle` 导出脱敏诊断；`fbl update --dry-run` 预览空闲升级与失败回滚。`fbl packs discover` 或侧栏“本机能力 › 发现”审阅保存；私有声明只留本机。见 `docs/fbl.md`、`docs/fbl-packs.md`。

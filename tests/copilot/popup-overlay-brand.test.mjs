@@ -1,3 +1,4 @@
+import {renderChains} from '../../native-extension/copilot-readiness.mjs';
 import {mountControls,boardName,renderConnection} from '../../native-extension/copilot-controls.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -16,7 +17,7 @@ async function mount(status,{language='zh-CN',send}={}){
  const dom=new JSDOM(html,{url:'chrome-extension://fixture/popup.html',runScripts:'outside-only'}),fire=capture(dom),calls=[],timers=[];let closed=0,changed;const dispose=dom.window.close.bind(dom.window);
  dom.window.setInterval=()=>1;dom.window.setTimeout=(fn,ms)=>{timers.push({fn,ms});return timers.length;};dom.window.clearTimeout=()=>{};dom.window.close=()=>{closed++;};
  dom.window.chrome={i18n:{getUILanguage:()=>language},windows:{getCurrent:async()=>({id:7})},runtime:{getManifest:()=>({version:'2.2.0'}),onMessage:{addListener:fn=>{changed=fn;}},sendMessage:async message=>{calls.push(message);if(message.type==='popup_status'){if(status instanceof Error)throw status;return {result:status};}return send?send(message):{result:{opened:true}};}}};
- Object.defineProperty(dom.window.navigator,'clipboard',{value:{writeText:async()=>{}}});dom.window.eval(cloud);Object.assign(dom.window,{mountControls,boardName,renderConnection});dom.window.eval(popup.replace(/^import .*;\n/gm,''));await flush();
+ Object.defineProperty(dom.window.navigator,'clipboard',{value:{writeText:async()=>{}}});dom.window.eval(cloud);Object.assign(dom.window,{renderChains,mountControls,boardName,renderConnection});dom.window.eval(popup.replace(/^import .*;\n/gm,''));await flush();
  return {dom,doc:dom.window.document,fire,calls,timers,get closed(){return closed;},async update(value){status=value;changed({type:'changed'});await flush();},close(){dispose();}};
 }
 test('popup maps local states without granting access from old consent, and keeps one primary action',async()=>{

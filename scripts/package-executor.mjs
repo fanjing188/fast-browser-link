@@ -57,8 +57,8 @@ async function record(dir) {
 const nativeModules = ['browser-workspaces/index.mjs', 'browser-diagnostics/js/diagnostics.mjs'];
 const diagnosticsPackage = 'browser-diagnostics/python/browser_diagnostics';
 const diagnosticsFiles = ['__init__.py', 'schema.py', 'runtime.py', 'sink.py'];
-const inputs = ['package.json','package-lock.json','cloud-link/site/package.json','cloud-link/site/package-lock.json','executor-plugin','native-bridge','native-extension', 'cloud-link', 'browser-workspaces', 'browser-diagnostics', ...modules,
-  'CHANGELOG.md','docs','THIRD_PARTY_NOTICES.md','third-party/licenses/hermes-agent-MIT.txt'];
+const inputs = ['fbl.py','package.json','package-lock.json','cloud-link/site/package.json','cloud-link/site/package-lock.json','executor-plugin','native-bridge','native-extension', 'cloud-link', 'browser-workspaces', 'browser-diagnostics', ...modules,
+  'skills','agent-link','scripts/setup-copilot-profile.py','scripts/setup-copilot-package.py','CHANGELOG.md','docs','THIRD_PARTY_NOTICES.md','third-party/licenses/hermes-agent-MIT.txt'];
 async function sourceSnapshot() {
   const entries = {};
   async function visit(relative) {
@@ -179,7 +179,7 @@ async function verifyLayout(root) {
     if (!actualFiles.has(required)) throw new Error(`Incomplete package layout: missing ${required}`);
   }
   const roots=new Set([...actualFiles].map(name=>name.split('/')[0]));
-  const expectedRoots=new Set(['fast-browser-link','native-extension','docs','LICENSE','README.md','INSTALL.txt','RELEASE-STATUS.txt','install-executor.py','install-cli.py','install.sh']);
+  const expectedRoots=new Set(['fbl.py','fast-browser-link','native-extension','docs','LICENSE','README.md','INSTALL.txt','RELEASE-STATUS.txt','install-executor.py','install-cli.py','install.sh']);
   if (roots.has('SHA256SUMS.json')) expectedRoots.add('SHA256SUMS.json');
   if (roots.size!==expectedRoots.size||[...roots].some(name=>!expectedRoots.has(name))) throw new Error(`Unexpected package root layout: ${JSON.stringify([...roots].sort())}`);
   return actualFiles;
@@ -227,9 +227,12 @@ try {
   for(const file of ['THIRD_PARTY_NOTICES.md','third-party/licenses/hermes-agent-MIT.txt'])
     await copyFile(path.join(source,file),path.join(output,'fast-browser-link',file));
   // 中文注释：自动更新组件携带相同安装器，下载新包后仍用当前可信代码校验及事务升级。
-  for (const name of ['install-cli.py','install-executor.py']) {
+  for (const name of ['install-cli.py','install-executor.py','setup-copilot-profile.py','setup-copilot-package.py']) {
     await copyFile(path.join(source,'scripts',name),path.join(output,'fast-browser-link/maintenance',name));
   }
+  await copyTree(path.join(source,'skills'),path.join(output,'fast-browser-link/core-skills'));
+  await copyTree(path.join(source,'agent-link'),path.join(output,'fast-browser-link/agent_link'));
+  await copyFile(path.join(source,'fbl.py'),path.join(output,'fbl.py'));
   for (const module of modules) await copyTree(path.join(source,module),path.join(output,'fast-browser-link',module));
   // Only the native runtime JS entries, not module tests, scripts or evidence.
   for (const relative of nativeModules) {

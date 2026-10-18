@@ -22,6 +22,7 @@ export class TablePanel{
    const saved=this.saved.get(key);
    if(saved){for(const file of saved.files){section.append(node('p',file.path),button('打开文件',()=>this.request('table_open',{id:file.id})),button('打开所在文件夹',()=>this.request('table_open',{id:file.id,folder:true})));}
     section.append(node('p','选择关键词列 · 单次最多1000词，超出请先缩小范围'));const column=doc.createElement('select');column.setAttribute('aria-label','选择关键词所在列');table.headers.forEach((name,index)=>{const option=node('option',name||'未命名列 '+(index+1));option.value=String(index);column.append(option);});column.value=this.columns.get(key)||String(Math.max(0,table.headers.findIndex(name=>/keyword|关键词|^词$/i.test(name))));column.onchange=()=>this.columns.set(key,column.value);section.append(column);
+    section.append(button('整表加入工作篮',()=>this.request('basket_add',{items:[{type:'table',value:saved.id}]})),button('所选列加入工作篮',()=>this.request('basket_add',{items:[{type:'table',value:saved.id,columns:[Number(column.value)]}]})));
     for(const [label,operation] of [['批量查词','check'],['存词池','save']])section.append(button(label,()=>this.request('table_column_action',{id:saved.id,column:Number(column.value),operation})));
    }
    root.append(section);

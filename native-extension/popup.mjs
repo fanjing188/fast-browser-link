@@ -1,3 +1,4 @@
+import {renderChains} from './copilot-readiness.mjs';
 import {mountControls,boardName,renderConnection} from './copilot-controls.mjs';
 // 中文注释：只用当前宿主回执证明连接/任务状态，缓存和旧授权都不能充当在线证据。
 const $=selector=>document.querySelector(selector);
@@ -32,7 +33,7 @@ function render(){
  const first=known&&!connected&&statusData?.browserFullConsentStatus==='disabled';
  $('#empty-label').textContent=t(first?'尚未授权连接':'本地服务未运行',first?'Connection not authorized':'Local service is not running');$('#connect').textContent=t(first?'连接':'重试',first?'Connect':'Retry');$('#connect').classList.remove('primary');$('#local-connect').classList.toggle('primary',first);
  $('#open-copilot').classList.remove('primary');$('#local-connect').hidden=connected||busy;$('#local-connect').textContent=t(known?'连接':'重试',known?'Connect':'Retry');
- const copilot=statusData?.copilot;$('#popup-board-name').textContent=boardName(copilot?.board_name,chinese?'zh':'en');$('#open-copilot').hidden=!known||!connected||copilot?.enabled!==true;renderConnection($('#popup-hermes-status'),connected?copilot?.hermes_health:null,chinese?'zh':'en');$('#hermes-refresh').hidden=connected&&copilot?.hermes_health?.state!=='disconnected';controls.sync();$('#copilot-toggle').setAttribute('aria-checked',String(copilot?.enabled===true));$('#copilot-toggle').disabled=!known||!connected;
+ const copilot=statusData?.copilot;$('#popup-setup').hidden=!connected||copilot?.enabled===true;renderChains(document,$('#popup-chains'),{extension:known?connected:null,host:known?connected:null,daemon:known?connected:null,inference:copilot?.ready===true,execution:copilot?.execution_health?.state==='connected'},chinese?'zh':'en');$('#popup-board-name').textContent=boardName(copilot?.board_name,chinese?'zh':'en');$('#open-copilot').hidden=!known||!connected||copilot?.enabled!==true;renderConnection($('#popup-hermes-status'),connected?copilot?.hermes_health:null,chinese?'zh':'en');$('#hermes-refresh').hidden=!connected||!['error','disconnected'].includes(copilot?.hermes_health?.state);controls.sync();$('#copilot-toggle').setAttribute('aria-checked',String(copilot?.enabled===true));$('#copilot-toggle').disabled=!known||!connected;
  $('#copilot-summary').hidden=true;
  $('#copilot-summary').textContent=[t(copilot?.running?'跟随中':'跟随中','Following'),copilot?.running?t(`进行中 ${copilot.running}`,`Running ${copilot.running}`):'',copilot?.unread?t(`新结果 ${copilot.unread}`,`New ${copilot.unread}`):''].filter(Boolean).join(' · ');
  renderWork();window.dispatchEvent(new CustomEvent('fast-browser-link-status',{detail:known?{...statusData?.cloud,localConnected:connected}:null}));
@@ -76,5 +77,7 @@ $('#open-copilot').addEventListener('click',()=>void openCopilot($('#open-copilo
 $('#copilot-toggle').addEventListener('click',()=>void feedback($('#copilot-toggle'),async()=>{const state=await call({type:'copilot.popup_settings',enabled:$('#copilot-toggle').getAttribute('aria-checked')!=='true'});if(typeof state.enabled!=='boolean')throw Error(t('协作状态未确认','Copilot state not confirmed'));await refresh();}));
 document.addEventListener('keydown',event=>{if(event.key!=='Escape')return;event.preventDefault();if($('#cloud-dialog').dataset.open==='true')window.dispatchEvent(new CustomEvent('fast-collapse-cloud'));else window.close();});
 chrome.runtime.onMessage.addListener(message=>{if(message?.type==='changed'||message?.type==='copilot.changed')void refresh();});
-$('#hermes-refresh').onclick=()=>void feedback($('#hermes-refresh'),refresh);
+$('#hermes-refresh').onclick=()=>void feedback($('#hermes-refresh'),async()=>{await call({type:'copilot.fbl_fix'});await refresh();});
 void refresh();setInterval(refresh,1500);
+
+$('#popup-setup').onclick=()=>void openCopilot($('#popup-setup'));

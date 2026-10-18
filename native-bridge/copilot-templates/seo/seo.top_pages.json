@@ -330,5 +330,6 @@
   ],
   "fetch_fallback": {
     "enabled": false
-  }
+  },
+  "risk": "metered"
 }

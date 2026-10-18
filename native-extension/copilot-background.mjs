@@ -4,11 +4,11 @@ import {collectToolReport} from './copilot-tool-reports.mjs';
 import {collectBrowserData} from './copilot-browser-data.mjs';
 import {captureTables} from './copilot-tables.mjs';
 import {TableJobs} from './copilot-table-job.mjs';
-import {ordinaryPage,appendStep,safeURL} from './copilot-observation.mjs';
+import {ordinaryPage,appendStep,safeURL,pageIdentity} from './copilot-observation.mjs';
 export class CopilotBackground {
  constructor(api,request,isWorkTab=()=>false,reconnect=async()=>{}){
   this.sessionRetry=new SessionRetry(async()=>{const state=await this.request('settings',{enabled:true});await this.settings(state);});
-  this.reconnectBridge=reconnect;this.protectedHosts=null;this.selectionSeen=new Map();this.selectionPopup=true;this.tableCaptures=new Map();this.tableTab=null;this.tableJobs=null;this.localJobs=new Map();
+  this.reconnectBridge=reconnect;this.protectedHosts=null;this.selectionSeen=new Map();this.selectionPopup=true;this.tableHints=new Map();this.annotationProfiles=new Map();this.tableCaptures=new Map();this.tableTab=null;this.tableJobs=null;this.localJobs=new Map();
   this.api=api;this.request=request;this.liveWorkTab=isWorkTab;this.workspaceTabs=new Set();this.workspaceWindows=new Set();this.isWorkTab=id=>this.liveWorkTab(id)||this.workspaceTabs.has(id);this.panelPorts=new Set();this.lastNavigation=new Map();this.enabled=false;this.showBall=true;this.trace=[];this.pages=new Map();this.rows=new Map();this.unread=new Set();this.suggestionsUnread=new Set();this.queue=Promise.resolve();
  }
  panel(sender){return sender?.id===this.api.runtime.id&&(sender.url===this.api.runtime.getURL('copilot-panel.html')||sender.url?.startsWith(this.api.runtime.getURL('copilot-result.html')+'?'));}
@@ -80,16 +80,16 @@ export class CopilotBackground {
   await this.refreshOwnership();
   if(this.enabled&&!state.enabled&&this.tableConfirmation)await this.resolveTableConfirmation('cancel',this.tableConfirmation.token);
   if(this.enabled&&!state.enabled){this.tableCaptures.clear();this.tableTab=null;this.lastTableSaved=null;}
-  this.enabled=state.enabled===true;this.showBall=state.show_ball!==false;this.selectionPopup=state.selection_popup!==false;
+  this.enabled=state.enabled===true;this.showBall=state.show_ball!==false;this.selectionPopup=state.selection_popup!==false;this.pageAnnotations=state.page_annotations!==false;this.annotationDensity=state.annotation_density||'compact';
   const scripts=await this.api.scripting.getRegisteredContentScripts({ids:['copilot']});
   if(this.enabled&&!scripts.length)await this.api.scripting.registerContentScripts([{id:'copilot',matches:['http://*/*','https://*/*'],js:['copilot-entry.js'],runAt:'document_idle',allFrames:false,persistAcrossSessions:false}]);
   if(!this.enabled&&scripts.length)await this.api.scripting.unregisterContentScripts({ids:['copilot']});
   const tabs=await this.api.tabs.query({});
   await Promise.all(tabs.filter(tab=>ordinaryPage(tab.url||'')).map(async tab=>{
    if(!this.enabled||this.owned(tab)){await this.api.tabs.sendMessage(tab.id,{type:'copilot.teardown'}).catch(()=>{});return;}
-   try{await this.api.scripting.executeScript({target:{tabId:tab.id},files:['copilot-entry.js']});await this.api.tabs.sendMessage(tab.id,{type:'copilot.visibility',visible:this.showBall});await this.api.tabs.sendMessage(tab.id,{type:'copilot.selection_settings',enabled:this.selectionPopup});}catch{/* 中文注释：受限页保持不采集，不通过调试器绕过。 */}
+   try{await this.api.scripting.executeScript({target:{tabId:tab.id},files:['copilot-entry.js']});await this.api.tabs.sendMessage(tab.id,{type:'copilot.visibility',visible:this.showBall});await this.api.tabs.sendMessage(tab.id,{type:'copilot.selection_settings',enabled:this.selectionPopup});await this.api.tabs.sendMessage(tab.id,{type:'copilot.annotation_settings',enabled:this.pageAnnotations,density:this.annotationDensity,profiles:this.annotationProfiles?.get(tab.id)||[]});}catch{/* 中文注释：受限页保持不采集，不通过调试器绕过。 */}
   }));
-  if(started)void this.request('capability_health',{browser:/Edg\//.test(globalThis.navigator?.userAgent||'')?'edge':'chrome'}).catch(()=>{});
+  if(started)void this.request('capability_state',{browser:/Edg\//.test(globalThis.navigator?.userAgent||'')?'edge':'chrome'}).catch(()=>{});
   if(!this.enabled){this.selectionSeen.clear();if(this.tableJobs)for(const id of this.tableJobs.jobs.keys())this.tableJobs.stop(id);this.trace=[];this.pages.clear();await this.api.storage.session.remove('copilotTrace');}
  }
  async observation(sender,page,description){
@@ -100,13 +100,17 @@ export class CopilotBackground {
   if(description.startsWith('选中 ')){const key=description.slice(3).normalize('NFKC').trim().toLowerCase(),now=Date.now();if(now-(this.selectionSeen.get(key)||0)<600000)return {accepted:false};this.selectionSeen.set(key,now);for(const [word,at] of this.selectionSeen)if(now-at>=600000)this.selectionSeen.delete(word);}
   const previous=this.pages.get(sender.tab.id);
   if(description==='导航到新页面'&&this.lastNavigation.get(sender.tab.id)===page.url)description='页面显著变化';
-  if(['页面显著变化','打开页面'].includes(description)&&JSON.stringify(previous)===JSON.stringify(page))return {accepted:false};
+  if(['页面显著变化','打开页面'].includes(description)&&pageIdentity(previous)===pageIdentity(page))return {accepted:false};
+  const signature=sender.tab.id+'|'+pageIdentity(page)+'|'+description,at=Date.now();
+  if(this.lastCapture?.signature===signature&&at-this.lastCapture.at<1000)return {accepted:false};
+  this.lastCapture={signature,at};
   this.lastNavigation.set(sender.tab.id,page.url);
   this.pages.set(sender.tab.id,page);
   this.trace=appendStep(this.trace,description,sender.tab.id,page);
   await this.api.storage.session.set({copilotTrace:this.trace});
   await this.request('page_context',{url:sender.tab.url||sender.url,incognito:!!sender.tab.incognito});
-  await this.request('capability_context',{browser:/Edg\//.test(globalThis.navigator?.userAgent||'')?'edge':'chrome',tables:(this.tableCaptures.get(sender.tab.id)?.tables||[]).slice(0,3).map(table=>({headers:table.headers,rows:table.rows.length}))});
+  const capabilities=await this.request('capability_context',{browser:/Edg\//.test(globalThis.navigator?.userAgent||'')?'edge':'chrome',tables:(this.tableCaptures.get(sender.tab.id)?.tables||[]).slice(0,3).map(table=>({headers:table.headers,rows:table.rows.length}))});
+  this.tableHints.set(sender.tab.id,capabilities.table_hints||{});this.annotationProfiles.set(sender.tab.id,capabilities.annotation_profiles||[]);await this.api.tabs.sendMessage(sender.tab.id,{type:'copilot.annotation_settings',enabled:this.pageAnnotations!==false,density:this.annotationDensity||'compact',profiles:capabilities.annotation_profiles||[]}).catch(()=>{});
   return this.request('observe',{trace:this.trace,page});
  }
  tabEvent(tabId,description,tab){
@@ -135,16 +139,16 @@ export class CopilotBackground {
   if(event.type==='add'||event.type==='update'){const previous=this.rows.get(event.suggestion.id);this.rows.set(event.suggestion.id,event.suggestion);if(!this.panelPorts.size){if(event.type==='add'&&event.suggestion.status==='pending')this.suggestionsUnread.add(event.suggestion.id);if(event.suggestion.status==='completed'&&previous?.status!=='completed')this.unread.add(event.suggestion.id);}}
   if(event.type==='remove'){this.rows.delete(event.id);this.unread.delete(event.id);this.suggestionsUnread.delete(event.id);}
   if(event.type==='ready'&&!this.sessionRetry.recovery||event.type==='inference'&&event.succeeded===true)this.sessionRetry.reset();
-  if(event.type==='settings'&&event.enabled===false){if(event.startup_error)this.sessionRetry.failed(event.startup_error.recovery_exhausted===true);else this.sessionRetry.reset();}
+  if(event.type==='settings'&&event.enabled===false){if(event.startup_error)event.startup_error.recovery_exhausted===true?this.sessionRetry.reset():this.sessionRetry.failed();else this.sessionRetry.reset();}
   if(event.type==='settings')await this.settings({...event,enabled:event.enabled??this.enabled,show_ball:event.show_ball??this.showBall});
   void this.api.runtime.sendMessage({type:'copilot.changed',event}).catch(()=>{});
   const tabs=await this.api.tabs.query({});
-  await Promise.all(tabs.filter(t=>ordinaryPage(t.url||'')&&!this.owned(t)).map(async t=>{await this.api.tabs.sendMessage(t.id,{type:'copilot.selection_suggestions',suggestions:[...this.rows.values()].filter(row=>row.status==='pending')}).catch(()=>{});return this.api.tabs.sendMessage(t.id,{type:'copilot.badge',count:this.unread.size,suggestions:this.suggestionsUnread.size,running:[...this.rows.values()].filter(r=>['queued','executing','stopping'].includes(r.status)).length+[...this.localJobs.values()].filter(j=>j.status==='executing').length,tables:this.tableCaptures.get(t.id)?.tables.length||0,panel_open:this.panelPorts.size>0}).catch(()=>{});}));
+  await Promise.all(tabs.filter(t=>ordinaryPage(t.url||'')&&!this.owned(t)).map(async t=>{if(['update','basket'].includes(event.type))await this.api.tabs.sendMessage(t.id,{type:'copilot.annotation_refresh'}).catch(()=>{});await this.api.tabs.sendMessage(t.id,{type:'copilot.selection_suggestions',suggestions:[...this.rows.values()].filter(row=>row.status==='pending')}).catch(()=>{});return this.api.tabs.sendMessage(t.id,{type:'copilot.badge',count:this.unread.size,suggestions:this.suggestionsUnread.size,running:[...this.rows.values()].filter(r=>['queued','executing','stopping'].includes(r.status)).length+[...this.localJobs.values()].filter(j=>j.status==='executing').length,tables:this.tableCaptures.get(t.id)?.tables.length||0,panel_open:this.panelPorts.size>0}).catch(()=>{});}));
  }
  attachPanel(port){
   if(port.name!=='copilot-panel'||!this.panel(port.sender))return;
   this.panelPorts.add(port);
-  port.onDisconnect.addListener(()=>this.panelPorts.delete(port));
+  port.onDisconnect.addListener(()=>{this.panelPorts.delete(port);if(!this.panelPorts.size)void this.request('suggestion_hold',{id:'',held:false}).catch(()=>{});});
   this.unread.clear();this.suggestionsUnread.clear();
   void this.notification({type:'read'});
  }
@@ -160,6 +164,7 @@ export class CopilotBackground {
   if(content&&message.type==='copilot.table_confirmation_error'){work=this.api.runtime.sendMessage({type:'copilot.table_notice',failed:true});}
   else if(content&&message.type==='copilot.table_confirmation'&&sender.tab.id===this.tableConfirmation?.tab){work=this.resolveTableConfirmation(message.kind,message.token);}
   else if(panel&&message.type==='copilot.reconnect'){work=this.reconnectBridge().then(()=>this.request('state',{}));}
+  else if(popup&&message.type==='copilot.fbl_fix')work=this.request('fbl_fix',{});
   else   if(popup&&message.type==='copilot.popup_settings'&&typeof message.enabled==='boolean'){this.sessionRetry.reset();work=this.request('settings',{enabled:message.enabled}).then(async state=>{await this.settings(state);return {enabled:state.enabled};});}
   else if(content&&this.enabled&&message.type==='copilot.selection'){
    if(message.command==='open_capabilities'){try{void this.api.sidePanel.open({windowId:sender.tab.windowId});}catch{}}
@@ -167,24 +172,27 @@ export class CopilotBackground {
    work=this.refreshOwnership().then(async()=>{if(this.owned(sender.tab))throw Error('work page excluded');
     const params=message.params||{};
     if(message.command==='selection_info'){await this.request('page_context',{url:sender.tab.url||sender.url,incognito:!!sender.tab.incognito});await this.request('capability_context',{browser:/Edg\//.test(globalThis.navigator?.userAgent||'')?'edge':'chrome',tables:(this.tableCaptures.get(sender.tab.id)?.tables||[]).slice(0,3).map(table=>({headers:table.headers,rows:table.rows.length}))});const info=await this.request('selection_info',params);return {...info,suggestions:[...(info.workflows||[]),...[...this.rows.values()].filter(row=>row.status==='pending')]};}
+    if(message.command==='basket_add'){if(!Array.isArray(params.items)||params.items.some(item=>!['keyword','domain','url'].includes(item.type)))throw Error('invalid basket object');return this.request('basket_add',{items:params.items.map(item=>({...item,source:sender.tab.url||sender.url}))});}
+    if(message.command==='confirm_task')return this.request('execute',{id:params.id,confirmation:params.confirmation});
     if(message.command==='selection_context')return this.request('selection_context',params);
     if(message.command==='quick_task')return this.request('quick_task',{action:params.action,params:params.params,context:{url:sender.tab.url||sender.url,incognito:!!sender.tab.incognito}});
     if(message.command==='open_capabilities')return this.request('capability_focus',{});
     if(message.command==='open_cached')return this.request('focus_result',{id:params.id});
     if(message.command==='selection_error')return this.request('selection_context',{text:params.text});
     throw Error('unknown selection command');});
+  }else if(content&&this.enabled&&message.type==='copilot.annotation_lookup'){work=this.refreshOwnership().then(()=>{if(this.owned(sender.tab)||sender.url!==sender.tab.url)throw Error('work page excluded');return this.request('annotation_lookup',message.params||{});});
   }else if(content&&message.type==='copilot.tables'){
-   work=this.refreshOwnership().then(()=>{if(this.owned(sender.tab)||message.capture?.url!==sender.url)throw Error('页面范围已变化');this.tableCaptures.set(sender.tab.id,{...message.capture,incognito:!!sender.tab.incognito});void this.request('log_client',{event:'table',tables:message.capture.tables.length,rows:message.capture.tables.reduce((count,table)=>count+table.rows.length,0)}).catch(()=>{});if(sender.tab.active||this.tableTab===null)this.tableTab=sender.tab.id;void this.notification({type:'table_detected'});void this.api.runtime.sendMessage({type:'copilot.tables_changed'}).catch(()=>{});return {};});
+   work=this.refreshOwnership().then(()=>{if(this.owned(sender.tab)||message.capture?.url!==sender.url)throw Error('页面范围已变化');this.tableCaptures.set(sender.tab.id,{...message.capture,incognito:!!sender.tab.incognito});if(!sender.tab.incognito)void this.request('fbl_layout',{url:message.capture.url,tables:message.capture.tables.slice(0,3).map(table=>({headers:table.headers}))}).then(result=>{if(result.found)return this.api.runtime.sendMessage({type:'copilot.new_tool'});}).catch(()=>{});void this.request('log_client',{event:'table',tables:message.capture.tables.length,rows:message.capture.tables.reduce((count,table)=>count+table.rows.length,0)}).catch(()=>{});if(sender.tab.active||this.tableTab===null)this.tableTab=sender.tab.id;void this.notification({type:'table_detected'});void this.api.runtime.sendMessage({type:'copilot.tables_changed'}).catch(()=>{});return {};});
   }else if(panel&&message.type==='copilot.local')work=this.localCommand(message.command,message.params||{});
   else
-  if(sender?.id===this.api.runtime.id&&Number.isInteger(sender.tab?.id)&&message.type==='copilot.collector_state')work=this.refreshOwnership().then(()=>this.api.storage.local.get('copilotBallPosition')).then(saved=>({enabled:this.enabled&&!this.owned(sender.tab),selection_popup:this.selectionPopup,show_ball:this.showBall,position:saved.copilotBallPosition,panel_open:this.panelPorts.size>0}));
+  if(sender?.id===this.api.runtime.id&&Number.isInteger(sender.tab?.id)&&message.type==='copilot.collector_state')work=this.refreshOwnership().then(()=>this.api.storage.local.get('copilotBallPosition')).then(saved=>({enabled:this.enabled&&!this.owned(sender.tab),table_hints:this.tableHints.get(sender.tab.id)||{},page_annotations:this.pageAnnotations!==false,annotation_density:this.annotationDensity||'compact',annotation_profiles:this.annotationProfiles.get(sender.tab.id)||[],selection_popup:this.selectionPopup,show_ball:this.showBall,position:saved.copilotBallPosition,panel_open:this.panelPorts.size>0}));
   else if(content&&message.type==='copilot.position'&&Number.isFinite(message.x)&&Number.isFinite(message.y))work=this.api.storage.local.set({copilotBallPosition:{x:Math.max(0,Math.min(1,message.x)),y:Math.max(0,Math.min(1,message.y))}});
   else if(content&&message.type==='copilot.panel_status')work=Promise.resolve({open:this.panelPorts.size>0});
   else if(content&&this.enabled&&message.type==='copilot.observe'){
    this.queue=this.queue.catch(()=>{}).then(()=>this.observation(sender,message.page,message.description));work=this.queue;
   }else if(content&&this.enabled&&message.type==='copilot.mini')work=Promise.resolve({suggestions:[...this.rows.values()].filter(row=>row.status==='pending')});
   else if(content&&this.enabled&&message.type==='copilot.hide_ball')work=this.request('settings',{show_ball:false}).then(state=>this.settings(state));
-  else if(panel&&message.type==='copilot.command'&&['preferences','logs_read','logs_clear','logs_export','log_client','capability_state','capability_reload','capability_health','capability_discover','capability_bind','tool_learn_context','tool_draft','tool_save','locale','quick_task','selection_context','open_result','export_results','result','clear_read','batch','replenish','next_action','table_begin','table_append','table_finish','table_read','table_column_action','table_open','models','configure','state','settings','execute','ignore','stop','open_report','save_result','followup','retry','retry_inference'].includes(message.command)){
+  else if(panel&&message.type==='copilot.command'&&['basket_state','basket_add','basket_remove','basket_clear','basket_plan','basket_execute','fbl_readiness','fbl_fix','fbl_discover','fbl_confirm','preferences','logs_read','logs_clear','logs_export','log_client','capability_state','capability_reload','capability_health','capability_discover','capability_bind','tool_learn_context','tool_draft','tool_save','locale','quick_task','selection_context','open_result','export_results','result','clear_read','batch','replenish','next_action','table_begin','table_append','table_finish','table_read','table_column_action','table_open','models','configure','state','settings','execute','ignore','stop','open_report','save_result','followup','retry','retry_inference','suggestion_hold'].includes(message.command)){
    if(message.command==='settings'&&typeof message.params?.enabled==='boolean')this.sessionRetry.reset();
    work=(message.command==='open_result'?this.localCommand('open_result',message.params||{}):this.request(message.command,message.params||{})).then(async state=>{
     if(message.command==='settings'||message.command==='preferences')await this.settings(state);if(state.hermes_health)this.hermesHealth=state.hermes_health;if(state.protected_hosts)this.protectedHosts=state.protected_hosts;

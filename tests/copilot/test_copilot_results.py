@@ -52,16 +52,15 @@ class ResultContracts(unittest.TestCase):
             try:
                 module.request('browser','settings',{'enabled':True});wait(lambda:module.view('browser')['ready'])
                 state=module._state('browser');parent={'id':'parent','action':'seo.longtail','params':{'keyword':'sample'},'title':'拆长尾','status':'completed','result':legacy('seo.longtail',{'summary':'候选待核对','keywords':[{'keyword':'sample'},{'keyword':'beta'}]})};state['suggestions']['parent']=parent
-                module.request('browser','batch',{'id':'parent','operation':'check','keywords':['sample','beta']})
-                child=next(row for row in state['suggestions'].values() if row.get('parent_id')=='parent')
-                with patch.object(module,'_pool',return_value=None):wait(lambda:child['status'] in {'completed','failed'})
-                self.assertEqual(child['status'],'completed');self.assertEqual(len(child['result']['checks']),2)
+                preview=module.request('browser','batch',{'id':'parent','operation':'check','keywords':['sample','beta']})
+                self.assertTrue(preview['basket_preview']);self.assertEqual(preview['plan']['count'],2);self.assertEqual(preview['plan']['model_calls'],1)
+                self.assertEqual(len(state['suggestions']),1)
                 records=lambda:[json.loads(line) for line in (root/'exec-acp-requests.jsonl').read_text().splitlines()]
-                self.assertEqual(sum(r.get('method')=='session/new' for r in records()),1)
+                self.assertEqual(sum(r.get('method')=='session/new' for r in records()),0)
                 before=len(records());parent['report']=str(root/'parent.md');private_write(Path(parent['report']),'fixture')
                 module.request('browser','replenish',{'id':'parent'});wait(lambda:parent['result'].get('groups',[{}])[0].get('keywords',[{}])[0].get('vol')==42)
                 self.assertEqual(before,len(records()))
-                self.assertEqual(parent['row_states']['sample']['tier'],'测一页')
+                self.assertEqual(parent['result']['groups'][0]['keywords'][0]['vol'],42)
                 module.request('browser','clear_read',{});self.assertTrue(state['result_history']);self.assertFalse(any(r['status']=='completed' for r in state['suggestions'].values()))
             finally:module.close()
 
@@ -88,8 +87,10 @@ class SilentTaskBoundaries(unittest.TestCase):
             (root/'config.json').write_text(json.dumps(config));module=Copilot(root)
             try:
                 state=module._state('local');state['suggestions']['parent']={'id':'parent','action':'seo.longtail','params':{'keyword':'sample'},'title':'fixture','status':'completed','result':legacy('seo.longtail',{'summary':'待核对','keywords':[{'keyword':'sample'}]})}
-                module.request('local','batch',{'id':'parent','operation':'save','keywords':['sample']})
-                child=next(r for r in state['suggestions'].values() if r.get('parent_id')=='parent');wait(lambda:child['status']=='completed');self.assertIsNone(module.runtime);self.assertEqual(child['result']['written'],1);self.assertEqual(child['tokens'],0);self.assertIn('sample',state['pool_words']);self.assertTrue(module.request('local','selection_info',{'text':'sample'})['pool'])
+                preview=module.request('local','batch',{'id':'parent','operation':'save','keywords':['sample']})
+                self.assertTrue(preview['basket_preview']);self.assertIsNone(module.runtime);self.assertEqual(preview['plan']['model_calls'],0)
+                result=module.request('local','basket_execute',{'token':preview['plan']['token']})
+                child=state['suggestions'][result['started']];wait(lambda:child['status']=='completed');self.assertIsNone(module.runtime);self.assertEqual(child['result']['records'][0]['keyword'],'sample');self.assertEqual(child['tokens'],0);self.assertIn('sample',state['pool_words']);self.assertTrue(module.request('local','selection_info',{'text':'sample'})['pool'])
             finally:module.close()
 
 

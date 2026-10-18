@@ -72,12 +72,12 @@ export function taskTableAdapter(api,executor,bridge,consent){
    const tab=await api.tabs.get(opened.tabId);return {taskId:task.id,tabId:tab.id,windowId:tab.windowId,groupId:tab.groupId,origin:new URL(url).origin};
    }catch(error){const local=executor.tasks.get(created.id);let cleanup;try{if(local)cleanup=await executor.release({taskId:local.id,generation:local.generation,closeAgentTabs:true});await current.request('extension.stop',{taskId:created.id,generation:created.generation,...(cleanup?{cleanup}:{})});}catch{}throw error;}
   },
-  read:async(workspace,{minimumRows=3}={})=>{
+  read:async(workspace,{minimumRows=3,headers=[],selectors=[]}={})=>{
    let previous='',latest;
    for(let attempt=0;attempt<10;attempt++){
     await guard(workspace);const tab=await api.tabs.get(workspace.tabId);
     if(tab.status==='complete'){
-     latest=await execute(workspace,captureTables,[{minimumRows}]);const check=await execute(workspace,advanceTable,[{kind:'check',headers:[]}]);
+     latest=await execute(workspace,captureTables,[{minimumRows,headers,selectors}]);const check=await execute(workspace,advanceTable,[{kind:'check',headers:[]}]);
      if(check.blocked)return {...latest,blocked:check.blocked};
      const fingerprint=JSON.stringify(latest);
      if(fingerprint===previous&&latest.tables.length)return latest;previous=fingerprint;

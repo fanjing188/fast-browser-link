@@ -38,3 +38,7 @@ description: 使用用户已登录的 Chrome 或 Edge 执行普通或无痕网�
 - 排查日志用 `get {"taskId":"...","includeLog":true,"logLimit":20}`。`recentLog` 按任务连续记录，页面面板只展示最近五步；日志不是完整网页正文。
 
 无痕 Cookie 镜像不在支持范围内；普通窗口镜像仍须单独确认。Python 工作流与私有 Vault 属于可选 Hermes 适配器，不把它们当作独立 CLI 命令。
+
+## 初始化与协作
+
+包内 `python3 -B -m fbl setup`；无需 Node，核心无需 Hermes，协作需 Hermes。`fbl doctor --fix` 修受管项，`fbl logs --bundle` 导出脱敏诊断；`fbl update --dry-run` 预览空闲升级与失败回滚。`fbl packs discover` 或侧栏“本机能力 › 发现”审阅保存；私有声明只留本机。见 `docs/fbl.md`、`docs/fbl-packs.md`。

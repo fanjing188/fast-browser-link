@@ -1,3 +1,4 @@
+import {renderChains} from '../../native-extension/copilot-readiness.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
@@ -6,7 +7,7 @@ import { JSDOM } from 'jsdom'
 const root = new URL('../../native-extension/', import.meta.url)
 const [html, popupModule, cloudScript, controlsModule] = await Promise.all(['popup.html', 'popup.mjs', 'cloud-popup.mjs', 'copilot-controls.mjs'].map(file => readFile(new URL(file, root), 'utf8')))
 // 中文注释：jsdom 的 eval 只执行经典脚本；把弹窗依赖的共享组件模块内联成同一作用域，行为与浏览器按模块加载一致。
-const script = '(()=>{' + controlsModule.replace(/^export (const|function) /gm, '$1 ') + '\n' + popupModule.replace(/^import \{[^}]*\} from '\.\/copilot-controls\.mjs';?\s*$/m, '') + '\n})()'
+const script = '(()=>{' + controlsModule.replace(/^export (const|function) /gm, '$1 ') + '\n' + popupModule.replace(/^import .*;\n/gm,'') + '\n})()'
 
 async function mount(initial) {
   const dom = new JSDOM(html, { url: 'chrome-extension://test/popup.html', runScripts: 'outside-only' })
@@ -38,6 +39,7 @@ async function mount(initial) {
   dom.window.setInterval = () => 1
   // 中文注释：先注册云端订阅再读取首次快照，测试中不等待浏览器定时轮询。
   dom.window.eval(cloudScript)
+  dom.window.renderChains=renderChains
   dom.window.eval(script)
   const flush = async () => { for (let i = 0; i < 5; i++) await new Promise(resolve => setImmediate(resolve)) }
   await flush()

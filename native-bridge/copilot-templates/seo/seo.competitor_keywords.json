@@ -402,5 +402,6 @@
     ],
     "additionalProperties": false
   },
-  "prompt_en": "Judge opportunities only among the supplied competitor keywords. Do not copy metrics."
+  "prompt_en": "Judge opportunities only among the supplied competitor keywords. Do not copy metrics.",
+  "risk": "metered"
 }

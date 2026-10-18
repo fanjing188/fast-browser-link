@@ -31,6 +31,7 @@ def wait(check,seconds=6):
 
 class DiagnosticsTests(unittest.TestCase):
     def setUp(self):
+        backoff=patch.object(Copilot,'RECOVERY_BACKOFF',(.01,.02,.04));backoff.start();self.addCleanup(backoff.stop)
         self.temp=tempfile.TemporaryDirectory();self.root=Path(self.temp.name).resolve();setup(self.root)
         profile=self.root/'profiles/copilot-exec';profile.mkdir(parents=True);(profile/'config.yaml').write_text('synthetic')
         self.config={'hermes_home':str(self.root),'hermes_command':sys.executable,'acp_command':[sys.executable,str(ROOT/'tests/copilot/fake-acp.py'),'--stderr-fixture'],'exec_transport':'oneshot','timeout_seconds':2,'min_interval':0}
@@ -109,8 +110,11 @@ class DiagnosticsTests(unittest.TestCase):
         exit_row=self.logs('process_exit')[0];self.assertEqual(exit_row['details']['exit_code'],-15)
         self.assertTrue(any('synthetic Hermes warning' in line for line in exit_row['details']['stderr_tail']))
         self.assertNotIn('fixture-'+'x'*30,json.dumps(exit_row))
+        for attempt in (2,3):
+            previous=self.app.runtime;previous.process.terminate();wait(lambda:self.app.runtime is not previous and self.app.view('fixture')['ready'])
+            self.assertEqual(state['inference_restarts'],attempt)
         self.app.runtime.process.terminate();wait(lambda:not state['enabled'])
-        self.assertIsNotNone(state['startup_error']);self.assertEqual(state['inference_restarts'],1)
+        self.assertIsNotNone(state['startup_error']);self.assertEqual(state['inference_restarts'],3)
 
     def test_exit_during_inference_is_classified_and_resumed_with_current_page(self):
         self.app.config['acp_command'].append('--crash-first-infer');self.start()

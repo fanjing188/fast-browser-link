@@ -10,27 +10,26 @@
 
 This candidate is not published. [Copilot mode](docs/copilot.md) has local lean-profile measurements and pending real-browser acceptance; the download commands below describe the eventual Release installation workflow.
 
-## Install independent skills
+## Three steps to start
 
-Download the Release installation ZIP, not GitHub's source archive. Python 3.11+ is required; the ZIP includes the built extension and needs neither Node.js nor Hermes.
+1. Download and unpack the Release installation ZIP, rather than the source archive. Python 3.11+ is required. Built extensions are included; runtime use needs neither Node nor Hermes. This candidate is not published yet.
+2. Run `python3 -B -m fbl setup` inside the unpacked directory. `--yes` confirms only high-confidence, zero-cost defaults. It installs `~/.local/bin/fbl`; add that directory to PATH or keep using `python3 -B -m fbl` from the package. Preview with `python3 -B -m fbl setup --dry-run`.
+3. Load the printed extension directory in `chrome://extensions` or `edge://extensions`, enable connection and open the sidebar. Its short readiness list shows remaining steps. Browser confirmation remains required.
+
+
 
 ```sh
 curl -fL https://github.com/fanjing188/fast-browser-link/releases/download/v2.2.0/fast-browser-link-2.2.0.zip -o fast-browser-link-2.2.0.zip
 unzip fast-browser-link-2.2.0.zip
 cd fast-browser-link-2.2.0
-bash install.sh --dry-run
-bash install.sh
+python3 -B -m fbl setup
 ```
 
-The installer checks every file against `SHA256SUMS.json`, detects existing agent directories and installs the skill. It preserves existing Hermes plugins, configuration and Native hosts. Existing Fast-browser-link targets are never overwritten automatically.
+For existing installations, preview `fbl update --dry-run`, then run `fbl update`. Legacy independent installs also support `bash install.sh --upgrade`. Updates refuse or wait for active tasks, keep backups and roll back failures. Modified skills/configuration are preserved. Only marked dedicated Hermes profiles are managed; migrated model choices remain intact. Core browser use requires no Hermes.
 
-Open `edge://extensions` or `chrome://extensions`, enable developer mode if needed, then load the printed **extension directory**. Browser confirmation is required for an unpacked extension. Open the extension popup and verify it is connected.
+A local agent can read `~/.agents/skills/fast-browser-link/SKILL.md` and use its Python entrypoint. Copilot requires configured Hermes; other agents use core browsing through skills or MCP.
 
-Tell your local agent:
-
-> Read ~/.agents/skills/fast-browser-link/SKILL.md and use its scripts/browser.py to open https://example.com, read the page, then close your task. Preserve existing browser tabs and Hermes settings.
-
-The agent must be able to read local files and execute Python. Skills mode needs no MCP configuration. Pure cloud agents require a separate cloud connection. See [agent integration](docs/agent-integration.md) and [the installation prompt](docs/agent-install-prompt.md).
+[CLI reference](docs/fbl.md) · [Troubleshooting](docs/fbl-troubleshooting.md) · [Packs and capability manifests](docs/fbl-packs.md)
 
 ## Regular and incognito tasks
 

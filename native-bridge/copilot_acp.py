@@ -16,6 +16,7 @@ def hermes_environment(config, extra=None):
     # 中文注释：daemon 的 HERMES_HOME 指向 browser-link 运行时根，子进程必须回到 Hermes 自己的主目录，否则会在运行时根里重建 Hermes。
     env = {**os.environ, **(extra or {})}
     env['HERMES_YOLO_MODE']='false'
+    if config.get('bridge_home'):env['FAST_BROWSER_BRIDGE_HOME']=str(config['bridge_home'])
     if config.get('copilot_resource_token'):env['FAST_BROWSER_COPILOT_RESOURCE_TOKEN']=config['copilot_resource_token']
     if config.get('copilot_silent_token'):env['FAST_BROWSER_COPILOT_SILENT_TOKEN']=config['copilot_silent_token']
     env['HERMES_HOME'] = str(Path(config.get('hermes_home') or Path.home() / '.hermes').expanduser())
@@ -45,7 +46,7 @@ class ACP:
         self.close_lock = threading.RLock()
         self.session = None
         self.messages = {}
-        self.context_tokens = 0
+        self.context_tokens = None
         self.closed = False
         self.capabilities = {}
         self.failure = None
@@ -176,7 +177,7 @@ class ACP:
         if not isinstance(session, str) or not session:
             raise ACPError('ACP session/new returned no sessionId')
         self.session = session
-        self.context_tokens = 0
+        self.context_tokens = None
         self.last_usage = 0
         self.last_components = counts()
         self.model_state=result.get('models')
@@ -232,7 +233,7 @@ class ACP:
             if detailed:source='acp.usage.components.delta'
             components=components if components is not None else counts(tokens)
             return final, {'model':self.active_model or 'unknown','tokens':sum(components.values()),'usage':components,'estimated':not detailed,
-                           'source':source,'cumulative_tokens':self.last_usage,'input_bytes':len(text.encode()),
+                           'context_tokens':self.context_tokens,'source':source,'cumulative_tokens':self.last_usage,'input_bytes':len(text.encode()),
                            'estimated_input_tokens':(len(text.encode())+3)//4,'seconds':time.monotonic()-started}
 
     def cancel(self):

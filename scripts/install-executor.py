@@ -51,6 +51,7 @@ def verify_package_layout(package, files):
     expected_roots={'fast-browser-link','native-extension','docs','LICENSE',
                     'README.md','INSTALL.txt','RELEASE-STATUS.txt','install-executor.py',
                     'SHA256SUMS.json','install-cli.py','install.sh'}
+    if 'fbl.py' in roots:expected_roots.add('fbl.py')
     if roots!=expected_roots:
         raise ValueError('安装包顶层布局无效')
     required={

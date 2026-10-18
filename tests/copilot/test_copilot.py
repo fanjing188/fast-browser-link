@@ -81,10 +81,11 @@ class CopilotTest(unittest.TestCase):
         self.assertTrue(argv[argv.index('-c')+1].startswith('协作·关键词检查·'))
         brief=json.loads(next((self.directory/'tasks').glob('*/query.txt')).read_text());self.assertIn('Fast-browser-link ·',brief['browser'])
         self.assertNotIn('trace',brief);self.assertNotIn('suggestions',brief)
-        self.infer('third');self.assertEqual(len(self.state['suggestions']),1)
+        self.infer('third');self.assertEqual(len(self.state['suggestions']),2)
+        self.now[0]+=30;self.infer('third');self.assertEqual(len(self.state['suggestions']),1)
         requests=[json.loads(line) for line in (self.directory/'acp-requests.jsonl').read_text().splitlines()]
         prompts=[entry['params']['prompt'][0]['text'] for entry in requests if entry['method']=='session/prompt']
-        payload=json.loads(prompts[-1]);self.assertTrue(payload['completed']);self.assertTrue(all(len(line.encode())<=100 for line in payload['completed']))
+        payload=next(json.loads(text) for text in prompts if text.startswith('{') and json.loads(text).get('completed'));self.assertTrue(payload['completed']);self.assertTrue(all(len(line.encode())<=100 for line in payload['completed']))
         self.assertNotIn('Synthetic execution result',prompts[-1]);self.assertFalse(any('delegate_task' in text for text in prompts))
         self.assertIs(process,self.module.runtime.process);wait_for(lambda:any(event['type']=='progress' for _,event in self.messages))
         self.assertEqual(first['tokens'],23)
@@ -107,8 +108,9 @@ class CopilotTest(unittest.TestCase):
         with patch.object(self.module,'_pool') as pool:
             self.module.request('browser','save_result',{'id':row['id']});pool.assert_not_called()
             row['pool_saved']=False
-            self.module.request('browser','save_result',{'id':row['id']})
-            self.module.request('browser','save_result',{'id':row['id']});pool.assert_called_once()
+            preview=self.module.request('browser','save_result',{'id':row['id']})
+            self.assertTrue(preview['basket_preview']);pool.assert_not_called()
+            self.module.request('browser','save_result',{'id':row['id']});pool.assert_not_called()
         self.module._replace('browser',{'scene':'seo','suggestions':[{'title':'重复','why':'fixture','action':row['action'],'params':row['params']}]})
         self.assertFalse(any(r['status']=='pending' and r['action']==row['action'] for r in self.state['suggestions'].values()))
         self.module.request('browser','followup',{'id':row['id'],'action':'seo.longtail'})
@@ -286,7 +288,7 @@ class CopilotTest(unittest.TestCase):
 
     def test_stream_result_schema_and_oversize_rejection(self):
         for mode in ('bad_schema','huge_result','bad_stream','huge_stream'):
-            row=self.general(mode);self.module.request('browser','execute',{'id':row['id']});wait_for(lambda:row['status']=='failed');self.assertNotIn('report',row)
+            row=self.general(mode);self.module.request('browser','execute',{'id':row['id']});wait_for(lambda:row['status']=='failed');self.assertTrue(Path(row['report']).is_file());self.assertTrue(row['result']['missing'])
             if mode=='bad_schema':self.assertEqual(row['tokens'],23,'已发生调用即使结构校验失败也必须计费')
         parser=StreamJSON()
         for bad in (b'oops',b'[]',b'{"type":"result","exit_code":1}'):

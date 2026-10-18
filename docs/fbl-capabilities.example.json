@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "bindings": [
+    {
+      "capability": "keyword.expand",
+      "cost": "zero",
+      "binding": {
+        "id": "local-suggestions",
+        "type": "command",
+        "argv": [
+          "python3",
+          "scripts/suggestions.py",
+          "--input",
+          "{input_json}"
+        ],
+        "output": {
+          "format": "json",
+          "from": "stdout"
+        },
+        "priority": 10,
+        "batch_limit": 50,
+        "timeout": 30,
+        "stop_codes": [
+          75
+        ],
+        "stop_text": {
+          "quota": [
+            "quota exceeded"
+          ],
+          "rate_limit": [
+            "rate limit"
+          ]
+        },
+        "risk": "zero",
+        "read_only": true,
+        "local_only": true
+      }
+    }
+  ]
+}

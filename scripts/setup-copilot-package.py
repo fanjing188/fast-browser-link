@@ -4,7 +4,8 @@ import json
 from pathlib import Path
 import re
 import sys
-sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'native-bridge'))
+base=Path(__file__).resolve().parents[1]
+sys.path.insert(0,str(next((path for path in (base/'native-bridge',base/'native_bridge',base) if (path/'copilot.py').is_file()),base/'native-bridge')))
 from copilot import private_write
 from copilot_packages import read_package,Packages
 

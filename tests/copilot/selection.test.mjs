@@ -17,7 +17,7 @@ test('selection classification covers Chinese/English, domains, lists and paragr
 test('popup excludes controls/editors, uses closed root, defers 300ms, closes on scroll/Esc/disable',async()=>{
  const dom=fixture(),doc=dom.window.document,calls=[];const popup=new SelectionPopup(doc,{request:async(command,params)=>{calls.push([command,params]);return {cached:{id:'old',tier:'test',at:1700000000}};}});
  try{select(doc,doc.querySelector('input'));assert.equal(selectedText(doc),null);select(doc,doc.querySelector('[contenteditable]'));assert.equal(selectedText(doc),null);
- select(doc,doc.querySelector('p'));popup.schedule();assert.equal(popup.host,undefined);await new Promise(resolve=>setTimeout(resolve,330));assert.ok(popup.host);assert.equal(popup.host.shadowRoot,null);assert.match(popup.root.textContent,/查过 · test/);assert.equal(popup.root.querySelectorAll('button').length,8);
+ select(doc,doc.querySelector('p'));popup.schedule();assert.equal(popup.host,undefined);await new Promise(resolve=>setTimeout(resolve,330));assert.ok(popup.host);assert.equal(popup.host.shadowRoot,null);assert.match(popup.root.textContent,/查过 · test/);assert.equal(popup.root.querySelectorAll('button').length,9);
  popup.keydown({isTrusted:true,key:'Escape',preventDefault(){}});assert.equal(popup.host,null);
  await popup.show();dom.window.dispatchEvent(new dom.window.Event('scroll'));assert.equal(popup.host,null);
  await popup.show();popup.setEnabled(false);assert.equal(popup.host,null);popup.setEnabled(true);
@@ -37,7 +37,7 @@ test('keyboard executes once and closes immediately; updates insert recommendati
  }finally{popup.destroy();dom.window.close();}
 });
 test('background fences work pages and de-duplicates selection inference for ten minutes while preserving URL filters',async()=>{
- const requests=[];const api={runtime:{id:'x',getURL:path=>'chrome-extension://x/'+path,sendMessage:async()=>{}},storage:{local:{get:async()=>({})},session:{set:async()=>{}}},tabs:{query:async()=>[]}};
+ const requests=[];const api={runtime:{id:'x',getURL:path=>'chrome-extension://x/'+path,sendMessage:async()=>{}},storage:{local:{get:async()=>({})},session:{set:async()=>{}}},tabs:{sendMessage:async()=>{},query:async()=>[]}};
  const background=new CopilotBackground(api,async(method,params)=>{requests.push([method,params]);return {};},id=>id===9);background.enabled=true;
  const sender={id:'x',frameId:0,url:'https://site.test/?sort=volume&filter=tool',tab:{id:1,url:'https://site.test/?sort=volume&filter=tool'}},page={url:'https://site.test/',title:'Fixture',items:[]};
  await background.observation(sender,page,'选中 sample');await background.observation(sender,page,'选中 sample');assert.equal(requests.filter(([method])=>method==='observe').length,1);assert.equal(requests.find(([method])=>method==='page_context')[1].url,sender.tab.url);

@@ -1,7 +1,8 @@
+import {AnnotationLayer} from './copilot-annotations.mjs';
 import {BRAND_CSS,createBrandMark} from './brand.mjs';
 import {SelectionPopup} from './copilot-selection.mjs';
 import {captureTables} from './copilot-tables.mjs';
-import {ordinaryPage,pageSnapshot,describeEvent,stableSnapshots,tableSummary} from './copilot-observation.mjs';
+import {ordinaryPage,pageSnapshot,describeEvent,stableSnapshots,tableSummary,pageIdentity} from './copilot-observation.mjs';
 let active=false;
 export async function start(){
  if(active||!ordinaryPage(location.href,document.contentType))return;
@@ -13,6 +14,7 @@ export async function start(){
  const language=chrome.i18n?.getUILanguage?.()||navigator.language||'zh';
  const selection=new SelectionPopup(document,{language,signal,request:async(command,params)=>{const response=await chrome.runtime.sendMessage({type:'copilot.selection',command,params});if(response?.error)throw Error(response.error);return response?.result||{};},related:()=>{try{const tables=JSON.parse(lastTable).tables;return [...new Set(tables.flatMap(table=>{const col=table.headers.findIndex(name=>/keyword|关键词|^词$/i.test(name));return col<0?[]:table.rows.map(row=>row[col]?.text).filter(Boolean);} ))].slice(0,20);}catch{return [];}}});
  selection.setEnabled(response.result.selection_popup!==false);
+ const annotations=new AnnotationLayer(document,{language,enabled:response.result.page_annotations!==false,density:response.result.annotation_density||'compact',profiles:response.result.annotation_profiles||[],request:async(command,params)=>{const response=await chrome.runtime.sendMessage(command==='lookup'?{type:'copilot.annotation_lookup',params}:{type:'copilot.selection',command,params});if(response?.error)throw Error(response.error);return response?.result||{};}});
  const host=document.createElement('div');host.setAttribute('data-fast-automation-overlay','copilot');
  const shadow=host.attachShadow({mode:'closed'});
  const style=document.createElement('style');style.textContent=BRAND_CSS+':host{position:fixed;right:20px;bottom:24px;z-index:2147483647;font:14px/1.5 system-ui;color:var(--brand-ink)}button{font:inherit;cursor:pointer;min-height:40px;border:1px solid var(--brand-line);background:var(--brand-surface);color:var(--brand-ink);border-radius:var(--brand-control-radius);padding:8px 12px}button:focus-visible{outline:3px solid var(--brand-primary);outline-offset:2px}#ball{background:var(--brand-primary);color:var(--brand-on-primary);touch-action:none;border-radius:50%;width:52px;height:52px;padding:0;border:1px solid var(--brand-line)}#ball{position:relative;display:grid;place-items:center}#ball svg{width:30px;height:30px}#badge{position:absolute;right:-4px;top:-4px;background:var(--brand-primary);color:var(--brand-on-primary);font-size:11px;padding:0 5px;border-radius:var(--brand-radius);min-width:18px}.pulse{animation:pulse .7s ease-out 2}@keyframes pulse{50%{transform:scale(1.05)}}@media(prefers-reduced-motion:reduce){.pulse{animation:none}}#mini{width:270px;max-height:360px;overflow:auto;background:var(--brand-surface);padding:16px;border:1px solid var(--brand-line);border-radius:var(--brand-radius);margin-bottom:8px}p{margin:8px 0}';
@@ -30,11 +32,11 @@ export async function start(){
   try {
    const state=await chrome.runtime.sendMessage({type:'copilot.collector_state'});
    if(!state?.result?.enabled){stop();return;}
-   const captured=captureTables(document),tableKey=JSON.stringify(captured);
-   if(tableKey!==lastTable){lastTable=tableKey;await chrome.runtime.sendMessage({type:'copilot.tables',capture:captured});}
+   const captured=captureTables(document,{minimumRows:3,...state.result.table_hints}),tableKey=JSON.stringify(captured);
+   if(tableKey!==lastTable){const hadTables=lastTable&&JSON.parse(lastTable).tables.length;lastTable=tableKey;if(captured.tables.length||hadTables)await chrome.runtime.sendMessage({type:'copilot.tables',capture:captured});}
    const page=pageSnapshot(document,location.href);if(!page)return;
    if(captured.tables.length)page.items=tableSummary(captured);
-   const serialized=JSON.stringify(page);
+   const serialized=pageIdentity(page);
    if((!description||description==='页面显著变化'||description==='导航到新页面')&&serialized===last)return;
    last=serialized;
    await chrome.runtime.sendMessage({type:'copilot.observe',page,description:description||'页面显著变化'});
@@ -73,6 +75,8 @@ export async function start(){
   mini.append(hide);
  });
  const listener=message=>{
+  if(message.type==='copilot.annotation_settings'){annotations.configure({enabled:message.enabled,density:message.density,profiles:message.profiles||[]});return;}
+  if(message.type==='copilot.annotation_refresh'){void annotations.refresh(true);return;}
   if(message.type==='copilot.selection_settings'){selection.setEnabled(message.enabled);return;}
   if(message.type==='copilot.selection_suggestions'){selection.setSuggestions(message.suggestions||[]);return;}
   if(message.type==='copilot.navigation'){schedule('导航到新页面');return;}
@@ -81,7 +85,7 @@ export async function start(){
   if(message.type==='copilot.visibility')host.hidden=!message.visible;
  };
  chrome.runtime.onMessage.addListener(listener);
- function stop(){if(stopped)return;stopped=true;active=false;abort.abort();observer.disconnect();stability.stop();clearTimeout(longPress);clearTimeout(scrollTimer);clearInterval(dwell);clearTimeout(dwellTimer);chrome.runtime.onMessage.removeListener(listener);host.remove();}
+ function stop(){if(stopped)return;stopped=true;active=false;annotations.destroy();abort.abort();observer.disconnect();stability.stop();clearTimeout(longPress);clearTimeout(scrollTimer);clearInterval(dwell);clearTimeout(dwellTimer);chrome.runtime.onMessage.removeListener(listener);host.remove();}
  window.addEventListener('pagehide',stop,{once:true,signal});
  schedule('打开页面');
 }

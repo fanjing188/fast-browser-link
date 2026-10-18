@@ -1,0 +1,330 @@
+{
+  "id": "browser.open",
+  "name": "在后台打开",
+  "prompt": "只判断给定数据，不使用工具，不抄写数字。缺数据不猜测。verdict≤30字，写判断不写过程。",
+  "prompt_en": "Judge only the supplied data. Do not use tools or copy numeric metrics. Never invent missing data. Return a verdict of at most 30 characters and the required decision schema.",
+  "params_schema": {
+    "type": "object",
+    "properties": {
+      "url": {
+        "type": "string",
+        "maxLength": 2000,
+        "minLength": 1
+      }
+    },
+    "required": [
+      "url"
+    ],
+    "additionalProperties": false
+  },
+  "result_schema": {
+    "type": "object",
+    "properties": {
+      "verdict": {
+        "type": "string",
+        "maxLength": 30
+      },
+      "level": {
+        "type": "string",
+        "enum": [
+          "go",
+          "test",
+          "skip",
+          "info"
+        ]
+      },
+      "metrics": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "label": {
+              "type": "string",
+              "maxLength": 30
+            },
+            "value": {
+              "type": "string",
+              "maxLength": 80
+            }
+          },
+          "required": [
+            "label",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        "maxItems": 3
+      },
+      "missing": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "field": {
+              "type": "string",
+              "maxLength": 80
+            },
+            "reason": {
+              "type": "string",
+              "maxLength": 300
+            }
+          },
+          "required": [
+            "field",
+            "reason"
+          ],
+          "additionalProperties": false
+        },
+        "maxItems": 20
+      },
+      "process": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "maxLength": 600
+        },
+        "maxItems": 30
+      },
+      "next": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": [
+                "seo.keyword_check",
+                "seo.longtail",
+                "seo.competitor_keywords",
+                "seo.serp_breakdown",
+                "seo.save_pool",
+                "seo.trends",
+                "seo.ranking_sites",
+                "seo.domain_rating",
+                "seo.top_pages",
+                "browser.open",
+                "general.task"
+              ]
+            },
+            "object": {
+              "type": "string",
+              "maxLength": 2000
+            }
+          },
+          "required": [
+            "action",
+            "object"
+          ],
+          "additionalProperties": false
+        },
+        "maxItems": 2
+      },
+      "bullets": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "maxItems": 30
+      },
+      "links": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "label": {
+              "type": "string",
+              "maxLength": 100
+            },
+            "url": {
+              "type": "string",
+              "maxLength": 2000
+            }
+          },
+          "required": [
+            "label",
+            "url"
+          ],
+          "additionalProperties": false
+        },
+        "maxItems": 30
+      },
+      "artifacts": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "label": {
+              "type": "string",
+              "maxLength": 100
+            },
+            "path": {
+              "type": "string",
+              "maxLength": 2000
+            }
+          },
+          "required": [
+            "label",
+            "path"
+          ],
+          "additionalProperties": false
+        },
+        "maxItems": 30
+      }
+    },
+    "required": [
+      "verdict",
+      "level",
+      "metrics",
+      "missing",
+      "process",
+      "next",
+      "bullets",
+      "links",
+      "artifacts"
+    ],
+    "additionalProperties": false
+  },
+  "decision_schema": {
+    "type": "object",
+    "properties": {
+      "verdict": {
+        "type": "string",
+        "maxLength": 30
+      },
+      "level": {
+        "type": "string",
+        "enum": [
+          "go",
+          "test",
+          "skip",
+          "info"
+        ]
+      },
+      "process": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "maxLength": 600
+        },
+        "maxItems": 30
+      },
+      "next": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": [
+                "seo.keyword_check",
+                "seo.longtail",
+                "seo.competitor_keywords",
+                "seo.serp_breakdown",
+                "seo.save_pool",
+                "seo.trends",
+                "seo.ranking_sites",
+                "seo.domain_rating",
+                "seo.top_pages",
+                "browser.open",
+                "general.task"
+              ]
+            },
+            "object": {
+              "type": "string",
+              "maxLength": 2000
+            }
+          },
+          "required": [
+            "action",
+            "object"
+          ],
+          "additionalProperties": false
+        },
+        "maxItems": 2
+      },
+      "bullets": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "maxItems": 30
+      },
+      "links": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "label": {
+              "type": "string",
+              "maxLength": 100
+            },
+            "url": {
+              "type": "string",
+              "maxLength": 2000
+            }
+          },
+          "required": [
+            "label",
+            "url"
+          ],
+          "additionalProperties": false
+        },
+        "maxItems": 30
+      },
+      "artifacts": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "label": {
+              "type": "string",
+              "maxLength": 100
+            },
+            "path": {
+              "type": "string",
+              "maxLength": 2000
+            }
+          },
+          "required": [
+            "label",
+            "path"
+          ],
+          "additionalProperties": false
+        },
+        "maxItems": 30
+      }
+    },
+    "required": [
+      "verdict",
+      "level",
+      "process",
+      "next",
+      "bullets",
+      "links",
+      "artifacts"
+    ],
+    "additionalProperties": false
+  },
+  "display_fields": [
+    "verdict",
+    "level",
+    "metrics",
+    "missing",
+    "process",
+    "next",
+    "bullets",
+    "links",
+    "artifacts"
+  ],
+  "toolsets": [
+    "none"
+  ],
+  "cacheable": false,
+  "max_turns": 1,
+  "fetch": [],
+  "fetch_fallback": {
+    "enabled": false
+  }
+}

@@ -37,8 +37,8 @@ DEFAULTS = {"board_name":"", "inference_profile": "copilot", "exec_profile": "co
             "max_parallel": 3, "enabled": False, "inference_model": "", "context_limit": 6000, "min_interval": 5,
             "idle_pause_seconds": 180, "idle_close_seconds": 1800,
             "max_turns": 30, "exec_model": "", "mode":"balanced", "turn_multiplier":1, "settings_saved":False, "exec_transport":"acp", "fetch_commands":{}, "fetch_dir":"", "table_export_dir":str(Path.home()/'Downloads/fast-browser-link'), "table_max_pages":50,"table_delay_min":1.5,"table_delay_max":3,
-            "timeout_seconds": 180, "show_ball": True, "selection_popup":True, "extension_dirs":[], "pool_lookup_command":[], "skill_roots":[]}
-SEO_ACTIONS = {"seo.keyword_check", "seo.competitor_keywords", "seo.longtail", "seo.serp_breakdown", "seo.save_pool", "seo.trends", "seo.ranking_sites", "seo.top_pages", "seo.domain_rating", "workflow.run"}
+            "timeout_seconds": 180, "show_ball": True, "selection_popup":True, "page_annotations":True,"annotation_density":"compact","auto_zero":True, "extension_dirs":[], "pool_lookup_command":[], "skill_roots":[]}
+SEO_ACTIONS = {"seo.keyword_check", "seo.competitor_keywords", "seo.longtail", "seo.serp_breakdown", "seo.save_pool", "seo.trends", "seo.ranking_sites", "seo.top_pages", "seo.domain_rating", "workflow.run", "local.lookup"}
 
 
 def private_write(path, text):
@@ -136,14 +136,16 @@ class Templates:
             return None
 
     def get(self, action):
-        if action not in SEO_ACTIONS | {"general.task","browser.open"}:
+        if action not in SEO_ACTIONS | {"general.task","browser.open","local.lookup"}:
             raise ValueError("unknown template")
         path = self.directory / (action + ".json")
-        if action in {'general.task','workflow.run','browser.open'} and not path.exists():
+        if action in {'general.task','workflow.run','browser.open','local.lookup'} and not path.exists():
             path = Path(__file__).parent / ('copilot-templates/'+action+'.json')
         if self.packages and action in self.packages.templates:template=copy.deepcopy(self.packages.templates[action])
         else:template=json.loads(path.read_text())
         if not isinstance(template,dict):raise ValueError('template must be an object')
+        from copilot_risk import declared
+        declared(template)
         if 'decision_schema' not in template:template['decision_schema']=decision_schema(action)
         for field in ('prompt','name'):
             if not isinstance(template.get(field),str) or not template[field].strip():raise ValueError('missing template '+field)
@@ -220,6 +222,7 @@ def inference_session_prompt(templates, context=None):
 
 
 class Copilot(ToolSupport):
+    RECOVERY_BACKOFF=(1,2,4)
     def __init__(self, directory, notify=lambda *_: None, debounce=1.5, clock=time.monotonic):
         self.directory = Path(directory)
         path = self.directory / 'config.json'
@@ -235,10 +238,11 @@ class Copilot(ToolSupport):
         self.tables=TableStore(self.directory,self.config,private_write)
         if type(self.config['table_max_pages']) is not int or not 1<=self.config['table_max_pages']<=200:raise ValueError('invalid table page limit')
         if any(type(self.config[k]) not in (int,float) or not math.isfinite(self.config[k]) or not .1<=self.config[k]<=60 for k in ('table_delay_min','table_delay_max')) or self.config['table_delay_min']>self.config['table_delay_max']:raise ValueError('invalid table pacing')
+        if any(type(self.config[key]) is not bool for key in ('page_annotations','auto_zero')) or self.config['annotation_density'] not in {'compact','full'}:raise ValueError('invalid annotation or automatic preferences')
         if not isinstance(self.config['extension_dirs'],list) or any(not isinstance(path,str) for path in self.config['extension_dirs']):raise ValueError('invalid extension directories')
         self.adapter_config={key:copy.deepcopy(self.config[key]) for key in ('fetch_commands','pool_command','pool_lookup_command')}
         local_extensions=[str(path.parent) for path in sorted((self.directory/'extensions').glob('*/package.json'))] if (self.directory/'extensions').is_dir() else []
-        self.packages=Packages(list(dict.fromkeys([*self.config['extension_dirs'],*local_extensions])));self.packages.configure(self.config)
+        self.packages=Packages(list(dict.fromkeys([*self.config['extension_dirs'],*local_extensions])),include_builtin=not self.config.get('managed_packs',False));self.packages.configure(self.config)
         self.templates = Templates(self.directory / 'templates',self.packages)
         self.templates.capabilities={'domain_rating':bool(self.config['fetch_commands'].get('domain_rating'))}
         self.browser_fetches={}
@@ -254,7 +258,19 @@ class Copilot(ToolSupport):
         self.states = {}
         self.active = None
         self._initialize_tools()
+        from copilot_basket import Basket
+        from copilot_annotations import AnnotationMemory
+        from fbl_runtime import private_write as atomic_write
+        self.annotation_memory=AnnotationMemory(self.directory,atomic_write)
+        if not self.annotation_memory.records:
+            for record in self.recent:
+                try:
+                    validate(record['result'],self.templates.get(record['action'])['result_schema']);self.annotation_memory.result(record)
+                except (ValueError,KeyError,TypeError):continue
+        self.basket=Basket(self,atomic_write)
+        self.external_confirmations={}
         self.closed = False
+        self.discovery_worker=None
         self.runtime = None
         self.executions = Executions(self.config,self.directory,lambda detail:self.journal.add(self.active,'process_exit',**detail))
         self.acp_executions=None
@@ -285,7 +301,7 @@ class Copilot(ToolSupport):
                 'running':False,'dirty':False,'last_refresh':None,'last_inference':float('-inf'),
                 'last_work_activity':None,'last_activity':self.clock(),'page_since':self.clock(),'dwell_sent':False,'idle_paused':False,
                 'model_usage':{},'usage':counts(),'revision':0,'diagnostic':None,'startup_error':None,'inference_failure':None,'inference_failures':0,'inference_restarts':0,'recovering':False,'summary':'','execution_diagnostic':None,'tokens':0,'estimated_tokens':0,'token_source':'estimated_utf8_bytes/4','context_tokens':0,
-                'input_metrics':[],'result_history':[],'pool_words':[],'execution_memory':[],'completion_status':[],'sent_completions':[],'epoch':0}
+                'input_metrics':[],'result_history':[],'pool_words':[],'execution_memory':[],'completion_status':[],'sent_completions':[],'held_suggestions':set(),'epoch':0}
         return self.states[instance]
 
     def _notify_loop(self):
@@ -325,14 +341,14 @@ class Copilot(ToolSupport):
             self.journal.add(instance,'capabilities',total=len(totals),available=totals.count('available'),waiting=totals.count('waiting'),missing=totals.count('missing'),capability_statuses=statuses)
         elif event=='progress':
             progress=values.get('progress',{});phase=progress.get('type')
-            self.journal.add(instance,'execute_step',task_id=values.get('id',''),provider=progress.get('name','') if phase=='fetch' else '',phase=phase if phase in {'tool_use','model','fetch','fetch_start','fetch_done'} else 'step')
+            self.journal.add(instance,'execute_step',task_id=values.get('id',''),provider=progress.get('provider') or (progress.get('name','') if phase=='fetch' else ''),phase=phase if phase in {'tool_use','model','fetch','fetch_start','fetch_done'} else 'step',step_name=progress.get('name',''),step_index=progress.get('step_index',1),count=progress.get('count',0),capability=progress.get('capability',''),duration_ms=progress.get('duration_ms',0))
         elif event=='update' and values.get('suggestion'):
             row=values['suggestion'];identity=(instance,row['id']);status=row['status'];signature=(status,row.get('step'))
             previous=self.log_tasks.get(identity);self.log_tasks[identity]=signature
             if len(self.log_tasks)>2000:self.log_tasks.pop(next(iter(self.log_tasks)))
             if previous==signature:return
             event_name={'executing':'execute_start','completed':'execute_complete','failed':'execute_failed','stopped':'execute_stop'}.get(status)
-            if previous and previous[0]==status:event_name='execute_step' if status=='executing' else None
+            if previous and previous[0]==status:event_name=None
             if event_name:
                 terminal=status in {'completed','failed','stopped'};metrics={}
                 if status in {'completed','failed'} and row.get('model_source')!='local':self._state(instance)['last_call_succeeded']=status=='completed'
@@ -341,10 +357,11 @@ class Copilot(ToolSupport):
                     if row.get('started_at'):metrics['duration_ms']=max(0,(row.get('finished_at',time.time())-row['started_at'])*1000)
                 result=row.get('result')
                 self.journal.add(instance,event_name,error=status=='failed',task_id=row['id'],action=row['action'],
-                    missing=len(result.get('missing',[])) if isinstance(result,dict) else 0,phase='workflow' if row['action']=='workflow.run' else 'task',**row.get('failure',{}),**metrics)
+                    completion_status=row.get('completion_status','completed'),missing=len(result.get('missing',[])) if isinstance(result,dict) else 0,phase='workflow' if row['action']=='workflow.run' else 'task',automatic=row.get('automatic',False),**row.get('failure',{}),**metrics)
 
 
     def _display_row(self,row):
+        row={key:value for key,value in row.items() if key!='basket_plan'}
         if row.get('action')!='workflow.run' or not row.get('result'):return row
         result=row['result'];return {**row,'result_deferred':True,'result_token':hashlib.sha256(json.dumps(result,sort_keys=True,ensure_ascii=False).encode()).hexdigest()[:20],'result':{key:result[key] for key in ('verdict','level','metrics','missing') if key in result}}
 
@@ -363,7 +380,7 @@ class Copilot(ToolSupport):
             state = self._state(instance)
             self._refresh_daily()
             keys = ('enabled','show_ball','selection_popup','locale','selection_text','focused_result','ready','running','last_refresh','revision','diagnostic','tokens','estimated_tokens','token_source','context_tokens','idle_paused','input_metrics','usage','model_usage','result_history','pool_words')
-            return json.loads(json.dumps({key:state[key] for key in keys} | {'suggestions':[self._display_row(row) for row in state['suggestions'].values()],'daily_tokens':self.daily['tokens'],'daily_usage':self.daily['usage'],'daily_estimated_tokens':self.daily.get('estimated_tokens',0),'diagnostic':state['diagnostic'] or state.get('execution_diagnostic'),'result_history':[{key:item[key] for key in ('id','title','action','finished_at','status') if key in item}|{'result':{'verdict':item.get('result',{}).get('verdict','历史结果')}} for item in state['result_history']],'daily_model_usage':self.daily.get('models',{}),'capability_focus':state.get('capability_focus',0),'tool_context':state.get('tool_context',{}),'protected_hosts':list(self._resource_policy()),'config':{key:self.config[key] for key in SETTING_KEYS},'settings_saved':self.config['settings_saved'],'capabilities':{'domain_rating':bool(self.config['fetch_commands'].get('domain_rating')),'pool':bool(self.config['pool_command'])},'board_name':self.config['board_name'],'startup_error':state.get('startup_error'),'inference_failure':state.get('inference_failure'),'inference_failures':state['inference_failures'],'recovering':state['recovering'],'template_warning':len(self.templates.disabled),'hermes_health':health(self.config,{**state,'template_warning':len(self.templates.disabled)},self.runtime),'table_export_dir':self.config['table_export_dir'],'table_config':{'max_pages':self.config['table_max_pages'],'delay_min':self.config['table_delay_min'],'delay_max':self.config['table_delay_max']}}))
+            return json.loads(json.dumps({key:state[key] for key in keys} | {'suggestions':[self._display_row(row) for row in state['suggestions'].values()],'daily_tokens':self.daily['tokens'],'daily_usage':self.daily['usage'],'daily_estimated_tokens':self.daily.get('estimated_tokens',0),'diagnostic':state['diagnostic'] or state.get('execution_diagnostic'),'result_history':[{key:item[key] for key in ('id','title','action','finished_at','status') if key in item}|{'result':{'verdict':item.get('result',{}).get('verdict','历史结果')}} for item in state['result_history']],'daily_model_usage':self.daily.get('models',{}),'capability_focus':state.get('capability_focus',0),'tool_context':state.get('tool_context',{}),'protected_hosts':list(self._resource_policy()),'config':{key:self.config[key] for key in SETTING_KEYS},'settings_saved':self.config['settings_saved'],'capabilities':{'domain_rating':bool(self.config['fetch_commands'].get('domain_rating')),'pool':bool(self.config['pool_command'])},'basket':self.basket.snapshot(),'page_annotations':self.config['page_annotations'],'annotation_density':self.config['annotation_density'],'auto_zero':self.config['auto_zero'],'board_name':self.config['board_name'],'startup_error':state.get('startup_error'),'inference_failure':state.get('inference_failure'),'inference_failures':state['inference_failures'],'recovering':state['recovering'],'discovery_changed':state.get('discovery_changed',False),'daemon_recovery':True,'execution_health':{'state':'connected' if self.acp_executions and self.acp_executions.runtime and not self.acp_executions.runtime.closed and not self.acp_executions.runtime.failure else 'disconnected'},'template_warning':len(self.templates.disabled),'hermes_health':health(self.config,{**state,'template_warning':len(self.templates.disabled)},self.runtime),'table_export_dir':self.config['table_export_dir'],'table_config':{'max_pages':self.config['table_max_pages'],'delay_min':self.config['table_delay_min'],'delay_max':self.config['table_delay_max']}}))
 
     def _refresh_daily(self):
         if self.daily['date']!=date.today().isoformat():self.daily={'date':date.today().isoformat(),'tokens':0,'usage':counts(),'models':{}}
@@ -385,7 +402,9 @@ class Copilot(ToolSupport):
             self.daily['estimated_tokens']=self.daily.get('estimated_tokens',0)+metrics['tokens']
         state['token_source'] = metrics['source']
         self.daily['tokens'] += metrics['tokens']
-        if task is None:state['context_tokens'] = self.runtime.context_tokens or state['context_tokens'] + metrics['tokens']
+        if task is None:
+            current=getattr(self.runtime,'context_tokens',None)
+            state['context_tokens']=current if current is not None else state['context_tokens']+metrics.get('estimated_input_tokens',0)+usage['output']
         state['input_metrics'] = (state['input_metrics']+[metrics])[-30:]
         if task:
             if 'usage' not in task:task['usage']=counts()
@@ -401,6 +420,11 @@ class Copilot(ToolSupport):
         self.config.update(values)
 
     def request(self, instance, method, params):
+        if method.startswith('basket_') or method=='annotation_lookup':
+            return self._basket_request(instance,method,params)
+        if method.startswith('fbl_') and isinstance(params,dict):
+            from fbl_panel import request
+            return request(self,method,params)
         if method=='models' and isinstance(params,dict) and not set(params)-{'refresh'} and type(params.get('refresh',False)) is bool:
             with self.lock:
                 if self.closed:raise ValueError('copilot closed')
@@ -489,8 +513,11 @@ class Copilot(ToolSupport):
                 return self.view(instance)
             if method in {'batch','replenish','next_action'}:
                 return self._result_action(instance,method,params)
-            if method=='preferences' and params and not set(params)-{'board_name','table_export_dir','table_max_pages','table_delay_min','table_delay_max'}:
+            if method=='preferences' and params and not set(params)-{'board_name','table_export_dir','table_max_pages','table_delay_min','table_delay_max','page_annotations','annotation_density','auto_zero'}:
                 values=dict(params)
+                for flag in ('page_annotations','auto_zero'):
+                    if flag in values and type(values[flag]) is not bool:raise ValueError('invalid interface flag')
+                if 'annotation_density' in values and values['annotation_density'] not in {'compact','full'}:raise ValueError('invalid annotation density')
                 for key in ('board_name','table_export_dir'):
                     if key in values and (not isinstance(values[key],str) or len(values[key])> (80 if key=='board_name' else 4096) or any(ord(c)<32 for c in values[key])):raise ValueError('invalid preference')
                 if 'board_name' in values:values['board_name']=values['board_name'].strip()
@@ -505,6 +532,15 @@ class Copilot(ToolSupport):
                     self.journal.add(instance,'error',error=True,reason='invalid_configuration');raise
                 self._save_configuration(values)
                 self._emit(instance,'configuration',changes=list(params))
+                return self.view(instance)
+            if method=='suggestion_hold' and set(params)=={'id','held'} and isinstance(params['id'],str) and type(params['held']) is bool:
+                identity=params['id'];row=state['suggestions'].get(identity)
+                if params['held'] and row and row['status']=='pending' and len(state['held_suggestions'])<8:state['held_suggestions'].add(identity)
+                elif not params['held']:
+                    if identity:state['held_suggestions'].discard(identity)
+                    else:state['held_suggestions'].clear()
+                    if row and row['status']=='pending' and row.get('misses',0)>=2 and self.clock()-row.get('first_seen',self.clock())>=30:
+                        del state['suggestions'][identity];self._emit(instance,'remove',id=identity)
                 return self.view(instance)
             if method=='retry_inference' and not params:
                 if state['enabled'] and state['ready']:
@@ -543,13 +579,8 @@ class Copilot(ToolSupport):
                         raise ValueError('report unavailable')
                     subprocess.run(['open' if sys.platform=='darwin' else 'xdg-open',str(path)],check=True,timeout=5,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
                 elif method=='save_result':
-                    if row.get('pool_saved') is not True:
-                        receipt=self._pool(row['id'],{'keywords':result_words(row['result'])},explicit=True);row['pool_saved']=True
-                        if receipt and isinstance(receipt.get('accepted_keywords'),list):
-                            accepted=set(receipt['accepted_keywords'])&{word['keyword'] for word in result_words(row['result'])}
-                            state['pool_words']=list(set(state['pool_words'])|accepted)
-                            for word in accepted:row.setdefault('row_states',{}).setdefault(word,{})['pool']=True
-                        self._emit(instance,'update',suggestion=dict(row))
+                    if row.get('pool_saved') is True:return self.view(instance)
+                    return self._result_action(instance,'batch',{'id':row['id'],'operation':'save','keywords':[word['keyword'] for word in result_words(row['result'])]})
                 elif method=='retry':
                     if row['action']=='table.export':
                         dataset=row['result']['export']['id'];record=self.tables.datasets[dataset]
@@ -557,6 +588,7 @@ class Copilot(ToolSupport):
                         row['result']['export']=output;row['status']='failed' if output.get('error') else 'completed';row['reason']=output.get('reason','');self._emit(instance,'update',suggestion=dict(row));return self.view(instance)
                     if row['status'] not in {'failed','stopped'} and not (row['status']=='completed' and row.get('result',{}).get('missing')):raise ValueError('task cannot be retried')
                     if row['status']=='completed':self._archive(state,row)
+                    for field in ('render_as','result','report','failure','judgment_failure','reason','completion_status'):row.pop(field,None)
                     row.update(status='pending',error=None)
                     return self.request(instance,'execute',{'id':row['id']})
                 else:
@@ -571,7 +603,7 @@ class Copilot(ToolSupport):
                         'why':'根据已有结果继续','action':action,'params':arguments,'scene':'seo','status':'pending'}
                     self._emit(instance,'add',suggestion=dict(state['suggestions'][key]))
                 return self.view(instance)
-            if method in {'execute','ignore','stop'} and set(params)=={'id'}:
+            if method in {'execute','ignore','stop'} and not set(params)-{'id','confirmation'} and 'id' in params:
                 row = state['suggestions'].get(params['id'])
                 if not row:
                     raise ValueError('suggestion unavailable')
@@ -583,7 +615,15 @@ class Copilot(ToolSupport):
                     self._emit(instance,'remove',id=row['id'])
                     self._schedule(instance)
                 elif method=='execute' and row['status']=='pending':
-                    if row['action']!='seo.save_pool' and (not state['enabled'] or not state['ready']):raise ValueError('collaboration not ready; suggestion retained')
+                    from copilot_risk import action_risk
+                    risk=action_risk(self,row);row['risk']=risk
+                    if risk=='external':
+                        receipt=self.external_confirmations.get(params.get('confirmation'))
+                        if not receipt or receipt['instance']!=instance or receipt['id']!=row['id'] or receipt['epoch']!=state['epoch'] or receipt['signature']!=suggestion_id(row['action'],row['params']) or time.time()-receipt['at']>120:
+                            self.external_confirmations=dict(list({key:receipt for key,receipt in self.external_confirmations.items() if time.time()-receipt['at']<120}.items())[-63:]);token=uuid.uuid4().hex;self.external_confirmations[token]={'instance':instance,'id':row['id'],'epoch':state['epoch'],'signature':suggestion_id(row['action'],row['params']),'at':time.time()}
+                            return {'secondary_required':True,'token':token,'id':row['id'],'action':row['action']}
+                        self.external_confirmations.pop(params['confirmation']);row['secondary_confirmed']=True
+                    if row['action'] not in {'seo.save_pool','local.lookup'} and (not state['enabled'] or not state['ready']):raise ValueError('collaboration not ready; suggestion retained')
                     job_key=instance+':'+row['id']
                     if row['action']=='workflow.run':
                         available=self.registry.recommendations({**self._tool_context(instance),**row.get('page_context',{})},row['params']['object'],state['locale'])
@@ -606,6 +646,35 @@ class Copilot(ToolSupport):
                     raise ValueError('invalid suggestion transition')
                 return self.view(instance)
             raise ValueError('unknown copilot method')
+
+    def _basket_request(self,instance,method,params):
+        if not isinstance(params,dict):raise ValueError('invalid basket request')
+        if method=='annotation_lookup' and set(params)=={'objects'}:
+            from copilot_annotations import local_lookup
+            with self.lock:
+                records=local_lookup(self,instance,params['objects'])
+                from copilot_annotations import object_key
+                return {'items':[{**obj,'info':records.get(object_key(obj['type'],obj['value']),{})} for obj in params['objects']]}
+        if method=='basket_state' and not params:return self.basket.snapshot()
+        if method=='basket_add' and set(params)=={'items'}:
+            value=self.basket.add(params['items']);self._emit(instance,'basket');return value
+        if method=='basket_remove' and set(params)=={'ids'}:
+            value=self.basket.remove(params['ids']);self._emit(instance,'basket');return value
+        if method=='basket_clear' and not params:
+            value=self.basket.remove(list(self.basket.items));self._emit(instance,'basket');return value
+        if method=='basket_plan' and set(params)=={'ids','operation'}:return self.basket.estimate(instance,params['ids'],params['operation'])
+        if method=='basket_execute' and not set(params)-{'token','confirmation'} and 'token' in params:return self.basket.execute(instance,params['token'],params.get('confirmation'))
+        raise ValueError('unknown basket request')
+
+    def _automatic_suggestions(self,instance):
+        from copilot_risk import action_risk
+        state=self._state(instance)
+        if not self.config['auto_zero'] or not state['enabled'] or not state['ready']:return
+        for row in list(state['suggestions'].values()):
+            if row['status']!='pending' or row.get('automatic_attempted'):continue
+            if action_risk(self,row)!='zero':continue
+            row.update(automatic=True,automatic_attempted=True,why='已自动查到：正在读取本机信息')
+            self.request(instance,'execute',{'id':row['id']})
 
     def _selection_info(self,instance,params):
         if set(params)!={'text'} or not isinstance(params['text'],str) or not 1<=len(params['text'])<=12000:raise ValueError('invalid selection')
@@ -635,13 +704,9 @@ class Copilot(ToolSupport):
                     hit={'id':identity,'tier':result['tier'],'at':record['at']}
             except (OSError,ValueError,KeyError,TypeError):pass
         pool=next(({'keyword':word,'tier':'','last_checked':None} for word in state['pool_words'] if canonical(word)==target),None)
-        command=self.config['pool_lookup_command']
-        if command and len(params['text'])<=2000:
-            try:
-                completed=subprocess.run(command,input=json.dumps({'keyword':params['text']}).encode(),check=True,timeout=3,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL)
-                value=json.loads(completed.stdout[:16384])
-                if value.get('found') is True:pool={key:value.get(key) for key in ('tier','last_checked')}
-            except (OSError,ValueError,TypeError,subprocess.SubprocessError):pass
+        from copilot_annotations import object_key
+        known=self.annotation_memory.lookup([{'type':'keyword','value':params['text']}]).get(object_key('keyword',params['text']),{}) if len(params['text'])<=4000 else {}
+        if not pool and known.get('pool'):pool={'tier':known.get('tier',''),'last_checked':time.strftime('%Y-%m-%d',time.localtime(known['checked_at'])) if known.get('checked_at') else None}
         if pool and hit:
             pool['tier']=pool.get('tier') or hit['tier'];pool['last_checked']=pool.get('last_checked') or time.strftime('%Y-%m-%d',time.localtime(hit['at']))
         if len(params['text'])<=300:self._refresh_tool_suggestions(instance,params['text'])
@@ -750,7 +815,7 @@ class Copilot(ToolSupport):
                 raise
             with self.lock:self._state(instance)['last_call_succeeded']=True
             with self.lock:self._state(instance)['last_prompt_metrics']=metrics
-            if phase!='inference':self.journal.add(instance,'inference_return',phase=phase,model=metrics.get('model',''),duration_ms=metrics.get('seconds',0)*1000,estimated=bool(metrics.get('estimated')),**from_metrics(metrics))
+            if phase!='inference':self.journal.add(instance,'inference_return',phase=phase,model=metrics.get('model',''),duration_ms=metrics.get('seconds',0)*1000,slow=metrics.get('seconds',0)>5,estimated=bool(metrics.get('estimated')),**from_metrics(metrics))
             return result
 
     def _execution_failure(self,instance,epoch,reason):
@@ -769,12 +834,19 @@ class Copilot(ToolSupport):
                 if not self._valid(instance,epoch):
                     return
                 self.runtime=runtime
+                self._state(instance)['context_tokens']=0
             runtime.start()
             if self.config['exec_transport']=='acp' and not resume:
                 with self.lock:
                     if not self._valid(instance,epoch):return
                     self.acp_executions=ACPExecutions(self.config,self.directory,lambda reason:self._execution_failure(instance,epoch,reason),lambda detail:self.journal.add(instance,'process_exit',error=True,**detail))
                 self.acp_executions.start()
+            from fbl_panel import context as fbl_context
+            from fbl_discovery import changes
+            changed=changes(fbl_context(self)) if (self.directory/'discovery-confirmed.json').is_file() else []
+            if (self.directory/'discovery-confirmed.json').is_file() and not (self.discovery_worker and self.discovery_worker.is_alive()):
+                self.discovery_worker=threading.Thread(target=self._check_discovery,args=(instance,epoch),daemon=True);self.discovery_worker.start()
+            with self.lock:self._state(instance)['discovery_changed']=bool(changed)
             state=self._state(instance)
             context=self._resume_context(state) if resume else None
             result=self._prompt_json(instance,epoch,inference_session_prompt(self.templates,context),phase='session')
@@ -791,10 +863,13 @@ class Copilot(ToolSupport):
                     self._schedule(instance)
                 for row in list(state['suggestions'].values()):
                     if row['status']=='pending' and row.get('explicit'):self.request(instance,'execute',{'id':row['id']})
+                return True
         except (ACPError,ExecutionError,ValueError,OSError,KeyError,TypeError) as error:
             with self.lock:
                 if self._valid(instance,epoch):
                     state=self._state(instance)
+                    if resume and state['inference_restarts']<len(self.RECOVERY_BACKOFF):
+                        runtime.close();return False
                     state['diagnostic']='execution_acp_start_blocked' if isinstance(error,ExecutionError) else 'acp_start_blocked'
                     from copilot_health import startup_failure
                     state['startup_error']=startup_failure(self.config,error,execution=isinstance(error,ExecutionError))
@@ -808,13 +883,14 @@ class Copilot(ToolSupport):
         for key in list(self.registry.jobs):
             if key.startswith(instance+':'):self.registry.stop(key)
         state=self._state(instance)
-        state.update(enabled=False,ready=False,recovering=False,dirty=False,epoch=state['epoch']+1)
+        state.update(enabled=False,ready=False,recovering=False,dirty=False,held_suggestions=set(),epoch=state['epoch']+1)
         if state['timer']:
             state['timer'].cancel()
             state['timer']=None
         for row in state['suggestions'].values():
             if row['status'] in {'queued','executing','stopping'}:
                 row['status']='stopped' if row['status']=='queued' else 'stopping'
+                if row.get('basket_batch') and row['status']=='stopped':self.basket.activity(row,settled=True)
                 self._cancel_execution(instance+':'+row['id'])
                 self._emit(instance,'update',suggestion=dict(row))
         state['trace'],state['page'],state['sent_trace'],state['sent_page']=[],{},[],{}
@@ -832,7 +908,7 @@ class Copilot(ToolSupport):
 
     @staticmethod
     def meaningful(description):
-        return isinstance(description,str) and description.startswith(('导航','打开页面','选中','点击 链接','点击 按钮','点击 表格行','点击 内容','页面显著变化','停留 3s'))
+        return isinstance(description,str) and description.startswith(('导航','打开页面','选中','点击 链接','点击 按钮','点击 表格行','点击 内容','停留 3s'))
 
     def _observe(self, instance, params):
         state=self._state(instance)
@@ -847,24 +923,29 @@ class Copilot(ToolSupport):
         parsed=urlsplit(page.get('url',''))
         if parsed.scheme not in {'http','https'} or parsed.path.lower().endswith('.pdf') or len(json.dumps(page,ensure_ascii=False).encode())>6144:
             raise ValueError('unsupported page')
-        previous=state['page']
+        previous=state['page'];previous_trace=state['trace']
         selection=trace[-1]['description'][3:] if trace and trace[-1]['description'].startswith('选中 ') else None
-        self._refresh_tool_suggestions(instance,selection)
         new_page=previous.get('url')!=page.get('url')
         page=self._bounded_page(page)
         if new_page:
             state['page_since'],state['dwell_sent']=self.clock(),False
         fresh=[step for step in trace if step not in state['trace']]
-        meaningful=[step for step in fresh if isinstance(step,dict) and self.meaningful(step.get('description'))]
-        significant=self._significant(state['sent_page'] or previous,page)
+        meaningful=[step for step in fresh if isinstance(step,dict) and self.meaningful(step.get('description')) and step.get('description')!='页面显著变化']
+        significant=self._significant(previous,page)
         state['trace'],state['page']=trace,page
         if not new_page and not meaningful and not significant:
             return {'accepted':False,'reason':'local_prefilter'}
+        signature=json.dumps([page,[step['description'] for step in meaningful]],sort_keys=True,ensure_ascii=False)
+        if signature==state.get('capture_signature') and self.clock()-state.get('capture_at',0)<1:
+            state['trace']=previous_trace;return {'accepted':False,'reason':'coalesced'}
+        state.update(capture_signature=signature,capture_at=self.clock())
+        self._refresh_tool_suggestions(instance,selection)
         state['last_activity'],state['idle_paused']=self.clock(),False
         kinds=[]
         for step in meaningful:
             text=step['description'];kind='navigate' if text.startswith(('导航','打开页面')) else 'selection' if text.startswith('选中') else 'click' if text.startswith('点击') else 'dwell' if text.startswith('停留') else 'snapshot'
             if kind not in kinds:kinds.append(kind)
+        if significant and not kinds:kinds=['snapshot']
         self.journal.add(instance,'capture',kinds=kinds,steps=len(meaningful),snapshot_bytes=len(json.dumps(page,ensure_ascii=False).encode()),items=len(page.get('items',[])))
         self._schedule(instance)
         return {'accepted':True}
@@ -935,6 +1016,8 @@ class Copilot(ToolSupport):
                         self._schedule(instance);return
                     state.update(running=True,dirty=False,timer=None,last_inference=self.clock())
                     payload,statuses=self._increment(state)
+                    if not any(value for key,value in payload.items() if key!='type'):
+                        state['running']=False;return
                     snapshot_trace,snapshot_page=list(state['trace']),dict(state['page'])
                     snapshot_completed=list(state['completion_status']);snapshot_tool=copy.deepcopy(state.get('tool_context',{}))
                     before_rows={key:json.dumps({field:row.get(field) for field in ('title','why','action','params','status')},sort_keys=True) for key,row in state['suggestions'].items()};inference_started=time.monotonic()
@@ -947,7 +1030,7 @@ class Copilot(ToolSupport):
                         if not self._valid(instance,epoch):return
                         self._replace(instance,output)
                         after=state['suggestions'];metrics=state.get('last_prompt_metrics',{})
-                        self.journal.add(instance,'inference_return',added=len(after.keys()-before_rows.keys()),removed=len(before_rows.keys()-after.keys()),updated=sum(before_rows[key]!=json.dumps({field:after[key].get(field) for field in ('title','why','action','params','status')},sort_keys=True) for key in before_rows.keys()&after.keys()),duration_ms=(time.monotonic()-inference_started)*1000,model=metrics.get('model',''),estimated=bool(metrics.get('estimated')),**from_metrics(metrics))
+                        self.journal.add(instance,'inference_return',added=len(after.keys()-before_rows.keys()),removed=len(before_rows.keys()-after.keys()),updated=sum(before_rows[key]!=json.dumps({field:after[key].get(field) for field in ('title','why','action','params','status')},sort_keys=True) for key in before_rows.keys()&after.keys()),duration_ms=(time.monotonic()-inference_started)*1000,slow=metrics.get('seconds',0)>5,context_tokens=state['context_tokens'],model=metrics.get('model',''),estimated=bool(metrics.get('estimated')),**from_metrics(metrics))
                         state.update(inference_failures=0,inference_failure=None,sent_trace=snapshot_trace,sent_page=snapshot_page,sent_status=statuses,sent_completions=snapshot_completed,sent_tool_context=snapshot_tool,diagnostic=None)
                 except (ACPError,ExecutionError,ValueError,OSError,KeyError,TypeError) as error:
                     with self.lock:
@@ -975,13 +1058,14 @@ class Copilot(ToolSupport):
             raise ModelOutputInvalid('summary','invalid_text')
         state['summary']=summary
         self.runtime.new_session()
+        state['context_tokens']=0
         self.journal.add(instance,'session')
         statuses=[{key:row[key] for key in ('id','title','action','status')} for row in state['suggestions'].values()][-8:]
         output=self._prompt_json(instance,epoch,inference_session_prompt(self.templates,{'summary':summary,'suggestions':statuses}),phase='session')
         if output.get('ready') is not True:
             raise ModelOutputInvalid('ready','not_ready')
         with self.lock:
-            state.update(context_tokens=self.runtime.context_tokens,sent_page={},sent_trace=[],sent_status={},sent_tool_context={})
+            state.update(context_tokens=self.runtime.context_tokens if self.runtime.context_tokens is not None else state['context_tokens'],sent_page={},sent_trace=[],sent_status={},sent_tool_context={})
         return True
 
     def _replace(self, instance, output):
@@ -996,7 +1080,7 @@ class Copilot(ToolSupport):
             row={key:value for key,value in raw.items() if key in {'title','why','action','params'}}
             if set(raw)-{'id','title','why','action','params'}:repairs.append('extra_fields')
             if not raw.get('id'):repairs.append('id')
-            if row['action'] not in (SEO_ACTIONS if output['scene']=='seo' else {'general.task'}):
+            if row['action'] not in (SEO_ACTIONS if output['scene']=='seo' else {'general.task','local.lookup'}):
                 repairs.append('action');continue
             for field,limit in (('title',20),('why',30)):
                 value=row.get(field)
@@ -1024,14 +1108,20 @@ class Copilot(ToolSupport):
                 if any(old['status']=='completed' and object_key(old['action'],old['params'])==object_key(row['action'],arguments) for old in state['suggestions'].values()):continue
             key=suggestion_id(row['action'],row['params'])
             if self.ignored.get(key)==date.today().isoformat():continue
-            next_rows[key]={**row,'id':key,'status':'pending','scene':output['scene']}
+            previous=state['suggestions'].get(key,{})
+            next_rows[key]={**row,'id':key,'status':'pending','scene':output['scene'],'first_seen':previous.get('first_seen',self.clock()),'page_url':state['page'].get('url',''),'misses':0}
         for key,row in state['suggestions'].items():
             if row['status']!='pending' or row.get('explicit') or row.get('tool_aware'):next_rows[key]=row
-            elif key not in next_rows:self._emit(instance,'remove',id=key)
+            elif key not in next_rows:
+                row.setdefault('first_seen',self.clock());misses=row.get('misses',0)+1;row['misses']=misses
+                switched=row.get('page_url','')!=state['page'].get('url','')
+                if key in state['held_suggestions'] or not switched and (misses<2 or self.clock()-row.get('first_seen',self.clock())<30):next_rows[key]=row
+                else:self._emit(instance,'remove',id=key)
         for key,row in next_rows.items():
             old=state['suggestions'].get(key)
             if old!=row:self._emit(instance,'update' if old else 'add',suggestion=dict(row))
         state['suggestions']=next_rows
+        self._automatic_suggestions(instance)
         if repairs:self.journal.add(instance,'output_repaired',repairs=len(repairs),fields=sorted(set(repairs)))
 
     def _archive(self,state,row):
@@ -1052,8 +1142,9 @@ class Copilot(ToolSupport):
             if set(params)!={'id','operation','keywords'} or params['operation'] not in {'check','save'}:raise ValueError('invalid batch')
             known=set(known_override) if known_override is not None else {word['keyword'] for word in result_words(row['result'])};selected=list(dict.fromkeys(params['keywords']))
             if not selected or len(selected)>1000 or set(selected)-known:raise ValueError('invalid selected words')
-            action='seo.keyword_check' if params['operation']=='check' else 'seo.save_pool'
-            arguments={'keywords':selected if action=='seo.keyword_check' else [{'keyword':word} for word in selected]}
+            basket=self.basket.add([{'type':'keyword','value':word} for word in selected])
+            selected_ids=[item['id'] for item in basket['items'] if item['type']=='keyword' and canonical(item['value']) in {canonical(word) for word in selected}]
+            return {'basket_preview':True,'basket':basket,'selected_ids':selected_ids,'plan':self.basket.estimate(instance,selected_ids,params['operation'])}
         else:
             if set(params)!={'id','index'} or type(params['index']) is not int:raise ValueError('invalid next action')
             proposed=row['result']['next'][params['index']];action=proposed['action'];target=proposed['object']
@@ -1119,6 +1210,15 @@ class Copilot(ToolSupport):
                 row.update(requested_model=execution_config['exec_model'],model=execution_config['exec_model'] or '',model_source='selected' if execution_config['exec_model'] else 'unknown')
                 row['started_at']=time.time()
                 self._emit(instance,'update',suggestion=dict(row))
+            if row.get('basket_plan'):
+                execution_config['inference_model']=row['basket_plan'].get('model_id') or ''
+                self.basket.run(instance,row,epoch,execution_config);return
+            if row['action']=='local.lookup':
+                from copilot_annotations import local_lookup
+                obj=row['params'];data=local_lookup(self,instance,[{'type':obj.get('type','keyword'),'value':obj['value']}])
+                row.update(model='',model_source='local')
+                result={'verdict':'已自动查到本机信息' if row.get('automatic') else '已读取本机信息','level':'info','metrics':[],'missing':[],'process':['只读本机结果、缓存和词池快照'],'next':[],'bullets':[json.dumps(value,ensure_ascii=False)[:1000] for value in data.values()][:30],'links':[],'artifacts':[]}
+                self._complete(instance,row,result);return
             if row['action']=='workflow.run':
                 self._execute_workflow(instance,row,epoch,execution_config);return
             cached=self._cached(row)
@@ -1217,19 +1317,40 @@ class Copilot(ToolSupport):
             with self.lock:
                 if row is not None and getattr(error,'metrics',None):self._account(instance,error.metrics,row)
                 if row is not None and row['status'] not in {'stopped','stopping','completed'}:
-                    reason=str(error) if isinstance(error,ExecutionError) and str(error).startswith(('ACP 无法','当前 Hermes ACP','推理模型尚未回报')) else '执行连接失败，已重连一次；请检查 Hermes 后重试。' if 'restart exhausted' in str(error) else ''
+                    reason=str(error) if isinstance(error,ExecutionError) and str(error).startswith(('ACP 无法','当前 Hermes ACP','推理模型尚未回报')) else '执行连接恢复次数已用完；请检查 Hermes 后重试。' if 'restart exhausted' in str(error) else ''
                     detail=failure(error)
-                    row.update(status='failed',error='execution_or_persistence_failed',failure=detail,reason=reason or failure_message(detail,state['locale']))
+                    message=detail.get('detail') if isinstance(error,ExecutionError) and detail.get('detail') else reason or failure_message(detail,state['locale'])
+                    row.update(error='execution_or_persistence_failed',failure=detail,reason=message,finished_at=time.time())
+                    try:self._save_failed_result(row,message)
+                    except (OSError,ValueError):
+                        row['reason']+='；失败结果保存受阻'
+                        self.journal.add(instance,'error',error=True,reason='execution_or_persistence_failed',task_id=row['id'])
+                    row['status']='failed'
                     self._emit(instance,'update',suggestion=dict(row))
         finally:
             with self.lock:
+                if row is not None and row.get('basket_batch') and row['status']=='stopped':self.basket.activity(row,settled=True)
                 if row is not None and row['status']=='stopping':
                     row['status']='stopped'
                     self._emit(instance,'update',suggestion=dict(row))
                 if row is not None and row['status'] in {'completed','failed','stopped'}:
                     self._completion_status(self._state(instance),row)
-                if self._valid(instance,epoch):self._schedule(instance)
+                if self._valid(instance,epoch) and row is not None and not row.get('automatic') and not row.get('basket_batch'):self._schedule(instance)
             self._drain_queue(instance,epoch)
+
+    def _save_failed_result(self,row,message):
+        from copilot_results import source_words
+        fetched=row.get('fetched',{'data':{},'missing':[]})
+        records=list(source_words(fetched).values())
+        result={'verdict':'缺少判断，请重试','level':'info','metrics':[],
+                'missing':[{'field':'judgment','reason':message[:300]}],
+                'process':['已取数据保留，未生成档位'],'next':[],
+                'bullets':[json.dumps(item,ensure_ascii=False)[:1000] for item in records[:30]],'links':[],'artifacts':[]}
+        path=self.directory/'tasks'/('failed-'+row['id'])/'result.json'
+        private_write(path,json.dumps({'failure':row.get('failure',{}),'fetched':fetched,'result':result},ensure_ascii=False,indent=2))
+        result['artifacts']=[{'label':'已取数据与失败详情','path':str(path)}]
+        row.update(result=result,render_as='general.task',report=str(self._report_path(row['id'])))
+        private_write(Path(row['report']),result_report(result,row['title']))
 
     def _drain_queue(self, instance, epoch):
         with self.lock:
@@ -1244,12 +1365,33 @@ class Copilot(ToolSupport):
         return {'summary':state.get('summary',''),'completed':compact_memory(state['execution_memory']),
                 'suggestions':[{key:row[key] for key in ('id','title','action','status')} for row in state['suggestions'].values()][-8:]}
 
+    def _check_discovery(self,instance,epoch):
+        from fbl_panel import context
+        from fbl_discovery import changes,mcp_rpc
+        def stopped():
+            with self.lock:return not self._valid(instance,epoch)
+        try:changed=changes(context(self),deep=True,stop=stopped,mcp_probe=lambda server,method:mcp_rpc(server,method,timeout=2))
+        except (OSError,ValueError,RuntimeError):changed=['metadata_unavailable']
+        with self.lock:
+            if self._valid(instance,epoch) and changed:
+                self._state(instance)['discovery_changed']=True;self._emit(instance,'capabilities')
+
     def _recover_inference(self,instance,epoch,previous):
         with self.inference_lock:
             previous.close()
-            with self.lock:
-                if not self._valid(instance,epoch):return
-            self._activate(instance,epoch,resume=True)
+            while True:
+                with self.lock:
+                    if not self._valid(instance,epoch):return
+                    state=self._state(instance);attempt=state['inference_restarts']
+                    if attempt>=len(self.RECOVERY_BACKOFF):return
+                    state['inference_restarts']+=1
+                # 中文注释：分片等待使关闭/切换能中断；只有传输重建，执行中的写操作不重放。
+                deadline=time.monotonic()+self.RECOVERY_BACKOFF[attempt]
+                while time.monotonic()<deadline:
+                    time.sleep(min(.1,deadline-time.monotonic()))
+                    with self.lock:
+                        if not self._valid(instance,epoch):return
+                if self._activate(instance,epoch,resume=True):return
 
     def _update(self, instance, epoch, update, runtime=None):
         if update.get('sessionUpdate')!='copilot_transport_error':return
@@ -1261,8 +1403,8 @@ class Copilot(ToolSupport):
             detail.setdefault('reason','acp_disconnected')
             if 'exit_code' in detail:self.journal.add(instance,'process_exit',error=True,**detail)
             state['ready']=False
-            if state['inference_restarts']<1:
-                state.update(inference_restarts=1,recovering=True,dirty=True)
+            if state['inference_restarts']<len(self.RECOVERY_BACKOFF):
+                state.update(recovering=True,dirty=True)
                 state['inference_failure']={**detail,'message':failure_message(detail,state['locale'])}
                 self.journal.add(instance,'disconnected',**detail)
                 self.journal.add(instance,'inference_recovering',**detail)
@@ -1301,17 +1443,24 @@ class Copilot(ToolSupport):
         return None
 
     def _complete(self, instance, row, result, cache=False):
+        if row.get('automatic'):
+            result=copy.deepcopy(result);result['verdict']=('已自动查到：'+result['verdict'])[:30]
         validate(result,self.templates.get(row.get('render_as',row['action']))['result_schema'])
         report=self._report_path(row['id'])
         private_write(report,result_report(result,row['title']))
         row['report']=str(report)
         row['result']={key:result[key] for key in self.templates.get(row.get('render_as',row['action']))['display_fields'] if key in result}
-        if row['action']=='seo.keyword_check' and result_words(result):
+        if row['action']=='seo.keyword_check' and not row.get('automatic') and result_words(result):
             receipt=self._pool(row['id'],{'keywords':result_words(result)})
             if receipt and isinstance(receipt.get('accepted_keywords'),list):
                 state=self._state(instance);state['pool_words']=list(set(state['pool_words'])|(set(receipt['accepted_keywords'])&{word['keyword'] for word in result_words(result)}))
-        if row['action'] in {'seo.keyword_check','seo.competitor_keywords'} and not result.get('missing'):
+        if not cache and row['action'] in {'seo.keyword_check','seo.competitor_keywords'} and not result.get('missing'):
             private_write(self._cache_path(row),json.dumps({'at':time.time(),'result':result,'model':row.get('model','')},ensure_ascii=False))
+        cached_at=None
+        if cache:
+            try:cached_at=json.loads(self._cache_path(row).read_text()).get('at')
+            except (OSError,ValueError):pass
+        self.annotation_memory.result({**row,'result':result,'finished_at':cached_at or time.time()},pool=self._state(instance).get('pool_words',[]))
         with self.lock:
             if row['status']!='executing':return
             state=self._state(instance)
@@ -1322,8 +1471,8 @@ class Copilot(ToolSupport):
             checked={word['keyword']:old['result'].get('tier','已查') for old in state['suggestions'].values() if old['status']=='completed' and old['action']=='seo.keyword_check' for word in result_words(old.get('result',{}))}
             row['row_states']={word['keyword']:{'tier':checked.get(word['keyword']),'pool':word['keyword'] in state['pool_words']} for word in result_words(result)}
             target=row['params'].get('keyword') or row['params'].get('url') or row['title']
-            state['execution_memory']=compact_memory(state['execution_memory']+[f"已完成 {target} → {result['verdict']}"]).splitlines()
-            row.update(status='completed',pool_saved=row['action'] in {'seo.keyword_check','seo.save_pool'},finished_at=time.time(),result={key:result[key] for key in self.templates.get(row.get('render_as',row['action']))['display_fields'] if key in result},report=str(report),cache_hit=cache)
+            state['execution_memory']=compact_memory(state['execution_memory']+[f"{'未完成' if row.get('completion_status')=='failed' else '部分完成' if row.get('completion_status')=='partial' else '已完成'} {target} → {result['verdict']}"]).splitlines()
+            row.update(status='failed' if row.get('completion_status')=='failed' else 'completed',pool_saved=row['action'] in {'seo.keyword_check','seo.save_pool'},finished_at=time.time(),result={key:result[key] for key in self.templates.get(row.get('render_as',row['action']))['display_fields'] if key in result},report=str(report),cache_hit=cache)
             if row['action'] in {'seo.keyword_check','seo.trends'}:
                 recent={key:copy.deepcopy(row[key]) for key in ('id','action','params','title','result','finished_at','status')}
                 self.recent=[item for item in self.recent if item.get('id')!=row['id'] and 0<=time.time()-item['finished_at']<=7*86400][-99:]+[recent]
@@ -1378,6 +1527,7 @@ class Copilot(ToolSupport):
                 if self._state(instance)['enabled']:self.journal.add(instance,'disconnected',reason='daemon_closed')
                 self._deactivate(instance)
             self.housekeeping.set()
+        if self.discovery_worker:self.discovery_worker.join(timeout=7)
         for thread in context_threads:thread.join(timeout=.5)
         self.executions.close()
         self.fetcher.close()

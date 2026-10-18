@@ -113,7 +113,8 @@
           "input": {
             "keyword": "$input.object",
             "n": 5
-          }
+          },
+          "risk": "metered"
         },
         {
           "id": "domains",
@@ -125,7 +126,8 @@
           "from": "$steps.serp.records",
           "options": {
             "limit": 5
-          }
+          },
+          "risk": "zero"
         },
         {
           "id": "traffic",
@@ -140,7 +142,8 @@
               "traffic"
             ]
           },
-          "foreach": "$steps.domains.records"
+          "foreach": "$steps.domains.records",
+          "risk": "metered"
         },
         {
           "id": "leaders",
@@ -153,7 +156,8 @@
           "options": {
             "limit": 3,
             "minimum": 2
-          }
+          },
+          "risk": "zero"
         },
         {
           "id": "rankings",
@@ -165,7 +169,8 @@
           "input": {
             "domain": "$item.domain"
           },
-          "foreach": "$steps.leaders.records"
+          "foreach": "$steps.leaders.records",
+          "risk": "metered"
         },
         {
           "id": "candidates",
@@ -177,7 +182,8 @@
           "from": "$steps.rankings.records",
           "options": {
             "limit": 20
-          }
+          },
+          "risk": "zero"
         },
         {
           "id": "filter",
@@ -189,7 +195,8 @@
           "input": {
             "records": "$steps.candidates.records"
           },
-          "optional": true
+          "optional": true,
+          "risk": "metered"
         },
         {
           "id": "pool_seen",
@@ -202,7 +209,8 @@
             "records": "$steps.filter.records"
           },
           "words_from": "$steps.filter.records",
-          "optional": true
+          "optional": true,
+          "risk": "metered"
         },
         {
           "id": "unseen",
@@ -214,7 +222,8 @@
           "from": "$steps.filter.records",
           "options": {
             "known": "$steps.pool_seen.records"
-          }
+          },
+          "risk": "zero"
         },
         {
           "id": "metrics",
@@ -224,7 +233,8 @@
           },
           "capability": "keyword.metrics",
           "input": {},
-          "words_from": "$steps.unseen.records"
+          "words_from": "$steps.unseen.records",
+          "risk": "metered"
         },
         {
           "id": "measured",
@@ -236,7 +246,8 @@
           "from": "$steps.metrics.records",
           "options": {
             "base": "$steps.unseen.records"
-          }
+          },
+          "risk": "zero"
         },
         {
           "id": "trend_context",
@@ -252,7 +263,8 @@
             ]
           },
           "words_from": "$steps.measured.records",
-          "optional": true
+          "optional": true,
+          "risk": "metered"
         },
         {
           "id": "context",
@@ -264,7 +276,8 @@
           "from": "$steps.trend_context.records",
           "options": {
             "base": "$steps.measured.records"
-          }
+          },
+          "risk": "zero"
         },
         {
           "id": "candidate_serp",
@@ -276,7 +289,8 @@
           "input": {
             "n": 10
           },
-          "words_from": "$steps.context.records"
+          "words_from": "$steps.context.records",
+          "risk": "metered"
         },
         {
           "id": "candidate_domains",
@@ -288,7 +302,8 @@
           "from": "$steps.candidate_serp.records",
           "options": {
             "limit": 200
-          }
+          },
+          "risk": "zero"
         },
         {
           "id": "candidate_authority",
@@ -298,7 +313,8 @@
           },
           "capability": "domain.authority",
           "input": {},
-          "domains_from": "$steps.candidate_domains.records"
+          "domains_from": "$steps.candidate_domains.records",
+          "risk": "metered"
         },
         {
           "id": "enriched",
@@ -311,7 +327,8 @@
           "options": {
             "base": "$steps.context.records",
             "authority": "$steps.candidate_authority.records"
-          }
+          },
+          "risk": "zero"
         },
         {
           "id": "pool_flags",
@@ -324,7 +341,8 @@
             "records": "$steps.enriched.records"
           },
           "words_from": "$steps.enriched.records",
-          "optional": true
+          "optional": true,
+          "risk": "metered"
         },
         {
           "id": "prior",
@@ -336,7 +354,8 @@
           "from": "$steps.pool_flags.records",
           "options": {
             "base": "$steps.enriched.records"
-          }
+          },
+          "risk": "zero"
         },
         {
           "id": "intent",
@@ -345,7 +364,8 @@
             "en": "One-turn intent judgment"
           },
           "model": true,
-          "from": "$steps.prior.records"
+          "from": "$steps.prior.records",
+          "risk": "metered"
         },
         {
           "id": "judge",
@@ -356,10 +376,12 @@
           "capability": "keyword.judge",
           "input": {
             "records": "$steps.intent.records"
-          }
+          },
+          "risk": "metered"
         }
       ],
-      "result": "$steps.judge.records"
+      "result": "$steps.judge.records",
+      "risk": "metered"
     },
     "small_sites": {
       "name": {
@@ -382,7 +404,8 @@
           "input": {
             "keyword": "$input.object",
             "n": 10
-          }
+          },
+          "risk": "metered"
         },
         {
           "id": "domains",
@@ -394,7 +417,8 @@
           "from": "$steps.serp.records",
           "options": {
             "limit": 10
-          }
+          },
+          "risk": "zero"
         },
         {
           "id": "authority",
@@ -410,7 +434,8 @@
               "weak"
             ]
           },
-          "foreach": "$steps.domains.records"
+          "foreach": "$steps.domains.records",
+          "risk": "metered"
         },
         {
           "id": "small",
@@ -420,7 +445,8 @@
           },
           "transform": "weak",
           "from": "$steps.authority.records",
-          "options": {}
+          "options": {},
+          "risk": "zero"
         },
         {
           "id": "pages",
@@ -432,7 +458,8 @@
           "input": {
             "domain": "$item.domain"
           },
-          "foreach": "$steps.small.records"
+          "foreach": "$steps.small.records",
+          "risk": "metered"
         },
         {
           "id": "rankings",
@@ -444,7 +471,8 @@
           "input": {
             "domain": "$item.domain"
           },
-          "foreach": "$steps.small.records"
+          "foreach": "$steps.small.records",
+          "risk": "metered"
         },
         {
           "id": "candidates",
@@ -456,7 +484,8 @@
           "from": "$steps.rankings.records",
           "options": {
             "limit": 20
-          }
+          },
+          "risk": "zero"
         },
         {
           "id": "filter",
@@ -468,7 +497,8 @@
           "input": {
             "records": "$steps.candidates.records"
           },
-          "optional": true
+          "optional": true,
+          "risk": "metered"
         },
         {
           "id": "pool_seen",
@@ -481,7 +511,8 @@
             "records": "$steps.filter.records"
           },
           "words_from": "$steps.filter.records",
-          "optional": true
+          "optional": true,
+          "risk": "metered"
         },
         {
           "id": "unseen",
@@ -493,7 +524,8 @@
           "from": "$steps.filter.records",
           "options": {
             "known": "$steps.pool_seen.records"
-          }
+          },
+          "risk": "zero"
         },
         {
           "id": "metrics",
@@ -503,7 +535,8 @@
           },
           "capability": "keyword.metrics",
           "input": {},
-          "words_from": "$steps.unseen.records"
+          "words_from": "$steps.unseen.records",
+          "risk": "metered"
         },
         {
           "id": "measured",
@@ -515,7 +548,8 @@
           "from": "$steps.metrics.records",
           "options": {
             "base": "$steps.unseen.records"
-          }
+          },
+          "risk": "zero"
         },
         {
           "id": "trend_context",
@@ -531,7 +565,8 @@
             ]
           },
           "words_from": "$steps.measured.records",
-          "optional": true
+          "optional": true,
+          "risk": "metered"
         },
         {
           "id": "context",
@@ -543,7 +578,8 @@
           "from": "$steps.trend_context.records",
           "options": {
             "base": "$steps.measured.records"
-          }
+          },
+          "risk": "zero"
         },
         {
           "id": "candidate_serp",
@@ -555,7 +591,8 @@
           "input": {
             "n": 10
           },
-          "words_from": "$steps.context.records"
+          "words_from": "$steps.context.records",
+          "risk": "metered"
         },
         {
           "id": "candidate_domains",
@@ -567,7 +604,8 @@
           "from": "$steps.candidate_serp.records",
           "options": {
             "limit": 200
-          }
+          },
+          "risk": "zero"
         },
         {
           "id": "candidate_authority",
@@ -577,7 +615,8 @@
           },
           "capability": "domain.authority",
           "input": {},
-          "domains_from": "$steps.candidate_domains.records"
+          "domains_from": "$steps.candidate_domains.records",
+          "risk": "metered"
         },
         {
           "id": "enriched",
@@ -590,7 +629,8 @@
           "options": {
             "base": "$steps.context.records",
             "authority": "$steps.candidate_authority.records"
-          }
+          },
+          "risk": "zero"
         },
         {
           "id": "pool_flags",
@@ -603,7 +643,8 @@
             "records": "$steps.enriched.records"
           },
           "words_from": "$steps.enriched.records",
-          "optional": true
+          "optional": true,
+          "risk": "metered"
         },
         {
           "id": "prior",
@@ -615,7 +656,8 @@
           "from": "$steps.pool_flags.records",
           "options": {
             "base": "$steps.enriched.records"
-          }
+          },
+          "risk": "zero"
         },
         {
           "id": "intent",
@@ -624,7 +666,8 @@
             "en": "One-turn intent judgment"
           },
           "model": true,
-          "from": "$steps.prior.records"
+          "from": "$steps.prior.records",
+          "risk": "metered"
         },
         {
           "id": "judge",
@@ -635,10 +678,12 @@
           "capability": "keyword.judge",
           "input": {
             "records": "$steps.intent.records"
-          }
+          },
+          "risk": "metered"
         }
       ],
-      "result": "$steps.judge.records"
+      "result": "$steps.judge.records",
+      "risk": "metered"
     },
     "page_family": {
       "name": {
@@ -661,7 +706,8 @@
           "input": {
             "keyword": "$input.object",
             "n": 10
-          }
+          },
+          "risk": "metered"
         },
         {
           "id": "family",
@@ -673,7 +719,8 @@
           "input": {
             "records": "$steps.serp.records"
           },
-          "words_from": null
+          "words_from": null,
+          "risk": "metered"
         },
         {
           "id": "intent",
@@ -682,10 +729,12 @@
             "en": "One-turn intent judgment"
           },
           "model": true,
-          "from": "$steps.family.records"
+          "from": "$steps.family.records",
+          "risk": "metered"
         }
       ],
-      "result": "$steps.intent.records"
+      "result": "$steps.intent.records",
+      "risk": "metered"
     },
     "keyword_gap": {
       "name": {
@@ -708,7 +757,8 @@
           "input": {
             "keyword": "$input.object",
             "n": 3
-          }
+          },
+          "risk": "metered"
         },
         {
           "id": "domains",
@@ -720,7 +770,8 @@
           "from": "$steps.serp.records",
           "options": {
             "limit": 3
-          }
+          },
+          "risk": "zero"
         },
         {
           "id": "rankings",
@@ -732,7 +783,8 @@
           "input": {
             "domain": "$item.domain"
           },
-          "foreach": "$steps.domains.records"
+          "foreach": "$steps.domains.records",
+          "risk": "metered"
         },
         {
           "id": "shared",
@@ -742,7 +794,8 @@
           },
           "transform": "intersection",
           "from": "$steps.rankings.records",
-          "options": {}
+          "options": {},
+          "risk": "zero"
         },
         {
           "id": "candidates",
@@ -754,7 +807,8 @@
           "from": "$steps.shared.records",
           "options": {
             "limit": 20
-          }
+          },
+          "risk": "zero"
         },
         {
           "id": "filter",
@@ -766,7 +820,8 @@
           "input": {
             "records": "$steps.candidates.records"
           },
-          "optional": true
+          "optional": true,
+          "risk": "metered"
         },
         {
           "id": "pool_seen",
@@ -779,7 +834,8 @@
             "records": "$steps.filter.records"
           },
           "words_from": "$steps.filter.records",
-          "optional": true
+          "optional": true,
+          "risk": "metered"
         },
         {
           "id": "unseen",
@@ -791,7 +847,8 @@
           "from": "$steps.filter.records",
           "options": {
             "known": "$steps.pool_seen.records"
-          }
+          },
+          "risk": "zero"
         },
         {
           "id": "metrics",
@@ -801,7 +858,8 @@
           },
           "capability": "keyword.metrics",
           "input": {},
-          "words_from": "$steps.unseen.records"
+          "words_from": "$steps.unseen.records",
+          "risk": "metered"
         },
         {
           "id": "measured",
@@ -813,7 +871,8 @@
           "from": "$steps.metrics.records",
           "options": {
             "base": "$steps.unseen.records"
-          }
+          },
+          "risk": "zero"
         },
         {
           "id": "trend_context",
@@ -829,7 +888,8 @@
             ]
           },
           "words_from": "$steps.measured.records",
-          "optional": true
+          "optional": true,
+          "risk": "metered"
         },
         {
           "id": "context",
@@ -841,7 +901,8 @@
           "from": "$steps.trend_context.records",
           "options": {
             "base": "$steps.measured.records"
-          }
+          },
+          "risk": "zero"
         },
         {
           "id": "candidate_serp",
@@ -853,7 +914,8 @@
           "input": {
             "n": 10
           },
-          "words_from": "$steps.context.records"
+          "words_from": "$steps.context.records",
+          "risk": "metered"
         },
         {
           "id": "candidate_domains",
@@ -865,7 +927,8 @@
           "from": "$steps.candidate_serp.records",
           "options": {
             "limit": 200
-          }
+          },
+          "risk": "zero"
         },
         {
           "id": "candidate_authority",
@@ -875,7 +938,8 @@
           },
           "capability": "domain.authority",
           "input": {},
-          "domains_from": "$steps.candidate_domains.records"
+          "domains_from": "$steps.candidate_domains.records",
+          "risk": "metered"
         },
         {
           "id": "enriched",
@@ -888,7 +952,8 @@
           "options": {
             "base": "$steps.context.records",
             "authority": "$steps.candidate_authority.records"
-          }
+          },
+          "risk": "zero"
         },
         {
           "id": "pool_flags",
@@ -901,7 +966,8 @@
             "records": "$steps.enriched.records"
           },
           "words_from": "$steps.enriched.records",
-          "optional": true
+          "optional": true,
+          "risk": "metered"
         },
         {
           "id": "prior",
@@ -913,7 +979,8 @@
           "from": "$steps.pool_flags.records",
           "options": {
             "base": "$steps.enriched.records"
-          }
+          },
+          "risk": "zero"
         },
         {
           "id": "intent",
@@ -922,7 +989,8 @@
             "en": "One-turn intent judgment"
           },
           "model": true,
-          "from": "$steps.prior.records"
+          "from": "$steps.prior.records",
+          "risk": "metered"
         },
         {
           "id": "judge",
@@ -933,10 +1001,12 @@
           "capability": "keyword.judge",
           "input": {
             "records": "$steps.intent.records"
-          }
+          },
+          "risk": "metered"
         }
       ],
-      "result": "$steps.judge.records"
+      "result": "$steps.judge.records",
+      "risk": "metered"
     },
     "intent_split": {
       "name": {
@@ -958,7 +1028,8 @@
           "capability": "keyword.expand",
           "input": {
             "keyword": "$input.object"
-          }
+          },
+          "risk": "metered"
         },
         {
           "id": "questions",
@@ -970,7 +1041,8 @@
           "input": {
             "keyword": "$input.object"
           },
-          "optional": true
+          "optional": true,
+          "risk": "metered"
         },
         {
           "id": "candidates",
@@ -983,7 +1055,8 @@
           "options": {
             "extra": "$steps.questions.records",
             "limit": 100
-          }
+          },
+          "risk": "zero"
         },
         {
           "id": "intent",
@@ -992,10 +1065,12 @@
             "en": "One-turn intent judgment"
           },
           "model": true,
-          "from": "$steps.candidates.records"
+          "from": "$steps.candidates.records",
+          "risk": "metered"
         }
       ],
-      "result": "$steps.intent.records"
+      "result": "$steps.intent.records",
+      "risk": "metered"
     },
     "season_window": {
       "name": {
@@ -1017,7 +1092,8 @@
           "capability": "trends.series",
           "input": {
             "keyword": "$input.object"
-          }
+          },
+          "risk": "metered"
         },
         {
           "id": "intent",
@@ -1027,10 +1103,12 @@
           },
           "model": true,
           "from": null,
-          "series": "$steps.series.series"
+          "series": "$steps.series.series",
+          "risk": "metered"
         }
       ],
-      "result": "$steps.intent.records"
+      "result": "$steps.intent.records",
+      "risk": "metered"
     },
     "pool_links": {
       "name": {
@@ -1052,10 +1130,12 @@
           "capability": "pool.lookup",
           "input": {
             "keyword": "$input.object"
-          }
+          },
+          "risk": "metered"
         }
       ],
-      "result": "$steps.pool.records"
+      "result": "$steps.pool.records",
+      "risk": "metered"
     },
     "domain_pages": {
       "name": {
@@ -1077,7 +1157,8 @@
           "capability": "domain.top_pages",
           "input": {
             "domain": "$input.object"
-          }
+          },
+          "risk": "metered"
         },
         {
           "id": "rankings",
@@ -1088,7 +1169,8 @@
           "capability": "domain.keywords",
           "input": {
             "domain": "$input.object"
-          }
+          },
+          "risk": "metered"
         },
         {
           "id": "candidates",
@@ -1100,7 +1182,8 @@
           "from": "$steps.rankings.records",
           "options": {
             "limit": 20
-          }
+          },
+          "risk": "zero"
         },
         {
           "id": "filter",
@@ -1112,7 +1195,8 @@
           "input": {
             "records": "$steps.candidates.records"
           },
-          "optional": true
+          "optional": true,
+          "risk": "metered"
         },
         {
           "id": "pool_seen",
@@ -1125,7 +1209,8 @@
             "records": "$steps.filter.records"
           },
           "words_from": "$steps.filter.records",
-          "optional": true
+          "optional": true,
+          "risk": "metered"
         },
         {
           "id": "unseen",
@@ -1137,7 +1222,8 @@
           "from": "$steps.filter.records",
           "options": {
             "known": "$steps.pool_seen.records"
-          }
+          },
+          "risk": "zero"
         },
         {
           "id": "metrics",
@@ -1147,7 +1233,8 @@
           },
           "capability": "keyword.metrics",
           "input": {},
-          "words_from": "$steps.unseen.records"
+          "words_from": "$steps.unseen.records",
+          "risk": "metered"
         },
         {
           "id": "measured",
@@ -1159,7 +1246,8 @@
           "from": "$steps.metrics.records",
           "options": {
             "base": "$steps.unseen.records"
-          }
+          },
+          "risk": "zero"
         },
         {
           "id": "trend_context",
@@ -1175,7 +1263,8 @@
             ]
           },
           "words_from": "$steps.measured.records",
-          "optional": true
+          "optional": true,
+          "risk": "metered"
         },
         {
           "id": "context",
@@ -1187,7 +1276,8 @@
           "from": "$steps.trend_context.records",
           "options": {
             "base": "$steps.measured.records"
-          }
+          },
+          "risk": "zero"
         },
         {
           "id": "candidate_serp",
@@ -1199,7 +1289,8 @@
           "input": {
             "n": 10
           },
-          "words_from": "$steps.context.records"
+          "words_from": "$steps.context.records",
+          "risk": "metered"
         },
         {
           "id": "candidate_domains",
@@ -1211,7 +1302,8 @@
           "from": "$steps.candidate_serp.records",
           "options": {
             "limit": 200
-          }
+          },
+          "risk": "zero"
         },
         {
           "id": "candidate_authority",
@@ -1221,7 +1313,8 @@
           },
           "capability": "domain.authority",
           "input": {},
-          "domains_from": "$steps.candidate_domains.records"
+          "domains_from": "$steps.candidate_domains.records",
+          "risk": "metered"
         },
         {
           "id": "enriched",
@@ -1234,7 +1327,8 @@
           "options": {
             "base": "$steps.context.records",
             "authority": "$steps.candidate_authority.records"
-          }
+          },
+          "risk": "zero"
         },
         {
           "id": "pool_flags",
@@ -1247,7 +1341,8 @@
             "records": "$steps.enriched.records"
           },
           "words_from": "$steps.enriched.records",
-          "optional": true
+          "optional": true,
+          "risk": "metered"
         },
         {
           "id": "prior",
@@ -1259,7 +1354,8 @@
           "from": "$steps.pool_flags.records",
           "options": {
             "base": "$steps.enriched.records"
-          }
+          },
+          "risk": "zero"
         },
         {
           "id": "intent",
@@ -1268,7 +1364,8 @@
             "en": "One-turn intent judgment"
           },
           "model": true,
-          "from": "$steps.prior.records"
+          "from": "$steps.prior.records",
+          "risk": "metered"
         },
         {
           "id": "judge",
@@ -1279,10 +1376,12 @@
           "capability": "keyword.judge",
           "input": {
             "records": "$steps.intent.records"
-          }
+          },
+          "risk": "metered"
         }
       ],
-      "result": "$steps.judge.records"
+      "result": "$steps.judge.records",
+      "risk": "metered"
     },
     "domain_rising": {
       "name": {
@@ -1305,7 +1404,8 @@
           "input": {
             "domain": "$input.object",
             "report": "new_improved"
-          }
+          },
+          "risk": "metered"
         },
         {
           "id": "candidates",
@@ -1317,7 +1417,8 @@
           "from": "$steps.rankings.records",
           "options": {
             "limit": 20
-          }
+          },
+          "risk": "zero"
         },
         {
           "id": "filter",
@@ -1329,7 +1430,8 @@
           "input": {
             "records": "$steps.candidates.records"
           },
-          "optional": true
+          "optional": true,
+          "risk": "metered"
         },
         {
           "id": "pool_seen",
@@ -1342,7 +1444,8 @@
             "records": "$steps.filter.records"
           },
           "words_from": "$steps.filter.records",
-          "optional": true
+          "optional": true,
+          "risk": "metered"
         },
         {
           "id": "unseen",
@@ -1354,7 +1457,8 @@
           "from": "$steps.filter.records",
           "options": {
             "known": "$steps.pool_seen.records"
-          }
+          },
+          "risk": "zero"
         },
         {
           "id": "metrics",
@@ -1364,7 +1468,8 @@
           },
           "capability": "keyword.metrics",
           "input": {},
-          "words_from": "$steps.unseen.records"
+          "words_from": "$steps.unseen.records",
+          "risk": "metered"
         },
         {
           "id": "measured",
@@ -1376,7 +1481,8 @@
           "from": "$steps.metrics.records",
           "options": {
             "base": "$steps.unseen.records"
-          }
+          },
+          "risk": "zero"
         },
         {
           "id": "trend_context",
@@ -1392,7 +1498,8 @@
             ]
           },
           "words_from": "$steps.measured.records",
-          "optional": true
+          "optional": true,
+          "risk": "metered"
         },
         {
           "id": "context",
@@ -1404,7 +1511,8 @@
           "from": "$steps.trend_context.records",
           "options": {
             "base": "$steps.measured.records"
-          }
+          },
+          "risk": "zero"
         },
         {
           "id": "candidate_serp",
@@ -1416,7 +1524,8 @@
           "input": {
             "n": 10
           },
-          "words_from": "$steps.context.records"
+          "words_from": "$steps.context.records",
+          "risk": "metered"
         },
         {
           "id": "candidate_domains",
@@ -1428,7 +1537,8 @@
           "from": "$steps.candidate_serp.records",
           "options": {
             "limit": 200
-          }
+          },
+          "risk": "zero"
         },
         {
           "id": "candidate_authority",
@@ -1438,7 +1548,8 @@
           },
           "capability": "domain.authority",
           "input": {},
-          "domains_from": "$steps.candidate_domains.records"
+          "domains_from": "$steps.candidate_domains.records",
+          "risk": "metered"
         },
         {
           "id": "enriched",
@@ -1451,7 +1562,8 @@
           "options": {
             "base": "$steps.context.records",
             "authority": "$steps.candidate_authority.records"
-          }
+          },
+          "risk": "zero"
         },
         {
           "id": "pool_flags",
@@ -1464,7 +1576,8 @@
             "records": "$steps.enriched.records"
           },
           "words_from": "$steps.enriched.records",
-          "optional": true
+          "optional": true,
+          "risk": "metered"
         },
         {
           "id": "prior",
@@ -1476,7 +1589,8 @@
           "from": "$steps.pool_flags.records",
           "options": {
             "base": "$steps.enriched.records"
-          }
+          },
+          "risk": "zero"
         },
         {
           "id": "intent",
@@ -1485,7 +1599,8 @@
             "en": "One-turn intent judgment"
           },
           "model": true,
-          "from": "$steps.prior.records"
+          "from": "$steps.prior.records",
+          "risk": "metered"
         },
         {
           "id": "judge",
@@ -1496,10 +1611,12 @@
           "capability": "keyword.judge",
           "input": {
             "records": "$steps.intent.records"
-          }
+          },
+          "risk": "metered"
         }
       ],
-      "result": "$steps.judge.records"
+      "result": "$steps.judge.records",
+      "risk": "metered"
     },
     "pool_gap": {
       "name": {
@@ -1521,7 +1638,8 @@
           "capability": "domain.keywords",
           "input": {
             "domain": "$input.object"
-          }
+          },
+          "risk": "metered"
         },
         {
           "id": "pool",
@@ -1532,7 +1650,8 @@
           "capability": "pool.lookup",
           "input": {
             "keyword": "$input.object"
-          }
+          },
+          "risk": "metered"
         },
         {
           "id": "gap",
@@ -1544,10 +1663,12 @@
           "from": "$steps.rankings.records",
           "options": {
             "known": "$steps.pool.records"
-          }
+          },
+          "risk": "zero"
         }
       ],
-      "result": "$steps.gap.records"
+      "result": "$steps.gap.records",
+      "risk": "metered"
     },
     "rising_queries": {
       "name": {
@@ -1570,7 +1691,8 @@
           "input": {
             "keyword": "$input.object",
             "report": "rising"
-          }
+          },
+          "risk": "metered"
         },
         {
           "id": "candidates",
@@ -1582,7 +1704,8 @@
           "from": "$steps.rising.records",
           "options": {
             "limit": 20
-          }
+          },
+          "risk": "zero"
         },
         {
           "id": "filter",
@@ -1594,7 +1717,8 @@
           "input": {
             "records": "$steps.candidates.records"
           },
-          "optional": true
+          "optional": true,
+          "risk": "metered"
         },
         {
           "id": "pool_seen",
@@ -1607,7 +1731,8 @@
             "records": "$steps.filter.records"
           },
           "words_from": "$steps.filter.records",
-          "optional": true
+          "optional": true,
+          "risk": "metered"
         },
         {
           "id": "unseen",
@@ -1619,7 +1744,8 @@
           "from": "$steps.filter.records",
           "options": {
             "known": "$steps.pool_seen.records"
-          }
+          },
+          "risk": "zero"
         },
         {
           "id": "metrics",
@@ -1629,7 +1755,8 @@
           },
           "capability": "keyword.metrics",
           "input": {},
-          "words_from": "$steps.unseen.records"
+          "words_from": "$steps.unseen.records",
+          "risk": "metered"
         },
         {
           "id": "measured",
@@ -1641,7 +1768,8 @@
           "from": "$steps.metrics.records",
           "options": {
             "base": "$steps.unseen.records"
-          }
+          },
+          "risk": "zero"
         },
         {
           "id": "trend_context",
@@ -1657,7 +1785,8 @@
             ]
           },
           "words_from": "$steps.measured.records",
-          "optional": true
+          "optional": true,
+          "risk": "metered"
         },
         {
           "id": "context",
@@ -1669,7 +1798,8 @@
           "from": "$steps.trend_context.records",
           "options": {
             "base": "$steps.measured.records"
-          }
+          },
+          "risk": "zero"
         },
         {
           "id": "candidate_serp",
@@ -1681,7 +1811,8 @@
           "input": {
             "n": 10
           },
-          "words_from": "$steps.context.records"
+          "words_from": "$steps.context.records",
+          "risk": "metered"
         },
         {
           "id": "candidate_domains",
@@ -1693,7 +1824,8 @@
           "from": "$steps.candidate_serp.records",
           "options": {
             "limit": 200
-          }
+          },
+          "risk": "zero"
         },
         {
           "id": "candidate_authority",
@@ -1703,7 +1835,8 @@
           },
           "capability": "domain.authority",
           "input": {},
-          "domains_from": "$steps.candidate_domains.records"
+          "domains_from": "$steps.candidate_domains.records",
+          "risk": "metered"
         },
         {
           "id": "enriched",
@@ -1716,7 +1849,8 @@
           "options": {
             "base": "$steps.context.records",
             "authority": "$steps.candidate_authority.records"
-          }
+          },
+          "risk": "zero"
         },
         {
           "id": "pool_flags",
@@ -1729,7 +1863,8 @@
             "records": "$steps.enriched.records"
           },
           "words_from": "$steps.enriched.records",
-          "optional": true
+          "optional": true,
+          "risk": "metered"
         },
         {
           "id": "prior",
@@ -1741,7 +1876,8 @@
           "from": "$steps.pool_flags.records",
           "options": {
             "base": "$steps.enriched.records"
-          }
+          },
+          "risk": "zero"
         },
         {
           "id": "intent",
@@ -1750,7 +1886,8 @@
             "en": "One-turn intent judgment"
           },
           "model": true,
-          "from": "$steps.prior.records"
+          "from": "$steps.prior.records",
+          "risk": "metered"
         },
         {
           "id": "judge",
@@ -1761,10 +1898,12 @@
           "capability": "keyword.judge",
           "input": {
             "records": "$steps.intent.records"
-          }
+          },
+          "risk": "metered"
         }
       ],
-      "result": "$steps.judge.records"
+      "result": "$steps.judge.records",
+      "risk": "metered"
     },
     "serp_details": {
       "name": {
@@ -1787,7 +1926,8 @@
           "input": {
             "keyword": "$input.object",
             "n": 10
-          }
+          },
+          "risk": "metered"
         },
         {
           "id": "intent",
@@ -1796,10 +1936,12 @@
             "en": "One-turn intent judgment"
           },
           "model": true,
-          "from": "$steps.serp.records"
+          "from": "$steps.serp.records",
+          "risk": "metered"
         }
       ],
-      "result": "$steps.intent.records"
+      "result": "$steps.intent.records",
+      "risk": "metered"
     }
   },
   "capabilities": {
@@ -1814,7 +1956,11 @@
         "mode": "search",
         "priority": 100,
         "batch_limit": 50,
-        "cost": "public page; rate limits apply"
+        "cost": "public page; rate limits apply",
+        "risk": "zero",
+        "read_only": true,
+        "public": true,
+        "requires_login": false
       }
     ],
     "trends.series": [
@@ -1828,7 +1974,11 @@
         "mode": "trends",
         "priority": 100,
         "batch_limit": 5,
-        "cost": "4 views per group of up to 5 terms"
+        "cost": "4 views per group of up to 5 terms",
+        "risk": "zero",
+        "read_only": true,
+        "public": true,
+        "requires_login": false
       }
     ],
     "keyword.judge": [
@@ -1841,7 +1991,10 @@
         ],
         "priority": 1000,
         "batch_limit": 1000,
-        "cost": "local; no model"
+        "cost": "local; no model",
+        "risk": "zero",
+        "read_only": true,
+        "local_only": true
       }
     ]
   }

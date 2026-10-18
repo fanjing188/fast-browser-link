@@ -33,7 +33,18 @@ def verify_bundle():
     if actual != expected: raise ValueError('安装包文件与 SHA256SUMS.json 不一致')
 
 
-def install(user_home, agents, *, dry_run=False, open_browser=True):
+def install(user_home, agents, *, dry_run=False, open_browser=True, upgrade=False):
+    if upgrade:
+        sys.path.insert(0,str(ROOT/'native-bridge'))
+        from fbl_runtime import Context
+        from fbl_update import update,plan
+        ctx=Context.locate(user_home,source=ROOT)
+        if dry_run:return plan(ctx)
+        if (ROOT/'SHA256SUMS.json').is_file():return update(ctx,ROOT)
+        with tempfile.TemporaryDirectory(prefix='fbl-upgrade-package-') as temporary:
+            package=Path(temporary)/'release'
+            subprocess.run([sys.executable,str(ROOT/'scripts/package-agent.py'),'--output',str(package)],check=True)
+            return update(ctx,package)
     if dry_run:
         return _install(user_home, agents, dry_run=True, open_browser=open_browser)
     home = user_home.expanduser().absolute()
@@ -93,6 +104,11 @@ def _install(user_home, agents, *, dry_run=False, open_browser=True):
             (runtime_home / 'runtime/native-bridge').symlink_to(runtime_home / 'plugin-data/fast-browser-link-native/host-bin', target_is_directory=True)
             for target in targets:
                 shutil.copytree(ROOT / 'skills/fast-browser-link', target)
+                sys.path.insert(0,str(ROOT/'native-bridge'))
+                try:
+                    from fbl_update import tree_digest
+                    (target/'.fbl-skill.json').write_text(json.dumps({'version':1,'sha256':tree_digest(target)}))
+                finally:sys.path.pop(0)
             plan['mcp'] = {'command': sys.executable, 'args': [str(runtime_home / 'runtime/agent-link/fast_browser_link.py'), '--mcp']}
             (runtime_home / 'installation.json').write_text(json.dumps(plan, ensure_ascii=False, indent=2) + '\n')
         except Exception:
@@ -115,12 +131,13 @@ def main():
     parser.add_argument('--agent', action='append', choices=[*AGENTS, 'all'])
     parser.add_argument('--user-home', type=Path, default=Path.home())
     parser.add_argument('--dry-run', action='store_true')
+    parser.add_argument('--upgrade',action='store_true')
     parser.add_argument('--no-open', action='store_true')
     args = parser.parse_args()
     agents = args.agent or [name for name, directory in AGENTS.items() if (args.user_home / directory).parent.is_dir()]
     agents = list(AGENTS) if 'all' in agents else list(dict.fromkeys([*agents, 'generic']))
     try:
-        result = install(args.user_home, agents, dry_run=args.dry_run, open_browser=not args.no_open)
+        result = install(args.user_home, agents, dry_run=args.dry_run, open_browser=not args.no_open,upgrade=args.upgrade)
     except (OSError, ValueError, subprocess.CalledProcessError) as exc:
         print(f'安装失败：{exc}', file=sys.stderr); return 1
     print(json.dumps(result, ensure_ascii=False, indent=2))

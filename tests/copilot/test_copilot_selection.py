@@ -82,12 +82,12 @@ class SelectionContracts(unittest.TestCase):
 
     def test_local_metadata_cache_and_pool_receipt_open_exact_result_without_query(self):
         with tempfile.TemporaryDirectory() as directory:
-            root=Path(directory).resolve();module=self.module(root,{'pool_lookup_command':[sys.executable,'-c','import json;print(json.dumps({"found":True,"tier":"test","last_checked":"2026-10-16"}))']})
+            root=Path(directory).resolve();module=self.module(root,{'pool_lookup_auto':{'risk':'zero','read_only':True,'local_only':True},'pool_lookup_command':[sys.executable,'-c','import json;print(json.dumps({"found":True,"tier":"test","last_checked":"2026-10-16"}))']})
             try:
                 state=module._state('browser');result={'verdict':'先测一个任务','level':'test','metrics':[],'missing':[],'process':[],'next':[],'keyword':'sample','tier':'test','intent':'tool','serp':[],'reasons':[]}
                 row={'id':'exact','action':'seo.keyword_check','params':{'keyword':'sample'},'title':'sample','status':'completed','finished_at':time.time(),'result':result};state['suggestions']['exact']=row
                 with patch.object(module.fetcher,'run',side_effect=AssertionError('must not fetch')):
-                    info=module.request('browser','selection_info',{'text':'sample'});self.assertEqual(info['cached']['id'],'exact');self.assertEqual(info['pool']['tier'],'test');module.request('browser','focus_result',{'id':'exact'});self.assertEqual(module.view('browser')['focused_result'],'exact')
+                    module._state('browser')['pool_words']=['sample'];info=module.request('browser','selection_info',{'text':'sample'});self.assertEqual(info['cached']['id'],'exact');self.assertEqual(info['pool']['tier'],'test');module.request('browser','focus_result',{'id':'exact'});self.assertEqual(module.view('browser')['focused_result'],'exact')
                 row['finished_at']=time.time()-8*86400;self.assertIsNone(module.request('browser','selection_info',{'text':'sample'})['cached'])
             finally:module.close()
 

@@ -93,7 +93,30 @@ def export(table,directory,formats=('xlsx','csv')):
     return paths
 
 class TableStore:
-    def __init__(self,directory,config,write):self.root=Path(directory)/'tables';self.config=config;self.write=write;self.datasets={};self.files={}
+    def __init__(self,directory,config,write):
+        self.root=Path(directory)/'tables'
+        if any(part.is_symlink() for part in (self.root,*self.root.parents)):raise ValueError('table directory symlink')
+        self.config=config;self.write=write;self.datasets={};self.files={}
+        path=self.root/'confirmed.json'
+        if path.is_symlink():raise ValueError('confirmed tables symlink')
+        self.confirmed=json.loads(path.read_text()) if path.exists() else {}
+
+    def confirmed_table(self,identity):
+        if not isinstance(identity,str) or not re.fullmatch(r'[a-f0-9]{32}',identity) or self.confirmed.get(identity) is not True:raise ValueError('confirmed export required')
+        path=self.root/(identity+'.json')
+        if path.is_symlink():raise ValueError('table path symlink')
+        table=json.loads(path.read_text());validate_table(table);return table
+
+    def export_saved(self,instance,name,headers,rows):
+        value=self.request(instance,'table_begin',{'name':name,'site':'basket','headers':headers})
+        batch=[];size=0
+        for row in rows:
+            cost=len(json.dumps(row,ensure_ascii=False).encode())
+            if batch and size+cost>200000:
+                self.request(instance,'table_append',{'id':value['id'],'rows':batch});batch=[];size=0
+            batch.append(row);size+=cost
+        if batch:self.request(instance,'table_append',{'id':value['id'],'rows':batch})
+        return self.request(instance,'table_finish',{'id':value['id'],'format':'both'})
 
     def request(self,instance,method,params):
         import uuid
@@ -121,6 +144,7 @@ class TableStore:
             files=[]
             for path in paths:
                 file_id=uuid.uuid4().hex;self.files[file_id]={'owner':instance,'path':path};files.append({'id':file_id,'path':path})
+            self.confirmed[identity]=True;self.write(self.root/'confirmed.json',json.dumps(self.confirmed))
             return {'id':identity,'rows':len(table['rows']),'pages':table['pages'],'unit':table['unit'],'reason':table['reason'],'partial':table['partial'],'files':files}
         if method=='table_read':
             if set(params)-{'id','offset','limit'}:raise ValueError('invalid table read')

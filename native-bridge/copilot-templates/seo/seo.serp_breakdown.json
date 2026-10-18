@@ -390,5 +390,6 @@
     ],
     "additionalProperties": false
   },
-  "prompt_en": "Identify gaps and classify only the supplied ranking domains. Never invent ranks."
+  "prompt_en": "Identify gaps and classify only the supplied ranking domains. Never invent ranks.",
+  "risk": "metered"
 }

@@ -695,15 +695,17 @@ def logs(ctx, *, follow=False, kind=None, errors=False, bundle=None):
         time.sleep(0.5)
 
 
-def init_pack(ctx, name, argv=None, url=None, capability=None):
-    import re
-
+def template_package(name):
     if not re.fullmatch(r"[a-z][a-z0-9-]{0,50}", name) or name in {"general", "seo", "discovered"}:
         raise ValueError("invalid or reserved local pack name")
+    return {"id": name, "version": 1, "capabilities": {}}
+
+
+def init_pack(ctx, name, argv=None, url=None, capability=None):
+    package = template_package(name)
     target = safe(ctx.copilot / "drafts" / name)
     if target.exists():
         raise ValueError("pack already exists")
-    package = {"id": name, "version": 1, "capabilities": {}}
     if argv:
         argv = list(argv)
         command = argv[0]
@@ -816,7 +818,9 @@ def parser():
             s.add_argument("--errors", action="store_true")
             s.add_argument("--bundle", nargs="?", const="fbl-diagnostics.tar.gz")
         elif name == "packs":
-            s.add_argument("action", choices=["list", "install", "remove", "init", "discover"])
+            s.add_argument(
+                "action", choices=["list", "install", "remove", "init", "new", "test", "discover"]
+            )
             s.add_argument("name", nargs="?")
             s.add_argument("--yes", action="store_true")
             s.add_argument("--argv", help="JSON argv")
@@ -824,6 +828,8 @@ def parser():
             s.add_argument("--url", action="append", default=[])
             s.add_argument("--scan-tabs", action="store_true")
             s.add_argument("--no-draft", action="store_true")
+            s.add_argument("--describe")
+            s.add_argument("--json", action="store_true")
         elif name == "browser":
             s.add_argument("--session")
             s.add_argument("operation")
@@ -911,6 +917,22 @@ def main(argv=None):
                 }
             elif args.action in {"install", "remove"}:
                 result = install_pack(ctx, args.name, remove=args.action == "remove")
+            elif args.action == "test":
+                from fbl_pack_test import test_pack, readable
+
+                if not args.name:
+                    raise ValueError("pack directory required")
+                result = test_pack(args.name)
+                print(
+                    json.dumps(result, ensure_ascii=False, indent=2)
+                    if args.json
+                    else readable(result)
+                )
+                return 0 if result["ok"] else 1
+            elif args.action == "new":
+                from fbl_pack_authoring import draft_pack
+
+                result = draft_pack(ctx, args.describe, next(iter(args.url), None))
             elif args.action == "init":
                 interactive = not (args.argv or args.url or args.capability)
                 name = args.name or input("本机扩展包名称：").strip()

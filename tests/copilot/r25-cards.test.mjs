@@ -308,3 +308,30 @@ test('refreshed actions route each current task and restore enabled state after 
     dom.window.close();
   }
 });
+
+test('completed tasks expose Save as flow with only a task ID; unfinished tasks do not', async () => {
+  const dom = fixture(),
+    calls = [];
+  try {
+    const doc = dom.window.document;
+    renderDashboard(
+      doc,
+      {
+        ...state,
+        locale: 'en',
+        suggestions: [
+          suggestion('done', 'PRIVATE_OBJECT', 'completed', { result: { records: [] } }),
+          suggestion('pending', 'PRIVATE_PENDING'),
+        ],
+      },
+      { command: async (...args) => calls.push(args) },
+    );
+    const buttons = [...doc.querySelectorAll('[data-action=fbl_save_flow]')];
+    assert.equal(buttons.length, 1);
+    assert.equal(buttons[0].textContent, 'Save as flow');
+    await buttons[0].onclick();
+    assert.deepEqual(calls, [['fbl_save_flow', { id: 'done' }]]);
+  } finally {
+    dom.window.close();
+  }
+});

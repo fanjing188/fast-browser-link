@@ -1,0 +1,18 @@
+[
+  {
+    "input": {
+      "product_id": "PR-1001"
+    },
+    "expect": {
+      "records": [
+        {
+          "product_id": "PR-1001",
+          "price": 25.0,
+          "stock": "in stock",
+          "change": -4.0
+        }
+      ],
+      "source": "synthetic visible page"
+    }
+  }
+]

@@ -1,0 +1,19 @@
+[
+  {
+    "input": {
+      "job_id": "JB-1001"
+    },
+    "expect": {
+      "records": [
+        {
+          "job_id": "JB-1001",
+          "title": "Example engineer",
+          "company": "Example company",
+          "location": "Example city",
+          "status": "saved"
+        }
+      ],
+      "source": "synthetic visible page"
+    }
+  }
+]

@@ -712,6 +712,8 @@ export function renderDashboard(doc, state, { command } = {}, now = Date.now()) 
         }
         actions.append(button(en ? 'Details' : '详情', 'open_result', row, { popup: true }));
         if (!row.local_table) actions.append(button(en ? 'Logs' : '日志', 'task_logs', row));
+        if (row.status === 'completed' && !row.local_table)
+          actions.append(button(en ? 'Save as flow' : '存成流程', 'fbl_save_flow', row));
         if (['failed', 'stopped'].includes(row.status) || row.result?.missing?.length)
           actions.prepend(button(row.resume_from ? '继续' : '重试', 'retry', row));
       }

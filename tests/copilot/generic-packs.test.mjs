@@ -199,3 +199,63 @@ with tempfile.TemporaryDirectory() as temporary:
     f.dom.window.close();
   }
 });
+
+test('price and job examples match, suggest, execute and render actual records; job status is filterable', () => {
+  for (const [name, flow, object, primary] of [
+    ['price-watch', 'watch_price', 'PR-1001', 'product_id'],
+    ['job-tracker', 'track_job', 'JB-1001', 'job_id'],
+  ]) {
+    const output = execFileSync(
+      'python3',
+      [
+        '-B',
+        '-c',
+        `
+import json,sys,tempfile
+from pathlib import Path
+sys.path.insert(0,str(Path('native-bridge').resolve()))
+from copilot import Copilot,private_write
+from copilot_setup import setup
+with tempfile.TemporaryDirectory() as temporary:
+    root=Path(temporary).resolve()
+    setup(root)
+    private_write(root/'config.json',json.dumps({'extension_dirs':[str(Path('docs/examples/${name}').resolve())],'managed_packs':True,'auto_zero':False}))
+    app=Copilot(root)
+    try:
+        app.active='fixture'
+        state=app._state('fixture')
+        url='https://${name}.example.test/detail?id=${object}'
+        state.update(enabled=True,ready=True,page={'url':url,'title':'synthetic','items':[]},page_context={'url':url,'incognito':False})
+        app._refresh_tool_suggestions('fixture')
+        row=next(row for row in state['suggestions'].values() if row['params'].get('flow')=='${flow}')
+        row['status']='executing'
+        app._execute_workflow('fixture',row,state['epoch'],app.config)
+        assert row['status']=='completed',row
+        print(json.dumps(row))
+    finally:
+        app.close()
+`,
+      ],
+      { encoding: 'utf8', env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' } },
+    );
+    const row = JSON.parse(output),
+      f = fixture(row, 'en');
+    try {
+      assert.equal(row.result_view.primary, primary);
+      assert.match(f.article.querySelector('tbody').textContent, new RegExp(object));
+      if (name === 'price-watch') {
+        assert.match(f.article.querySelector('tbody').textContent, /25.*in stock.*-4/);
+      } else {
+        const search = f.article.querySelector('input[type=search]');
+        search.value = 'saved';
+        search.oninput();
+        assert.match(f.article.querySelector('tbody').textContent, /Example engineer.*saved/);
+        search.value = 'rejected';
+        search.oninput();
+        assert.equal(f.article.querySelectorAll('tbody input[type=checkbox]').length, 0);
+      }
+    } finally {
+      f.dom.window.close();
+    }
+  }
+});

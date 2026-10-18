@@ -663,6 +663,10 @@ class Copilot(ObservationSupport, InferenceSupport, ResultSupport, ToolSupport):
             return self.directories.request(instance, method, params)
         if method.startswith("basket_") or method == "annotation_lookup":
             return self._basket_request(instance, method, params)
+        if method == "fbl_save_flow" and isinstance(params, dict):
+            from fbl_pack_authoring import save_flow
+
+            return save_flow(self, instance, params)
         if method.startswith("fbl_") and isinstance(params, dict):
             from fbl_panel import request
 

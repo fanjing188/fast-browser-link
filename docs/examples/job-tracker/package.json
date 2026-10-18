@@ -1,0 +1,230 @@
+{
+  "id": "job-tracker",
+  "version": 1,
+  "release": "1.0.0",
+  "name": "job-tracker",
+  "description": "Offline synthetic example; no network or paid services.",
+  "scene": {
+    "id": "job-tracker",
+    "name": {
+      "en": "job-tracker",
+      "zh": "job-tracker"
+    }
+  },
+  "objects": {
+    "job_id": {
+      "name": {
+        "en": "Job ID",
+        "zh": "职位号"
+      },
+      "from": [
+        {
+          "url_param": "id"
+        },
+        {
+          "column": [
+            "job_id"
+          ]
+        },
+        {
+          "selection": "^(PR|JB)-[0-9]{4}$"
+        }
+      ]
+    }
+  },
+  "tools": [
+    {
+      "id": "job-tracker",
+      "hosts": [
+        "job-tracker.example.test"
+      ],
+      "pages": [
+        {
+          "id": "detail",
+          "paths": [
+            "^/detail$"
+          ],
+          "columns": {
+            "job_id": [
+              "Job ID",
+              "job_id"
+            ],
+            "title": [
+              "Title",
+              "title"
+            ],
+            "company": [
+              "Company",
+              "company"
+            ],
+            "location": [
+              "Location",
+              "location"
+            ],
+            "status": [
+              "Status",
+              "status"
+            ]
+          },
+          "flows": [
+            "track_job"
+          ]
+        }
+      ]
+    }
+  ],
+  "schemas": {
+    "job.track": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "maxLength": 100
+          }
+        },
+        "required": [
+          "job_id"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "records": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "job_id": {
+                  "type": "string",
+                  "maxLength": 100
+                },
+                "title": {
+                  "type": "string",
+                  "maxLength": 100
+                },
+                "company": {
+                  "type": "string",
+                  "maxLength": 100
+                },
+                "location": {
+                  "type": "string",
+                  "maxLength": 100
+                },
+                "status": {
+                  "type": "string",
+                  "maxLength": 100
+                }
+              },
+              "required": [
+                "job_id",
+                "title",
+                "company",
+                "location",
+                "status"
+              ],
+              "additionalProperties": false
+            },
+            "maxItems": 100
+          },
+          "source": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "records",
+          "source"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "capabilities": {
+    "job.track": [
+      {
+        "id": "job-tracker-local",
+        "type": "command",
+        "argv": [
+          "python3",
+          "./record.py"
+        ],
+        "risk": "zero",
+        "local_only": true,
+        "read_only": false,
+        "cost": "local",
+        "batch_limit": 1
+      }
+    ]
+  },
+  "flows": {
+    "track_job": {
+      "name": {
+        "en": "Track this job",
+        "zh": "加入职位清单"
+      },
+      "object": "job_id",
+      "judgment": false,
+      "risk": "zero",
+      "description": {
+        "en": "Read the bundled synthetic visible page and write an isolated local list.",
+        "zh": "读取随包合成可见页面，写入隔离的本地清单。"
+      },
+      "when": {
+        "en": "On the synthetic detail page with an explicit ID.",
+        "zh": "在合成详情页有明确编号时。"
+      },
+      "steps": [
+        {
+          "id": "record",
+          "capability": "job.track",
+          "risk": "zero",
+          "input": {
+            "job_id": "$input.object"
+          }
+        }
+      ],
+      "result": {
+        "columns": [
+          {
+            "field": "job_id",
+            "label": {
+              "en": "Job ID",
+              "zh": "职位号"
+            }
+          },
+          {
+            "field": "title",
+            "label": {
+              "en": "Title",
+              "zh": "职位"
+            }
+          },
+          {
+            "field": "company",
+            "label": {
+              "en": "Company",
+              "zh": "公司"
+            }
+          },
+          {
+            "field": "location",
+            "label": {
+              "en": "Location",
+              "zh": "地点"
+            }
+          },
+          {
+            "field": "status",
+            "label": {
+              "en": "Status",
+              "zh": "状态"
+            }
+          }
+        ],
+        "primary": "job_id"
+      }
+    }
+  }
+}

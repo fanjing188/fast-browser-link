@@ -1,5 +1,7 @@
 # Packs and local capability declarations
 
+Start with [From your workflow to a pack](packs-guide.md). This page is the field reference.
+
 A runtime loads `package.json` version **1** from registered `extension_dirs`. Pack metadata `pack.json` records dependency names and revision policy; the executable contract remains `package.json`. Builtin `general` depends on `browser.core`; `seo` additionally needs agent judgment for conclusions. `fbl setup` installs general, asks about SEO (default no), and sets `managed_packs` so legacy builtin templates are not loaded a second time. Already configured legacy installations keep their existing behavior until setup opts in.
 
 `fbl packs init my-local --argv '["python3","/absolute/local/script.py","--input","{input_json}"]' --capability keyword.expand` generates a skeleton under the selected runtime's `plugin-data/fast-browser-link-native/copilot/drafts/my-local`. Existing scripts must exist. No user-entered runtime root, symlink or traversal is accepted. Review it, then `fbl packs install GENERATED_DIRECTORY`. This registers the path. Remove an unchanged managed pack with `fbl packs remove my-local`; user modifications block overwrites/removal.

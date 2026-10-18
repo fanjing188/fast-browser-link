@@ -1,5 +1,7 @@
 # 技能包与本机能力清单
 
+第一次写包请先读[从你的工作流程到功能包](packs-guide.zh-CN.md)，本页保留为字段参考。
+
 运行时从已登记 `extension_dirs` 读取 `package.json`，当前格式版本 **1**。`pack.json` 是依赖与升级策略说明，执行契约仍是 package.json。通用包依赖 `browser.core`；SEO 判断另依赖 agent。setup 默认安装 general，询问 SEO（默认不装），使用 managed_packs 避免重复加载旧内置包。已有安装在 setup 前保持原配置。
 
 `fbl packs init my-local --argv '["python3","/absolute/local/script.py","--input","{input_json}"]' --capability keyword.expand` 在所选运行时的 `plugin-data/fast-browser-link-native/copilot/drafts/my-local` 生成骨架。程序生成根路径并核实脚本，不接受穿越/软链接。审阅后 `fbl packs install 生成目录` 登记；`fbl packs remove my-local` 只移除摘要匹配的受管包。

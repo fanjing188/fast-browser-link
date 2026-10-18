@@ -1024,6 +1024,7 @@ export class CopilotBackground {
         'basket_execute',
         'fbl_readiness',
         'fbl_pack_state',
+        'fbl_save_flow',
         'fbl_pack_install',
         'fbl_pack_remove',
         'fbl_fix',

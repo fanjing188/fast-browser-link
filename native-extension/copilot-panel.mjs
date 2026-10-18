@@ -148,6 +148,16 @@ async function command(name, params = {}) {
   }
   if (name === 'state') void logs.connection(true);
   if (name === 'models') return response.result;
+  if (name === 'fbl_save_flow') {
+    const notice = document.getElementById('notice');
+    notice.hidden = false;
+    notice.setAttribute('role', 'status');
+    notice.textContent = `${response.result.label} · ${response.result.path} · ${response.result.test_command}`;
+    if (response.result.errors?.length)
+      notice.textContent += ` · ${response.result.errors.join('; ')}`;
+    if (response.result.fallback) notice.textContent += ` · ${response.result.reason}`;
+    return response.result;
+  }
   if (name === 'open_result' && !params.popup)
     document.getElementById('notice').textContent = '已在后台打开完整表';
   if (response.result.basket_preview) {

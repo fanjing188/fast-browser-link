@@ -72,6 +72,8 @@ def stage(
         "copilot_basket.py",
         "copilot_risk.py",
         "fbl_cli.py",
+        "fbl_pack_authoring.py",
+        "fbl_pack_test.py",
         "fbl_runtime.py",
         "fbl_profiles.py",
         "fbl_update.py",
@@ -216,6 +218,21 @@ def stage(
             target = host_bin / "fbl-assets" / origin.relative_to(assets)
             if origin.is_symlink() or any(part.is_symlink() for part in (target, *target.parents)):
                 raise ValueError("unsafe FBL asset")
+            target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            shutil.copyfile(origin, target)
+            target.chmod(0o600)
+    # 中文注释：安装后的受限起草也需要同一份公开指南与合同。
+    for name in ("packs-guide.md", "adapter-packs.zh-CN.md", "fbl-pack.schema.json"):
+        origin = next(
+            (
+                directory / name
+                for directory in (source_dir.parent / "docs", source_dir.parent.parent / "docs")
+                if (directory / name).is_file()
+            ),
+            None,
+        )
+        if origin is not None:
+            target = host_bin / "fbl-assets/authoring" / name
             target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
             shutil.copyfile(origin, target)
             target.chmod(0o600)

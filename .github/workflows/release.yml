@@ -40,4 +40,4 @@ jobs:
             "out/fast-browser-link-hermes-$version.zip" \
             out/SHA256SUMS.txt \
             --verify-tag --title "Fast-browser-link $version" \
-            --notes-file "docs/release-$version.md" --latest
+            --notes-file "docs/releases/release-$version.md" --latest

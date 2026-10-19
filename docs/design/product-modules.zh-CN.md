@@ -4,7 +4,7 @@
 
 ## 1. 浏览器连接与授权
 
-连接用户正在使用的 Chrome / Edge，复用登录状态。任务绑定可信 Hermes 会话、浏览器实例、允许来源、标签租约和代次；扩展确认连接后普通任务直接执行，敏感操作独立确认。断线、取消、撤销或代次变化不自动恢复旧授权。
+连接用户正在使用的 Chrome / Edge，复用登录状态。任务绑定可信 Hermes 会话、浏览器实例、标签租约和代次。来源列表记录初始及后续遇到的来源；扩展确认连接后普通任务直接执行，敏感操作独立确认。断线、取消、撤销或代次变化不自动恢复旧授权。
 
 - 入口：`fast_browser_open`、`fast_browser_browsers`、任务管理工具。
 - 实现：`executor-plugin/native_runtime.py`、`native-bridge/daemon.py`、`native-extension/core.mjs`。
@@ -85,18 +85,18 @@
 | body.nextStart | 同一已缓存正文的下一段偏移；不是网站分页 |
 | body.withheld / reason | 正文未返回的原因，如尚未完成、未捕获、二进制或 CDP 缓存失效；非 JSON 文本仍返回，超限正文截断并标记 structureTruncated |
 
-只保留当前任务允许来源的主标签请求，不合并子 frame session。不返回请求头和响应头；URL 保留完整地址（含查询参数和 fragment），请求与响应正文原样返回，不按凭据字段名或 Bearer 值脱敏。通用输出层仍会将已采集的密码输入值替换为 `[password]`，但这不是网络凭据过滤。网络证据可能包含 token 和个人数据，并原样进入 Agent 上下文；`filtered: true` 不能作为正文已脱敏的依据。
+保留当前任务主标签 session 的 HTTP(S) 请求，不合并子 frame session。`allowedOrigins` 不是固定网络白名单：网络事件会登记新来源，初始列表外的请求也可进入缓存。不返回请求头和响应头；URL 保留完整地址（含查询参数和 fragment），请求与响应正文原样返回，不按凭据字段名或 Bearer 值脱敏。通用输出层仍会将已采集的密码输入值替换为 `[password]`，但这不是网络凭据过滤。网络证据可能包含 token 和个人数据，并原样进入 Agent 上下文；`filtered: true` 不能作为正文已脱敏的依据。
 
-每页最多保留 128 个请求，原始正文读取阈值 65,536 字符，详情每段最多 20,000 字符。Chrome Network 缓存配置为总计 1 MiB、单资源 64 KiB；CDP 返回正文后再检查限制，并非对浏览器进程内存的绝对约束。缓存仅在内存中，不写诊断日志。撤销浏览器访问、停止捕获或关闭标签页后不可继续读取。授权来源内的导航与遮罩重建仅清理文档资源，保留网络捕获 ID 和有界记录；不能把离开授权来源视为已清除先前缓存。
+每页最多保留 128 个请求，原始正文读取阈值 65,536 字符，详情每段最多 20,000 字符。Chrome Network 缓存配置为总计 1 MiB、单资源 64 KiB；CDP 返回正文后再检查限制，并非对浏览器进程内存的绝对约束。缓存仅在内存中，不写诊断日志。撤销浏览器访问、停止捕获或关闭标签页后不可继续读取。导航（含跨站）与遮罩重建仅清理文档资源，保留网络捕获 ID 和有界记录；不能把跨站视为已清除先前缓存。
 
 捕获与原始 CDP 事件缓冲独立，列表查询不消耗 `expect_response` 的事件。相关时间窗口只提供证据，不保证每个请求都是某次操作导致的。
 
 - 实现：`native-extension/network-evidence.mjs`、`page-runtime.mjs`；协议动作 `network.inspect`；Python helper 位于 `script_lane/child.py`。
 - 当前不包含：静态脚本接口扫描、任意 HAR 导出、响应全文持久化。
 
-页面运行资源随任务释放。JavaScript 的 world 参数仅选择执行上下文。浏览器连接授权后 JS/CDP 调试动作直接执行，不逐项确认。原始 CDP 可以读取任务页中的其他来源子框架，事件不按来源过滤；Cookie、Set-Cookie、Authorization、Proxy-Authorization 请求和响应头及 Bearer 值始终剥离。顶层任务页离站时停止派发，返回任务来源后需重新建立网关。
+页面运行资源随任务释放。JavaScript 的 world 参数仅选择执行上下文。浏览器连接授权后 JS/CDP 调试动作直接执行，不逐项确认。原始 CDP 可以读取任务页中的其他来源子框架，事件不按来源过滤；Cookie、Set-Cookie、Authorization、Proxy-Authorization 请求和响应头及 Bearer 值始终剥离。1.11.0 起任务页可以跨站导航，Agent 可以读取并操作跨站页面内容；快照成功，既有 CDP 网关会话可读取外站，返回初始来源后仍可用，无需因跨站重建网关。任务、可信会话、代次和标签页租约校验仍保留；敏感字段仍由用户或 Vault 处理。`allowedOrigins` 的实际用途见[协议说明](protocol.md#origin-list-contract)。
 
-连接授权（全部访问）后，首次网站读取、后续读取、导航、写入和 Python 工作流直接执行。内部低层 policy 仍保留授权前默认拒绝及兼容状态；任务身份、来源、租约、代次、接管、停止、凭据保护和特殊确认不是被删除的审批模式。`tabs` 仅返回本任务租约标签，不暴露浏览器其他标签。
+连接授权（全部访问）后，首次网站读取、后续读取、导航、写入和 Python 工作流直接执行。内部低层 policy 仍保留授权前默认拒绝及兼容状态；任务身份、租约、代次、接管、停止、凭据保护和特殊确认不是被删除的审批模式。`tabs` 仅返回本任务租约标签，不暴露浏览器其他标签。
 
 ## 5. 页面请求
 
@@ -146,7 +146,7 @@
 | 模块 | 自动测试 | 优化时需要保留的约束 |
 | --- | --- | --- |
 | 网站工具 | `tests/site-tools/test_sites.py` | 未验证不可见、断言先验、修改失效、冲突拒绝、相同执行链 |
-| 网络证据 | `tests/network-evidence/network.test.mjs` | 来源隔离、分页、条目淘汰可见、撤销失效、与原始事件独立 |
+| 网络证据 | `tests/network-evidence/network.test.mjs` | 主标签 session 范围、分页、条目淘汰可见、撤销失效、与原始事件独立 |
 | doctor / 文档 | `tests/site-tools/test_reference_doctor.py` | 诊断无写入、不启动服务、缺失能力不推断、生成文档一致 |
 | Chrome / Edge | `tests/site-tools/real-sites.mjs` | 临时 profile、安装包、HttpOnly 测试登录态、真实 helper 调用 |
 | 全量集成 | `npm run verify` | 身份、协议、授权、打包、回归测试清单完整 |

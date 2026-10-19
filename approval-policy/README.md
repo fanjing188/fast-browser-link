@@ -7,7 +7,7 @@ A pure, dependency-free decision function that tells the extension whether a pag
 Browser connection authorization is full-only; ordinary task actions do not request per-action approval. The states below remain internal for compatibility and fail-closed operation before a verified grant. They do not offer a smart-approval UI. Independent Cookie/OAuth-window confirmations and sensitive-field protection are enforced separately.
 
 - **Legacy ungranted state** (`smart`): reads (`tabs`, `snapshot`, `screenshot`) run automatically; navigation, interaction, data entry and destructive actions return `confirm`.
-- **Full access**: after the user confirms browser connection authorization in the extension UI, supported actions run without repeated confirmation — but only within the same browser instance, task, owner, session, generations and tab leases. It never lifts origin checks, lease checks, sensitive-field checks or unsupported-action denials.
+- **Full access**: after the user confirms browser connection authorization in the extension UI, supported actions run without repeated confirmation — but only within the same browser instance, task, owner, session, generations and tab leases. Lease checks, sensitive-field checks and unsupported-action denials remain enforced. Since 1.11.0, the executor permits task-page cross-site navigation and agents can read and operate that content; `allowedOrigins` is dynamic metadata, not a fixed site allowlist. Existing CDP gateway sessions remain usable across sites and after returning. Sensitive fields still use the user or Vault; operation-specific origin restrictions remain separate.
 
 | Risk | Actions | Internal ungranted state | Full access |
 |---|---|---|---|

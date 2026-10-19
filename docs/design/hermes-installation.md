@@ -44,9 +44,9 @@ There are two stages: **Program installed and enabled** confirms only the local 
 
 The connection wait is at most 3 minutes. Ctrl+C skips only this wait. A timeout or `--wait-seconds 0` does not undo installation. If **Browser connection not yet verified** appears, load the extension and run the printed **Check** command; do not repeat the first install.
 
-打开扩展弹窗，未连接时点“连接 Fast-browser-link”，在浏览器中确认连接授权（全部访问）；重启使用目标 profile 的 Hermes 桌面端，或新开 CLI 会话。弹窗显示“已连接”、桌面用户确认“浏览器连接”页显示在线浏览器即完成。连接授权后普通任务直接执行，不再逐页或逐项确认；任务就绪、来源范围、接管、停止和凭据保护仍须核实。离线或状态未知不代表已授权。
+打开扩展弹窗，未连接时点“连接 Fast-browser-link”，在浏览器中确认连接授权（全部访问）；重启使用目标 profile 的 Hermes 桌面端，或新开 CLI 会话。弹窗显示“已连接”、桌面用户确认“浏览器连接”页显示在线浏览器即完成。连接授权后普通任务直接执行，不再逐页或逐项确认；任务就绪、会话归属、代次、标签页租约、接管、停止和凭据保护仍须核实；同一任务页可跨站读取和操作。离线或状态未知不代表已授权。
 
-Open the popup, click **Connect Fast-browser-link** if disconnected, and confirm browser connection authorization (full access). Restart Hermes Desktop with the target profile, or start a new CLI session. Look for **Connected** in the popup and, if using Desktop, an online browser in **Browser connections**. After connection authorization, ordinary task actions run directly without per-page or per-action prompts. Task readiness, origin scope, takeover, stop and credential protections still apply. Offline or unknown state is not proof of authorization.
+Open the popup, click **Connect Fast-browser-link** if disconnected, and confirm browser connection authorization (full access). Restart Hermes Desktop with the target profile, or start a new CLI session. Look for **Connected** in the popup and, if using Desktop, an online browser in **Browser connections**. After connection authorization, ordinary task actions run directly without per-page or per-action prompts. Task readiness, session identity, generations, tab leases, takeover, stop and credential protections still apply; task pages permit cross-site reads and operations. Offline or unknown state is not proof of authorization.
 
 ## Profiles / 多 profile
 

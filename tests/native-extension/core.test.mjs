@@ -603,6 +603,45 @@ test('读取期间跨站导航不产生来源拒绝', async () => {
   );
 });
 
+test('任务页跨站后快照返回外站内容，仍拒绝其他标签和旧代次', async () => {
+  const { Executor } = await load();
+  let url = 'https://example.com/';
+  let snapshots = 0;
+  const snapshot = () => ({ url, title: '外站夹具', elements: [{ text: '跨站正文' }] });
+  const e = new Executor({
+    tabs: { get: async () => ({ id: 1, url, status: 'complete' }) },
+    debugger: {
+      attach: async () => {},
+      detach: async () => {},
+      sendCommand: async (_, method, params) => {
+        if (method === 'Page.getFrameTree') return { frameTree: { frame: { id: 'main', url } } };
+        if (method === 'Page.createIsolatedWorld') return { executionContextId: 1 };
+        if (method === 'Runtime.callFunctionOn' && params.arguments?.[0]?.value === 'snapshot') {
+          snapshots++;
+          return { result: { value: snapshot() } };
+        }
+        return {};
+      },
+    },
+  });
+  await e.approve(task());
+  const command = {
+    taskId: 'a',
+    generation: 1,
+    tabId: 1,
+    action: 'snapshot',
+    allowedOrigins: ['https://example.com'],
+  };
+  // 中文注释：1.11.0 起任务页可跨站；在快照派发前确认新来源不在初始列表内。
+  url = 'https://outside.test/page';
+  assert.ok(!e.tasks.get('a').allowedOrigins.includes(new URL(url).origin));
+  assert.deepEqual(await e.execute(command), snapshot());
+  assert.equal(snapshots, 1);
+  await assert.rejects(e.execute({ ...command, tabId: 9 }), /tab lease denied/);
+  await assert.rejects(e.execute({ ...command, generation: 2 }), /stale generation/);
+  assert.equal(snapshots, 1);
+});
+
 test('closing an agent tab retains its lease until removal completes', async () => {
   const { Executor } = await load();
   const { api, removed } = workspaceFixture();

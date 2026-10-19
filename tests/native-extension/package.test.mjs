@@ -62,8 +62,10 @@ test('current architecture describes the allowed persistent CDP script boundary'
   assert.doesNotMatch(architecture, /`Page\.addScriptToEvaluateOnNewDocument` 已禁用/);
   assert.match(
     architecture,
-    /`Page\.addScriptToEvaluateOnNewDocument`[^\n]*持续执行[^\n]*未授权来源/,
+    /`Page\.addScriptToEvaluateOnNewDocument`[^\n]*持续执行[^\n]*初始来源列表之外/,
   );
+  assert.match(architecture, /跨站本身不会停止新的任务派发或废弃旧网关/);
+  assert.doesNotMatch(architecture, /离站.*停止.*派发|换站时不回传结果/);
 });
 
 test('legacy packaged dist-native is explicit and missing package never falls back to source', async () => {

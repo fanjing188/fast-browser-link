@@ -127,7 +127,7 @@ Run them one at a time and not beside another browser run. A passing historical 
 
 `npm test` also checks `tests/site-tools/`, `tests/network-evidence/network.test.mjs` and generated API-reference drift. Run the packaged Chrome/Edge flow with `node tests/site-tools/real-sites.mjs --browser=all` using the same `HERMES_SOURCE` and `HERMES_PYTHON` test installation as the full gate. It uses temporary profiles, synthetic HttpOnly cookies and a local HTTP fixture. It does not verify third-party sites or modify a personal installation. Evidence is written under ignored `tests/site-tools/evidence/`.
 
-The website-tool suite includes caught-error trials for unknown outcomes, pending approval and manual input. The packaged browser flow also checks capture continuity across navigation, rejection of an existing CDP session after leaving the allowed origins, and recovery through a newly opened gateway.
+The website-tool suite includes caught-error trials for unknown outcomes, pending approval and manual input. The packaged browser flow also checks capture continuity across navigation, successful cross-site snapshots, continued reads through an existing CDP session outside the initial origins and after returning, and a separately opened gateway. These assertions follow the cross-site policy introduced in 1.11.0; offline coverage in `tests/native-extension/core.test.mjs` checks that a snapshot after crossing sites succeeds while foreign-tab and stale-generation requests still fail. The packaged Chrome/Edge flow requires separate real-browser acceptance.
 
 ## Cookie mirror acceptance
 

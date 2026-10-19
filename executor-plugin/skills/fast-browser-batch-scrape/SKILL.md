@@ -11,12 +11,12 @@ First bind this session to a ready task with `fast_browser_open`; use its summar
 
 | Function | Purpose |
 |---|---|
-| `new_tab(url)`, `goto_url(url)` | Open / navigate a work tab within the approved sites |
+| `new_tab(url)`, `goto_url(url)` | Open / navigate a work tab, including across sites |
 | `wait_for_load(timeout=15, until='interactive')` | Wait until the DOM is readable (`interactive`); pass `until='complete'` only if images/ads must finish; tolerates a slow page being replaced. Not proof that dynamic content is present |
 | `wait_for(selector, state='present', timeout=10)` | Returns dict `{satisfied,timed_out,last_observation,coverage,reason}`; state=present/absent/text/count/stable; timeout `(0,60]` seconds. On false change locator or stop; never repeat the same wait |
 | `read_page(query='', root=None, mode='content', budget=3000)` | Returns dict `{binding,snapshotId,items,coverage,nextCursor,...}`; read `page['items'][:5]`, never `page[:500]`. Use query/root; mode=content/table/interactive |
 | `semantic_snapshot(**options)` | Same dict contract as read_page; follow coverage, nextCursor and delta |
-| `frame_catalog()` | List the page's frames; only approved origins get a `frameToken`; writes in cross-origin frames need full access |
+| `frame_catalog()` | List the page's frames; task-verified cross-origin frames get a `frameToken`, including origins outside the initial list; writes need full access |
 | `wait_for_element(name, role=None, root=None, exact=True, timeout=10)` | Wait for exactly one enabled match (max 60 s); returns `snapshot` / `ref` |
 | `click_element(name, mode='pointer', **options)` | Locate in a fresh snapshot and click once; inspect delivery for trusted or background synthetic input |
 | `fill_element(name, text, **options)` | Locate in a fresh snapshot and fill once |
@@ -38,7 +38,7 @@ First bind this session to a ready task with `fast_browser_open`; use its summar
 1. Read the page first and take target names, roles and regions from what you saw. Do not invent selectors.
 2. Narrow with `role` / `name` / `root`. A repeated name returns `ambiguous_target` — never just take the first one.
 3. `incomplete_target_scope` means the region was not fully read: narrow `root` / `query` and read again; do not ignore coverage.
-4. Locator helpers read the main document by default. `semantic_snapshot(composed=True)` also reads open Shadow DOM and same-origin iframes; `frame_catalog()` tokens let you locate inside approved cross-origin frames. A semantic write may scroll the target into view once; if it then moved or is still covered, it is refused — read the page again.
+4. Locator helpers read the main document by default. `semantic_snapshot(composed=True)` also reads open Shadow DOM and same-origin iframes; `frame_catalog()` tokens let you locate inside task-verified cross-origin frames. A semantic write may scroll the target into view once; if it then moved or is still covered, it is refused — read the page again.
 5. Put the steps you have already decided on, plus the read-back you need, in one script. Re-read inside that same script; no extra model call is required. Print only target items, coverage and counts. Narrow query/root or parse_page sections; keep nextCursor and warnings. `stdout_prefix` / `stderr_prefix` clipping means output is incomplete, not that the page was fully read. Save large extraction to the workspace; return count/path/coverage and read the file by ranges later. Full-source reading tasks still require complete bounded continuation. A click receipt is not proof of a business result.
 6. After `ApprovalRequired` / `UserInputRequired`, call `wait_pending` and continue with the next step. Do not call `click_element` or `fill_element` again — that would create a second action.
 7. Unknown outcomes, stale refs, denials and disconnects: never retry a write automatically. Verify the page; if you cannot tell what happened, stop and report.
@@ -118,7 +118,7 @@ For network inspection, use `network_start`, `network_list(capture_id)`, `networ
 
 读动作只等待 DOM 的 `interactive`/`complete`，上限 1.5 秒。导航和新建页最多等待 8 秒；正文已解析且稳定可返回 `partial`。`goto_url()` 回执默认附摘要，可用 `summary=False` 关闭。等具体元素用 `wait_for(selector, ...)`；已有可读回执时不要再叠加 `wait_for_load()`。
 
-同一工作页可以跨站导航，继续使用当前任务和标签页。多台已启用浏览器可在 Hermes 进程环境中设置 `FAST_BROWSER_DEFAULT=edge`、`chrome` 或具体 instance ID；显式 `instance_id` 优先。
+1.11.0 起同一工作页可以跨站导航，Agent 可读取和操作跨站页面；继续使用当前任务和标签页，导航后重读。旧 CDP 网关会话跨站及返回初始来源后仍可用。任务、会话、代次和租约仍校验；敏感字段由用户或 Vault 处理。`allowedOrigins` 会扩充，网络证据也不按初始列表过滤。多台已启用浏览器可在 Hermes 进程环境中设置 `FAST_BROWSER_DEFAULT=edge`、`chrome` 或具体 instance ID；显式 `instance_id` 优先。
 
 `parallel(fn, tabs)` 对每个页执行 `fn(tab)`，结果按输入顺序返回。同站顺序读多页时复用同一标签；需要同时等待至少三张慢页时才并行建页，模型标签最多四张。任一分支失败后汇总 `BrowserError.errors` 与已成功的 `BrowserError.results`，定位仍失败的条目换描述或跳过；用显式 `tab=` 核实未知写入结果。同一页的动作仍串行，同一会话仍只能运行一个脚本进程。
 

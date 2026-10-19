@@ -5,7 +5,7 @@ This page describes what Hermes (and you) can do once the bridge is installed. H
 ## Concepts
 
 - **Browser instance** — one connected Chrome or Edge profile running the extension.
-- **Task** — a unit of work bound to one browser instance, a set of allowed site origins, a generation number, and the tabs it owns. Tasks never share tabs.
+- **Task** — a unit of work bound to one browser instance, a dynamic list of initial and encountered site origins, a generation number, and the tabs it owns. Tasks never share tabs. Since 1.11.0, a task tab can navigate across sites and the agent can read and operate its content; snapshots and existing CDP gateway sessions remain usable across sites and after returning. Session identity, generations and tab leases still apply; sensitive fields use the user or Vault. `allowedOrigins` is not a fixed allowlist; see the [protocol](protocol.md#origin-list-contract).
 - **Work tab** — a tab the task opened itself, placed in the task's tab group. The bridge never closes tabs you opened.
 - **Session binding** — the Hermes session that owns a task. A session is bound to at most one task; the script tool and Hermes' official browser tools act on that task.
 - **Generation** — increments when a task is resumed. Every action carries it, so authority from an older generation cannot be reused.
@@ -123,7 +123,7 @@ Look at `code` and `outcome_unknown` in the result. **If `outcome_unknown` is tr
 | `approval_required` | An independent special confirmation is pending | Confirm, then repeat with the same `request_id` and arguments |
 | `user_input_required`, `sensitive_target` | Sensitive field | Fill it yourself in the browser |
 | `approval_denied`, `user_input_declined`, `approval_expired` | Not executed | Tell the user; only retry with a new `request_id` after they agree |
-| `origin_denied` | Site not in the task's scope | `fast_browser_open` the new site |
+| `origin_denied`, `tab_out_of_scope`, `redirected_out_of_scope` | Compatibility-path origin refusal; crossing sites alone does not produce these in ordinary task-page navigation/reads | Report the actual refusal and inspect its operation-specific constraint; do not bypass it |
 | `foreign_tab`, `tab_required` | Wrong or missing tab | Use the task's `tab_id` or open a new work tab |
 | `stale_reference`, `document_changed` | The page changed | Take a new snapshot |
 | `page_not_ready` | The page is still loading | Wait a few seconds and read the **same** tab again; do not reopen the URL |

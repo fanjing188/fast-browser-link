@@ -24,7 +24,7 @@ Every `shared.run` carries a `requestId`. The daemon binds each ID to a hash of 
 | `health` | Service check; returns `protocolVersion` |
 | `browser.list` | Connected instances with `consentStatus` (`enabled` = connected full-access authorization, `disabled` = not authorized, `unknown` = unreadable) and `accessRequestSupported` |
 | `browser.access_request {instanceId}` | Compatibility request to show extension connection authorization; not a Desktop action-request or mode-switch control. It never grants authorization itself. |
-| `shared.create {owner, title, instanceId, allowedOrigins}` | New task; after browser connection authorization the extension prepares full-access task authority automatically |
+| `shared.create {owner, title, instanceId, allowedOrigins}` | New task with an initial, dynamically extended origin list (see [contract](#origin-list-contract)); after browser connection authorization the extension prepares full-access task authority automatically |
 | `shared.list`, `shared.get`, `shared.cancel`, `shared.close`, `shared.resume` | Task lifecycle. `resume` increments the generation and needs fresh authorization. |
 | `shared.run {owner, taskId, requestId, action, tabId?, ...}` | One page action (see [usage](usage.md#page-actions-fast_browser_run)) |
 | `shared.operation_status` | Read the request ledger for a request ID |
@@ -42,6 +42,14 @@ Public task objects contain `id, title, instanceId, browser, state, generation, 
 
 `idleCloseAt` is a wall-clock deadline persisted in the daemon ledger. The daemon scans at startup and every 0.5 seconds, rechecking state, generation, deadline and activity under the state lock before release. Previously ready tasks become `needs_sync` on restart but retain their idle eligibility and original activity time. Previously paused/manual tasks remain protected until explicit resume. An automatic close recorded while the browser is offline revokes authority immediately and dispatches its previously unsent release once on reconnect. Unknown cleanup receipts never trigger automatic tab-deletion retries.
 
+## Origin-list contract
+
+`shared.create.allowedOrigins` (tool spelling: `allowed_origins`) is a required non-empty list of exact HTTP(S) origins, normalized and deduplicated by the daemon. It seeds the task's origin metadata and the extension grant; it is not a fixed allowlist, even for the first work tab. Navigation/new-tab URL validation appends a new HTTP(S) origin rather than rejecting it. The extension likewise records origins encountered while reading task tabs, frames and network events. Daemon and extension lists may be updated at different times.
+
+Since 1.11.0, task pages can navigate outside the initial list and the agent can read and operate their content. `snapshot` succeeds there; an existing CDP gateway session can evaluate the cross-site document and still works after returning to the initial origin. Crossing sites alone neither fences dispatch nor invalidates that gateway. Navigation still invalidates document references, so obtain a fresh snapshot before element actions. Task, trusted session, generations and tab leases remain checked; sensitive fields still require the user or Vault.
+
+The list still participates in grant/scope consistency checks, website-tool required-origin subset checks, popup source/adoption checks and file-upload origin binding. The extension's pre-mask script uses the list captured at registration. These uses do not make it a task-page site sandbox. Network evidence calls the same origin-recording function: it accepts HTTP(S) request origins outside the initial list and adds them, while excluding child frame sessions. It does not filter requests against a fixed initial list. Same-origin `page_request`, private credential handling and URL scheme restrictions retain their own checks.
+
 ## Extension → daemon
 
 | Method | Purpose |
@@ -58,13 +66,13 @@ Public task objects contain `id, title, instanceId, browser, state, generation, 
 
 The daemon sends a `tasks.changed` notification whenever the pending or active task list changes; unknown notifications are ignored.
 
-Browser connection authorization is full-only. Ordinary first-site reads, later reads, navigation, writes, JS/CDP and Python workflows run directly; no per-action permission panels are created. Internal compatibility policy states remain fail-closed before a grant, and identity/origin/lease/generation checks remain independent. `tabs` returns only leased task tabs, not the browser-wide tab list. Cookie mirror and existing OAuth-window adoption retain explicit special confirmation; sensitive-field manual input and the private Vault path remain separate.
+Browser connection authorization is full-only. Ordinary first-site reads, later reads, navigation, writes, JS/CDP and Python workflows run directly; no per-action permission panels are created. Internal compatibility policy states remain fail-closed before a grant, and identity/lease/generation checks and operation-specific origin checks remain independent. `tabs` returns only leased task tabs, not the browser-wide tab list. Cookie mirror and existing OAuth-window adoption retain explicit special confirmation; sensitive-field manual input and the private Vault path remain separate.
 
 ## Daemon → extension
 
 | Method | Purpose |
 |---|---|
-| `browser.execute {taskId, generation, requestId, action, tabId, allowedOrigins, ...}` | Run one action. The daemon injects the current generation and exact origins after checking ownership and the lease. |
+| `browser.execute {taskId, generation, requestId, action, tabId, allowedOrigins, ...}` | Run one action. The daemon injects the current generation and current origin list after checking ownership and the lease; this is not a fixed site allowlist. |
 | `browser.assess` | Pre-check the target of `fill` / `press` / `ref_fill` for sensitivity before execution or manual entry |
 | `browser.read_origin` | Read only the leased tab's current top-level origin for internal scope validation; no title, DOM or screenshot |
 | `browser.release {taskId, generation, closeAgentTabs}` | Revoke a task; close only task-created tabs whose ownership is still proven |
@@ -78,7 +86,7 @@ Browser connection authorization is full-only. Ordinary first-site reads, later 
 
 A snapshot returns `binding = {taskId, documentId, leaseId}`, a `snapshotId` and per-element `ref`s. A write must supply exactly that binding, the latest snapshot ID and a ref. The extension never re-locates by label, index or selector; DOM mutation, a replaced document, a stale snapshot, a changed origin or generation all fail closed.
 
-Snapshot `options`: `mode`, `root`, `query`, `roles`, `viewport`, `composed`, `accessibility`, `frameToken`, `budget`, `cursor`, `baselineId`. `composed: true` includes open/closed Shadow DOM and same-origin frames, including closed components inside those frames, with an ordered `targetPath`. Unreadable child frames are skipped and disclosed in coverage; their presence does not authorize reading or acting inside them. `frameToken` selects an approved cross-origin child frame; it binds task, tab, document, origin and session.
+Snapshot `options`: `mode`, `root`, `query`, `roles`, `viewport`, `composed`, `accessibility`, `frameToken`, `budget`, `cursor`, `baselineId`. `composed: true` includes open/closed Shadow DOM and same-origin frames, including closed components inside those frames, with an ordered `targetPath`. Unreadable child frames are skipped and disclosed in coverage; their presence does not authorize reading or acting inside them. `frameToken` selects a task-verified cross-origin child frame, including origins outside the initial list; it binds task, tab, document, origin and session.
 
 `items[].context` contains up to six meaningful ancestors within the selected root: `{ref, role, name, index?}`. `parentRef` identifies the nearest context container and is not an action reference. Container names use direct headings, explicit labels or bounded row/list text; action refs remain task/document/lease/snapshot-bound DOM identities. Official tool text renders this model as a compact tree with control states; Python callers keep the same structured items.
 
@@ -99,11 +107,11 @@ Snapshot `options`: `mode`, `root`, `query`, `roles`, `viewport`, `composed`, `a
 
 ## Network evidence and capability discovery
 
-`network.inspect` is an internal `shared.run` action with `{tabId, options}`. `options.operation` is `start`, `list`, `detail` or `stop`; connection authorization permits execution directly, without per-action approval. It requires the same task, tab lease and credential-page exclusion as raw CDP. The CDP gateway binds to the task’s existing generation and modeGeneration. Raw CDP events are not filtered by origin; credential headers and Bearer values are always removed.
+`network.inspect` is an internal `shared.run` action with `{tabId, options}`. `options.operation` is `start`, `list`, `detail` or `stop`; connection authorization permits execution directly, without per-action approval. It requires the same task, tab lease and credential-page exclusion as raw CDP. The CDP gateway binds to the task’s existing generation and modeGeneration. Network capture is limited to the main tab session, not a fixed origin allowlist (see the [origin-list contract](#origin-list-contract)). Raw CDP events are not filtered by origin; credential headers and Bearer values are always removed.
 
 Network evidence returns no request or response headers. List and detail URLs preserve query strings and fragments, and detail returns raw request/response text without credential-key or Bearer filtering. The common output layer still replaces collected password input values with `[password]`. Tokens and personal data in network evidence can otherwise enter the Agent context unchanged; the legacy `filtered: true` detail flag does not guarantee body redaction.
 
-`Page.addScriptToEvaluateOnNewDocument` is available through raw CDP. It runs directly under connection authorization and can persist on later pages, including other sites; it is not a read-only sandbox. The extension records each returned identifier and removes registered scripts when the task ends or authorization is revoked. Leaving the task origin fences new dispatches, but cannot guarantee that a previously registered script has not already run during navigation.
+`Page.addScriptToEvaluateOnNewDocument` is available through raw CDP. It runs directly under connection authorization and can persist on later pages, including other sites; it is not a read-only sandbox. The extension records each returned identifier and removes registered scripts when the task ends or authorization is revoked. Cross-site navigation allows continued task dispatch and use of the existing gateway session; registered scripts may also run on the new site.
 
 The extension advertises `browser_core_v1`, `page_parse_v1`, `page_function_v1`, `network_evidence_v1` and `cookie_mirror_v1` in `extension.hello.capabilities.features`. The daemon publishes recognized values in `browser.list`. Missing features are not inferred from version strings. Generated API reference projection describes availability, never authority.
 

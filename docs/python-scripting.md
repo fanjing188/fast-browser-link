@@ -6,7 +6,7 @@
 
 - Each call starts a **new** Python process; the session's working directory is kept between calls, so files you write there survive. Element references and approvals do not.
 - Default timeout 120 s, maximum 600 s. A timeout does not mean the page action did not happen, and the script is not re-run automatically.
-- Every helper goes through the same path as a single tool call — trusted session → script host → daemon → extension — with the same ownership, origin, generation, connection authorization and sensitive-field checks. Ordinary helper actions run directly; special confirmations remain independent. There is no second executor.
+- Every helper goes through the same path as a single tool call — trusted session → script host → daemon → extension — with the same ownership, generation, tab lease, connection authorization and sensitive-field checks, plus operation-specific origin checks. Ordinary helper actions run directly; special confirmations remain independent. There is no second executor.
 - Print only a summary to stdout; output is bounded.
 - `execution_complete` comes from the trusted action state and ledger, not only the Python exit code. Caught unknown outcomes, pending approvals and pending manual input still make the run incomplete. `outcome_unknown` remains true when an outcome cannot be established. Resolve the original pending request with `wait_pending`, or explicitly reconcile unknown work; do not replay it.
 - The process runs with your user's permissions. Environment scrubbing and helper limits are **not** an OS sandbox: never execute text taken from a web page as Python.
@@ -21,12 +21,12 @@ The script uses the task's only work tab automatically. If the task has several 
 
 | Helper | Description |
 |---|---|
-| `new_tab(url)`, `goto_url(url)` | Open or navigate a work tab within the task's allowed origins |
+| `new_tab(url)`, `goto_url(url)` | Open or navigate a work tab, including across sites in the same task |
 | `wait_for_load(timeout=15, until='interactive')` | Poll `document.readyState` until the DOM is readable (`interactive`, default) or `complete` (`until='complete'`); tolerates the transient errors of a slow page being replaced. Not proof that dynamic content has appeared. |
 | `wait_for(selector, state='present', timeout=10)` | Wait for a specific element or state on a dynamic page; prefer this when the target is known. |
 | `read_page(query='', root=None, mode='content', budget=3000, cursor=None)` | Read a region as text (`content`), tables (`table`) or controls (`interactive`), with coverage and paging info; pass `nextCursor` after scrolling a virtual list |
 | `semantic_snapshot(**options)` | The underlying snapshot: `mode`, `root`, `query`, `roles`, `viewport`, `composed`, `accessibility`, `frameToken`, `budget`, `cursor`, `baselineId` |
-| `frame_catalog()` | List child frames; approved cross-origin frames get a `frameToken` |
+| `frame_catalog()` | List child frames; task-verified cross-origin frames get a `frameToken`, including origins outside the initial list |
 | `page_text()`, `screenshot(path)` | Basic text snapshot; save a screenshot into the working directory |
 
 ### Locating and acting
@@ -112,7 +112,7 @@ print({'coverage': page['coverage'], 'items': page['items'][:5]})
 
 ## V1.3: parsing and conditional execution
 
-The following helpers use the existing task, origin and lease checks. Parsing is read-only; `evaluate` and event observation use the existing browser access. Results are bounded and do not imply all website records were loaded.
+The following helpers use the existing task, session, generation and lease checks. Parsing is read-only; `evaluate` and event observation use the existing browser access. Results are bounded and do not imply all website records were loaded.
 
 | Helper | Contract |
 | --- | --- |
@@ -170,7 +170,7 @@ Network inspection, raw CDP and `page_request` share the task’s existing brows
 
 `page_request` replaces credential-like field values with `[REDACTED]` and masks Bearer values. CDP events strip credential headers, mask Bearer values and replace collected password input values with `[password]`.
 
-Network evidence returns no request or response headers. URLs retain query strings and fragments; request and response bodies remain raw text, without credential-key or Bearer filtering. The common output layer still replaces collected password input values with `[password]`; this is not general credential filtering. Network evidence may contain tokens and personal data that enter the Agent context unchanged. A `filtered: true` flag does not mean the body was redacted. Withheld/pending/unavailable bodies and evicted entries remain explicit. Capture IDs survive script process changes and navigation within authorized origins in the same live task; Python variables do not. Closing the tab clears its capture. Network inspection does not drain the raw CDP event buffer.
+Network evidence returns no request or response headers. URLs retain query strings and fragments; request and response bodies remain raw text, without credential-key or Bearer filtering. The common output layer still replaces collected password input values with `[password]`; this is not general credential filtering. Network evidence may contain tokens and personal data that enter the Agent context unchanged. A `filtered: true` flag does not mean the body was redacted. Withheld/pending/unavailable bodies and evicted entries remain explicit. Capture IDs survive script process changes and navigation, including across sites, in the same live task; Python variables do not. Closing the tab clears its capture. Network inspection does not drain the raw CDP event buffer.
 
 See the [module catalog](design/product-modules.zh-CN.md) for contracts and limits, and the [generated API reference](browser-api-reference.md) for exact helper and tool schemas. `fast_browser_reference` projects helpers for a connected instance; `fast_browser_doctor` checks installation and connection without starting the service.
 
@@ -180,7 +180,7 @@ See the [module catalog](design/product-modules.zh-CN.md) for contracts and limi
 
 读动作只等待 DOM 的 `interactive`/`complete`，上限 1.5 秒。导航和新建页最多等待 8 秒，`ready` 返回 `interactive`、`complete` 或 `loading`。等具体元素用 `wait_for(selector, ...)`，等完整加载用 `wait_for_load()`；`goto_url()` 已等待 DOM 可交互，不再叠加 `wait_for_load()` 或 `time.sleep()`。
 
-`redirected_out_of_scope` 表示页面跳到其他来源，错误的 `final_origin` 只含来源；用该来源调用 `fast_browser_open` 新开任务。多台浏览器时，在 Hermes 进程环境设置 `FAST_BROWSER_DEFAULT=edge`、`chrome` 或具体 instance ID；显式 `instance_id` 优先，未配置仍返回 `browser_choice_required`。
+1.11.0 起同一任务页可以跨站导航，Agent 可读取和操作跨站页面；继续使用当前任务及标签，导航后重读页面。旧 CDP 网关会话跨站及返回初始来源后仍可用。任务、会话、代次和租约校验保留；敏感字段由用户或 Vault 处理。`allowedOrigins` 会登记新来源，不是固定白名单，网络证据也不按初始来源列表过滤，见[协议](design/protocol.md#origin-list-contract)。兼容错误 `redirected_out_of_scope` 的 `final_origin` 只含来源；实际收到拒绝仍应报告，不能绕过。多台浏览器时，在 Hermes 进程环境设置 `FAST_BROWSER_DEFAULT=edge`、`chrome` 或具体 instance ID；显式 `instance_id` 优先，未配置仍返回 `browser_choice_required`。
 
 `parallel(fn, tabs)` 对每个页执行 `fn(tab)`，最多八个线程，结果按输入顺序返回。任一分支失败后汇总 `BrowserError.errors` 与已成功的 `BrowserError.results`，不重试动作；用显式 `tab=` 核实未知结果。同一页的动作仍串行，同一会话仍只能运行一个脚本进程。
 

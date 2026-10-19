@@ -10,7 +10,7 @@ import { openRealSession, openTask, helperCall, root } from '../native-v2/real-s
 const exec = promisify(execFile),
   hits = [];
 const server = createServer((req, res) => {
-  // 中文注释：未授权子框架只包含本机合成数据，用于原始 CDP 范围反例。
+  // 中文注释：其他来源的子框架只包含本机合成数据，用于核对原始 CDP 读取。
   if (req.url === '/framed') {
     res.setHeader('Content-Type', 'text/html');
     res.end(`<iframe src="${outsideOrigin}/"></iframe>`);
@@ -44,10 +44,10 @@ const server = createServer((req, res) => {
 });
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const origin = `http://127.0.0.1:${server.address().port}`;
-// 中文注释：未授权来源只包含本地合成文本，用来证明旧网关不能越过任务范围。
+// 中文注释：初始来源列表外的页面只包含本地合成文本，用于核对跨站读取。
 const outside = createServer((req, res) => {
   res.setHeader('Content-Type', 'text/html');
-  res.end('<p>OUTSIDE_TASK_FIXTURE</p>');
+  res.end('<title>Outside fixture</title><button type="button">OUTSIDE_TASK_FIXTURE</button>');
 });
 await new Promise((r) => outside.listen(0, '127.0.0.1', r));
 const outsideOrigin = `http://127.0.0.1:${outside.address().port}`;
@@ -269,16 +269,25 @@ try {
           `chrome.tabs.get(${task.tabId}).then(t=>t.url===${JSON.stringify(outsideOrigin + '/')}&&t.status==='complete')`,
         ),
       );
-      const blocked = await task.run('snapshot');
-      assert.equal(blocked.bridgeCode, 'tab_out_of_scope', JSON.stringify(blocked));
-      await assert.rejects(async () =>
-        gateway.call(
-          'Runtime.evaluate',
-          { expression: 'document.body.innerText', returnByValue: true },
-          attached.sessionId,
-        ),
+      // 中文注释：1.11.0 起任务页允许跨站，快照和既有网关会话可继续读取外站。
+      const outsideSnapshot = await task.run('snapshot');
+      assert.equal(outsideSnapshot.url, outsideOrigin + '/', JSON.stringify(outsideSnapshot));
+      assert.equal(outsideSnapshot.title, 'Outside fixture');
+      assert.ok(Array.isArray(outsideSnapshot.elements), JSON.stringify(outsideSnapshot));
+      assert.ok(
+        outsideSnapshot.elements.some((element) => element.text === 'OUTSIDE_TASK_FIXTURE'),
       );
-      // 中文注释：导航回允许网站后，旧会话仍不可用；重新建立的网关正常工作。
+      assert.equal(
+        (
+          await gateway.call(
+            'Runtime.evaluate',
+            { expression: 'document.body.innerText', returnByValue: true },
+            attached.sessionId,
+          )
+        ).result.value.trim(),
+        'OUTSIDE_TASK_FIXTURE',
+      );
+      // 中文注释：返回初始来源后旧会话仍可用；随后另行验证新建网关。
       await session.ui.evaluate(
         `chrome.tabs.update(${task.tabId},{url:${JSON.stringify(origin + '/')}}).then(()=>true)`,
       );
@@ -287,12 +296,15 @@ try {
           `chrome.tabs.get(${task.tabId}).then(t=>t.url===${JSON.stringify(origin + '/')}&&t.status==='complete')`,
         ),
       );
-      await assert.rejects(async () =>
-        gateway.call(
-          'Runtime.evaluate',
-          { expression: '1', returnByValue: true },
-          attached.sessionId,
-        ),
+      assert.equal(
+        (
+          await gateway.call(
+            'Runtime.evaluate',
+            { expression: 'document.title', returnByValue: true },
+            attached.sessionId,
+          )
+        ).result.value,
+        'Tools fixture',
       );
       freshGateway = new CdpClient((await invoke('fixture_gateway', {})).wsUrl);
       await freshGateway.connect();
@@ -329,8 +341,8 @@ try {
         passed: [
           'HttpOnly登录态读取',
           '同源导航保留网络捕获',
-          '离站废弃旧CDP网关',
-          '返回授权网站后新网关可用',
+          '跨站快照和旧CDP网关可读',
+          '返回初始来源后旧会话和新网关均可用',
           '摘要和详情跨脚本调用',
           '正文分页与字段过滤',
           '网络查询不消费响应等待事件',

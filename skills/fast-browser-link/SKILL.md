@@ -21,7 +21,7 @@ description: 使用用户已登录的 Chrome 或 Edge 执行普通或无痕网�
 - `outcome_unknown` / `request_outcome_unavailable`：动作可能已执行，先读取核实，禁止重新提交写入。
 - `task_paused`：用户接管，等待用户恢复后读取新快照。
 - `user_input_required`：请用户在浏览器填写敏感字段，不读取或代填密码、支付信息和验证码。
-- 导航后重读，不复用旧引用；跨站创建对应来源的新任务。
+- 1.11.0 起同一任务页可跨站导航，Agent 可读取和操作跨站页面；继续使用当前任务和标签，导航后重读，不复用旧引用。旧 CDP 网关会话跨站及返回后仍可用。任务、会话、代次和标签页租约仍校验；敏感字段由用户或 Vault 处理。`allowedOrigins` 是会扩充的来源记录，不是固定站点白名单。
 - 保留结果中的 coverage，部分读取不能宣称整页完整。
 
 同一页两步以上优先 `script {"taskId":"id","code":"page=read_page()\nprint(page)","timeout":120}`（CLI 同样支持 stdin）。可用 `new_tab/use_tab/read_page/click_element/fill_element/semantic_snapshot/evaluate/wait_pending/reconcile`。每次变量重置，工作目录文件延续；输出有界，必须检查 `execution_complete/outcome_unknown/last_operation`，不能把退出码 0 当完成。捕获异常不解除审批或未知结果；未知写入不重放。工作区按可信会话隔离，参数不能指定身份或目录。

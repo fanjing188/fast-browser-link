@@ -190,3 +190,125 @@ test('content fallback preserves duplicate occurrences within a page and disclos
   assert.equal(result.rows.length, 2);
   assert.equal(result.deduplication, 'content_occurrence');
 });
+
+test('installed update reports each local blocker and permits idle only after every blocker clears', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const { default: vm } = await import('node:vm');
+  const source = await readFile(
+    new URL('../../native-extension/background.mjs', import.meta.url),
+    'utf8',
+  );
+  const start = source.indexOf('function localUpdateWaitReason()');
+  const end = source.indexOf('async function checkInstalledUpdate()', start);
+  const context = vm.createContext({
+    connecting: false,
+    accessWindow: null,
+    copilot: { tableConfirmation: null, tableJobs: { jobs: new Map() }, rows: new Map() },
+    executor: { tasks: new Map() },
+  });
+  vm.runInContext(source.slice(start, end), context);
+  const reason = () => vm.runInContext('localUpdateWaitReason()', context);
+  assert.equal(reason(), null);
+  context.connecting = true;
+  assert.equal(reason(), 'connecting');
+  context.connecting = false;
+  context.accessWindow = {};
+  assert.equal(reason(), 'access_confirmation');
+  context.accessWindow = null;
+  context.copilot.tableConfirmation = {};
+  assert.equal(reason(), 'table_confirmation');
+  context.copilot.tableConfirmation = null;
+  context.copilot.tableJobs.jobs.set('job', {});
+  assert.equal(reason(), 'table_job');
+  context.copilot.tableJobs.jobs.clear();
+  for (const status of ['queued', 'executing', 'stopping']) {
+    context.copilot.rows.set('row', { status });
+    assert.equal(reason(), 'suggestion');
+  }
+  context.copilot.rows.clear();
+  context.executor.tasks.set('task', { revoked: false });
+  assert.equal(reason(), 'browser_task');
+  context.executor.tasks.get('task').revoked = true;
+  assert.equal(reason(), null);
+  assert.equal(vm.runInContext('locallyIdle()', context), true);
+});
+
+test('completed native handshake releases connecting while post-connect synchronization is pending', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const { default: vm } = await import('node:vm');
+  const source = await readFile(
+    new URL('../../native-extension/background.mjs', import.meta.url),
+    'utf8',
+  );
+  const start = source.indexOf('let connectionRevision = 0;');
+  const end = source.indexOf("chrome.alarms.create('reconnect'", start);
+  const sync = deferred();
+  const noop = async () => {};
+  const context = vm.createContext({
+    bridge: null,
+    connecting: false,
+    connected: false,
+    lastError: '',
+    connectedInstanceId: null,
+    connectedGeneration: null,
+    notifier: null,
+    approvalInstance: null,
+    accessWindow: null,
+    consentLoaded: Promise.resolve(),
+    disconnectBarrier: Promise.resolve(),
+    reloadForInstalledBuild: async () => false,
+    fetch() {},
+    BUILD_ID: 'fixture',
+    crypto: { randomUUID: () => 'browser' },
+    navigator: { userAgent: 'Edg' },
+    cloud: { connect: noop },
+    copilot: { synchronize: () => sync.promise },
+    consent: { synchronize: noop },
+    executor: {
+      workspaces: { manager: { reconcile: noop } },
+      leases: new Map(),
+      diagnostics: { recordSafely() {} },
+      cleanupOrphanOverlays: noop,
+    },
+    chrome: {
+      storage: {
+        local: { get: async () => ({ browserInstanceId: 'browser' }), set: noop },
+        session: { get: async () => ({}), set: noop },
+      },
+      runtime: {
+        connectNative: () => ({ onDisconnect: { addListener() {} } }),
+        getManifest: () => ({ version: '2.2.0' }),
+        sendMessage: noop,
+      },
+    },
+    Bridge: class {
+      async request(method) {
+        return method === 'extension.hello' ? { connectionGeneration: 'generation' } : [];
+      }
+    },
+    refreshApprovals: noop,
+    changed: noop,
+    openAccessManagementRequest: noop,
+  });
+  vm.runInContext(source.slice(start, end), context);
+  const pending = vm.runInContext('connect()', context);
+  await tick();
+  assert.equal(context.lastError, '');
+  assert.equal(context.connected, true);
+  assert.equal(context.connecting, false);
+  const nextHello = deferred();
+  context.bridge = null;
+  context.connected = false;
+  context.copilot.synchronize = noop;
+  context.Bridge.prototype.request = async (method) =>
+    method === 'extension.hello' ? nextHello.promise : [];
+  const reconnect = vm.runInContext('connect()', context);
+  await tick();
+  assert.equal(context.connecting, true);
+  sync.resolve();
+  await pending;
+  assert.equal(context.connecting, true);
+  nextHello.resolve({ connectionGeneration: 'next' });
+  await reconnect;
+  assert.equal(context.connecting, false);
+});

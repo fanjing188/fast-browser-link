@@ -39,15 +39,21 @@ let connectedInstanceId = null,
   connectedGeneration = null;
 let buildStatus = { loadedBuildId: BUILD_ID, installedBuildId: BUILD_ID, pending: false },
   checkingBuild = false;
-const locallyIdle = () =>
-  !connecting &&
-  !accessWindow &&
-  !copilot.tableConfirmation &&
-  !copilot.tableJobs?.jobs.size &&
-  ![...copilot.rows.values()].some((row) =>
-    ['queued', 'executing', 'stopping'].includes(row.status),
-  ) &&
-  ![...executor.tasks.values()].some((task) => !task.revoked);
+function localUpdateWaitReason() {
+  if (connecting) return 'connecting';
+  if (accessWindow) return 'access_confirmation';
+  if (copilot.tableConfirmation) return 'table_confirmation';
+  if (copilot.tableJobs?.jobs.size) return 'table_job';
+  if (
+    [...copilot.rows.values()].some((row) =>
+      ['queued', 'executing', 'stopping'].includes(row.status),
+    )
+  )
+    return 'suggestion';
+  if ([...executor.tasks.values()].some((task) => !task.revoked)) return 'browser_task';
+  return null;
+}
+const locallyIdle = () => localUpdateWaitReason() === null;
 async function checkInstalledUpdate() {
   if (checkingBuild || !connected || !bridge) return;
   checkingBuild = true;
@@ -62,7 +68,7 @@ async function checkInstalledUpdate() {
       },
       canReload: async () => {
         if (!locallyIdle()) {
-          buildStatus = { ...buildStatus, waiting: 'busy' };
+          buildStatus = { ...buildStatus, waiting: localUpdateWaitReason() };
           return false;
         }
         let proof;
@@ -854,8 +860,10 @@ const changed = () => {
       .then(() => refreshApprovals(current));
   }
 };
+let connectionRevision = 0;
 async function connect() {
   if (bridge || connecting) return;
+  const revision = ++connectionRevision;
   connecting = true;
   try {
     await consentLoaded;
@@ -942,6 +950,8 @@ async function connect() {
     });
     if (bridge === current) {
       connected = true;
+      // 中文注释：握手已完成；后续只读同步不能让连接一直忙碌，阻断断线重连与空闲更新。
+      connecting = false;
       connectedInstanceId = instanceId;
       connectedGeneration =
         typeof hello?.connectionGeneration === 'string' ? hello.connectionGeneration : null;
@@ -987,7 +997,7 @@ async function connect() {
       disconnectBarrier = executor.disconnect().catch(() => {});
     }
   } finally {
-    connecting = false;
+    if (revision === connectionRevision) connecting = false;
   }
 }
 chrome.alarms.create('reconnect', { periodInMinutes: 0.5 });

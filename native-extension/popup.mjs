@@ -95,6 +95,29 @@ function render() {
           )
         : '')
     : '';
+  if (update?.pending && update.waiting)
+    $('#version-label').title +=
+      '\n' +
+      ({
+        connecting: t(
+          '连接初始化与恢复清理尚未完成。',
+          'Connection initialization and recovery cleanup are incomplete.',
+        ),
+        access_confirmation: t(
+          '连接确认窗口尚未关闭。',
+          'The connection confirmation window is open.',
+        ),
+        table_confirmation: t('表格保存确认尚未结束。', 'Table confirmation is pending.'),
+        table_job: t('表格采集尚未结束。', 'Table collection is active.'),
+        suggestion: t('协作任务尚未结束。', 'A collaboration task is active.'),
+        browser_task: t('浏览器任务尚未释放。', 'A browser task has not been released.'),
+        busy: t('仍有活动任务或确认操作。', 'A task or confirmation is active.'),
+        unverified: t('本机空闲状态尚未核实。', 'Local idle status is not verified.'),
+        tasks_unsettled: t(
+          '本机任务或生命周期操作尚未结清。',
+          'Local tasks or lifecycle operations are unsettled.',
+        ),
+      }[update.waiting] || '');
   const state = !known ? 'error' : connected ? 'connected' : busy ? 'connecting' : 'disconnected';
   $('#connection-label').dataset.state = state;
   $('#connection-label').setAttribute(

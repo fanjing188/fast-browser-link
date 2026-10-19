@@ -464,13 +464,13 @@ if os.environ.get('TEST_ACTIVATE_FAIL') == '1':
         self.assert_named_refusal_has_no_writes("--maintenance", "--upgrade")
 
     def real_head_cloud_install(self):
-        # 中文注释：固定 HEAD 旧源码，不把 old_install 的版本字符串夹具冒充旧宿主。
+        # 中文注释：该旧宿主提交没有发布标签，固定改写后的哈希，不能用邻近标签替代源码。
         private = self.old_install()
         target = self.plugin / "cloud_link"
         for path in target.rglob("*.py"):
             relative = path.relative_to(target).as_posix()
             content = subprocess.check_output(
-                ["git", "show", "f2b0371b289552d1431332ee9dbe502cc8671c0a:cloud-link/" + relative],
+                ["git", "show", "ce1dbce1b589399f9353726d0324e09328083b05:cloud-link/" + relative],
                 cwd=os.environ.get("BROWSER_LINK_RELEASE_HISTORY", ROOT),
             )
             # 中文注释：旧版本逻辑保持不变，只映射本次统一改名后的安装命名空间。

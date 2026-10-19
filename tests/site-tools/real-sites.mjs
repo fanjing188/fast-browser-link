@@ -97,11 +97,12 @@ try {
       );
       assert.equal(detail.body.withheld, false, JSON.stringify(detail));
       assert.equal(detail.body.nextStart, 200);
-      assert.ok(!detail.body.text.includes('PRIVATE'));
+      assert.ok(detail.body.text.includes('"token":"PRIVATE"'));
       const rest = await script(
         `import json\nprint(json.dumps(network_detail(${JSON.stringify(capture.captureId)},${entry.seq},start=200)))`,
       );
       assert.equal(rest.body.nextStart, null);
+      assert.equal(JSON.parse(detail.body.text + rest.body.text).rows[0].token, 'PRIVATE');
       const observed = await script(
         `import json\nwith expect_response(${JSON.stringify(origin + '/api')}) as observation:\n    page_request('/api',fields=['rows'])\n    network_list(${JSON.stringify(capture.captureId)})\nprint(json.dumps(observation.result))`,
       );

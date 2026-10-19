@@ -364,6 +364,68 @@ test('large results are chunked and chunks expire after the last read', async ()
   );
 });
 
+test('cdp.events strips credential headers, masks Bearer text and omits password input values', async () => {
+  const { Executor } = await import('../../native-extension/core.mjs');
+  const executor = new Executor({ tabs: { get: async () => ({ url: 'https://site.test/' }) } });
+  const task = {
+    id: 'credential-events',
+    generation: 1,
+    policy: { activeMode: 'full', modeGeneration: 1 },
+    allowedOrigins: ['https://site.test'],
+    tabIds: new Set([7]),
+    agentTabs: new Set([7]),
+  };
+  executor.tasks.set(task.id, task);
+  executor.leases.set(7, task.id);
+  executor.collectPasswords = async () => new Set(['PRIVATE_INPUT']);
+  executor.pageRuntime.assert(task, { tabId: 7 });
+  executor.pageRuntime.subscribe(task, 7, null, 'buffer');
+  for (const [method, params] of [
+    [
+      'Network.requestWillBeSent',
+      {
+        request: {
+          headers: { Cookie: 'PRIVATE_COOKIE', Authorization: 'PRIVATE_AUTH', Accept: '*/*' },
+        },
+      },
+    ],
+    [
+      'Network.responseReceivedExtraInfo',
+      {
+        headers: {
+          'Set-Cookie': 'PRIVATE_SET_COOKIE',
+          'Proxy-Authorization': 'PRIVATE_PROXY',
+          'Content-Type': 'application/json',
+        },
+        headersText: 'PRIVATE_HEADERS',
+      },
+    ],
+    [
+      'Runtime.consoleAPICalled',
+      { text: 'visible Bearer PRIVATE_BEARER PRIVATE_INPUT', token: 'ordinary-token' },
+    ],
+  ])
+    executor.pageRuntime.observe({ tabId: 7 }, method, params);
+  const result = await executor.execute({
+    taskId: task.id,
+    generation: 1,
+    allowedOrigins: task.allowedOrigins,
+    action: 'cdp.events',
+    tabId: 7,
+    cursor: 0,
+    max: 20,
+  });
+  assert.deepEqual(
+    result.events.map((event) => event.params),
+    [
+      { request: { headers: { Accept: '*/*' } } },
+      { headers: { 'Content-Type': 'application/json' } },
+      { text: 'visible Bearer [REDACTED] [password]', token: 'ordinary-token' },
+    ],
+  );
+  assert.doesNotMatch(JSON.stringify(result), /PRIVATE_/);
+});
+
 test('page events remain readable, subscriptions and buffers remain bounded', async () => {
   for (const [method, params] of [
     [

@@ -55,6 +55,30 @@ test('same-origin credentials, redirects rejected and selected values filtered',
   assert.equal(f.calls[0][1].credentials, 'same-origin');
   assert.equal(f.calls[0][1].redirect, 'error');
 });
+test('page_request redacts nested credential fields and Bearer values in selected JSON', async () => {
+  const result = await fixture(
+    new Response(
+      JSON.stringify({
+        rows: [
+          {
+            title: 'visible',
+            token: 'PRIVATE_TOKEN',
+            nested: { password: 'PRIVATE_PASSWORD', api_key: 'PRIVATE_KEY' },
+            notes: ['prefix Bearer PRIVATE_BEARER suffix'],
+          },
+        ],
+      }),
+      { headers: { 'content-type': 'application/json' } },
+    ),
+  ).run();
+  assert.equal(result.ok, true);
+  assert.equal(result.data.rows[0].title, 'visible');
+  assert.equal(result.data.rows[0].token, '[REDACTED]');
+  assert.equal(result.data.rows[0].nested.password, '[REDACTED]');
+  assert.equal(result.data.rows[0].nested.api_key, '[REDACTED]');
+  assert.equal(result.data.rows[0].notes[0], 'prefix Bearer [REDACTED] suffix');
+  assert.doesNotMatch(JSON.stringify(result), /PRIVATE_/);
+});
 test('foreign URLs and embedded credentials fail before fetch', async () => {
   for (const url of [
     'https://other.test/a',

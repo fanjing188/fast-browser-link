@@ -406,29 +406,49 @@ test('测试解释器拒绝真实 HOME 和非夹具运行时，拒绝发生在�
     assert.match(result.stderr, /refuses non-fixture/);
     assert.doesNotMatch(result.stdout, /EXECUTED/);
   }
-  const result = spawnSync(
-    PYTHON,
-    [
-      path.join(REPO, 'tests/helpers/isolated-installer.py'),
-      realHome,
-      path.join(realHome, '.hermes'),
-      '-c',
-      "print('EXECUTED')",
-    ],
-    { encoding: 'utf8', env: { ...process.env, HOME: realHome, TMPDIR: path.dirname(realHome) } },
-  );
-  assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /requires temporary roots/);
-  assert.doesNotMatch(result.stdout, /EXECUTED/);
+  for (const runnerTemp of [path.dirname(realHome), realHome]) {
+    const result = spawnSync(
+      PYTHON,
+      [
+        path.join(REPO, 'tests/helpers/isolated-installer.py'),
+        realHome,
+        path.join(realHome, '.hermes'),
+        '-c',
+        "print('EXECUTED')",
+      ],
+      {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          HOME: realHome,
+          HERMES_HOME: path.join(realHome, '.hermes'),
+          TMPDIR: path.dirname(realHome),
+          GITHUB_ACTIONS: 'true',
+          RUNNER_TEMP: runnerTemp,
+        },
+      },
+    );
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /requires temporary roots/);
+    assert.doesNotMatch(result.stdout, /EXECUTED/);
+  }
 });
 
-test('测试解释器接受固定 Linux runner 临时根，不信任 TMPDIR 或逃逸路径', () => {
-  const base = '/home/runner/work/_temp';
-  for (const [home, runtime, allowed] of [
-    [`${base}/fixture/home`, `${base}/fixture/runtime`, true],
-    [base, `${base}/fixture/runtime`, false],
-    [`${base}/../real-home`, `${base}/fixture/runtime`, false],
-    ['/home/runner', '/home/runner/.hermes', false],
+test('测试解释器仅在 Actions 信任 RUNNER_TEMP，不信任 TMPDIR 或逃逸路径', () => {
+  const base = '/tmp/runner-fixture';
+  // 中文注释：额外的非系统临时路径无需创建，用于区分 CI 环境开关与固定 /tmp 放行。
+  const ciBase = '/ci-runner-fixture';
+  for (const [home, runtime, runnerTemp, actions, allowed] of [
+    [`${base}/home`, `${base}/runtime`, base, 'true', true],
+    [`${base}/../../outside`, `${base}/runtime`, base, 'true', false],
+    [`${ciBase}/home`, `${ciBase}/runtime`, ciBase, 'true', true],
+    [`${ciBase}/home`, `${ciBase}/runtime`, ciBase, 'false', false],
+    [`${ciBase}/home`, `${ciBase}/runtime`, ciBase, '', false],
+    [`${ciBase}/home`, `${ciBase}/runtime`, ciBase, 'TRUE', false],
+    [ciBase, `${ciBase}/runtime`, ciBase, 'true', false],
+    [`${ciBase}/../outside`, `${ciBase}/runtime`, ciBase, 'true', false],
+    [`${ciBase}/home`, `${ciBase}/runtime`, 'ci-runner-fixture', 'true', false],
+    [`${ciBase}/home`, `${ciBase}/runtime`, '', 'true', false],
   ]) {
     const result = spawnSync(
       PYTHON,
@@ -441,7 +461,14 @@ test('测试解释器接受固定 Linux runner 临时根，不信任 TMPDIR 或�
       ],
       {
         encoding: 'utf8',
-        env: { ...process.env, HOME: home, HERMES_HOME: runtime, TMPDIR: '/home' },
+        env: {
+          ...process.env,
+          HOME: home,
+          HERMES_HOME: runtime,
+          TMPDIR: ciBase,
+          RUNNER_TEMP: runnerTemp,
+          GITHUB_ACTIONS: actions,
+        },
       },
     );
     assert.equal(result.status === 0, allowed, result.stderr);

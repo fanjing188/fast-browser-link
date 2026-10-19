@@ -1421,7 +1421,7 @@ async function run(browser) {
     await run('cdp.send', { method: 'Runtime.enable' });
     // 中文注释：前面的网络/导航矩阵已有大量事件，先显式消费旧缓冲再观察本次日志。
     await run('cdp.events', { max: 500 });
-    // 中文注释：1.11.0 CDP 事件原样返回，普通 Bearer 文本不再过滤；只保留密码输入值不回显的保护。
+    // 中文注释：2.2.0 CDP 事件剥离凭据头、打码 Bearer 文本，密码输入值仍不回显。
     await run('js.evaluate', {
       expression:
         'document.querySelector("#password").value="native-v2-event-password-2026";console.log("fast-console-probe","Bearer synthetic-event-token",document.querySelector("#password").value)',
@@ -1438,10 +1438,8 @@ async function run(browser) {
         : null;
     });
     const eventText = JSON.stringify(drained.events);
-    assert.ok(
-      eventText.includes('Bearer synthetic-event-token'),
-      'ordinary event text must remain readable',
-    );
+    assert.ok(eventText.includes('Bearer [REDACTED]'), 'Bearer event values must be redacted');
+    assert.ok(!eventText.includes('synthetic-event-token'), 'Bearer event values must not escape');
     assert.ok(eventText.includes('[password]'), 'password event value must be replaced');
     assert.ok(
       !eventText.includes('native-v2-event-password-2026'),

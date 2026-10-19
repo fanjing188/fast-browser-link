@@ -168,7 +168,9 @@ network_stop()
 
 Network inspection, raw CDP and `page_request` share the task’s existing browser access. `world` selects an execution context, not another permission. The request helper only accepts same-origin GET/HEAD, rejects redirects, bounds streamed response bytes and returns selected JSON fields. HTTP or acquisition failures are explicit. GET is not proof of a side-effect-free endpoint.
 
-Network summaries omit query strings and headers. JSON detail filters credential-like keys, with explicit withheld/pending/evicted states. It is not general-purpose PII filtering. Capture IDs survive script process changes and navigation within authorized origins in the same live task; Python variables do not. Leaving the authorized origins or closing the tab clears its capture. Network inspection does not drain the raw CDP event buffer.
+`page_request` replaces credential-like field values with `[REDACTED]` and masks Bearer values. CDP events strip credential headers, mask Bearer values and replace collected password input values with `[password]`.
+
+Network evidence returns no request or response headers. URLs retain query strings and fragments; request and response bodies remain raw text, without credential-key or Bearer filtering. The common output layer still replaces collected password input values with `[password]`; this is not general credential filtering. Network evidence may contain tokens and personal data that enter the Agent context unchanged. A `filtered: true` flag does not mean the body was redacted. Withheld/pending/unavailable bodies and evicted entries remain explicit. Capture IDs survive script process changes and navigation within authorized origins in the same live task; Python variables do not. Closing the tab clears its capture. Network inspection does not drain the raw CDP event buffer.
 
 See the [module catalog](design/product-modules.zh-CN.md) for contracts and limits, and the [generated API reference](browser-api-reference.md) for exact helper and tool schemas. `fast_browser_reference` projects helpers for a connected instance; `fast_browser_doctor` checks installation and connection without starting the service.
 

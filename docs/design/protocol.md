@@ -101,11 +101,13 @@ Snapshot `options`: `mode`, `root`, `query`, `roles`, `viewport`, `composed`, `a
 
 `network.inspect` is an internal `shared.run` action with `{tabId, options}`. `options.operation` is `start`, `list`, `detail` or `stop`; connection authorization permits execution directly, without per-action approval. It requires the same task, tab lease and credential-page exclusion as raw CDP. The CDP gateway binds to the task’s existing generation and modeGeneration. Raw CDP events are not filtered by origin; credential headers and Bearer values are always removed.
 
+Network evidence returns no request or response headers. List and detail URLs preserve query strings and fragments, and detail returns raw request/response text without credential-key or Bearer filtering. The common output layer still replaces collected password input values with `[password]`. Tokens and personal data in network evidence can otherwise enter the Agent context unchanged; the legacy `filtered: true` detail flag does not guarantee body redaction.
+
 `Page.addScriptToEvaluateOnNewDocument` is available through raw CDP. It runs directly under connection authorization and can persist on later pages, including other sites; it is not a read-only sandbox. The extension records each returned identifier and removes registered scripts when the task ends or authorization is revoked. Leaving the task origin fences new dispatches, but cannot guarantee that a previously registered script has not already run during navigation.
 
 The extension advertises `browser_core_v1`, `page_parse_v1`, `page_function_v1`, `network_evidence_v1` and `cookie_mirror_v1` in `extension.hello.capabilities.features`. The daemon publishes recognized values in `browser.list`. Missing features are not inferred from version strings. Generated API reference projection describes availability, never authority.
 
-`page_request` composes `js.evaluate` with a fixed function and separately serialized parameters. It does not widen the existing local `api_request` protocol.
+`page_request` composes `js.evaluate` with a fixed function and separately serialized parameters. It replaces credential-like field values with `[REDACTED]` and masks Bearer values in selected JSON fields. It does not widen the existing local `api_request` protocol.
 
 ## Cookie mirror private channel (1.5.0)
 

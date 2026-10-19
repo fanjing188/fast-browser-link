@@ -126,6 +126,8 @@ NODE_TESTS = (
     "bench/mechanical-runner.test.mjs",
     "browser-workspaces/workspaces.test.mjs",
     "tests/v1-launch-safety/launch-safety.test.mjs",
+    # 中文注释：默认核心门禁固定 CDP 事件的凭据处理合同，不依赖完整 verify 才覆盖。
+    "tests/v1.1-advanced/advanced.test.mjs",
     "tests/v1.1-advanced/frame-catalog.test.mjs",
     "tests/v1.1-highlight-wiring/wiring.test.mjs",
     "tests/v1.1-concurrency/tab-barrier.test.mjs",

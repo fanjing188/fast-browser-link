@@ -1,8 +1,8 @@
-// 中文注释：捕获隔离、游标、正文分页、敏感字段过滤与缓存上限。
+// 中文注释：捕获隔离、游标、原始正文分页与缓存上限。
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { NetworkEvidence } from '../../native-extension/network-evidence.mjs';
-function fixture() {
+function fixture({ responseBody } = {}) {
   const t = { execution: {}, allowedOrigins: ['https://example.test'] };
   const calls = [];
   const executor = {
@@ -20,11 +20,13 @@ function fixture() {
         sendCommand: async (target, method) => {
           calls.push(method);
           return {
-            body: JSON.stringify({
-              rows: ['x'.repeat(500)],
-              token: 'PRIVATE',
-              nested: { password: 'PRIVATE' },
-            }),
+            body:
+              responseBody ??
+              JSON.stringify({
+                rows: ['x'.repeat(500)],
+                token: 'PRIVATE',
+                nested: { password: 'PRIVATE' },
+              }),
           };
         },
       },
@@ -51,7 +53,7 @@ function fixture() {
   };
   return { t, network, inspect, observe, request, finish, calls };
 }
-test('summary then detail pages one cached JSON without credentials', async () => {
+test('summary then detail pages one cached raw JSON body', async () => {
   const f = fixture(),
     { captureId } = await f.inspect({ operation: 'start' });
   f.request('one');
@@ -74,6 +76,46 @@ test('summary then detail pages one cached JSON without credentials', async () =
   assert.equal(
     (await f.inspect({ operation: 'list', captureId, afterSequence: list.cursor })).entries.length,
     0,
+  );
+});
+test('network evidence preserves full URLs and raw bodies while omitting all headers', async () => {
+  const body =
+    '{ "token": "PRIVATE_TOKEN", "nested": {"password":"PRIVATE_PASSWORD"}, "note":"Bearer PRIVATE_BEARER" }';
+  const f = fixture({ responseBody: body });
+  const { captureId } = await f.inspect({ operation: 'start' });
+  const url = 'https://example.test/api?token=PRIVATE_QUERY#PRIVATE_FRAGMENT';
+  f.observe('Network.requestWillBeSent', {
+    requestId: 'raw',
+    request: {
+      url,
+      method: 'POST',
+      headers: { Cookie: 'PRIVATE_COOKIE', Authorization: 'Bearer PRIVATE_AUTH', Accept: '*/*' },
+      postData: body,
+    },
+  });
+  f.observe('Network.responseReceived', {
+    requestId: 'raw',
+    response: {
+      url,
+      status: 200,
+      mimeType: 'application/json',
+      headers: { 'Set-Cookie': 'PRIVATE_SET_COOKIE', 'X-Trace': 'PRIVATE_TRACE' },
+    },
+  });
+  f.observe('Network.loadingFinished', { requestId: 'raw' });
+  const list = await f.inspect({ operation: 'list', captureId });
+  assert.equal(list.entries[0].url, url);
+  const details = [];
+  for (const part of ['request', 'response']) {
+    const detail = await f.inspect({ operation: 'detail', captureId, seq: 1, part });
+    assert.equal(detail.url, url);
+    assert.equal(detail.body.text, body);
+    assert.equal(detail.body.withheld, false);
+    details.push(detail);
+  }
+  assert.doesNotMatch(
+    JSON.stringify([list, ...details]),
+    /headers|PRIVATE_COOKIE|PRIVATE_AUTH|PRIVATE_SET_COOKIE|PRIVATE_TRACE/i,
   );
 });
 test('updates are visible after list cursor and page limits advance', async () => {

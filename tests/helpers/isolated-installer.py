@@ -3,14 +3,20 @@
 import json
 import os
 from pathlib import Path
+import pwd
 import re
 import runpy
 import subprocess
 import sys
 
 user_home, runtime_home = map(Path, sys.argv[1:3])
-# 中文注释：只信任固定系统/CI 临时根，不能用 TMPDIR 把真实 HOME 加入白名单。
-temporary_roots = {Path(root).resolve() for root in ("/tmp", "/home/runner/work/_temp")}
+# 中文注释：忽略 TMPDIR；CI 临时根只在 Actions 中启用，且不能覆盖系统账户的真实 HOME。
+temporary_roots = {Path("/tmp").resolve()}
+if os.environ.get("GITHUB_ACTIONS") == "true" and os.environ.get("RUNNER_TEMP"):
+    runner_temp = Path(os.environ["RUNNER_TEMP"])
+    account_home = Path(pwd.getpwuid(os.getuid()).pw_dir).resolve()
+    if runner_temp.is_absolute() and not account_home.is_relative_to(runner_temp.resolve()):
+        temporary_roots.add(runner_temp.resolve())
 for root in (user_home, runtime_home):
     resolved = root.resolve()
     if not (

@@ -7,6 +7,9 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+
+# 中文注释：先在真实平台加载 urllib.request；用例把 sys.platform 模拟为 darwin 时，Linux 上不存在 _scproxy。
+import urllib.request  # noqa: F401
 from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[2]

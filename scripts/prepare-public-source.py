@@ -9,13 +9,13 @@ import re
 import shutil
 import subprocess
 
-# 中文注释：品牌图片已核对并与公开 v1.6.1 字节一致；仅允许这些路径的固定摘要，不能替换成任意图片。
+# 中文注释：品牌图片按当前 SVG 生成器的逐字重建回归核对；仅允许这些路径的固定摘要，不能替换成任意图片。
 REVIEWED_BRANDING = {
     "docs/assets/readme-banner.png": "da846881754337cfa977515c69beccce5b01c115184382e9eadb6e2e32ce8316",
-    "native-extension/icon-128.png": "d5abeb3fc32b6a7068824758c004b8c1edd549e791c96fc9fda79ddb090a886f",
-    "native-extension/icon-16.png": "d5e915490af560d3ad07739c4c99c57d1d707d2812d4b5f1c58a3fe21fb62095",
-    "native-extension/icon-32.png": "f6015f7e5d7a49e400aeb0909b32b86e7b3af95975b313a10c1d061e26e58301",
-    "native-extension/icon-48.png": "87f83f93a71da6a7cdd2de9581c21a2a0c7d08de7a668fdd0f1ea729ef7d55da",
+    "native-extension/icon-128.png": "5e3f7d47f684f74e60a2e0a812294c1b76b66b6e5dcbad166e2295696707e47b",
+    "native-extension/icon-16.png": "c97e8c96f4bb66b5856da25e4feda7dbdc9788320200260c93b5485b24ac11b9",
+    "native-extension/icon-32.png": "3683e5e78f61d5e849eca5de06160d3a923396aa555de5fd7e8b012c8d78de79",
+    "native-extension/icon-48.png": "0832c24ba12ea569c14f4d9f01bb325ead279c21ac5acf4edf7bfd5c7874f4f8",
 }
 
 

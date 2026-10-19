@@ -308,11 +308,19 @@ export async function openRealSession({
       extensionId: expectedExtensionId,
       url: `chrome-extension://${expectedExtensionId}/popup.html`,
     });
-    await waitFor(() => ui.evaluate(`document.querySelector('#connection-label')!==null`));
-    if (!(await ui.evaluate(`document.querySelector('#connection-label').textContent==='已连接'`)))
-      await trustedClick(ui, popupTarget.id, '#connect');
+    await waitFor(() =>
+      ui.evaluate(
+        `document.querySelector('#connection-label')?.dataset.state==='connected'||Boolean(document.querySelector('#local-connect:not([hidden]):not(:disabled)'))`,
+      ),
+    );
+    if (
+      !(await ui.evaluate(
+        `document.querySelector('#connection-label')?.dataset.state==='connected'`,
+      ))
+    )
+      await trustedClick(ui, popupTarget.id, '#local-connect');
     await waitFor(
-      () => ui.evaluate(`document.querySelector('#connection-label').textContent==='已连接'`),
+      () => ui.evaluate(`document.querySelector('#connection-label')?.dataset.state==='connected'`),
       35000,
     );
   }
@@ -504,7 +512,7 @@ export async function openRealSession({
     await ui.connect();
     session.ui = ui;
     await waitFor(
-      () => ui.evaluate(`document.querySelector('#connection-label')?.textContent==='已连接'`),
+      () => ui.evaluate(`document.querySelector('#connection-label')?.dataset.state==='connected'`),
       35000,
     );
   };

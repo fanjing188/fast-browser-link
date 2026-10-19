@@ -95,6 +95,7 @@ export function createOverlayView(
     start = Number.isFinite(startedAt) ? Math.min(startedAt, Date.now()) : Date.now(),
     lastState = 'waiting',
     current = '',
+    stateKey = '',
     timer,
     copyTimer,
     totalSteps = 0,
@@ -178,14 +179,15 @@ export function createOverlayView(
     }
   });
   function renderRows() {
-    empty.hidden = rows.length > 0;
+    if (empty.hidden !== rows.length > 0) empty.hidden = rows.length > 0;
     const visible = expanded ? rows : rows.slice(-4),
       next = new Map(),
       occurrences = new Map();
-    all.hidden = rows.length <= 4;
-    all.textContent = expanded
+    if (all.hidden !== rows.length <= 4) all.hidden = rows.length <= 4;
+    const caption = expanded
       ? t('收起', 'Collapse')
       : t(`展开 ${rows.length - 4} 步`, `Show ${rows.length - 4} more`);
+    if (all.textContent !== caption) all.textContent = caption;
     for (const row of visible) {
       const base = JSON.stringify(row),
         occurrence = occurrences.get(base) || 0;
@@ -251,6 +253,12 @@ export function createOverlayView(
     if (changed && !pausedScroll) scrollLatest();
   }
   function state(value, step = '') {
+    lastState = value;
+    if (step) current = step;
+    // 中文注释：轮询回执相同时保留状态节点，进度或步骤变化仍会刷新。
+    const nextKey = JSON.stringify([value, current, completedSteps, totalSteps]);
+    if (stateKey === nextKey) return;
+    stateKey = nextKey;
     const key =
       {
         waiting: 'running',
@@ -265,8 +273,6 @@ export function createOverlayView(
         unknown: 'failed',
         disconnected: 'disconnected',
       }[value] || 'idle';
-    lastState = value;
-    if (step) current = step;
     const captions = {
       pausing: t('正在接管', 'Taking over'),
       resuming: t('正在交还', 'Returning control'),

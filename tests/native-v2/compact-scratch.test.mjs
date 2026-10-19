@@ -19,6 +19,34 @@ test('real-session verifies connection access without removed approval controls'
   }
 });
 
+test('真实测试连接选择器与当前弹窗状态契约一致', async () => {
+  const popup = await readFile(
+    new URL('../../native-extension/popup.html', import.meta.url),
+    'utf8',
+  );
+  assert.match(popup, /id="local-connect"/);
+  assert.match(popup, /id="connection-label"[^>]*data-state=/);
+  for (const file of [
+    './real-session.mjs',
+    './real-native-v2.mjs',
+    './real-concurrent.mjs',
+    '../native-extension/real-browser.mjs',
+    '../native-extension/real-bridge.mjs',
+    '../approval-integration/real-approval.mjs',
+  ]) {
+    const source = await readFile(new URL(file, import.meta.url), 'utf8');
+    assert.ok(source.includes('#local-connect'), file);
+    assert.ok(source.includes("dataset.state==='connected'"), file);
+    assert.ok(source.includes(':not([hidden]):not(:disabled)'), file);
+    assert.doesNotMatch(
+      source,
+      /['"]#connect['"]|['"]#connection['"]|#primary \[data-action="connect"\]/,
+      file,
+    );
+    assert.doesNotMatch(source, /querySelector\(['"]#connection-label['"]\)\??\.textContent/, file);
+  }
+});
+
 test('compactScratch stages isolated source and package homes with a bindable socket', async () => {
   assert.equal(typeof runner.stageRealSession, 'function', 'offline staging must be available');
   const scratch = await realpath(process.env.TMPDIR);

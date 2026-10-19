@@ -24,10 +24,8 @@ from datetime import datetime, timezone
 import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
-# 中文注释：允许会话将验证暂存区放在独立临时目录，不写用户 Hermes 目录。
-SCRATCH = Path(
-    os.environ.get("FAST_BROWSER_VERIFY_SCRATCH", str(Path.home() / ".hermes/cache/scratch"))
-)
+# 中文注释：默认短系统临时根兼容 socket 长度和隔离解释器；显式路径仍受原有安全检查。
+SCRATCH = Path(os.environ.get("FAST_BROWSER_VERIFY_SCRATCH", str(Path("/tmp").resolve())))
 OUT = ROOT / "tests/v1.1-verification"
 SKIP_DIR = {
     ".git",
@@ -659,12 +657,7 @@ def run_steps(
     result_dir.mkdir(parents=True, exist_ok=True)
     result: dict = {"passed": False, "steps": []}
     for index, (name, command, kind) in enumerate(steps):
-        # 中文注释：850 项 Node 合集沿用核心入口的 240 秒预算；单项及显式负例期限不变。
-        step_timeout = (
-            timeout
-            if timeout is not None
-            else (240 if name == "node-v11-and-offline-modules" else 150)
-        )
+        step_timeout = timeout if timeout is not None else 150
         logfile = result_dir / f"{index:02d}-{name}.log"
         process = None
         try:
@@ -866,10 +859,12 @@ def resolve_browser_use_cli_source(cli: str | Path, override: str | Path | None 
 def matrix(root: Path, py: str) -> list[tuple[str, list[str], str]]:
     steps = [
         (
-            "node-v11-and-offline-modules",
-            ["node", "--test", "--test-concurrency=1", "--test-reporter=tap", *NODE_TESTS],
+            "node-" + runner.replace("/", "-").replace(".", "-"),
+            ["node", "--test", "--test-concurrency=1", "--test-reporter=tap", runner],
             "tap",
         )
+        # 中文注释：逐文件计时，避免合集随新增用例耗尽共同预算；清单与失败规则不变。
+        for runner in NODE_TESTS
     ]
     for folder in PYTHON_SUITES:
         if folder in PYTHON_GROUPED_FILES:
@@ -918,7 +913,7 @@ def matrix(root: Path, py: str) -> list[tuple[str, list[str], str]]:
 
 
 def supplemental_matrix(root: Path, py: str) -> list[tuple[str, list[str], str]]:
-    """Three statically audited V1.1 runners; all use synthetic fixtures."""
+    """Two statically audited V1.1 runners; all use synthetic fixtures."""
     return [
         (
             "supplemental-popup-contract",
@@ -1205,9 +1200,7 @@ def main() -> int:
         for row in run["steps"]:
             row["log"] = str(Path(row["log"]).relative_to(work_path))
             command = row["command"]
-            if row["name"] == "node-v11-and-offline-modules":
-                row["test_file_count"] = len(NODE_TESTS)
-            elif row["test_kind"] == "tap":
+            if row["test_kind"] == "tap":
                 row["test_file_count"] = sum(
                     1 for token in command if token.endswith((".mjs", ".js"))
                 )
@@ -1218,7 +1211,7 @@ def main() -> int:
                 row["test_file_count"] = int(not any(char in pattern for char in "*?[]"))
             log = (work_path / row["log"]).read_text(errors="replace")
             row["failed_cases"] = parse_failures(log, row["test_kind"])
-            if row["name"] == "node-v11-and-offline-modules":
+            if row["test_kind"] == "tap":
                 row["tap_summary"] = {
                     key: int(value)
                     for key, value in re.findall(

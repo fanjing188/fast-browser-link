@@ -9,7 +9,8 @@ import subprocess
 import sys
 
 user_home, runtime_home = map(Path, sys.argv[1:3])
-temporary_roots = {Path("/tmp").resolve()}
+# 中文注释：只信任固定系统/CI 临时根，不能用 TMPDIR 把真实 HOME 加入白名单。
+temporary_roots = {Path(root).resolve() for root in ("/tmp", "/home/runner/work/_temp")}
 for root in (user_home, runtime_home):
     resolved = root.resolve()
     if not (

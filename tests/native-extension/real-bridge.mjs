@@ -200,10 +200,19 @@ async function runBrowser(browser, install) {
         ...position,
       });
     };
-    await waitFor(() => ui.evaluate(`document.querySelector('#connect')!==null`));
-    if (await ui.evaluate(`!document.querySelector('#connect').hidden`)) await click('#connect');
+    await waitFor(() =>
+      ui.evaluate(
+        `document.querySelector('#connection-label')?.dataset.state==='connected'||Boolean(document.querySelector('#local-connect:not([hidden]):not(:disabled)'))`,
+      ),
+    );
+    if (
+      await ui.evaluate(
+        `Boolean(document.querySelector('#local-connect:not([hidden]):not(:disabled)'))`,
+      )
+    )
+      await click('#local-connect');
     await waitFor(
-      () => ui.evaluate(`document.querySelector('#connection').textContent.includes('已连接')`),
+      () => ui.evaluate(`document.querySelector('#connection-label')?.dataset.state==='connected'`),
       35000,
     );
 
@@ -357,10 +366,17 @@ async function runBrowser(browser, install) {
 
     if (!concurrent) {
       await helperCall('cleanup', install.work);
-      await waitFor(() => ui.evaluate(`!document.querySelector('#connect').hidden`), 15000);
-      await click('#connect');
       await waitFor(
-        () => ui.evaluate(`document.querySelector('#connection').textContent.includes('已连接')`),
+        () =>
+          ui.evaluate(
+            `Boolean(document.querySelector('#local-connect:not([hidden]):not(:disabled)'))`,
+          ),
+        15000,
+      );
+      await click('#local-connect');
+      await waitFor(
+        () =>
+          ui.evaluate(`document.querySelector('#connection-label')?.dataset.state==='connected'`),
         20000,
       );
       const stale = await rpc('session-b', 'get', { task_id: b.id });

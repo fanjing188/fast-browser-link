@@ -145,7 +145,11 @@ async function connectBrowser(state, manifest) {
   );
   state.ui = new CdpClient(target.webSocketDebuggerUrl);
   await state.ui.connect();
-  await waitFor(() => state.ui.evaluate(`document.querySelector('#primary')!==null`));
+  await waitFor(() =>
+    state.ui.evaluate(
+      `document.querySelector('#connection-label')?.dataset.state==='connected'||Boolean(document.querySelector('#local-connect:not([hidden]):not(:disabled)'))`,
+    ),
+  );
   // Check the actual native host, not a stubbed extension status. The probe disconnects.
   const probe = await state.ui.evaluate(`new Promise(resolve=>{
     const p=chrome.runtime.connectNative('com.fast.browser_link');
@@ -157,16 +161,19 @@ async function connectBrowser(state, manifest) {
   assert.equal(probe, 'connected', `${state.browser} native host: ${probe}`);
   if (
     !(await state.ui.evaluate(
-      `document.querySelector('#connection').textContent.includes('已连接')`,
+      `document.querySelector('#connection-label')?.dataset.state==='connected'`,
     ))
   ) {
     await waitFor(() =>
-      state.ui.evaluate(`Boolean(document.querySelector('#primary [data-action="connect"]'))`),
+      state.ui.evaluate(
+        `Boolean(document.querySelector('#local-connect:not([hidden]):not(:disabled)'))`,
+      ),
     );
-    await click(state.ui, '#primary [data-action="connect"]');
+    await click(state.ui, '#local-connect');
   }
   await waitFor(
-    () => state.ui.evaluate(`document.querySelector('#connection').textContent.includes('已连接')`),
+    () =>
+      state.ui.evaluate(`document.querySelector('#connection-label')?.dataset.state==='connected'`),
     35000,
   );
 }

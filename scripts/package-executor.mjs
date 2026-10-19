@@ -509,10 +509,10 @@ try {
   const installation = await readFile(path.join(source, 'docs/installation.md'), 'utf8');
   await writeFile(
     path.join(output, 'README.md'),
-    installation.replace(
-      /\]\((agent-install-prompt|configuration|development)\.md\)/g,
-      '](docs/$1.md)',
-    ),
+    installation.replace(/\]\(([^\s)]+)\)/g, (link, target) => {
+      if (/^(?:[a-z][a-z\d+.-]*:|[/#])/i.test(target) || !/\.md(?:#|$)/i.test(target)) return link;
+      return `](docs/${target})`;
+    }),
   );
   await mkdir(path.join(output, 'docs'));
   // 中文注释：模块索引与生成接口参考随包分发，避免脚本文档链接指向缺失文件。

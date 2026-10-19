@@ -181,7 +181,7 @@ async function run(browser) {
         ...point,
       });
     };
-    const connectAction = '#primary [data-action="connect"]';
+    const connectAction = '#local-connect';
     const rowFor = (task) => `[data-task-id="${task.id}"]`;
     const detailAction = (action) => `#detail [data-action="${action}"]`;
     const closeDetails = async () => {
@@ -216,7 +216,7 @@ async function run(browser) {
 
     await waitFor(() =>
       ui.evaluate(
-        `Boolean(document.querySelector(${JSON.stringify(connectAction)})) || document.querySelector('#connection').dataset.state==='connected'`,
+        `Boolean(document.querySelector(${JSON.stringify(`${connectAction}:not([hidden]):not(:disabled)`)})) || document.querySelector('#connection-label')?.dataset.state==='connected'`,
       ),
     );
     // Extension autoconnect may race the temporary native-host manifest write.
@@ -228,16 +228,20 @@ async function run(browser) {
       port.postMessage({id:'probe',method:'extension.hello',params:{instanceId:crypto.randomUUID(),browser:${JSON.stringify(browser)},version:'1.0.0'}});
     })`);
     assert.equal(hostReady, 'connected', `native host setup: ${hostReady}`);
-    if (!(await ui.evaluate(`document.querySelector('#connection').dataset.state==='connected'`))) {
+    if (
+      !(await ui.evaluate(
+        `document.querySelector('#connection-label')?.dataset.state==='connected'`,
+      ))
+    ) {
       await waitFor(() =>
         ui.evaluate(
-          `Boolean(document.querySelector(${JSON.stringify(`${connectAction}:not(:disabled)`)}))`,
+          `Boolean(document.querySelector(${JSON.stringify(`${connectAction}:not([hidden]):not(:disabled)`)}))`,
         ),
       );
       await click(connectAction);
     }
     await waitFor(
-      () => ui.evaluate(`document.querySelector('#connection').dataset.state==='connected'`),
+      () => ui.evaluate(`document.querySelector('#connection-label')?.dataset.state==='connected'`),
       35000,
     );
 
@@ -597,13 +601,13 @@ async function run(browser) {
     await waitFor(
       () =>
         ui.evaluate(
-          `document.querySelector('#connection').dataset.state==='connected' || Boolean(document.querySelector(${JSON.stringify(`${connectAction}:not(:disabled)`)}))`,
+          `document.querySelector('#connection-label')?.dataset.state==='connected' || Boolean(document.querySelector(${JSON.stringify(`${connectAction}:not([hidden]):not(:disabled)`)}))`,
         ),
       40000,
     );
     if (
       await ui.evaluate(
-        `Boolean(document.querySelector(${JSON.stringify(`${connectAction}:not(:disabled)`)}))`,
+        `Boolean(document.querySelector(${JSON.stringify(`${connectAction}:not([hidden]):not(:disabled)`)}))`,
       )
     )
       await click(connectAction);
@@ -612,7 +616,7 @@ async function run(browser) {
       return Array.isArray(list) && list.some((x) => x.instanceId === instance.instanceId);
     }, 40000);
     await waitFor(
-      () => ui.evaluate(`document.querySelector('#connection').dataset.state==='connected'`),
+      () => ui.evaluate(`document.querySelector('#connection-label')?.dataset.state==='connected'`),
       35000,
     );
     const resumed = await rpc('session-a', 'resume', { task_id: task.id });
@@ -717,7 +721,7 @@ async function run(browser) {
       'popup diagnostics:',
       await ui
         ?.evaluate(
-          `({connection:document.querySelector('#connection')?.dataset.state,headline:document.querySelector('#headline')?.textContent,summary:document.querySelector('#diagnostic-text')?.textContent,output:document.querySelector('#diagnostic-output')?.textContent,outputHidden:document.querySelector('#diagnostic-output')?.hidden})`,
+          `({connection:document.querySelector('#connection-label')?.dataset.state,headline:document.querySelector('#headline')?.textContent,summary:document.querySelector('#diagnostic-text')?.textContent,output:document.querySelector('#diagnostic-output')?.textContent,outputHidden:document.querySelector('#diagnostic-output')?.hidden})`,
         )
         .catch(() => null),
     );

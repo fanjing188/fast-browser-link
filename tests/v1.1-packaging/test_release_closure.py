@@ -47,6 +47,12 @@ INPUTS = (
     "scripts/install-cli.py",
     "install.sh",
     "docs/installation.md",
+    "docs/design/hermes-installation.md",
+    "docs/development.md",
+    "docs/agent-integration.md",
+    "docs/assist.md",
+    "docs/fbl-troubleshooting.md",
+    "docs/installation.zh-CN.md",
     "docs/python-scripting.md",
     "LICENSE",
     "cloud-link/site/package.json",
@@ -426,6 +432,17 @@ class ReleaseClosure(unittest.TestCase):
         self.assertIn("direct links", instructions)
         self.assertIn("profile settings and private data remain separate", instructions)
         readme = (self.output / "README.md").read_text()
+        for document in (
+            "development.md",
+            "agent-integration.md",
+            "assist.md",
+            "fbl-troubleshooting.md",
+            "installation.zh-CN.md",
+            "design/hermes-installation.md",
+        ):
+            self.assertIn(f"](docs/{document})", readme)
+            self.assertTrue((self.output / "docs" / document).is_file())
+        readme = (self.output / "docs/design/hermes-installation.md").read_text()
         self.assertIn("one regular program directory", readme)
         self.assertIn("Disabled profiles stay disabled", readme)
         self.assertEqual(

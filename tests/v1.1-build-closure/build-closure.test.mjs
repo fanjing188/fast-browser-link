@@ -48,6 +48,14 @@ const sourceCopies = [
   'ui-design.mjs',
   'copilot-table-confirm.mjs',
   'copilot-logs.mjs',
+  'copilot-task-logs.mjs',
+  'copilot-result.css',
+  'copilot-agent-panel.mjs',
+  'copilot-agents.css',
+  'copilot-capabilities.css',
+  'copilot-packs-panel.mjs',
+  'copilot-generic-result.mjs',
+  'copilot-memory-panel.mjs',
   'brand.css',
   'brand.mjs',
   'brand-logo.svg',
@@ -273,23 +281,28 @@ async function assertBuildContents(sourceRoot, output) {
   for (const relative of sourceCopies) {
     const staged = await readFile(path.join(output, relative));
     const rawSource = await readFile(path.join(sourceRoot, 'native-extension', relative));
-    const source =
-      relative === 'copilot-observation.mjs'
+    const source = [
+      'copilot-observation.mjs',
+      'copilot-selection.mjs',
+      'copilot-annotations.mjs',
+      'copilot-background.mjs',
+    ].includes(relative)
+      ? Buffer.from(
+          rawSource
+            .toString()
+            .replace("from '../page-semantics/index.js'", "from './vendor/page-semantics.mjs'")
+            .replace("from '../page-semantics/redact.mjs'", "from './vendor/redact.mjs'"),
+        )
+      : relative === 'oauth-popups.mjs'
         ? Buffer.from(
             rawSource
               .toString()
-              .replace("from '../page-semantics/index.js'", "from './vendor/page-semantics.mjs'"),
+              .replace(
+                "from '../page-semantics/oauth-providers.mjs'",
+                "from './vendor/oauth-providers.mjs'",
+              ),
           )
-        : relative === 'oauth-popups.mjs'
-          ? Buffer.from(
-              rawSource
-                .toString()
-                .replace(
-                  "from '../page-semantics/oauth-providers.mjs'",
-                  "from './vendor/oauth-providers.mjs'",
-                ),
-            )
-          : rawSource;
+        : rawSource;
     assert.deepEqual(staged, source, `${relative} source`);
     assert.equal(sha256(staged), sha256(source), `${relative} source hash`);
   }
@@ -509,7 +522,7 @@ test('当前发布入口报告同一个版本', async () => {
   assert.equal(desktop.version, version);
   assert.equal(extension.version, version);
   assert.equal(
-    [...background.matchAll(/version:chrome\.runtime\.getManifest\(\)\.version/g)].length,
+    [...background.matchAll(/version:\s*chrome\.runtime\.getManifest\(\)\.version/g)].length,
     2,
   );
 });

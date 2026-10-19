@@ -77,7 +77,7 @@ test('negative control: leftover action mentions cannot hide a missing daemon al
   const root = await fixtureRoot(t);
   const daemonPath = path.join(root, 'native-bridge/daemon.py');
   const daemon = await readFile(daemonPath, 'utf8');
-  const needle = "    'interaction.drag_coordinates', ";
+  const needle = '    "interaction.drag_coordinates",\n';
   assert.ok(
     daemon.includes(needle),
     'negative-control fixture must target the active daemon allowlist',

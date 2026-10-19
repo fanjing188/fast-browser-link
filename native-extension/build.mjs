@@ -33,7 +33,6 @@ for (const file of [
   'copilot-capabilities.css',
   'copilot-agent-panel.mjs',
   'copilot-agents.css',
-  'copilot-agents.css',
   'copilot-packs-panel.mjs',
   'copilot-selection.mjs',
   'copilot-browser-data.mjs',

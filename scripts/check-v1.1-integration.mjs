@@ -222,7 +222,7 @@ function balancedEnd(source, start, openChar, closeChar) {
   return -1;
 }
 function arrayLiteral(source, marker) {
-  const at = source.indexOf(marker);
+  const at = marker instanceof RegExp ? source.search(marker) : source.indexOf(marker);
   if (at < 0) return [];
   const start = source.indexOf('[', at),
     end = balancedEnd(source, start, '[', ']');
@@ -267,21 +267,21 @@ function extensionInfo(root) {
     // 中文注释：仅将被审批入口实际调用的工作窗口内动作分支纳入静态路由核对。
     perform =
       performEntry +
-      (/this\.performAuthorized\(t,p,guard,get,modeGeneration\)/.test(performEntry)
+      (/this\.performAuthorized\(t,\s*p,\s*guard,\s*get,\s*modeGeneration\)/.test(performEntry)
         ? methodBody(core, 'performAuthorized')
         : ''),
     page = methodBody(core, 'pageAction'),
     world = methodBody(core, 'callWorld');
   const bg =
     /import\s*\{\s*Executor\s*,[^}]*\}\s*from\s*['"]\.\/core\.mjs['"]/.test(background) &&
-    /new\s+Executor\s*\(chrome\b/.test(background) &&
+    /new\s+Executor\s*\(\s*chrome\b/.test(background) &&
     /new\s+Bridge\s*\(port\s*,\s*executor\b/.test(background) &&
     manifest.background?.service_worker === 'background.mjs';
   const execOk =
     /assertV1Action\s*\(\s*p\.action\s*\)/.test(execute) &&
     /this\.performRecovering\s*\(\s*t\s*,\s*p\s*\)/.test(execute) &&
-    /this\.performSettled\(t,params\)/.test(methodBody(core, 'performRecovering')) &&
-    /this\.perform\(t,p\)/.test(methodBody(core, 'performSettled')) &&
+    /this\.performSettled\(t,\s*params\)/.test(methodBody(core, 'performRecovering')) &&
+    /this\.perform\(t,\s*p\)/.test(methodBody(core, 'performSettled')) &&
     /assertV1Action\s*\(\s*p\.action\s*\)/.test(perform);
   const bridgeOk =
     /m\.method\s*===\s*['"]browser\.execute['"]\s*\)\s*result\s*=\s*await\s*this\.executor\.execute\s*\(\s*m\.params\s*\)/.test(
@@ -300,7 +300,7 @@ function extensionInfo(root) {
       core,
     ) && /callSemanticWorld\s*\(/.test(perform);
   // 中文注释：有界观察加入语义分支首项后，仍从当前执行分支取动作并逐项核对页面函数。
-  const semanticActions = arrayLiteral(perform, "else if(['page.observe'");
+  const semanticActions = arrayLiteral(perform, /else if\s*\(\s*\[\s*['"]page\.observe['"]/);
   const generic =
     /this\.callWorld\s*\([^;]*p\.action/.test(perform) &&
     /const\s+fn\s*=\s*action\s*===\s*['"]inspect['"]\s*\?\s*inspectPage\s*:\s*pageAction/.test(
@@ -311,22 +311,22 @@ function extensionInfo(root) {
     // 中文注释：popup 元数据动作在页面执行前独立分流，必须接到候选校验与租约登记。
     if (action === 'popup_catalog')
       return (
-        /p\.action==='popup_catalog'/.test(execute) &&
+        /p\.action\s*===\s*'popup_catalog'/.test(execute) &&
         /this\.popups\.catalog\(/.test(execute) &&
         /class OAuthPopups/.test(read(root, 'native-extension/oauth-popups.mjs'))
       );
     if (action === 'popup_adopt')
       return (
-        /p\.action==='popup_adopt'/.test(execute) &&
-        /this\.adoptPopup\(t,p\)/.test(execute) &&
-        /this\.popupGuard\(t,p\)/.test(methodBody(core, 'adoptPopup')) &&
-        /this\.leases\.set\(candidate\.tabId,t\.id\)/.test(methodBody(core, 'adoptPopup')) &&
+        /p\.action\s*===\s*'popup_adopt'/.test(execute) &&
+        /this\.adoptPopup\(t,\s*p\)/.test(execute) &&
+        /this\.popupGuard\(t,\s*p\)/.test(methodBody(core, 'adoptPopup')) &&
+        /this\.leases\.set\(candidate\.tabId,\s*t\.id\)/.test(methodBody(core, 'adoptPopup')) &&
         /this\.popups\.inspect/.test(methodBody(core, 'adoptPopup'))
       );
     if (action === 'api_request') return credentials;
     if (action === 'files.upload')
       return (
-        /p\.action===['"]files\.upload['"]/.test(perform) &&
+        /p\.action\s*===\s*['"]files\.upload['"]/.test(perform) &&
         /DOM\.setFileInputFiles/.test(perform) &&
         /p\.artifactOrigin/.test(perform) &&
         /p\.filePaths/.test(perform) &&
@@ -367,7 +367,7 @@ function extensionInfo(root) {
     if (action === 'ref_press')
       return (
         semanticsImport &&
-        /p\.action===['"]ref_press['"]/.test(perform) &&
+        /p\.action\s*===\s*['"]ref_press['"]/.test(perform) &&
         /focus_ref_press/.test(core) &&
         /press_check_ref/.test(core) &&
         /Input\.dispatchKeyEvent/.test(perform)
@@ -377,7 +377,7 @@ function extensionInfo(root) {
       return (
         semanticsImport &&
         interactionImport &&
-        /p\.action===['"]ref_click['"]/.test(perform) &&
+        /p\.action\s*===\s*['"]ref_click['"]/.test(perform) &&
         /pointer_target/.test(core) &&
         /interactions\.clickBoundTarget\(/.test(perform)
       );
@@ -404,11 +404,12 @@ function extensionInfo(root) {
       return (
         semanticsImport &&
         semanticActions.includes(action) &&
-        core.includes("op==='semantic_snapshot'||op==='page.parse'")
+        /op\s*===\s*'semantic_snapshot'\s*\|\|\s*op\s*===\s*'page.parse'/.test(core)
       );
     if (semanticActions.includes(action))
       return (
-        semanticsImport && new RegExp(`if\\(op===['"]${escapeRegExp(action)}['"]\\)`).test(core)
+        semanticsImport &&
+        new RegExp(`if\\s*\\(op\\s*===\\s*['"]${escapeRegExp(action)}['"]\\)`).test(core)
       );
     if (action === 'tabs')
       return (
@@ -442,12 +443,12 @@ function extensionInfo(root) {
       return /p\.action\s*===\s*['"]back['"]/.test(perform) && /\.goBack\s*\(/.test(perform);
     // 中文注释：页面执行、控制台、对话框与图片动作各自必须落到明确的执行器委托。
     const delegated = {
-      'js.evaluate': /this\.pageRuntime\.evaluate\(t,p,guard\)/,
-      'cdp.send': /this\.pageRuntime\.send\(t,p,guard\)/,
-      'cdp.events': /this\.pageRuntime\.drain\(t,p,/,
-      console: /this\.observers\.console\(t,p,target,guard\)/,
-      dialog: /this\.observers\.handle\(t,p,target,guard\)/,
-      images: /functionDeclaration:listImages\.toString\(\)/,
+      'js.evaluate': /this\.pageRuntime\.evaluate\(t,\s*p,\s*guard\)/,
+      'cdp.send': /this\.pageRuntime\.send\(t,\s*p,\s*guard\)/,
+      'cdp.events': /this\.pageRuntime\.drain\(t,\s*p,/,
+      console: /this\.observers\.console\(t,\s*p,\s*target,\s*guard\)/,
+      dialog: /this\.observers\.handle\(t,\s*p,\s*target,\s*guard\)/,
+      images: /functionDeclaration:\s*listImages\.toString\(\)/,
     }[action];
     if (delegated)
       return (
@@ -493,7 +494,7 @@ function packageInfo(root) {
   const plugin = read(root, 'executor-plugin/plugin.yaml');
   const pluginOk =
     /python_dependencies:\s*\[\s*\]/.test(plugin) &&
-    /copyTree\(path\.join\(source,'executor-plugin'\),path\.join\(output,'fast-browser-link'\)\)/.test(
+    /copyTree\(\s*path\.join\(source,\s*'executor-plugin'\),\s*path\.join\(output,\s*'fast-browser-link'\),?\s*\)/.test(
       pack,
     );
   const base =
@@ -501,10 +502,10 @@ function packageInfo(root) {
     inputs.includes('native-bridge') &&
     inputs.includes('native-extension') &&
     inputs.includes('browser-workspaces') &&
-    /copyTree\(path\.join\(source,'native-bridge'\),path\.join\(output,'fast-browser-link','native_bridge'\)\)/.test(
+    /copyTree\(\s*path\.join\(source,\s*'native-bridge'\),\s*path\.join\(output,\s*'fast-browser-link',\s*'native_bridge'\),?\s*\)/.test(
       pack,
     ) &&
-    /path\.join\(source,'native-extension\/build\.mjs'\)/.test(pack) &&
+    /path\.join\(source,\s*'native-extension\/build\.mjs'\)/.test(pack) &&
     pluginOk;
   const ext =
     manifest.background?.service_worker === 'background.mjs' &&
@@ -512,7 +513,7 @@ function packageInfo(root) {
     buildFiles.includes('background.mjs') &&
     buildFiles.includes('bridge.mjs') &&
     /writeFile\(path\.join\(dest, 'core\.mjs'\)/.test(build) &&
-    /path\.join\(source,'native-extension\/build\.mjs'\)/.test(pack);
+    /path\.join\(source,\s*'native-extension\/build\.mjs'\)/.test(pack);
   const semantics =
     modules.includes('page-semantics') &&
     hasDep('vendor/page-semantics.mjs', 'page-semantics/index.js') &&
@@ -534,7 +535,7 @@ function packageInfo(root) {
     build.includes("from '../browser-workspaces/index.mjs'");
   const api =
     pack.includes('native-bridge/api_client.py') &&
-    /copyTree\(path\.join\(source,'native-bridge'\),path\.join\(output,'fast-browser-link','native_bridge'\)\)/.test(
+    /copyTree\(\s*path\.join\(source,\s*'native-bridge'\),\s*path\.join\(output,\s*'fast-browser-link',\s*'native_bridge'\),?\s*\)/.test(
       pack,
     );
   const actionDependency = (action) =>
@@ -564,7 +565,7 @@ function packageInfo(root) {
     actionDependency,
     debug: {
       buildFiles,
-      copyModuleLoop: /for\(const module of modules\)/.test(pack),
+      copyModuleLoop: /for\s*\(const module of modules\)/.test(pack),
       coreWritten: /writeFile\(path\.join\(dest, 'core\.mjs'\)/.test(build),
     },
   };

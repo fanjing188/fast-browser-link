@@ -11,6 +11,7 @@ import { readFile, mkdtemp, rm } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import path from 'node:path';
+import { tmpdir } from 'node:os';
 import { JSDOM } from 'jsdom';
 import { createOverlayView } from '../../native-extension/overlay-view.mjs';
 import { createAutomationOverlay } from '../../native-extension/automation-overlay.mjs';
@@ -569,7 +570,7 @@ test('brand PNG sizes, toolbar assets and all runtime surfaces consume the share
 
 // 中文注释：实际源SVG必须能重建已提交图标；夹具只写自建临时目录，不增加安装依赖。
 test('standard-library SVG generation reproduces every checked-in icon and shadow brand module', async () => {
-  const directory = await mkdtemp('/private/tmp/fbl-brand-');
+  const directory = await mkdtemp(path.join(tmpdir(), 'fbl-brand-'));
   try {
     await promisify(execFile)('python3', [
       new URL('../../scripts/generate-brand.py', import.meta.url).pathname,

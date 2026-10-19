@@ -183,6 +183,7 @@ function createFixture({
   });
   let shouldCaptureError = captureError;
   const api = {
+    i18n: { getUILanguage: () => 'zh-CN' },
     // 中文注释：写动作先激活租用的工作页，再进入高亮准备和复核。
     tabs: {
       query: async () => [await api.tabs.get(7)],
@@ -334,7 +335,7 @@ test('隔离世界注入复用中文映射，相同步骤和状态回执不产�
     const injected = f.window.__fastAutomationOverlay.overlay;
     const bar = injected.host.shadowRoot.querySelector('[data-role="status"]'),
       list = bar.querySelector('ol'),
-      detail = bar.children[2];
+      detail = bar.querySelector('[data-role="detail"]');
     const entry = f.executor.tasks.get(task.id).overlays.get(7);
     const steps = [
       { action: 'page.parse', result: 'succeeded' },
@@ -343,8 +344,12 @@ test('隔离世界注入复用中文映射，相同步骤和状态回执不产�
     ];
     assert.equal(await f.executor.overlayCall(7, entry, 'log', { steps }), true);
     assert.deepEqual(
-      [...list.children].map((node) => node.textContent),
-      ['扫描页面 · 成功', '检查页面是否就绪 · 等待确认', '填写敏感信息 · 成功'],
+      [...list.children].map((node) => node.querySelector('.step-name').textContent),
+      ['扫描页面', '检查页面是否就绪', '填写敏感信息'],
+    );
+    assert.deepEqual(
+      [...list.children].map((node) => node.querySelector('[role=status]').dataset.status),
+      ['connected', 'running', 'connected'],
     );
     injected.update({ state: 'running', step: 'click' });
     const first = detail.textContent;
@@ -352,7 +357,7 @@ test('隔离世界注入复用中文映射，相同步骤和状态回执不产�
     assert.equal(detail.textContent, first);
     assert.equal(injected.host.style.pointerEvents, 'auto');
     injected.update({ state: 'running', step: 'vault.fill' });
-    assert.match(detail.textContent, /当前步骤：填写敏感信息/);
+    assert.match(detail.textContent, /填写敏感信息/);
     const nodes = [...list.children],
       mutations = [],
       observer = new f.window.MutationObserver((records) => mutations.push(...records));

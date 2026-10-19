@@ -91,7 +91,7 @@ class GateNegativeControls(unittest.TestCase):
     # 中文注释：审计报告是生成输出，不能把写报告误判为运行源码漂移；真实源码仍须校验。
     def test_audit_reports_are_outputs_not_runtime_sources(self):
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+            root = Path(temporary).resolve()
             (root / "native-extension").mkdir()
             source = root / "native-extension/core.mjs"
             source.write_text("export const value=1;")
@@ -106,7 +106,7 @@ class GateNegativeControls(unittest.TestCase):
 
     def test_save_json_writes_valid_output_and_updates_the_named_report(self):
         with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "latest.json"
+            path = Path(tmp).resolve() / "latest.json"
             gate.save_json(path, {"run": 1})
             self.assertEqual(json.loads(path.read_text()), {"run": 1})
             gate.save_json(path, {"run": 2})
@@ -114,7 +114,7 @@ class GateNegativeControls(unittest.TestCase):
 
     def test_snapshot_preserves_nested_release_and_dist_fixtures(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = Path(tmp).resolve()
             source, destination = root / "source", root / "snapshot"
             paths = (
                 "release/generated.zip",
@@ -146,7 +146,7 @@ class GateNegativeControls(unittest.TestCase):
 
     def test_known_failing_script_not_green(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = Path(tmp).resolve()
             bad = root / "bad.py"
             bad.write_text("import sys\nsys.exit(7)\n")
             result = gate.run_steps(
@@ -158,7 +158,7 @@ class GateNegativeControls(unittest.TestCase):
 
     def test_save_json_refuses_symlink_temporary_path(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = Path(tmp).resolve()
             target = root / "outside.json"
             target.write_text("keep")
             (root / "result.tmp").symlink_to(target)
@@ -168,7 +168,7 @@ class GateNegativeControls(unittest.TestCase):
 
     def test_save_json_refuses_to_replace_a_stale_regular_temporary_file(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = Path(tmp).resolve()
             temporary = root / "result.tmp"
             temporary.write_text("prior temporary evidence")
             with self.assertRaisesRegex(RuntimeError, "unsafe temporary JSON output"):
@@ -178,7 +178,7 @@ class GateNegativeControls(unittest.TestCase):
 
     def test_save_json_rejects_symlinked_parent_ancestor(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = Path(tmp).resolve()
             outside = root / "outside"
             outside.mkdir()
             linked = root / "linked"
@@ -190,7 +190,7 @@ class GateNegativeControls(unittest.TestCase):
 
     def test_scratch_path_validation_rejects_symlinked_ancestor(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = Path(tmp).resolve()
             outside = root / "outside"
             outside.mkdir()
             linked = root / "linked"
@@ -200,7 +200,7 @@ class GateNegativeControls(unittest.TestCase):
 
     def test_gate_output_preflight_rejects_symlinked_scratch_and_result_parents(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = Path(tmp).resolve()
             output_root = root / "verification"
             output_root.mkdir()
             outside = root / "outside"
@@ -216,7 +216,7 @@ class GateNegativeControls(unittest.TestCase):
 
     def test_copy_log_refuses_symlink_destination(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = Path(tmp).resolve()
             source = root / "source.log"
             source.write_text("new log")
             target = root / "outside.log"
@@ -229,7 +229,7 @@ class GateNegativeControls(unittest.TestCase):
 
     def test_copy_log_never_overwrites_an_existing_run_log(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = Path(tmp).resolve()
             source = root / "source.log"
             source.write_text("new log")
             destination = root / "logs.log"
@@ -240,7 +240,7 @@ class GateNegativeControls(unittest.TestCase):
 
     def test_runner_log_refuses_symlink_to_outside_file(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = Path(tmp).resolve()
             result_dir = root / "results"
             result_dir.mkdir()
             outside = root / "outside.log"
@@ -257,7 +257,7 @@ class GateNegativeControls(unittest.TestCase):
 
     def test_log_runs_get_distinct_directories_and_preserve_prior_logs(self):
         with tempfile.TemporaryDirectory() as tmp:
-            logs = Path(tmp) / "logs"
+            logs = Path(tmp).resolve() / "logs"
             previous = logs / "previous-run"
             previous.mkdir(parents=True)
             old_log = previous / "root-build.log"
@@ -271,7 +271,7 @@ class GateNegativeControls(unittest.TestCase):
 
     def test_timeout_kills_descendant_process_before_it_can_write(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = Path(tmp).resolve()
             marker = root / "orphan-wrote-after-timeout"
             child = f"import pathlib,time; time.sleep(.4); pathlib.Path({str(marker)!r}).write_text('orphan')"
             parent = f"import subprocess,sys,time; subprocess.Popen([sys.executable,'-c',{child!r}]); time.sleep(5)"
@@ -287,7 +287,7 @@ class GateNegativeControls(unittest.TestCase):
 
     def test_timeout_escalates_to_kill_for_a_descendant_ignoring_term(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = Path(tmp).resolve()
             ready = root / "child-ready"
             marker = root / "term-ignored-child-wrote"
             child = (
@@ -319,7 +319,7 @@ class GateNegativeControls(unittest.TestCase):
 
     def test_timeout_kills_term_ignoring_descendant_after_parent_exits(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = Path(tmp).resolve()
             ready = root / "detached-child-ready"
             marker = root / "detached-child-survived-timeout"
             child = (
@@ -353,7 +353,7 @@ class GateNegativeControls(unittest.TestCase):
     def test_child_python_preserves_local_namespace_with_private_environment(self):
         # 中文注释：上游 regular tests 不得遮蔽本地 namespace；真实 API 单独核对源码来源。
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+            root = Path(temporary).resolve()
             work, scratch = root / "run", root / "scratch"
             tree, source, parent = work / "source", root / "selected-hermes", root / "parent-path"
             native, deps = tree / "native-bridge", work / "pytest-deps"
@@ -441,7 +441,7 @@ class GateNegativeControls(unittest.TestCase):
 
     def test_uv_cache_is_private_to_the_current_scratch_run(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = Path(tmp).resolve()
             work = root / "run"
             tree = work / "source"
             tree.mkdir(parents=True)
@@ -466,7 +466,7 @@ class GateNegativeControls(unittest.TestCase):
 
     def test_node_modules_boundary_is_an_independent_scratch_copy(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = Path(tmp).resolve()
             source = root / "live/node_modules"
             package = source / "sample/lib"
             package.mkdir(parents=True)
@@ -486,7 +486,7 @@ class GateNegativeControls(unittest.TestCase):
 
     def test_node_modules_boundary_rejects_source_symlink(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = Path(tmp).resolve()
             real = root / "real-modules"
             real.mkdir()
             source = root / "node_modules"
@@ -496,7 +496,7 @@ class GateNegativeControls(unittest.TestCase):
 
     def test_node_modules_boundary_rejects_nested_symlink_escape(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = Path(tmp).resolve()
             source = root / "node_modules"
             source.mkdir()
             outside = root / "outside"
@@ -509,7 +509,7 @@ class GateNegativeControls(unittest.TestCase):
 
     def test_node_modules_boundary_rejects_absolute_link_back_to_live_source(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = Path(tmp).resolve()
             source = root / "node_modules"
             package = source / "sample"
             package.mkdir(parents=True)
@@ -520,7 +520,7 @@ class GateNegativeControls(unittest.TestCase):
 
     def test_missing_runner_is_blocked_not_passed(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = Path(tmp).resolve()
             result = gate.run_steps(
                 root, root / "results", [("absent", ["python3", "absent.py"], "unittest")], {}
             )
@@ -530,7 +530,7 @@ class GateNegativeControls(unittest.TestCase):
 
     def test_zero_tests_is_not_green(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = Path(tmp).resolve()
             (root / "empty.py").write_text('print("Ran 0 tests")\n')
             result = gate.run_steps(
                 root, root / "results", [("empty", ["python3", "empty.py"], "unittest")], {}
@@ -540,7 +540,7 @@ class GateNegativeControls(unittest.TestCase):
 
     def test_skipped_case_is_not_a_green_acceptance(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = Path(tmp).resolve()
             (root / "skip.py").write_text('print("Ran 1 test in 0.001s\\nOK (skipped=1)")\n')
             result = gate.run_steps(
                 root, root / "results", [("skip", ["python3", "skip.py"], "unittest")], {}
@@ -550,7 +550,7 @@ class GateNegativeControls(unittest.TestCase):
 
     def test_todo_case_is_not_a_green_acceptance(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = Path(tmp).resolve()
             (root / "todo.py").write_text('print("# tests 1\\n# pass 0\\n# todo 1")\n')
             result = gate.run_steps(
                 root, root / "results", [("todo", ["python3", "todo.py"], "tap")], {}
@@ -560,7 +560,7 @@ class GateNegativeControls(unittest.TestCase):
 
     def test_inventory_diff_catches_added_removed_and_modified_files(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp) / "source"
+            root = Path(tmp).resolve() / "source"
             root.mkdir()
             (root / "keep.txt").write_text("before")
             (root / "remove.txt").write_text("remove")
@@ -592,20 +592,21 @@ class GateNegativeControls(unittest.TestCase):
         )
 
     def test_baseline_and_supplemental_step_counts_are_separate(self):
-        # 中文注释：当前显式矩阵已纳入新增基准与版本回归，保持实际审阅后的数量。
-        # 中文注释：诊断三个固定 Python runner 各新增一步，原有四十步全部保留。
-        # 中文注释：自动更新增加一个固定离线 runner，不改变补充或真实浏览器门禁。
-        # 中文注释：OAuth popup 两个固定 Python 文件增加两步，Node 合并步骤不变。
-        # 中文注释：常驻协作执行新增一个固定离线 runner。
-        # 中文注释：R7 结果与导出新增一个固定离线 runner。
-        self.assertEqual(len(gate.matrix(Path("/scratch/source"), "/scratch/python")), 59)
+        # 中文注释：逐文件运行全部已审阅 Node 清单；唯一名称及固定命令形态防止合并或漏跑。
+        steps = gate.matrix(Path("/scratch/source"), "/scratch/python")
+        self.assertEqual(len(steps), 173)
+        node_steps = [(name, command) for name, command, kind in steps if kind == "tap"]
+        self.assertEqual(len(node_steps), 104)
+        self.assertEqual(len({name for name, _command in node_steps}), 104)
+        self.assertEqual([command[-1] for _name, command in node_steps], list(gate.NODE_TESTS))
+        self.assertTrue(all(len(command) == 5 for _name, command in node_steps))
         self.assertEqual(
             len(gate.supplemental_matrix(Path("/scratch/source"), "/scratch/python")), 2
         )
 
     def test_browser_use_cli_source_is_discovered_from_cli_without_executing_it(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = Path(tmp).resolve()
             tool_root = root / "uv/tools/browser-use"
             cli = tool_root / "bin/browser-use"
             cli.parent.mkdir(parents=True)
@@ -624,7 +625,7 @@ class GateNegativeControls(unittest.TestCase):
 
     def test_coverage_inventory_lists_unrun_files_without_marking_them_green(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = Path(tmp).resolve()
             folder = root / "tests/v1.1-example"
             folder.mkdir(parents=True)
             (folder / "test_included.py").write_text("")
@@ -658,9 +659,9 @@ class GateNegativeControls(unittest.TestCase):
         # 中文注释：V1.3 新增受审阅的脚本 runner，保留显式清单与数量校验；1.8.5 后加入 version-set 回归。
         # 中文注释：1.11.1 登记 tests/v1.11.0 的定位恢复与动作后回读两个 Python runner，清单增加两项。
         # 中文注释：新增真实 Hermes 注册表兼容回归，保留显式数量与发现门禁。
-        self.assertEqual(len(steps), 53)
-        self.assertEqual(len(gate.REVIEWED_RUNNER_PATHS), 53)
-        self.assertEqual(len(set(gate.REVIEWED_RUNNER_PATHS)), 53)
+        self.assertEqual(len(steps), 54)
+        self.assertEqual(len(gate.REVIEWED_RUNNER_PATHS), 54)
+        self.assertEqual(len(set(gate.REVIEWED_RUNNER_PATHS)), 54)
         self.assertTrue(
             {
                 "tests/v1.11.0/test_recovery_protocol.py",
@@ -675,7 +676,7 @@ class GateNegativeControls(unittest.TestCase):
         # 中文注释：镜像 Node/Python 两个离线文件也纳入发现与固定清单核对。
         # 中文注释：新增自动更新固定 runner 后，审阅允许清单增加一项。
         # 中文注释：version-set 回归登记后允许清单再增加一项。
-        self.assertEqual(len(gate.known_v11_runner_paths()), 95)
+        self.assertEqual(len(gate.known_v11_runner_paths()), 96)
         self.assertIn("tests/v1.11.0/recovery.test.mjs", gate.known_v11_runner_paths())
         # 中文注释：1.5.1 桌面 API 与交互均登记，真实浏览器脚本不进入离线门禁。
         # 中文注释：后台审批 runner 登记后显式清单增加一项。
@@ -744,7 +745,7 @@ class GateNegativeControls(unittest.TestCase):
 
     def test_discovery_never_globs_a_new_runner_into_the_command_matrix(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = Path(tmp).resolve()
             path = "tests/v1.1-example/test_future.py"
             target = root / path
             target.parent.mkdir(parents=True)
@@ -762,7 +763,7 @@ class GateNegativeControls(unittest.TestCase):
 
     def test_coverage_discovery_blocks_a_new_unreviewed_runner_even_if_selected(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = Path(tmp).resolve()
             folder = root / "tests/v1.1-example"
             folder.mkdir(parents=True)
             path = "tests/v1.1-example/test_added.py"
@@ -780,7 +781,7 @@ class GateNegativeControls(unittest.TestCase):
 
     def test_scratch_home_uses_private_scratch_dir_without_live_source_link(self):
         with tempfile.TemporaryDirectory() as tmp:
-            home = Path(tmp) / "home"
+            home = Path(tmp).resolve() / "home"
             gate.prepare_scratch_home(home)
             local_scratch = home / ".hermes/cache/scratch"
             self.assertTrue(local_scratch.is_dir())

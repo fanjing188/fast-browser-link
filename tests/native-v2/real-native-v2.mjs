@@ -341,11 +341,19 @@ async function run(browser) {
         throw Error(`popup click ${selector}: ${error.message}`, { cause: error });
       }
     };
-    await waitFor(() => ui.evaluate(`document.querySelector('#connection-label')!==null`));
-    if (!(await ui.evaluate(`document.querySelector('#connection-label').textContent==='已连接'`)))
-      await click('#connect');
+    await waitFor(() =>
+      ui.evaluate(
+        `document.querySelector('#connection-label')?.dataset.state==='connected'||Boolean(document.querySelector('#local-connect:not([hidden]):not(:disabled)'))`,
+      ),
+    );
+    if (
+      !(await ui.evaluate(
+        `document.querySelector('#connection-label')?.dataset.state==='connected'`,
+      ))
+    )
+      await click('#local-connect');
     await waitFor(
-      () => ui.evaluate(`document.querySelector('#connection-label').textContent==='已连接'`),
+      () => ui.evaluate(`document.querySelector('#connection-label')?.dataset.state==='connected'`),
       35000,
     );
     // 中文注释：连接本身已授权；只读取状态，不操作已移除的权限开关。

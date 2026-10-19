@@ -232,7 +232,6 @@
 - `tests/v1.1-compatibility/test_hermes_registry.py`：真实 Hermes 注册表无授权/有授权/Vault/旧插件四种模式，非浏览器工具不变、未绑定回退和卸载恢复。
 - `tests/agent-link/real-agent.mjs`：非离线，临时 Chrome/Edge profile 的 CLI 读写回读与任务隔离。
 
-
 ### 2.1.0 无痕任务与调用入口
 
 - 既有 `tests/native-extension/oauth-popup.test.mjs`、`tests/v1.6.0/work-window.test.mjs`、`native-bridge/tests/test_browser_consent.py`、`executor-plugin/tests/test_open_tool.py` 覆盖窗口隔离、权限检查、登录导航及同一任务日志恢复。
@@ -264,3 +263,5 @@
 `sidebar-logs.test.mjs` exercises compact work view, secondary navigation, immediate field saves, first Balanced activation, informational usage, bounded virtual logs, filters, scroll pause, clear/copy/export, batching protocol isolation and bilingual labels. `test_copilot_journal.py` covers the 2,000-record cap, persistence/scope/privacy, 200ms batches, seven-day retention and ignored legacy settings. Explicit offline inventory is 58 grouped steps after adding the Python file. Real installed Edge acceptance is separate.
 
 R12：`controls-confirmation.test.mjs` 归入现有 Copilot Node 组；`test_copilot_health.py` 独立 Python runner。矩阵共59组。覆盖共享控件键盘/搜索/步进、闭合影子确认层、跟随/切换/取消/移除、一次性确认凭据、变更拒绝、确认后才导出/后台采集，以及零模型健康与名称持久化。DOM夹具不是实际Edge证明。
+
+R39：补齐 `tests/v1.1-packaging/test_cloud_fence_pin.py` 的已审阅登记说明；该文件只读仓库源码，核对安装围栏摘要，无浏览器或安装动作。当前固定清单包含 104 个 Node runner、54 个 reviewed runner、96 个发现范围内已知 runner。baseline 从 70 组合并步骤改为 173 个逐文件步骤，supplemental 仍为 2 步。Node runner 各自使用原有单项 150 秒期限，超时、零测试、skip、todo 继续失败，不共享随用例增长而耗尽的 240 秒预算。默认暂存根使用规范化的系统 `/tmp`，显式路径仍接受原有无符号链接检查。

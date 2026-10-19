@@ -385,10 +385,18 @@ const exists = async (file) => {
 
 test('测试解释器拒绝真实 HOME 和非夹具运行时，拒绝发生在执行代码前', async (t) => {
   const f = await syncFixture(t);
+  // 中文注释：verify 会注入临时 HOME；从系统账户记录取得真实 HOME，避免误测另一层夹具。
+  const account = spawnSync(
+    PYTHON,
+    ['-c', 'import os,pwd; print(pwd.getpwuid(os.getuid()).pw_dir)'],
+    { encoding: 'utf8' },
+  );
+  assert.equal(account.status, 0, account.stderr);
+  const realHome = account.stdout.trim();
   for (const extra of [
-    { HOME: process.env.HOME },
-    { HERMES_HOME: path.join(process.env.HOME, '.hermes') },
-    { HERMES_HOME: path.join(process.env.HOME, '.fast-browser-link') },
+    { HOME: realHome },
+    { HERMES_HOME: path.join(realHome, '.hermes') },
+    { HERMES_HOME: path.join(realHome, '.fast-browser-link') },
   ]) {
     const result = spawnSync(f.env.BROWSER_LINK_TEST_PYTHON, ['-c', "print('EXECUTED')"], {
       encoding: 'utf8',
@@ -402,16 +410,47 @@ test('测试解释器拒绝真实 HOME 和非夹具运行时，拒绝发生在�
     PYTHON,
     [
       path.join(REPO, 'tests/helpers/isolated-installer.py'),
-      process.env.HOME,
-      path.join(process.env.HOME, '.hermes'),
+      realHome,
+      path.join(realHome, '.hermes'),
       '-c',
       "print('EXECUTED')",
     ],
-    { encoding: 'utf8', env: { ...process.env, TMPDIR: path.dirname(process.env.HOME) } },
+    { encoding: 'utf8', env: { ...process.env, HOME: realHome, TMPDIR: path.dirname(realHome) } },
   );
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /requires temporary roots/);
   assert.doesNotMatch(result.stdout, /EXECUTED/);
+});
+
+test('测试解释器接受固定 Linux runner 临时根，不信任 TMPDIR 或逃逸路径', () => {
+  const base = '/home/runner/work/_temp';
+  for (const [home, runtime, allowed] of [
+    [`${base}/fixture/home`, `${base}/fixture/runtime`, true],
+    [base, `${base}/fixture/runtime`, false],
+    [`${base}/../real-home`, `${base}/fixture/runtime`, false],
+    ['/home/runner', '/home/runner/.hermes', false],
+  ]) {
+    const result = spawnSync(
+      PYTHON,
+      [
+        path.join(REPO, 'tests/helpers/isolated-installer.py'),
+        home,
+        runtime,
+        '-c',
+        "print('EXECUTED')",
+      ],
+      {
+        encoding: 'utf8',
+        env: { ...process.env, HOME: home, HERMES_HOME: runtime, TMPDIR: '/home' },
+      },
+    );
+    assert.equal(result.status === 0, allowed, result.stderr);
+    if (allowed) assert.equal(result.stdout.trim(), 'EXECUTED');
+    else {
+      assert.match(result.stderr, /requires temporary roots/);
+      assert.doesNotMatch(result.stdout, /EXECUTED/);
+    }
+  }
 });
 
 test('Chrome、Edge、Hermes 和其他宿主存在时，同步只读取注入的 PID 状态', async (t) => {

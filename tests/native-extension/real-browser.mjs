@@ -112,10 +112,19 @@ async function run(browser) {
         ...pos,
       });
     };
-    await waitFor(() => ui.evaluate(`document.querySelector('#connect')!==null`));
-    if (await ui.evaluate(`!document.querySelector('#connect').hidden`)) await click('#connect');
+    await waitFor(() =>
+      ui.evaluate(
+        `document.querySelector('#connection-label')?.dataset.state==='connected'||Boolean(document.querySelector('#local-connect:not([hidden]):not(:disabled)'))`,
+      ),
+    );
+    if (
+      await ui.evaluate(
+        `Boolean(document.querySelector('#local-connect:not([hidden]):not(:disabled)'))`,
+      )
+    )
+      await click('#local-connect');
     await waitFor(
-      () => ui.evaluate(`document.querySelector('#connection').textContent.includes('已连接')`),
+      () => ui.evaluate(`document.querySelector('#connection-label')?.dataset.state==='connected'`),
       35000,
     ).catch(async (e) => {
       throw Error(`${e.message}: ${await ui.evaluate('document.body.innerText')}`);
@@ -237,10 +246,16 @@ async function run(browser) {
       path.join(dir, 'commands.jsonl'),
       JSON.stringify({ method: 'fixture.disconnect' }) + '\n',
     );
-    await waitFor(() => ui.evaluate(`!document.querySelector('#connect').hidden`), 15000);
-    await click('#connect');
     await waitFor(
-      () => ui.evaluate(`document.querySelector('#connection').textContent.includes('已连接')`),
+      () =>
+        ui.evaluate(
+          `Boolean(document.querySelector('#local-connect:not([hidden]):not(:disabled)'))`,
+        ),
+      15000,
+    );
+    await click('#local-connect');
+    await waitFor(
+      () => ui.evaluate(`document.querySelector('#connection-label')?.dataset.state==='connected'`),
       15000,
     );
     assert.ok(

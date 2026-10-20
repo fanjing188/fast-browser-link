@@ -33,7 +33,11 @@ class HermesRegistryTests(unittest.TestCase):
                 report = json.loads(result.stdout.splitlines()[-1])
                 self.assertTrue(report["unload_restored"])
                 self.assertGreater(report["original_tools"], report["browser_tools"])
-                if mode in ("override", "vault"):
+                if mode == "vault" and not report["vault_supported"]:
+                    self.assertTrue(report["vault_opt_in_refused"])
+                    self.assertEqual(report["changed"], [])
+                    self.assertEqual(report["unbound_calls"], 0)
+                elif mode in ("override", "vault"):
                     self.assertEqual(report["unbound_calls"], report["browser_tools"])
                 else:
                     self.assertEqual(report["changed"], [])

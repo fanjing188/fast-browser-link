@@ -17,14 +17,14 @@ SPEC.loader.exec_module(doctor)
 class DoctorProtocolTests(unittest.TestCase):
     def test_malformed_browser_list_is_reported_as_protocol_failure(self):
         for browsers in (None, {}, "invalid", [None]):
-            with self.subTest(browsers=browsers), tempfile.TemporaryDirectory(dir="/tmp") as work:
-                home = Path(work)
+            with self.subTest(browsers=browsers), tempfile.TemporaryDirectory() as work:
+                home = Path(work).resolve()
                 data = home / "plugin-data/fast-browser-link-native"
                 data.mkdir(parents=True)
                 (data / "token").write_text("synthetic-token")
                 (data / "token").chmod(0o600)
                 server = socket.socket(socket.AF_UNIX)
-                server.bind(str(data / "bridge.sock"))
+                server.bind(doctor._client.socket_address(data / "bridge.sock"))
                 server.listen()
                 server.settimeout(2)
 
@@ -42,7 +42,8 @@ class DoctorProtocolTests(unittest.TestCase):
                 worker = threading.Thread(target=serve)
                 worker.start()
                 try:
-                    result = doctor.diagnose(home, home / "user")
+                    result = doctor.diagnose(home, home / "user", bridge_home=home)
+                    self.assertEqual(result["runtime"]["bridgeHome"], str(home))
                     self.assertFalse(result["ok"])
                     self.assertEqual(
                         next(row["code"] for row in result["checks"] if row["component"] == "host"),
@@ -65,7 +66,7 @@ class DoctorProtocolTests(unittest.TestCase):
             manifest.parent.mkdir(parents=True)
             for value in ([], None, 1):
                 manifest.write_text(json.dumps(value))
-                result = doctor.diagnose(home / "hermes", home)
+                result = doctor.diagnose(home / "hermes", home, bridge_home=home / "hermes")
                 self.assertFalse(result["ok"])
                 self.assertEqual(
                     next(row["code"] for row in result["checks"] if row["component"] == "chrome"),

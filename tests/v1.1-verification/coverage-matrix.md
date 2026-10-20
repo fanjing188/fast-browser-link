@@ -230,7 +230,7 @@
 ## 通用入口与旧 Hermes 兼容
 
 - `tests/agent-link/test_agent_link.py`：独立安装、旧 Native host 与配置字节/mtime 保持、扩展身份隔离、MCP 与未知写入不重放。
-- `tests/v1.1-compatibility/test_hermes_registry.py`：真实 Hermes 注册表无授权/有授权/Vault/旧插件四种模式，非浏览器工具不变、未绑定回退和卸载恢复。
+- `tests/v1.1-compatibility/test_hermes_registry.py`：真实注册表无授权/有授权/Vault/旧插件四种模式，非浏览器工具不变、未绑定回退和卸载恢复；旧版多入口 Vault 就绪才验覆盖，新版单入口未适配时验明确拒绝且无残留，不当作 Vault 兼容成功。
 - `tests/agent-link/real-agent.mjs`：非离线，临时 Chrome/Edge profile 的 CLI 读写回读与任务隔离。
 
 ### 2.1.0 无痕任务与调用入口

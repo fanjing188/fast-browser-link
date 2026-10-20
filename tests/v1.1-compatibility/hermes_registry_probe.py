@@ -22,6 +22,18 @@ with tempfile.TemporaryDirectory() as temporary:
     originals = {entry.name: entry for entry in registry.get_all_entries()}
     browser_names = {name for name in originals if name.startswith("browser_")}
     assert "browser_navigate" in browser_names and "browser_exec" in browser_names
+    # 中文注释：新版统一 Vault 尚未适配；验拒绝与回滚，不把拒绝冒称兼容成功。
+    vault_names = (
+        "browser_vault_list",
+        "browser_vault_unlock",
+        "browser_vault_fill",
+        "browser_vault_save_login",
+        "browser_vault_enter_code",
+    )
+    vault_supported = all(
+        name in originals and not originals[name].is_async for name in vault_names
+    )
+    vault_refused = mode == "vault" and not vault_supported
     calls = []
     # 中文注释：哨兵只替代原生工具的实际浏览器/网络执行，插件管理器、授权 hook、路由与卸载保持真实。
     for name in browser_names:
@@ -58,6 +70,11 @@ with tempfile.TemporaryDirectory() as temporary:
     if mode == "legacy":
         assert loaded.error and not loaded.tools_registered and not loaded.hooks_registered, loaded
         assert (home / "plugins/browser-link/user-data").read_text() == "unchanged"
+    elif vault_refused:
+        assert loaded.error == "official Vault tool unavailable", loaded
+        assert not loaded.enabled and not loaded.tools_registered and not loaded.hooks_registered
+        for name in loaded.manifest.provides_tools:
+            assert registry.get_entry(name, scope=manager.scope_key) is None, name
     else:
         assert loaded.enabled and not loaded.error, loaded
         assert registry.get_entry("fast_browser_open", scope=manager.scope_key) is not None
@@ -76,9 +93,9 @@ with tempfile.TemporaryDirectory() as temporary:
             assert current.is_async == original.is_async, name
             if name.startswith("browser_vault_"):
                 assert mode == "vault", name
-        if not allowed:
+        if not allowed or vault_refused:
             assert current.handler is original.handler and current.schema == original.schema, name
-    if allowed:
+    if allowed and not vault_refused:
         assert "browser_navigate" in changed and "browser_exec" in changed
         for index, name in enumerate(sorted(browser_names)):
             args = {"probe": "unbound"}
@@ -105,6 +122,8 @@ with tempfile.TemporaryDirectory() as temporary:
                 "changed": sorted(changed),
                 "unbound_calls": len(calls),
                 "unload_restored": True,
+                "vault_supported": vault_supported,
+                "vault_opt_in_refused": vault_refused,
             }
         )
     )

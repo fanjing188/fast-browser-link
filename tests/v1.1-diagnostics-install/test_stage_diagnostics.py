@@ -215,7 +215,7 @@ class StagedDiagnosticsClosureTests(unittest.TestCase):
                 False,
             ),
         ):
-            with self.subTest(relative=relative), tempfile.TemporaryDirectory(dir="/tmp") as work:
+            with self.subTest(relative=relative), tempfile.TemporaryDirectory(dir=SCRATCH) as work:
                 root = Path(work).resolve()
                 isolated = root / "home"
                 outside = root / "outside"

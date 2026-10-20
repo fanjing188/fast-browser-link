@@ -11,6 +11,23 @@ const exec = promisify(execFile);
 const python =
   process.env.HERMES_PYTHON || path.join(process.env.HOME, '.hermes/hermes-agent/venv/bin/python');
 
+test('离线夹具不绕过 TMPDIR 写入系统临时目录', async () => {
+  for (const file of [
+    '../../native-bridge/tests/test_fd_lifecycle.py',
+    '../v1.1-diagnostics-install/test_stage_diagnostics.py',
+    '../v1.6.0/test_lifecycle.py',
+    '../v1.1-packaging/dev-sync-daemon.test.mjs',
+    '../v1.1-packaging/directory-swap.test.mjs',
+  ]) {
+    const source = await readFile(new URL(file, import.meta.url), 'utf8');
+    assert.doesNotMatch(
+      source,
+      /(?:dir\s*=\s*['"]\/(?:private\/)?tmp['"]|const testTemp\s*=[^;]*['"]\/(?:private\/)?tmp['"])/u,
+      file,
+    );
+  }
+});
+
 test('socket address preserves its target and enforces encoded-byte limits', () => {
   const absolute = `/${'a'.repeat(102)}`;
   assert.equal(runner.socketAddress(absolute), absolute);

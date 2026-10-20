@@ -12,9 +12,16 @@ import sys
 user_home, runtime_home = map(Path, sys.argv[1:3])
 # 中文注释：忽略 TMPDIR；CI 临时根只在 Actions 中启用，且不能覆盖系统账户的真实 HOME。
 temporary_roots = {Path("/tmp").resolve()}
+account_home = Path(pwd.getpwuid(os.getuid()).pw_dir).resolve()
+# 中文注释：仅供测试的解释器也接受账户固定 scratch；不信任调用方 HOME/TMPDIR 或路径别名。
+for scratch in (
+    account_home / ".hermes/cache/scratch",
+    *(account_home / ".hermes/profiles").glob("*/cache/scratch"),
+):
+    if scratch.is_dir() and scratch.resolve() == scratch:
+        temporary_roots.add(scratch)
 if os.environ.get("GITHUB_ACTIONS") == "true" and os.environ.get("RUNNER_TEMP"):
     runner_temp = Path(os.environ["RUNNER_TEMP"])
-    account_home = Path(pwd.getpwuid(os.getuid()).pw_dir).resolve()
     if runner_temp.is_absolute() and not account_home.is_relative_to(runner_temp.resolve()):
         temporary_roots.add(runner_temp.resolve())
 for root in (user_home, runtime_home):

@@ -59,7 +59,7 @@ class DownloadDescriptorTests(unittest.TestCase):
     def test_claim_destination_failure_closes_source(self):
         import downloads
 
-        with tempfile.TemporaryDirectory(prefix="download-fd-", dir="/tmp") as work:
+        with tempfile.TemporaryDirectory(prefix="download-fd-") as work:
             root = Path(work).resolve()
             source = root / "fast-browser-tasks" / "0123456789abcdef" / "sample.txt"
             source.parent.mkdir(parents=True)
@@ -145,7 +145,7 @@ else:
 """
         bridge = str(Path(__file__).resolve().parents[1])
         for operation in ("upload", "manifest", "download"):
-            with self.subTest(operation=operation), tempfile.TemporaryDirectory(dir="/tmp") as work:
+            with self.subTest(operation=operation), tempfile.TemporaryDirectory() as work:
                 result = subprocess.run(
                     [sys.executable, "-c", script, bridge, str(Path(work).resolve()), operation],
                     capture_output=True,

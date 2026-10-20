@@ -18,15 +18,16 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fixtureInstaller, isolatedInstallerEnv } from '../helpers/isolated-installer.mjs';
+import { socketAddress } from '../native-v2/real-session.mjs';
 
-const testTemp = process.platform === 'darwin' ? '/private/tmp' : tmpdir();
+const testTemp = await realpath(tmpdir());
 import {
   assertDevelopmentIdle,
   runDevelopmentGuard,
   initializeCopilot,
 } from '../../scripts/dev-sync-daemon.mjs';
 
-// 中文注释：规范的短临时路径避开 macOS 默认 /var 链接和 103 字节 socket 上限。
+// 中文注释：使用调用方指定的真实临时根，短随机目录不绕过 TMPDIR。
 async function daemonHome() {
   for (let attempt = 0; attempt < 100; attempt++) {
     const home = path.join(testTemp, `d${randomUUID().slice(0, 3)}`);
@@ -82,10 +83,10 @@ test('dev-sync 拒绝真实活 daemon 且不发送信号', async (t) => {
     await rm(home, { recursive: true, force: true });
   });
   const pidFile = path.join(home, 'plugin-data', 'fast-browser-link-native', 'daemon.pid');
-  // 中文注释：macOS 的 AF_UNIX 路径最多 103 字节；启动前核对最终路径的 UTF-8 长度。
+  // 中文注释：核对传给内核的地址，允许同一目标的短相对地址，不移动实际 socket。
   const socketPath = path.join(path.dirname(pidFile), 'bridge.sock');
   assert.ok(
-    Buffer.byteLength(socketPath, 'utf8') <= 103,
+    Buffer.byteLength(socketAddress(socketPath), 'utf8') <= 103,
     '临时 daemon 的 socket 路径超过 103 字节',
   );
   const daemonScript = path.join(home, 'plugins/fast-browser-link/native_bridge/daemon.py');
@@ -611,7 +612,7 @@ async function startInstalledDaemon(t, home, env) {
   const data = path.join(home, 'plugin-data', 'fast-browser-link-native');
   const socketPath = path.join(data, 'bridge.sock');
   assert.ok(
-    Buffer.byteLength(socketPath, 'utf8') <= 103,
+    Buffer.byteLength(socketAddress(socketPath), 'utf8') <= 103,
     '临时 daemon 的 socket 路径超过 103 字节',
   );
   const script = path.join(home, 'plugins/fast-browser-link/native_bridge/daemon.py');

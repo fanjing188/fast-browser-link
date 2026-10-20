@@ -20,8 +20,9 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fixtureInstaller, isolatedInstallerEnv } from '../helpers/isolated-installer.mjs';
-// 中文注释：macOS 的默认临时目录既含 /var 链接又过长，夹具使用真实短路径测试生产路径校验。
-const testTemp = process.platform === 'darwin' ? '/private/tmp' : tmpdir();
+import { socketAddress } from '../native-v2/real-session.mjs';
+// 中文注释：保留调用方 TMPDIR，规范化符号路径；只缩短内核地址，不迁移夹具。
+const testTemp = await realpath(tmpdir());
 import {
   swapInstalledDirectory,
   rollbackDirectorySwaps,
@@ -339,7 +340,7 @@ test('real dev sync packages and swaps the shared root once while preserving pro
   });
   await chmod(path.join(data, 'tasks.json'), 0o600);
   assert.ok(
-    Buffer.byteLength(path.join(data, 'bridge.sock')) <= 103,
+    Buffer.byteLength(socketAddress(path.join(data, 'bridge.sock'))) <= 103,
     '隔离 daemon socket 路径超过 macOS 上限',
   );
   let daemonError = '';

@@ -32,9 +32,7 @@ HINT = (
 
 class LifecycleTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(
-            dir="/private/tmp" if os.path.isdir("/private/tmp") else None, prefix="bl160-"
-        )
+        self.temp = tempfile.TemporaryDirectory(prefix="bl160-")
         self.addCleanup(self.temp.cleanup)
         with patch.dict(
             os.environ,

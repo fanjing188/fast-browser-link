@@ -10,6 +10,7 @@ from pathlib import Path
 import sys
 import tempfile
 import time
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -98,6 +99,32 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertEqual(rows[-1]["details"]["exit_code"], -15)
         self.assertEqual(rows[0]["details"]["field"], "suggestions")
         self.assertEqual(rows[3]["details"]["error_type"], "KeyError")
+
+    def test_slow_inference_uses_the_same_duration_as_its_receipt(self):
+        state = self.app._state("fixture")
+        state.update(enabled=True, ready=True)
+        self.app.active = "fixture"
+        for duration in (4.999, 5, 7.25):
+            with self.subTest(duration=duration):
+                state.update(
+                    dirty=True,
+                    page={"url": "https://example.test/", "title": str(duration), "items": []},
+                    last_prompt_metrics={"seconds": 0.001},
+                )
+                ticks = iter((100, 100 + duration))
+                clock = SimpleNamespace(monotonic=lambda: next(ticks), time=time.time)
+                with (
+                    patch("copilot_inference.time", clock),
+                    patch.object(
+                        self.app,
+                        "_prompt_json",
+                        return_value={"scene": "general", "suggestions": []},
+                    ),
+                ):
+                    self.app._infer("fixture", state["epoch"])
+                detail = self.logs("inference_return")[-1]["details"]
+                self.assertAlmostEqual(detail["duration_ms"], duration * 1000)
+                self.assertEqual(detail["slow"], duration > 5)
 
     def test_oversized_extra_fields_and_missing_ids_are_normalized_without_error(self):
         self.start()
@@ -295,6 +322,47 @@ class DiagnosticsTests(unittest.TestCase):
         view = self.app.view("fixture")
         self.assertEqual(view["startup_error"]["code"], "hermes_command_missing")
         self.assertFalse(view["recovering"])
+
+    def test_execution_exit_marks_crash_but_not_requested_close_as_error(self):
+        self.app.config.update(
+            exec_transport="acp",
+            exec_acp_command=[sys.executable, str(ROOT / "tests/copilot/fake-exec-acp.py")],
+        )
+        self.start()
+        runtime = self.app.acp_executions.runtime
+        runtime.process.terminate()
+        wait(
+            lambda: any(
+                row["details"].get("phase") == "execution"
+                and not row["details"].get("close_requested")
+                for row in self.logs("process_exit")
+            )
+        )
+        crashed = next(
+            row
+            for row in self.logs("process_exit")
+            if row["details"].get("phase") == "execution"
+            and not row["details"].get("close_requested")
+        )
+        self.assertTrue(crashed["error"])
+        wait(
+            lambda: self.app.acp_executions.runtime is not runtime
+            and self.app.acp_executions.runtime.process is not None
+        )
+        self.app.request("fixture", "settings", {"enabled": False})
+        wait(
+            lambda: any(
+                row["details"].get("phase") == "execution" and row["details"].get("close_requested")
+                for row in self.logs("process_exit")
+            )
+        )
+        closed = next(
+            row
+            for row in self.logs("process_exit")
+            if row["details"].get("phase") == "execution" and row["details"].get("close_requested")
+        )
+        self.assertTrue(closed["details"]["close_requested"])
+        self.assertFalse(closed["error"])
 
     def test_user_idle_and_transport_disconnect_reasons_are_distinct(self):
         self.start()

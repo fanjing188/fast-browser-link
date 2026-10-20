@@ -2,6 +2,7 @@
 
 from datetime import date, timedelta
 import json
+from contextlib import closing
 from pathlib import Path
 import sys
 import tempfile
@@ -58,6 +59,43 @@ class JournalTests(unittest.TestCase):
         self.journal = Journal(self.root, private_write, lambda *_: None)
         self.assertEqual(len(self.journal.view("one")["entries"]), 1999)
         self.assertEqual(len(self.journal.view("two")["entries"]), 1)
+
+    def test_execution_log_completion_matches_lifecycle(self):
+        setup(self.root / "app")
+        with closing(Copilot(self.root / "app")) as app:
+            for status, expected in (
+                ("executing", None),
+                ("failed", "failed"),
+                ("stopped", None),
+                ("completed", "completed"),
+            ):
+                with self.subTest(status=status):
+                    app._emit(
+                        "one",
+                        "update",
+                        suggestion={
+                            "id": status,
+                            "action": "general.task",
+                            "status": status,
+                        },
+                    )
+                    row = app.journal.view("one")["entries"][-1]
+                    self.assertEqual(row["details"].get("completion_status"), expected)
+                    self.assertEqual(row["error"], status == "failed")
+            app._emit(
+                "one",
+                "update",
+                suggestion={
+                    "id": "partial",
+                    "action": "workflow.run",
+                    "status": "completed",
+                    "completion_status": "partial",
+                    "result": {"missing": [{"field": "data", "reason": "synthetic"}]},
+                },
+            )
+            row = app.journal.view("one")["entries"][-1]
+            self.assertEqual(row["details"]["completion_status"], "partial")
+            self.assertIn("部分完成", row["summary"])
 
     def test_each_event_kind_and_clear_export_are_authoritative(self):
         for event in (

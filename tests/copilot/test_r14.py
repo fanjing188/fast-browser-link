@@ -330,10 +330,17 @@ class R14Tests(unittest.TestCase):
             "estimated_input_tokens": 14,
             "seconds": 7.3,
         }
-        with patch.object(
-            self.app.runtime,
-            "prompt",
-            return_value=(json.dumps({"scene": "general", "suggestions": []}), usage),
+        ticks = iter((100, 107.3))
+        with (
+            patch.object(
+                self.app.runtime,
+                "prompt",
+                return_value=(json.dumps({"scene": "general", "suggestions": []}), usage),
+            ),
+            patch(
+                "copilot_inference.time",
+                SimpleNamespace(monotonic=lambda: next(ticks), time=time.time),
+            ),
         ):
             self.app._infer("fixture", state["epoch"])
         row = self.logs("inference_return")[-1]

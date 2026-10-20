@@ -446,7 +446,11 @@ class Copilot(ObservationSupport, InferenceSupport, ResultSupport, ToolSupport):
                     error=status == "failed",
                     task_id=row["id"],
                     action=row["action"],
-                    completion_status=row.get("completion_status", "completed"),
+                    completion_status=row.get("completion_status", "completed")
+                    if status == "completed"
+                    else "failed"
+                    if status == "failed"
+                    else None,
                     missing=len(result.get("missing", [])) if isinstance(result, dict) else 0,
                     phase="workflow" if row["action"] == "workflow.run" else "task",
                     automatic=row.get("automatic", False),
@@ -2113,7 +2117,10 @@ class Copilot(ObservationSupport, InferenceSupport, ResultSupport, ToolSupport):
                         self.directory,
                         lambda reason: self._execution_failure(instance, epoch, reason),
                         lambda detail: self.journal.add(
-                            instance, "process_exit", error=True, **detail
+                            instance,
+                            "process_exit",
+                            error=not detail.get("close_requested", False),
+                            **detail,
                         ),
                     )
                 self.acp_executions.start()

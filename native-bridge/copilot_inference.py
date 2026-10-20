@@ -217,6 +217,7 @@ class InferenceSupport:
                         self._replace(instance, output)
                         after = state["suggestions"]
                         metrics = state.get("last_prompt_metrics", {})
+                        duration = time.monotonic() - inference_started
                         self.journal.add(
                             instance,
                             "inference_return",
@@ -233,8 +234,8 @@ class InferenceSupport:
                                 )
                                 for key in before_rows.keys() & after.keys()
                             ),
-                            duration_ms=(time.monotonic() - inference_started) * 1000,
-                            slow=metrics.get("seconds", 0) > 5,
+                            duration_ms=duration * 1000,
+                            slow=duration > 5,
                             context_tokens=state["context_tokens"],
                             model=metrics.get("model", ""),
                             estimated=bool(metrics.get("estimated")),

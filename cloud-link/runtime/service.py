@@ -8,6 +8,7 @@ import json
 import math
 import os
 from pathlib import Path
+import random
 import secrets
 import shutil
 import threading
@@ -355,6 +356,7 @@ class CloudService:
 
     def _loop(self):
         delay = 0.25
+        failures = 0
         while not self.closed.wait(delay):
             with self.guard:
                 config = dict(self.config) if self.config else None
@@ -375,6 +377,7 @@ class CloudService:
                 )
                 if response["status"] != "active":
                     self._fence(revision, response["status"], None)
+                    failures = 0
                     delay = 1
                     continue
                 with self.guard:
@@ -421,28 +424,31 @@ class CloudService:
                     else:
                         scheduler.pump()
                 busy = scheduler.busy_sessions()
+                failures = 0
                 delay = 0.25 if response.get("commands") else (0.5 if busy else min(3, delay * 1.5))
                 if time.monotonic() - self.last_reap >= 30:
                     for session in self.journal.idle(busy):
                         if scheduler.executor.handoff_session(session, keep_tabs=False):
                             self.journal.mark_closed(session)
                     self.last_reap = time.monotonic()
-            except HTTPError as error:
-                status = (
-                    ("expired" if self.status == "pending_pairing" else "revoked")
-                    if error.code in (401, 403, 410)
-                    else "offline"
-                )
-                message = (
-                    "配对已失效，请重新生成连接码。"
-                    if status != "offline"
-                    else "云端暂时不可用，请稍后重试。"
-                )
+            except (OSError, URLError, TimeoutError, ValueError, RuntimeError) as error:
+                status, message = "offline", "连接暂时中断，正在重新连接。"
+                failures = min(failures + 1, 5)
+                delay = random.uniform(0.8, 1) * min(30, 3 * 2 ** (failures - 1))
+                if isinstance(error, HTTPError):
+                    if error.code in (401, 403, 410):
+                        status = "expired" if self.status == "pending_pairing" else "revoked"
+                        message = "配对已失效，请重新生成连接码。"
+                    # 中文注释：只推迟下一次认证交换，不重放动作；服务限流等待最多一分钟。
+                    retry_after = error.headers.get("Retry-After", "") if error.headers else ""
+                    if (
+                        error.code in (429, 503)
+                        and retry_after.isascii()
+                        and retry_after.isdecimal()
+                    ):
+                        delay = max(delay, min(60, int(retry_after[:16])))
+                    error.close()
                 self._fence(revision, status, message)
-                delay = 3
-            except (OSError, URLError, TimeoutError, ValueError, RuntimeError):
-                self._fence(revision, "offline", "连接暂时中断，正在重新连接。")
-                delay = 3
             finally:
                 self._publish()
 

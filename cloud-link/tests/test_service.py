@@ -1,6 +1,7 @@
 """通信线程必须在任务等待期间保持在线，关闭后释放自己的线程与锁。"""
 
 from pathlib import Path
+from email.message import Message
 from urllib.error import HTTPError, URLError
 import sys
 import json
@@ -144,6 +145,60 @@ def malformed_commands():
 
 
 class ServiceTests(unittest.TestCase):
+    def test_outage_backoff_is_bounded_resets_on_recovery_and_honors_retry_after(self):
+        # 中文注释：只替换外部 HTTP 与等待时钟，实际轮询、撤权和恢复路径照常执行。
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        with patch.object(CloudService, "_loop", lambda self: None):
+            service = CloudService(Path(directory.name), "browser", "Chrome", lambda *args: None)
+        waits = []
+        responses = [URLError("offline")] * 7 + ["active", URLError("offline")]
+        headers = Message()
+        headers["Retry-After"] = "45"
+        responses += [HTTPError("https://relay.test", 503, "busy", headers, None)]
+
+        class Clock(threading.Event):
+            def wait(self, timeout=None):
+                waits.append(timeout)
+                return len(waits) > len(responses)
+
+        class Transport:
+            def __init__(self, config):
+                pass
+
+        class Executor:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def close(self, **kwargs):
+                return []
+
+        def exchange(*args):
+            value = responses[len(waits) - 1]
+            if isinstance(value, Exception):
+                raise value
+            return {"status": "active", "commands": []}
+
+        service.config = {"device_id": "device", "paired": True}
+        service.closed = Clock()
+        try:
+            with (
+                patch("runtime.service.Relay", Transport),
+                patch("runtime.service.CloudExecutor", Executor),
+                patch("runtime.service.random.uniform", return_value=0.9),
+                patch.object(service, "_browser_status", return_value=True),
+                patch.object(service, "_exchange", side_effect=exchange),
+            ):
+                service._loop()
+            self.assertGreater(waits[3], waits[2])
+            self.assertTrue(all(0 < delay <= 60 for delay in waits))
+            self.assertLessEqual(waits[9], 4, "恢复后重新断线应重置退避")
+            self.assertGreaterEqual(waits[10], 45, "503 的 Retry-After 不能被三秒轮询覆盖")
+            self.assertEqual(service.status, "offline")
+            self.assertIsNone(service.scheduler)
+        finally:
+            service.close()
+
     def test_exchange_rejects_whole_malformed_command_batch_before_journal_consumption(self):
         with (
             tempfile.TemporaryDirectory() as tmp,

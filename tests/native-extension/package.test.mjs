@@ -12,6 +12,18 @@ const exec = promisify(execFile);
 const root = new URL('../../native-extension/', import.meta.url);
 const repo = path.resolve(import.meta.dirname, '../..');
 const scratch = tmpdir();
+test('推送分支不构建，检查仅手动运行，发布只接受版本标签', async () => {
+  for (const file of ['checks.yml', 'integration.yml', 'secrets.yml']) {
+    const source = await readFile(path.join(repo, '.github/workflows', file), 'utf8');
+    const triggers = source.split(/^on:\s*$/m)[1].split(/^permissions:/m)[0];
+    assert.match(triggers, /workflow_dispatch:/);
+    assert.doesNotMatch(triggers, /push:|pull_request:|schedule:/, file);
+  }
+  const release = await readFile(path.join(repo, '.github/workflows/release.yml'), 'utf8');
+  const triggers = release.split(/^on:\s*$/m)[1].split(/^permissions:/m)[0];
+  assert.match(triggers, /push:\s+tags: \['v\*'\]/);
+  assert.doesNotMatch(triggers, /branches:|pull_request:/);
+});
 test('independent MV3 has no content script and popup preserves task protections without smart consent controls', async () => {
   const m = JSON.parse(await readFile(new URL('manifest.json', root)));
   assert.equal(m.background.type, 'module');

@@ -22,6 +22,8 @@ Initialize a new repository in the reviewed export, use an appropriate public au
 
 ## Build immutable release artifacts
 
+Ordinary branch pushes and pull requests do not start Actions. Before a release, manually run **Core checks**, **Pinned Hermes integration** and **Secret scan** from the Actions page on the exact source commit. Only a pushed `v*` version tag starts the release package build and publication; pushing `main` alone never publishes or builds a package. Keep these manual checks green before approving the tag.
+
 Run the packager from the committed public source repository:
 
 ```sh

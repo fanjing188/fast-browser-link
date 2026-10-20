@@ -17,6 +17,7 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
   // 中文注释：样式和上下文缓存只活在一次同步解析内，下一次读或动作必定重新计算。
   let styles=new WeakMap(),contexts=new WeakMap(),surfaces=new WeakMap();
   const computed=node=>{if(!styles.has(node))styles.set(node,node.ownerDocument.defaultView.getComputedStyle(node));return styles.get(node);};
+  const parentOf=node=>node.assignedSlot||node.parentElement||node.getRootNode().host||node.ownerDocument.defaultView?.frameElement;
   const docRoot=doc.documentElement;
   const isOverlay=node=>{
     for(let n=node;n;n=n.parentNode || n.host){if(n.nodeType===1 && n.hasAttribute?.('data-fast-automation-overlay'))return true;}
@@ -47,8 +48,9 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
   const controls=`button,a[href],input,select,textarea,summary,${editable},[tabindex]`;
   const checkRoles=new Set(['checkbox','radio','switch','menuitemcheckbox','menuitemradio']);
   const actionRoles=new Set([...checkRoles,...'button link textbox searchbox combobox listbox option menuitem slider spinbutton tab treeitem'.split(' ')]);
+  const contextRoles=new Set('region dialog row listitem group listbox tablist menu toolbar radiogroup tree treeitem grid treegrid tabpanel'.split(' '));
   // 中文注释：按 WAI-ARIA 1.2 采用首个有效非抽象角色，未知 token 不覆盖原生语义。
-  const ariaRoles=new Set([...actionRoles,...'alert alertdialog application article banner blockquote caption cell code columnheader complementary contentinfo definition deletion dialog directory document emphasis feed figure form generic grid gridcell group heading img insertion list listitem log main marquee math menu menubar meter navigation none note paragraph presentation progressbar radiogroup region row rowgroup rowheader scrollbar search separator status strong subscript suggestion superscript table tablist tabpanel term time timer toolbar tooltip tree treegrid'.split(' ')]);
+  const ariaRoles=new Set([...actionRoles,...contextRoles,...'alert alertdialog application article banner blockquote caption cell code columnheader complementary contentinfo definition deletion directory document emphasis feed figure form generic gridcell heading img insertion list log main marquee math menubar meter navigation none note paragraph presentation progressbar rowgroup rowheader scrollbar search separator status strong subscript suggestion superscript table term time timer tooltip'.split(' ')]);
   const selectors={interactive:`${controls},[role],div,span`,content:'h1,h2,h3,h4,h5,h6,p,li,blockquote,pre,figcaption,[role=heading]',table:'tr,[role=row],[data-ui-name="Body.Row"]'};
   function ref(node){if(!refs.has(node))refs.set(node,`${instance}:e${++sequence}`);return refs.get(node);}
   const redact=createPageTextRedactor();
@@ -175,15 +177,18 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
   // A fragment is a distinct delta entry, but every fragment retains its node ref.
   function itemKey(value){const f=value.fragment;return f?JSON.stringify([value.ref,f.field,f.index??null,f.start]):value.ref;}
   // 中文注释：链接/按钮内部的子元素不重复推断；cursor 会继承，只认从父元素起新设的 pointer。
-  const interactiveAncestor=`a[href],button,summary,label,select,textarea,input,[role],[onclick],${editable}`;
+  const interactiveAncestor=`a[href],button,summary,label,select,textarea,input,[onclick],${editable}`;
+  const explicitRole=node=>(node.getAttribute('role')||'').split(/\s+/).find(token=>ariaRoles.has(token));
   function inferredClick(node){
-    if(!['div','span'].includes(node.localName)||node.parentElement?.closest(interactiveAncestor))return false;
+    if(!['div','span'].includes(node.localName))return false;
+    // 中文注释：region/group 等结构角色不是按钮，不能屏蔽其内部的自定义控件。
+    for(let parent=node.parentElement;parent;parent=parent.parentElement)if(parent.matches(interactiveAncestor)||actionRoles.has(explicitRole(parent)))return false;
     if(typeof node.onclick==='function'||node.hasAttribute('onclick'))return true;
     const view=node.ownerDocument.defaultView;
     return view.getComputedStyle(node).cursor==='pointer'&&(!node.parentElement||view.getComputedStyle(node.parentElement).cursor!=='pointer');
   }
   function role(node){
-    const explicit=(node.getAttribute('role')||'').split(/\s+/).find(token=>ariaRoles.has(token));
+    const explicit=explicitRole(node);
     // 中文注释：可聚焦元素的 none/presentation 不取消自身原生控件语义。
     if(explicit&&!(['none','presentation'].includes(explicit)&&(node.tabIndex>=0||node.hasAttribute('tabindex'))))return explicit;
     const tag=node.localName;
@@ -194,7 +199,7 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
   function disabled(node){
     if(node.disabled||node.matches(':disabled'))return true;
     // 中文注释：ARIA 禁用约束沿组合祖先链传播，原生 fieldset 的 legend 例外交给 :disabled。
-    for(let current=node;current;current=current.assignedSlot||current.parentElement||current.getRootNode().host||current.ownerDocument.defaultView?.frameElement){
+    for(let current=node;current;current=parentOf(current)){
       if(current.getAttribute('aria-disabled')==='true')return true;
     }
     return false;
@@ -352,8 +357,11 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
       }
     }
   }
-  function item(node,scope=doc.body){truncated=false;const r=role(node),inferred=inferredClick(node)&&!node.hasAttribute('role');let name=node.getAttribute('aria-label');
-    if(!name && node.getAttribute('aria-labelledby'))name=node.getAttribute('aria-labelledby').split(/\s+/).map(id=>{const el=node.getRootNode().getElementById?.(id);return el?text(el):'';}).join(' ');
+  // 中文注释：区域和控件共用同树的显式标签，不通过 ID 扩大 Shadow/frame 读取范围。
+  function explicitName(node){
+    return node.getAttribute('aria-label')|| (node.getAttribute('aria-labelledby')||'').split(/\s+/).slice(0,32).map(id=>{const el=node.getRootNode().getElementById?.(id);return el?text(el):'';}).join(' ').trim();
+  }
+  function item(node,scope=doc.body){truncated=false;const r=role(node),inferred=inferredClick(node)&&!node.hasAttribute('role');let name=explicitName(node);
     if(!name && node.labels?.length)name=Array.from(node.labels).map(text).join(' ');
     // 中文注释：无标签输入框可按占位提示定位，明确来源且仍经过脱敏/预算检查。
     // 中文注释：按钮型 input 没有文本节点；按 HTML-AAM 使用 value 或图片 alt 命名。
@@ -384,16 +392,15 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
     if(ax?.epoch===epoch){const currentState={role:r};controlState(node,currentState);if(ax.signature===JSON.stringify(currentState)){result.name=clip(ax.name);result.nameSource='accessibility';if(ax.role)result.role=ax.role;Object.assign(result,ax.states);}}
     // 中文注释：上下文只保留有语义的区域和记录，不给容器创建可操作引用。
     const context=[];
-    const contextParent=node=>node.assignedSlot||node.parentElement||node.getRootNode().host||(node.ownerDocument!==doc?node.ownerDocument.defaultView?.frameElement:null);
-    for(let parent=node===scope?null:contextParent(node);parent&&context.length<6;parent=contextParent(parent)){
+    for(let parent=node===scope?null:parentOf(node);parent&&context.length<6;parent=parentOf(parent)){
       const surface=surfaceMetadata(parent);
-      if(!surface.surfaceKind&&!parent.matches('main,nav,section,article,li,fieldset,dialog,[role=region],[role=dialog],[role=row],[role=listitem],[role=group],[role=listbox],[role=tablist],[role=menu]')){if(parent===scope)break;continue;}
+      if(!surface.surfaceKind&&!parent.matches('main,nav,section,article,li,fieldset,dialog,table,tr')&&!contextRoles.has(explicitRole(parent))){if(parent===scope)break;continue;}
       if(!contexts.has(parent)){
         // 中文注释：区域只采用自己的直接标题，避免拿内部另一条记录的标题命名整个区域。
         const heading=Array.from(parent.children).find(child=>child.matches('legend,h1,h2,h3,h4,h5,h6'));
-        const label=parent.getAttribute('aria-label')|| (heading&&visible(heading,false)?text(heading):parent.matches('li,article,[role=row],[role=listitem]')?text(parent):'');
+        const label=explicitName(parent)|| (heading&&visible(heading,false)?text(heading):parent.matches('li,article,tr,[role=row],[role=listitem],[role=treeitem]')?text(parent):'');
         const rowIndex=Number(parent.getAttribute('aria-rowindex')||parent.getAttribute('aria-posinset'));
-        contexts.set(parent,{ref:ref(parent),role:parent.getAttribute('role')||parent.localName,name:clip(label).slice(0,120),...surface,...(Number.isSafeInteger(rowIndex)&&rowIndex>0?{index:rowIndex}:{})});
+        contexts.set(parent,{ref:ref(parent),role:parent.getAttribute('role')||(parent.localName==='tr'?'row':parent.localName),name:clip(label).slice(0,120),...surface,...(Number.isSafeInteger(rowIndex)&&rowIndex>0?{index:rowIndex}:{})});
       }
       const entry=contexts.get(parent);
       if(entry.surfaceKind||entry.name||parent.localName!=='section'||parent===scope)context.unshift(entry);
@@ -581,7 +588,7 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
     if(owner.documentElement!==record.scope[1])throw new Error('DOCUMENT_REPLACED');
     if(currentScope.length!==record.scope.length||currentScope.some((part,i)=>part!==record.scope[i])||node.isConnected&&node.getRootNode()!==root)throw new Error('STALE_REF');
     // 中文注释：重定位不能越过调用者选定的根；根被替换时旧引用失效。
-    const within=node=>{for(let n=node;n;n=n.parentElement||n.getRootNode().host||n.ownerDocument.defaultView?.frameElement)if(n===snap.root)return true;return false;};
+    const within=node=>{for(let n=node;n;n=parentOf(n))if(n===snap.root)return true;return false;};
     if(!snap.root.isConnected)throw new Error('STALE_REF');
     const {blocked:_blocked,actionable:_actionable,...saved}=record.value;
     let current;

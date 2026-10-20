@@ -104,6 +104,60 @@ function fixture(html = '<main id="result"><button>结果</button><p>正文</p><
 }
 const plain = (value) => JSON.parse(JSON.stringify(value));
 
+test('语义库升级后撤销旧实现，不能继续复用第九代隔离世界引用', () => {
+  const f = fixture();
+  try {
+    const binding = { taskId: 'task', documentId: 'doc', leaseId: 'lease' };
+    const old = f.call('semantic_snapshot', { binding });
+    const prior = f.w.__fastNativeSemanticsV2.semantics;
+    f.w.__fastNativeSemanticsV2.version = 9;
+    f.call('semantic_snapshot', { binding });
+    assert.notEqual(f.w.__fastNativeSemanticsV2.semantics, prior);
+    assert.throws(
+      () => prior.resolve({ ...binding, snapshotId: old.snapshotId, ref: old.items[0].ref }),
+      /LEASE_REVOKED/,
+    );
+  } finally {
+    f.close();
+  }
+});
+
+test('执行器语义快照保留表格行上下文，合成点击只送达选中记录的同名按钮', async () => {
+  const f = fixture(
+    '<table aria-label="订单"><tr><td>订单甲</td><td><button id="first">编辑</button></td></tr><tr><td>订单乙</td><td><button id="second">编辑</button></td></tr></table>',
+  );
+  try {
+    const received = [];
+    for (const button of f.document.querySelectorAll('button'))
+      button.addEventListener('click', () => received.push(button.id));
+    const page = await f.e.perform(f.t, {
+      ...f.request,
+      action: 'semantic_snapshot',
+      options: { budget: 4000 },
+    });
+    assert.equal(page.items.length, 2);
+    const target = page.items.find((item) =>
+      item.context?.some((context) => context.name.includes('订单乙')),
+    );
+    assert.ok(target);
+    f.document.elementFromPoint = () => f.document.querySelector('#second');
+    const payload = {
+      binding: page.binding,
+      snapshotId: page.snapshotId,
+      ref: target.ref,
+      highlightBinding: { operationToken: 'fixture-click' },
+    };
+    f.call('arm_ref_delivery', payload);
+    const result = f.call('synthetic_ref_click', payload);
+    assert.equal(result.clicked, true);
+    assert.equal(result.kind, 'dom-synthetic');
+    assert.deepEqual(received, ['second']);
+    f.call('clear_ref_delivery', payload);
+  } finally {
+    f.close();
+  }
+});
+
 test('S3 不开启 after 时输出与原动作/恢复回执完全一致，不追加读取', async () => {
   const f = fixture();
   try {

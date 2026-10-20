@@ -183,7 +183,7 @@ export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
  const createPageParser=${serializedFunction(createPageParser).replace(/^\s*\/\/[^\n]*\n/gm,'')};
  const same=(a,b)=>a&&b&&a.taskId===b.taskId&&a.documentId===b.documentId&&a.leaseId===b.leaseId;
  // 中文注释：扩展重载后旧隔离世界还可能存在；实现版本变化必须撤销旧引用并重新创建语义实例。
- const make=()=>({version:9,binding:p.binding,semantics:createPageSemantics({document,...p.binding,classifyField:classifySensitiveField,
+ const make=()=>({version:10,binding:p.binding,semantics:createPageSemantics({document,...p.binding,classifyField:classifySensitiveField,
   shadowRootOf:node=>node.shadowRoot||globalThis.__fastClosedShadowRoots?.get(node)||null})});
  const classifySensitiveField=${serializedFunction(classifySensitiveField)};
  const sensitive=e=>classifySensitiveField(e)!==null;
@@ -275,7 +275,7 @@ export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
   return result;
  };
  let state=globalThis.__fastNativeSemanticsV2;
- const validState=()=>state?.version===9&&typeof state.semantics?.interactionVisibility==='function';
+ const validState=()=>state?.version===10&&typeof state.semantics?.interactionVisibility==='function';
  if(op==='semantic_snapshot'||op==='page.parse'||op==='recovery_scan'){
   if(!validState()||!same(state.binding,p.binding)){try{state?.semantics.revoke();}catch{}state=make();globalThis.__fastNativeSemanticsV2=state;}
   if(op==='recovery_scan'){
@@ -2431,7 +2431,7 @@ export class Executor {
   let world=executionContextId?{executionContextId}:await createWorld();guard();
   const key=()=>JSON.stringify([target.tabId,target.sessionId,world.executionContextId]);
   const install=async()=>{const installed=await this.api.debugger.sendCommand(target,'Runtime.callFunctionOn',{executionContextId:world.executionContextId,functionDeclaration:`function(){globalThis.__fastSemanticLibrary={version:1,call:(${semanticWorldDeclaration})};return true;}`,returnByValue:true});guard();if(installed.exceptionDetails||installed.result?.value!==true)throw Object.assign(Error('SEMANTIC_LIBRARY_UNAVAILABLE'),{preDispatch:true});this.semanticWorlds.add(key());};
-  const invoke=()=>this.api.debugger.sendCommand(target,'Runtime.callFunctionOn',{executionContextId:world.executionContextId,functionDeclaration:op==='page.observe'?`function(op,p){const library=globalThis.__fastSemanticLibrary;if(library?.version!==1)return {hermesSemanticMissing:true};const state=globalThis.__fastNativeSemanticsV2;if(!state||state.version!==9||typeof state.semantics?.interactionVisibility!=='function'||JSON.stringify(state.binding)!==JSON.stringify(p.binding))library.call('semantic_snapshot',{binding:p.binding,options:{root:'head',mode:'content',budget:512}});return (${observePage.toString()})(globalThis.__fastNativeSemanticsV2.semantics.parsingContext(),p.options);}`:'function(op,p){const library=globalThis.__fastSemanticLibrary;return library?.version===1?library.call(op,p):{hermesSemanticMissing:true};}',arguments:[{value:op},{value:payload}],returnByValue:true,awaitPromise:true});
+  const invoke=()=>this.api.debugger.sendCommand(target,'Runtime.callFunctionOn',{executionContextId:world.executionContextId,functionDeclaration:op==='page.observe'?`function(op,p){const library=globalThis.__fastSemanticLibrary;if(library?.version!==1)return {hermesSemanticMissing:true};const state=globalThis.__fastNativeSemanticsV2;if(!state||state.version!==10||typeof state.semantics?.interactionVisibility!=='function'||JSON.stringify(state.binding)!==JSON.stringify(p.binding))library.call('semantic_snapshot',{binding:p.binding,options:{root:'head',mode:'content',budget:512}});return (${observePage.toString()})(globalThis.__fastNativeSemanticsV2.semantics.parsingContext(),p.options);}`:'function(op,p){const library=globalThis.__fastSemanticLibrary;return library?.version===1?library.call(op,p):{hermesSemanticMissing:true};}',arguments:[{value:op},{value:payload}],returnByValue:true,awaitPromise:true});
   let result;
   try{if(!this.semanticWorlds.has(key()))await install();result=await invoke();}
   catch(error){

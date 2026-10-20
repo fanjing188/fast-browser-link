@@ -35,6 +35,63 @@ function fixture(html, limits = {}) {
 }
 const token = (page, item) => ({ ...page.binding, snapshotId: page.snapshotId, ref: item.ref });
 
+test('非交互 ARIA 容器不压住自定义按钮，真正按钮的子节点不重复识别', () => {
+  const f = fixture(
+    '<section role="region"><div role="group"><div id="custom" style="cursor:pointer">打开详情</div></div><button><span style="cursor:pointer">保存</span></button></section>',
+  );
+  try {
+    const page = f.semantics.snapshot();
+    assert.deepEqual(
+      page.items.map((item) => item.name),
+      ['打开详情', '保存'],
+    );
+    assert.equal(
+      f.semantics.resolve(token(page, page.items[0])),
+      f.document.querySelector('#custom'),
+    );
+  } finally {
+    f.close();
+  }
+});
+
+test('原生表格的同名按钮按记录行区分，虚拟行换记录后旧引用不能继续点击', () => {
+  const f = fixture(
+    '<table aria-label="订单"><tbody><tr aria-rowindex="2"><td>订单甲</td><td><button>编辑</button></td></tr><tr aria-rowindex="3"><td>订单乙</td><td><button id="edit">编辑</button></td></tr></tbody></table>',
+  );
+  try {
+    const page = f.semantics.snapshot();
+    assert.equal(page.items.length, 2);
+    const target = page.items.find((item) =>
+      item.context?.some((entry) => entry.name.includes('订单乙')),
+    );
+    assert.ok(target, '同名按钮必须带有实际记录的行上下文');
+    assert.equal(f.semantics.resolve(token(page, target)), f.document.querySelector('#edit'));
+    f.document.querySelector('#edit').closest('tr').setAttribute('aria-rowindex', '8');
+    assert.throws(
+      () => f.semantics.resolve(token(page, target)),
+      /REF_TARGET_MISSING|NODE_CHANGED/,
+    );
+  } finally {
+    f.close();
+  }
+});
+
+test('组件区域的 aria-labelledby 在自身树内解析，不把兄弟控件当区域标题', () => {
+  const f = fixture(
+    '<h2 id="billing">账单设置</h2><div role="group" aria-labelledby="billing"><button>保存</button></div><h2 id="profile">个人资料</h2><div role="group" aria-labelledby="profile"><button>保存</button></div>',
+  );
+  try {
+    const page = f.semantics.snapshot();
+    assert.equal(page.items.length, 2);
+    assert.deepEqual(
+      page.items.map((item) => item.context.at(-1).name),
+      ['账单设置', '个人资料'],
+    );
+  } finally {
+    f.close();
+  }
+});
+
 test('text preserves multilingual graphemes and labeled values', () => {
   const good = '👩‍💻 हिन्दी café العربية 中文';
   const f = fixture(`<p>Start \u0000\u0001\u001b\u007f\u0085 ${good} token=SE\u0002CRET End</p>`);

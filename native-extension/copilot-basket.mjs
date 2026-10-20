@@ -6,6 +6,8 @@ export class BasketPanel {
     this.selected = new Set();
     this.root = doc.getElementById('work-basket');
     this.revision = null;
+    this.planVersion = 0;
+    this.pending = false;
   }
   t(zh, en) {
     return this.en ? en : zh;
@@ -20,6 +22,7 @@ export class BasketPanel {
     this.render();
   }
   render() {
+    this.planVersion++;
     const doc = this.doc,
       root = this.root,
       open = root.open;
@@ -42,13 +45,14 @@ export class BasketPanel {
     batch.onclick = (event) => {
       event.preventDefault();
       event.stopPropagation();
+      if (this.pending) return;
       root.open = true;
       this.selected = new Set(
         this.state.items.filter((item) => item.type === 'keyword').map((item) => item.id),
       );
       this.render();
       root.open = true;
-      void this.preview?.('check');
+      this.root.querySelector('.basket-actions [data-operation="check"]')?.click();
     };
     summary.append(batch);
     const body = node('div');
@@ -61,8 +65,13 @@ export class BasketPanel {
     const button = (label, work) => {
       const el = node('button', label);
       el.type = 'button';
+      el.disabled = this.pending;
       el.onclick = async () => {
-        el.disabled = true;
+        if (this.pending || !el.isConnected) return;
+        this.pending = true;
+        root.setAttribute('aria-busy', 'true');
+        const buttons = [...root.querySelectorAll('button')];
+        for (const button of buttons) button.disabled = true;
         try {
           await work();
         } catch {
@@ -71,7 +80,9 @@ export class BasketPanel {
             'Action failed. Re-estimate and check bindings, connection or export folder.',
           );
         } finally {
-          el.disabled = false;
+          this.pending = false;
+          root.removeAttribute('aria-busy');
+          for (const button of root.querySelectorAll('button')) button.disabled = false;
         }
       };
       return el;
@@ -122,6 +133,13 @@ export class BasketPanel {
         check.onchange = () => {
           if (check.checked) this.selected.add(item.id);
           else this.selected.delete(item.id);
+          // 中文注释：选择一变就撤下旧确认；异步返回的旧预估也不能重新出现。
+          this.planVersion++;
+          preview.replaceChildren();
+          notice.textContent = this.t(
+            '选择已变化，请重新预估。',
+            'Selection changed. Estimate again.',
+          );
         };
         label.append(check, node('span', item.label || item.value));
         group.append(label);
@@ -136,15 +154,17 @@ export class BasketPanel {
     preview.setAttribute('aria-live', 'polite');
     body.append(preview);
     const run = async (operation) => {
+      const version = ++this.planVersion;
+      preview.replaceChildren();
       if (!this.selected.size) {
         notice.textContent = this.t('先选择工作篮中的对象。', 'Select basket items first.');
         return;
       }
       const plan = await this.request('basket_plan', { ids: [...this.selected], operation });
-      this.review(plan);
+      if (version === this.planVersion) this.review(plan, version);
     };
     this.preview = run;
-    this.review = (plan) => {
+    this.review = (plan, version = this.planVersion) => {
       preview.replaceChildren(
         node('strong', this.t('执行前确认', 'Review before execution')),
         node(
@@ -208,11 +228,15 @@ export class BasketPanel {
         ),
       );
       const finish = async (confirmation) => {
+        if (version !== this.planVersion) return;
         const result = await this.request('basket_execute', {
           token: plan.token,
           ...(confirmation ? { confirmation } : {}),
         });
+        if (version !== this.planVersion) return;
         if (result.secondary_required) {
+          // 中文注释：替换首轮动作，避免二次确认期间还能重发第一轮请求。
+          preview.querySelectorAll('button').forEach((button) => button.remove());
           preview.append(
             node(
               'p',
@@ -222,6 +246,10 @@ export class BasketPanel {
               ),
             ),
             button(this.t('再次确认', 'Confirm again'), () => finish(result.confirmation)),
+            button(this.t('取消', 'Cancel'), () => {
+              this.planVersion++;
+              preview.replaceChildren();
+            }),
           );
           return;
         }
@@ -238,9 +266,14 @@ export class BasketPanel {
             : this.t('已完成', 'Done');
         preview.replaceChildren();
       };
+      const confirm = button(this.t('确认执行', 'Confirm execution'), () => finish());
+      confirm.className = 'primary';
       preview.append(
-        button(this.t('确认执行', 'Confirm execution'), () => finish()),
-        button(this.t('取消', 'Cancel'), () => preview.replaceChildren()),
+        confirm,
+        button(this.t('取消', 'Cancel'), () => {
+          this.planVersion++;
+          preview.replaceChildren();
+        }),
       );
     };
     for (const [operation, zh, en] of [
@@ -251,7 +284,10 @@ export class BasketPanel {
       ['save', '存词池', 'Save to pool'],
       ['export', '导出', 'Export Excel / CSV'],
       ['copy', '复制', 'Copy'],
-    ])
-      operations.append(button(this.t(zh, en), () => run(operation)));
+    ]) {
+      const action = button(this.t(zh, en), () => run(operation));
+      action.dataset.operation = operation;
+      operations.append(action);
+    }
   }
 }

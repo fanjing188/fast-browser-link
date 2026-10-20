@@ -1,15 +1,15 @@
 body{width:320px;min-width:320px;margin:0;background:var(--paper);color:var(--ink);font:13px/1.45 var(--ui)}
 .popup{width:100%;min-width:0}
-.header{display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid var(--line-2)}
+.header{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:16px;border-bottom:1px solid var(--line-2)}
 .brand-lockup{font-size:13px}.header-meta{display:flex;gap:6px;align-items:center;margin-left:auto;flex-shrink:0}
 #version-label{font:11px var(--mono);color:var(--ink-2)}
-.connection-row{display:flex;align-items:center;gap:8px;min-height:44px;padding:9px 14px;border-bottom:1px solid var(--line-2);min-width:0}
+.connection-row{display:flex;align-items:center;flex-wrap:wrap;gap:6px;min-height:64px;padding:10px 16px;border-bottom:1px solid var(--line-2);min-width:0}
 .row-label{flex:1;min-width:0;overflow-wrap:anywhere}
 .connection-row>.st{margin-left:auto;flex-shrink:0}
-.connection-row>.small-button{padding:2px 8px;min-height:26px;flex-shrink:0;white-space:nowrap}
+.connection-row>.small-button{padding:8px;min-height:44px;flex-shrink:0;white-space:normal}
 .row-icon{display:none}.copilot-section .switch{flex-shrink:0}
 .info{position:relative;display:inline-flex;flex-shrink:0}
-.info-button{border:0;background:none;color:var(--ink-2);padding:0;width:16px;min-height:24px}
+.info-button{border:0;background:none;color:var(--ink-2);padding:0;width:44px;min-height:44px}
 .tooltip{display:none;position:fixed;z-index:20;left:12px;right:12px;top:56px;background:var(--paper);border:1px solid var(--line);border-radius:var(--r);padding:10px 12px;font-size:12px;box-shadow:var(--shadow);overflow-wrap:anywhere}
 .info:focus-within .tooltip,.info:hover .tooltip{display:grid;gap:8px}
 .row-trigger{display:flex;align-items:center;gap:8px;flex:1;min-width:0;text-align:start;border:0;padding:0;background:none;font-weight:400}
@@ -21,6 +21,14 @@ body{width:320px;min-width:320px;margin:0;background:var(--paper);color:var(--in
 .small{font-size:12px;color:var(--ink-2)}
 .error-bar{display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--bad-bg);color:var(--bad);font-size:12px;overflow-wrap:anywhere}
 .icon-button{border:0;background:none;padding:4px;min-width:28px}#error-close{margin-left:auto;flex-shrink:0}
-.page-task{background:var(--run-bg)}.task-copy{flex:1;min-width:0}.task-copy>span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.page-task{background:var(--run-bg)}.task-copy{flex:1;min-width:0}.task-copy>span{display:block;overflow-wrap:anywhere;white-space:normal}
 #task-title{font-weight:600}.page-controls{display:flex;gap:6px;flex-shrink:0}.page-controls button{padding:3px 8px}
 button[aria-busy=true]{opacity:.6}
+body button{min-height:44px;min-width:44px}
+.page-task .task-copy{flex-basis:100%}
+.page-controls{flex:1}
+.tooltip{max-height:calc(100dvh - 80px);overflow:auto;line-height:1.6}
+.row-trigger{min-width:0;flex-basis:140px;flex-wrap:wrap}
+.row-label{overflow-wrap:anywhere}
+.connection-row .status-component{margin-left:auto}
+.code-actions,.cloud-manage,.section-heading{flex-wrap:wrap}

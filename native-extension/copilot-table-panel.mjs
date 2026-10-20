@@ -274,24 +274,22 @@ export class TablePanel {
         ['取消', 'cancel'],
         ['换一个表格', 'switch'],
       ])
-        if (kind !== 'switch' || confirmation.candidate_count > 1)
-          card.append(
-            button(label, async () => {
-              const value = await this.request('confirm_table', {
-                kind,
-                token: confirmation.token,
-              });
-              if (value.clipboard)
-                await doc.defaultView.navigator.clipboard.writeText(value.clipboard);
-              if (
-                value.files &&
-                this.rememberSaved(`${confirmation.url}|${confirmation.id}`, value)
-              )
-                doc.getElementById('notice').textContent =
-                  `已保存：${value.files.map((file) => file.path).join('；')}`;
-              await this.refresh();
-            }),
-          );
+        if (kind !== 'switch' || confirmation.candidate_count > 1) {
+          const action = button(label, async () => {
+            const value = await this.request('confirm_table', {
+              kind,
+              token: confirmation.token,
+            });
+            if (value.clipboard)
+              await doc.defaultView.navigator.clipboard.writeText(value.clipboard);
+            if (value.files && this.rememberSaved(`${confirmation.url}|${confirmation.id}`, value))
+              doc.getElementById('notice').textContent =
+                `已保存：${value.files.map((file) => file.path).join('；')}`;
+            await this.refresh();
+          });
+          if (kind === 'confirm') action.className = 'primary';
+          card.append(action);
+        }
       live.append(card);
     }
     const current = this.current.get(this.selectedKey),

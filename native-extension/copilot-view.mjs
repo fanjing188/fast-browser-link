@@ -847,7 +847,7 @@ export class PanelViews {
       this.onShow(event.detail === 'logs' ? 'logs' : 'work'),
     );
     doc.addEventListener('keydown', (event) => {
-      if (event.key === 'Escape' && this.current !== 'work') {
+      if (event.key === 'Escape' && this.current !== 'work' && !doc.querySelector('dialog[open]')) {
         event.preventDefault();
         this.show('work');
       }

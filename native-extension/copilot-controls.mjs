@@ -62,7 +62,7 @@ export function mountControls(doc) {
     return b;
   };
   function scan() {
-    for (const input of doc.querySelectorAll('input[type=checkbox]')) {
+    for (const input of doc.querySelectorAll('input[type=checkbox]:not(#work-basket input)')) {
       input.setAttribute('role', 'switch');
       input.classList.add('smooth-switch');
       input.setAttribute('aria-checked', String(input.checked));
@@ -267,7 +267,25 @@ export function mountControls(doc) {
   const outside = (event) => {
     for (const close of closers.values()) close(event);
   };
+  const modalTab = (event) => {
+    if (event.key !== 'Tab' || event.defaultPrevented) return;
+    const dialog = [...doc.querySelectorAll('dialog[open]')].at(-1);
+    if (!dialog) return;
+    // 中文注释：原生 dialog 在边缘仍可把焦点交给浏览器工具栏，显式环回可见控件。
+    const items = [
+      ...dialog.querySelectorAll('button,input,select,textarea,a[href],summary,[tabindex]'),
+    ].filter((el) => el.tabIndex >= 0 && !el.matches(':disabled') && el.getClientRects().length);
+    if (!items.length) return;
+    const first = items[0],
+      last = items.at(-1),
+      active = doc.activeElement;
+    if (!dialog.contains(active) || active === (event.shiftKey ? first : last)) {
+      event.preventDefault();
+      (event.shiftKey ? last : first).focus();
+    }
+  };
   doc.addEventListener('pointerdown', outside);
+  doc.addEventListener('keydown', modalTab);
   scan();
   sync();
   const observer = new win.MutationObserver((records) => {
@@ -295,6 +313,7 @@ export function mountControls(doc) {
     dispose: () => {
       observer.disconnect();
       doc.removeEventListener('pointerdown', outside);
+      doc.removeEventListener('keydown', modalTab);
       widgets.clear();
       closers.clear();
     },

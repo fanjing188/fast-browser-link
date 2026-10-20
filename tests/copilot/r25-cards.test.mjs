@@ -64,7 +64,7 @@ test('suggestions show at most ten rows and rank current object similarity befor
     dom.window.close();
   }
 });
-test('recommendation cards keep bounded copy and right-side actions without embedding result details', async () => {
+test('recommendation cards keep readable copy and bottom actions without embedding result details', async () => {
   const dom = fixture(),
     calls = [];
   try {
@@ -100,8 +100,12 @@ test('recommendation cards keep bounded copy and right-side actions without embe
       new URL('../../native-extension/copilot-panel.css', import.meta.url),
       'utf8',
     );
-    assert.match(css, /\.task>\.actions\{grid-column:2/);
-    assert.match(css, /-webkit-line-clamp:2/);
+    const style = doc.createElement('style');
+    style.textContent = css;
+    doc.head.append(style);
+    assert.equal(dom.window.getComputedStyle(card.querySelector('.actions')).gridColumn, '1');
+    assert.equal(dom.window.getComputedStyle(card.querySelector('h3')).whiteSpace, 'normal');
+    assert.equal(card.lastElementChild.className, 'actions');
   } finally {
     dom.window.close();
   }

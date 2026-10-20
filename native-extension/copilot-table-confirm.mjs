@@ -49,7 +49,8 @@ export function tableConfirmation(
       candidates.findIndex((row) => row.id === tables[index]?.id),
     ),
     frame,
-    closed = false;
+    closed = false,
+    pending = false;
   const host = doc.createElement('div');
   host.setAttribute('data-fast-automation-overlay', 'table-confirmation');
   host.style.cssText = 'position:fixed;inset:0;z-index:2147483646;pointer-events:none';
@@ -57,7 +58,7 @@ export function tableConfirmation(
     style = doc.createElement('style');
   style.textContent =
     sharedCSS +
-    ':host{color-scheme:light dark;font:13px/1.5 system-ui}.frame{position:fixed;border:2px solid #638bff;border-radius:6px;overflow:hidden;pointer-events:none;background:#638bff0d}.beam{position:absolute;inset:0;background:linear-gradient(transparent,#638bff44,transparent);height:50%;animation:scan 2s linear infinite}.cell{position:fixed;outline:1px solid #638bff44;background:#638bff15;animation:light 2s ease-in-out infinite}.card{position:fixed;pointer-events:auto;display:flex;align-items:center;gap:8px;background:var(--paper);color:var(--ink);border:1px solid var(--line);border-radius:var(--r);padding:8px 12px;width:min(720px,calc(100vw - 16px));max-height:45vh;overflow:auto;box-shadow:0 5px 24px #0002}button{flex:none}p{margin:0;flex:1;font-size:12px}strong{font-size:12px}@keyframes scan{from{transform:translateY(-100%)}to{transform:translateY(200%)}}@keyframes light{50%{background:#638bff40}}@media(prefers-reduced-motion:reduce){.beam,.cell{animation:none}}';
+    ':host{color-scheme:light dark;font:13px/1.5 system-ui}.frame{position:fixed;border:2px solid #638bff;border-radius:6px;overflow:hidden;pointer-events:none;background:#638bff0d}.beam{position:absolute;inset:0;background:linear-gradient(transparent,#638bff44,transparent);height:50%;animation:scan 2s linear infinite}.cell{position:fixed;outline:1px solid #638bff44;background:#638bff15;animation:light 2s ease-in-out infinite}.card{position:fixed;pointer-events:auto;display:flex;flex-wrap:wrap;align-items:center;gap:8px;background:var(--paper);color:var(--ink);border:1px solid var(--line);border-radius:var(--r);padding:8px 12px;width:min(720px,calc(100vw - 16px));max-height:45vh;overflow:auto;box-shadow:0 5px 24px #0002}button{flex:none;min-height:44px;min-width:44px}p{margin:0;flex:1 1 180px;min-width:0;overflow-wrap:anywhere;font-size:13px}strong{font-size:12px}@keyframes scan{from{transform:translateY(-100%)}to{transform:translateY(200%)}}@keyframes light{50%{background:#638bff40}}@media(prefers-reduced-motion:reduce){.beam,.cell{animation:none}}';
   const outline = doc.createElement('div');
   outline.className = 'frame';
   const beam = doc.createElement('div');
@@ -86,6 +87,10 @@ export function tableConfirmation(
     };
   };
   const send = (kind) => {
+    if (pending) return;
+    pending = true;
+    card.setAttribute('aria-busy', 'true');
+    for (const button of card.querySelectorAll('button')) button.disabled = true;
     if (kind === 'cancel' || kind === 'removed') cleanup();
     return chrome.runtime
       .sendMessage({ type: 'copilot.table_confirmation', kind, token })
@@ -101,6 +106,11 @@ export function tableConfirmation(
             '操作未完成，请回侧栏重试',
             'Action failed. Retry from the sidebar.',
           );
+      })
+      .finally(() => {
+        pending = false;
+        card.removeAttribute('aria-busy');
+        for (const button of card.querySelectorAll('button')) button.disabled = false;
       });
   };
   function draw() {
@@ -127,6 +137,7 @@ export function tableConfirmation(
       b.type = 'button';
       b.className = kind === 'confirm' ? 'primary' : 'ghost';
       b.textContent = label;
+      b.disabled = pending;
       b.onclick = () => void send(kind);
       card.append(b);
     }

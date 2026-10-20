@@ -151,6 +151,40 @@ test('confirmation stays in closed shadow, follows geometry, switches targets, E
     delete globalThis.chrome;
   }
 });
+test('table overlay locks all confirmation actions until the bridge receipt returns', async () => {
+  const f = page(),
+    calls = [];
+  let resolve;
+  const pending = new Promise((done) => {
+    resolve = done;
+  });
+  globalThis.chrome = {
+    runtime: {
+      sendMessage: (message) => {
+        calls.push(message);
+        return pending;
+      },
+    },
+  };
+  try {
+    const capture = captureTables(f.doc);
+    tableConfirmation({ token: 'fixture', tables: capture.tables, url: capture.url }, f.doc);
+    const buttons = [...f.shadow.querySelectorAll('button')];
+    buttons.find((button) => button.textContent === '保存').click();
+    buttons.find((button) => button.textContent === '换一张').onclick();
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].kind, 'confirm');
+    assert.ok(buttons.every((button) => button.disabled));
+    assert.equal(f.shadow.querySelector('.card').getAttribute('aria-busy'), 'true');
+    resolve({ result: {} });
+    await wait();
+    assert.ok(buttons.every((button) => !button.disabled));
+  } finally {
+    resolve({ result: {} });
+    f.close();
+    delete globalThis.chrome;
+  }
+});
 test('removed target automatically cancels and never exports', async () => {
   const f = page(),
     events = [];

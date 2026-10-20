@@ -353,6 +353,47 @@ function viewFixture(options = {}) {
     },
   };
 }
+test('overlay keeps compact dimensions, inline metrics and no empty information blocks', () => {
+  const h = viewFixture();
+  const computed = (selector) => h.dom.window.getComputedStyle(h.view.bar.querySelector(selector));
+  try {
+    assert.match(h.view.bar.style.width, /^min\(288px,/);
+    assert.equal(computed('.overlay-top').paddingTop, '8px');
+    assert.equal(computed('[data-role=detail]').fontSize, '13px');
+    assert.equal(computed('[data-role=recent-list]').maxHeight, '144px');
+    assert.equal(computed('.stats').display, 'none');
+    assert.equal(computed('[data-role=explanation]').display, 'none');
+    h.view.activity(8, 12, { 页: 8, 行: 120 });
+    assert.equal(computed('.stats').display, 'flex');
+    assert.equal(computed('.stats>div').display, 'flex');
+    // 中文注释：JSDOM 不解析带 var() 的 font 简写；真实字号另在 Edge 验收。
+    assert.match(h.view.style.textContent, /\.stats b\{font:13px var\(--mono\)/);
+    h.view.outcome({ state: 'failed', resumeFrom: 9 });
+    assert.notEqual(computed('[data-role=explanation]').display, 'none');
+    h.view.outcome({ state: 'running', total: 0 });
+    assert.equal(computed('.stats').display, 'none');
+    assert.equal(computed('[data-role=explanation]').display, 'none');
+    assert.equal(h.view.recent.open, true);
+  } finally {
+    h.close();
+  }
+});
+test('compact overlay restores its width and allows scrolling in short viewports', async () => {
+  const h = viewFixture();
+  try {
+    const style = h.dom.window.getComputedStyle(h.view.bar);
+    assert.equal(style.maxHeight, `${h.dom.window.innerHeight - 32}px`);
+    assert.equal(style.overflow, 'auto');
+    assert.equal(style.overscrollBehavior, 'contain');
+    await h.fire(h.view.bar.querySelector('[data-role=minimize]'));
+    assert.equal(h.view.bar.style.width, 'auto');
+    await h.fire(h.view.bar.querySelector('[data-role=minimize]'));
+    assert.match(h.view.bar.style.width, /^min\(288px,/);
+    assert.equal(h.view.minimized, false);
+  } finally {
+    h.close();
+  }
+});
 test('overlay initialization and status icons work when HTML string sinks are forbidden', () => {
   const dom = new JSDOM('<html><body></body></html>', { url: 'https://example.test/' });
   const descriptor = Object.getOwnPropertyDescriptor(dom.window.Element.prototype, 'innerHTML');

@@ -31,7 +31,8 @@ class PreserveSkillsUpdate(unittest.TestCase):
         self.assertEqual(source.read_text(), "CUSTOM_USER_SKILL")
         self.assertFalse((self.ctx.data / "host-bin/old-fixture").exists())
         self.assertEqual(
-            json.loads((self.runtime / "extension/manifest.json").read_text())["version"], "2.2.0"
+            json.loads((self.runtime / "extension/manifest.json").read_text())["version"],
+            json.loads((fixtures.ROOT / "package.json").read_text())["version"],
         )
         self.assertIn(str(skill), plan(self.ctx, self.release)["targets"])
 

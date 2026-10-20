@@ -424,8 +424,14 @@ def make_handler(runtime, host_bridge, *, lease_error, clock=time.monotonic, sle
                     final_origin=data.get("finalOrigin") if isinstance(data, dict) else None,
                 )
             return _error(
-                "打开浏览器工作页失败；请用返回的 task_id 检查任务状态。确认未执行后可重试。",
+                "打开浏览器工作页失败；请核对返回的 task_id 与原 request_id，不要重放未知操作。",
                 code,
+                request_id=lease.tool_call_id,
+                **(
+                    {key: data[key] for key in ("stage", "reasonCode") if key in data}
+                    if code == "bridge_execution_failed" and isinstance(data, dict)
+                    else {}
+                ),
                 **(
                     {"task_id": task["id"]}
                     if isinstance(task, dict) and isinstance(task.get("id"), str)
@@ -488,6 +494,7 @@ def make_handler(runtime, host_bridge, *, lease_error, clock=time.monotonic, sle
         result.update(primary_note)
         if args.get("summary") is not False:
             reason = None
+            summary_diagnostic = {}
             result["summary"] = None
             if result["ready"] == "loading":
                 reason = "page_loading"
@@ -517,15 +524,27 @@ def make_handler(runtime, host_bridge, *, lease_error, clock=time.monotonic, sle
                             "overlay_injection_failed",
                             "overlay_frame_changed",
                             "permission_denied",
+                            "bridge_execution_failed",
                             "task_paused",
                             "approval_required",
                         }
                         else "summary_read_failed"
                     )
+                    data = getattr(exc, "data", {})
+                    if code in {"permission_denied", "bridge_execution_failed"} and isinstance(
+                        data, dict
+                    ):
+                        summary_diagnostic = {
+                            key: data[key] for key in ("stage", "reasonCode") if key in data
+                        }
             if reason:
-                result["summary_missing"] = {"reason": reason}
-                result["read_hint"] = (
-                    "在原 tab 用 wait_for(selector, timeout<=60) 检查 satisfied，或 wait_for_load() 后 read_page(root/query, mode)；正文用 content，控件用 interactive。不要重复 open。"
+                result["summary_missing"] = {"reason": reason, **summary_diagnostic}
+                result["read_hint"] = {
+                    "permission_denied": "首次读取被拒绝；请核对任务状态与 reasonCode，不要自动重试、换入口或重新索取整站授权。",
+                    "bridge_execution_failed": "读取结果未知；请核对原请求状态与执行阶段，不要重放。",
+                }.get(
+                    reason,
+                    "在原 tab 用 wait_for(selector, timeout<=60) 检查 satisfied，或 wait_for_load() 后 read_page(root/query, mode)；正文用 content，控件用 interactive。不要重复 open。",
                 )
         return _json(result)
 

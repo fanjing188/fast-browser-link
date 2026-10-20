@@ -237,6 +237,21 @@ class BridgeError(RuntimeError):
                     }
         # 中文注释：只允许固定阶段原因和脱敏当前来源；字段名不会带入网页异常文本。
         if isinstance(data, dict):
+            if (
+                code == "bridge_execution_failed"
+                and data.get("stage") in {"dispatch_journal", "browser_execute"}
+                and data.get("reasonCode")
+                in {
+                    "name_error",
+                    "attribute_error",
+                    "type_error",
+                    "key_error",
+                    "io_error",
+                    "runtime_error",
+                    "unexpected_error",
+                }
+            ):
+                self.data.update(stage=data["stage"], reasonCode=data["reasonCode"])
             # 中文注释：框架诊断只含来源和有限几何，不传地址参数、正文或任意异常。
             from urllib.parse import urlsplit
             import math
@@ -306,6 +321,12 @@ class BridgeError(RuntimeError):
                     ("overlay", "initialization_exception"),
                     ("overlay", "return_type_invalid"),
                     ("document", "document_changed"),
+                    ("authority", "origin_denied"),
+                    ("authority", "origin_scheme_denied"),
+                    ("authority", "origin_authority_mismatch"),
+                    ("authority", "tab_lease_denied"),
+                    ("authority", "confirmation_required"),
+                    ("authority", "stale_generation"),
                 }
             ):
                 self.data.update(stage=data["stage"], reasonCode=data["reasonCode"])

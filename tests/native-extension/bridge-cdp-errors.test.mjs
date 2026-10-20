@@ -55,9 +55,35 @@ for (const semantic of [true, false])
         ...(code === 'document_changed'
           ? { stage: 'document', reasonCode: 'document_changed' }
           : {}),
+        ...(code === 'permission_denied'
+          ? { stage: 'authority', reasonCode: 'origin_denied' }
+          : {}),
       });
       assert.equal(JSON.stringify(error).includes('private'), false);
     });
+
+for (const reason of [
+  'origin scheme denied',
+  'origin authority mismatch',
+  'tab lease denied',
+  'confirmation required',
+  'stale generation',
+])
+  test(`read refusal retains fixed cause without changing authority: ${reason}`, async () => {
+    const error = await request(
+      `Error: ${reason}\n    at privatePage (https://example.test/private?secret=hidden:1:2)`,
+      true,
+      'semantic_snapshot',
+    );
+    assert.equal(error.code, 'permission_denied');
+    assert.deepEqual(error.data, {
+      outcomeUnknown: false,
+      retryable: false,
+      stage: 'authority',
+      reasonCode: reason.replaceAll(' ', '_'),
+    });
+    assert.equal(JSON.stringify(error).includes('private'), false);
+  });
 test('wrapped stale read permits refresh, not write replay', async () => {
   const error = await request(
     'Error: STALE_REF\n    at snapshot (<anonymous>:1:2)',

@@ -114,6 +114,44 @@ class FakeRuntime:
 
 
 class ScriptToolTests(unittest.TestCase):
+    def test_safe_execution_failure_reaches_real_script_child(self):
+        self.bind()
+        original = self.runtime.call
+        client_module = native_runtime.load_module(
+            ROOT / "native-bridge/client.py", "script_failure_client_"
+        )
+
+        def call(method, params):
+            if method == "shared.run" and params["action"] == "click":
+                self.runtime.runs.append(dict(params))
+                self.runtime.ledger[params["requestId"]] = "unknown"
+                raise client_module.BridgeError(
+                    "bridge_execution_failed",
+                    "SECRET_CANARY",
+                    {
+                        "stage": "browser_execute",
+                        "reasonCode": "runtime_error",
+                        "outcomeUnknown": True,
+                    },
+                )
+            return original(method, params)
+
+        self.runtime.call = call
+        result = self.run_script(
+            "new_tab('https://example.com/')\n"
+            "try:\n"
+            "    click('#save')\n"
+            "except BrowserError as exc:\n"
+            "    print(exc.code, exc.stage, exc.reason_code, exc.outcome_unknown)\n"
+        )
+        self.assertEqual(result["exit_code"], 0, result)
+        self.assertIn(
+            "bridge_execution_failed browser_execute runtime_error True", result["stdout"]
+        )
+        self.assertNotIn("SECRET_CANARY", json.dumps(result))
+        self.assertFalse(result["execution_complete"])
+        self.assertTrue(result["outcome_unknown"])
+
     def test_complex_ui_receipts_and_errors_reach_child(self):
         # 中文注释：真实脚本子进程穿过宿主 RPC，读取覆盖率和重定位标记。
         self.bind()
@@ -478,6 +516,28 @@ class ScriptToolTests(unittest.TestCase):
             len(clicks), 2, "the uncertain click is never resent; only the new one runs"
         )
         self.assertNotEqual(clicks[0]["requestId"], clicks[1]["requestId"])
+
+    def test_unknown_root_operation_still_allows_own_receipt_export(self):
+        self.bind()
+        original = self.runtime.call
+
+        def call(method, params):
+            if method == "shared.run" and params.get("url") == "https://example.com/other":
+                self.runtime.uncertain_once.add("new_tab")
+            return original(method, params)
+
+        self.runtime.call = call
+        result = self.run_script(
+            "new_tab('https://example.com/')\n"
+            "try:\n"
+            "    new_tab('https://example.com/other')\n"
+            "except BrowserError:\n"
+            "    print(operation_status()['state'])\n"
+        )
+        # 中文注释：第二次建页回执丢失时，读取原账本不能被 for_tab 的写入围栏误拦。
+        self.assertEqual(result["exit_code"], 0, result)
+        self.assertIn("unknown", result["stdout"])
+        self.assertEqual(len([run for run in self.runtime.runs if run["action"] == "new_tab"]), 2)
 
     def test_normal_process_exit_cannot_hide_unknown_or_pending_operations(self):
         for option, status in [

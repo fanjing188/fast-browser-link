@@ -79,10 +79,14 @@ class OutcomeUnknown(RuntimeError):
 
     def __init__(self, message, code=None, data=None):
         super().__init__(message)
-        # 中文注释：未知结果仍禁止重放，只保留 client 已过滤的固定效果字段。
+        # 中文注释：未知结果仍禁止重放，只保留 client 已过滤的固定效果与执行阶段。
         self.data = {
             key: data[key]
-            for key in ("effect", "suggestion")
+            for key in (
+                ("effect", "suggestion", "stage", "reasonCode")
+                if code == "bridge_execution_failed"
+                else ("effect", "suggestion")
+            )
             if isinstance(data, dict) and key in data
         }
         self.code = code or "outcome_unknown"
@@ -736,10 +740,16 @@ class ActionSession:
             }
         if self.tab_id is None:
             raise NoBoundTab("no owned work tab")
+        was_unknown = self._unknown
         self._unknown = False
         self._pending = None
         self._pending_kind = None
-        return self._request("snapshot", "snapshot", tabId=self.tab_id)
+        try:
+            return self._request("snapshot", "snapshot", tabId=self.tab_id)
+        except Exception:
+            # 中文注释：读取失败或待确认不等于已核对现场，不能解除旧未知写入的冻结。
+            self._unknown = was_unknown or self._unknown
+            raise
 
     def snapshot(self) -> dict:
         """Read the owned tab; native snapshot is not Browser Use page_info()."""

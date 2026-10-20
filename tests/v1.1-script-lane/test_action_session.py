@@ -41,6 +41,23 @@ class RecordingRuntime:
 
 
 class ActionSessionTest(unittest.TestCase):
+    def test_failed_reconciliation_keeps_unknown_write_fenced(self):
+        denied = type(
+            "Denied", (Exception,), {"code": "permission_denied", "data": {"outcomeUnknown": False}}
+        )()
+        runtime = RecordingRuntime([{"tabId": 7}, TimeoutError("lost write"), denied])
+        session = adapter.ActionSession(runtime, owner="trusted-owner", task_id="task-1")
+        session.new_tab("https://example.test/")
+        with self.assertRaises(adapter.OutcomeUnknown):
+            session.run("click", {"selector": "#save"})
+        with self.assertRaises(adapter.ActionRejected):
+            session.reconcile()
+        with self.assertRaises(adapter.OutcomeUnknown):
+            session.run("click", {"selector": "#again"})
+        self.assertEqual(
+            len(runtime.calls), 3, "failed read cannot unfreeze the original unknown write"
+        )
+
     def test_paused_action_waits_for_same_task_then_continues(self):
         # 中文注释：暂停期间不派发第二动作；恢复后原请求编号只重查未派发步骤。
         resumed = threading.Event()

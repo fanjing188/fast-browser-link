@@ -35,6 +35,29 @@ class RecordingClient:
 
 
 class NativeTests(unittest.TestCase):
+    def test_read_receipt_keeps_explicit_or_transport_unknown_instead_of_claiming_certainty(self):
+        for action in ("tabs", "snapshot", "screenshot", "semantic_snapshot"):
+            for code, data in (
+                ("outcome_unknown", {}),
+                ("bridge_execution_failed", {"outcomeUnknown": True, "retryable": False}),
+                ("extension_disconnected", {"outcomeUnknown": False, "retryable": False}),
+            ):
+                with self.subTest(action=action, code=code):
+                    error = RuntimeError("PRIVATE_ERROR_CANARY")
+                    error.code, error.data = code, data
+
+                    def fail_call(_method, _params):
+                        raise error
+
+                    self.client.call = fail_call
+                    args = {"task_id": "task-1", "request_id": "read-unknown", "action": action}
+                    if action != "tabs":
+                        args["tab_id"] = 7
+                    result, _ = self.invoke("fast_browser_run", args)
+                    self.assertEqual(result["outcome_unknown"], code != "extension_disconnected")
+                    self.assertFalse(result["retryable"])
+                    self.assertNotIn("PRIVATE_ERROR_CANARY", json.dumps(result))
+
     def setUp(self):
         scratch = Path(tempfile.gettempdir())
         scratch.mkdir(parents=True, exist_ok=True)

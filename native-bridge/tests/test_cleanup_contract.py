@@ -12,6 +12,96 @@ from daemon import BridgeDaemon, ProtocolError, _encode_line
 
 
 class CleanupContractTests(unittest.TestCase):
+    def test_real_jsonl_client_receives_execution_failure_and_keeps_connection(self):
+        import socket
+        import threading
+        from client import BridgeClient, BridgeError
+
+        task = self.daemon.tasks[self.task["id"]]
+        task.update(state="ready", activeMode="full")
+        calls = []
+
+        def fail(extension, method, params, **kwargs):
+            calls.append(method)
+            if method == "browser.execute":
+                raise NameError("SECRET_CANARY")
+            return {"released": True}
+
+        self.daemon._extension_call = fail
+        client_socket, server_socket = socket.socketpair()
+        client = BridgeClient(Path(self.temp.name), timeout=1, autostart=False)
+        client._socket, client._reader = client_socket, client_socket.makefile("rb")
+        server_reader = server_socket.makefile("rb")
+
+        def serve():
+            try:
+                self.daemon._serve_client(server_socket, server_reader)
+            except (EOFError, OSError):
+                pass
+            finally:
+                server_reader.close()
+                server_socket.close()
+
+        worker = threading.Thread(target=serve)
+        worker.start()
+        try:
+            with self.assertRaises(BridgeError) as caught:
+                client.call(
+                    "shared.run",
+                    dict(
+                        self.params,
+                        action="new_tab",
+                        url="https://example.test/",
+                        requestId="jsonl-open",
+                    ),
+                )
+            self.assertEqual(caught.exception.code, "bridge_execution_failed")
+            self.assertEqual(caught.exception.data["reasonCode"], "name_error")
+            self.assertEqual(client.call("health", {}), {"ok": True, "protocolVersion": 1})
+            self.assertEqual(calls.count("browser.execute"), 1)
+        finally:
+            client.close()
+            worker.join(timeout=2)
+        self.assertFalse(worker.is_alive())
+
+    def test_unexpected_browser_failure_returns_correlated_safe_error_without_replay(self):
+        # 中文注释：未知异常不能把整条 RPC 断成 EOF，也不能泄漏异常中的页面内容。
+        task = self.daemon.tasks[self.task["id"]]
+        task.update(state="ready", activeMode="full")
+        calls = []
+
+        def fail(extension, method, params, **kwargs):
+            calls.append(method)
+            if method == "browser.execute":
+                raise RuntimeError("SECRET_CANARY page data")
+            return {"released": True}
+
+        self.daemon._extension_call = fail
+        params = dict(
+            self.params, action="new_tab", url="https://example.test/", requestId="bug-open"
+        )
+        with self.assertRaises(ProtocolError) as caught:
+            self.daemon._dispatch_client("shared.run", params)
+        error = caught.exception
+        self.assertEqual(error.code, "bridge_execution_failed")
+        from client import BridgeError
+
+        client_error = BridgeError(error.code, error.message, error.data)
+        self.assertEqual(client_error.data, error.data)
+        self.assertEqual(error.data["stage"], "browser_execute")
+        self.assertEqual(error.data["reasonCode"], "runtime_error")
+        self.assertTrue(error.data["outcomeUnknown"])
+        self.assertFalse(error.data["retryable"])
+        self.assertNotIn("SECRET_CANARY", str(error) + json.dumps(error.data))
+        self.assertEqual(task["state"], "needs_sync")
+        self.assertEqual(
+            self.daemon._operation_status({**self.params, "requestId": "bug-open"})["state"],
+            "unknown",
+        )
+        with self.assertRaises(ProtocolError):
+            self.daemon._dispatch_client("shared.run", params)
+        self.assertEqual(calls.count("browser.execute"), 1)
+
     def test_partial_delivery_result_is_logged_unknown_with_code(self):
         import hashlib
 

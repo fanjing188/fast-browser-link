@@ -605,6 +605,7 @@ class HostBridge:
                     "cross_origin_frame_unavailable",
                     "tab_out_of_scope",
                     "execution_denied",
+                    "bridge_execution_failed",
                     "redirected_out_of_scope",
                     "permission_denied",
                     "stale_frame",

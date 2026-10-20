@@ -102,12 +102,18 @@ export class DownloadTracker {
       return false;
     }
     if (!this.items.has(item.id)) this.created(item);
-    this.setTimer(() => {
+    const deadline = this.now() + PEER_WINDOW_MS;
+    const decide = () => {
       let decision;
       try {
         decision = this.decide(item);
       } catch {
         decision = { attribute: false };
+      }
+      // 中文注释：下载事件和 CDP 事件走不同队列；只在归属窗口内等迟到证据，不补认领默认目录文件。
+      if (decision.pending && this.now() < deadline && this.activeTasks().length) {
+        this.setTimer(decide, Math.min(DECISION_DELAY_MS, deadline - this.now()));
+        return;
       }
       if (!decision.attribute) {
         try {
@@ -153,7 +159,8 @@ export class DownloadTracker {
       else if (Number.isSafeInteger(item.totalBytes) && item.totalBytes > MAX_DOWNLOAD_BYTES)
         void this.cancelRef(item.id, 'rejected_size');
       this.schedulePoll();
-    }, DECISION_DELAY_MS);
+    };
+    this.setTimer(decide, DECISION_DELAY_MS);
     return true;
   }
   decide(item) {
@@ -163,7 +170,8 @@ export class DownloadTracker {
       [item.url, item.finalUrl].filter((value) => typeof value === 'string' && value),
     );
     const begins = this.begins.filter((begin) => !begin.used && urls.has(begin.url));
-    if (!begins.length) return { attribute: false };
+    if (!begins.length)
+      return { attribute: false, pending: !this.begins.some((begin) => urls.has(begin.url)) };
     const peers = [...this.items].filter(
       ([id, value]) =>
         id !== item.id &&

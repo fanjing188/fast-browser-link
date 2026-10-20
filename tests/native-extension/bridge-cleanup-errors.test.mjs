@@ -97,7 +97,12 @@ test('permission rejection is specific and never retryable', async () => {
     { action: 'snapshot' },
   );
   assert.equal(result.error.code, 'permission_denied');
-  assert.deepEqual(result.error.data, { outcomeUnknown: false, retryable: false });
+  assert.deepEqual(result.error.data, {
+    outcomeUnknown: false,
+    retryable: false,
+    stage: 'authority',
+    reasonCode: 'origin_denied',
+  });
 });
 
 test('unknown internal error does not expose arbitrary exception payload', async () => {

@@ -576,13 +576,27 @@ class DaemonPopupPeerTests(unittest.TestCase):
 
         self.intercept_adoption_receipt(change)
         if error_kind == "exception":
-            with self.assertRaisesRegex(RuntimeError, "adapter failed after adoption and takeover"):
-                self.daemon._run_task(params)
+            self.assert_execution_failure(params)
         else:
             with self.assertRaises(self.module.ProtocolError) as error:
                 self.daemon._run_task(params)
             self.assertTrue(error.exception.data["outcomeUnknown"])
         self.assert_unknown_takeover_adoption(params)
+
+    def assert_execution_failure(self, params):
+        # 中文注释：异常现在沿正式协议返回；原有撤权、代次和禁止重放断言继续执行。
+        with self.assertRaises(self.module.ProtocolError) as caught:
+            self.daemon._run_task(params)
+        self.assertEqual(caught.exception.code, "bridge_execution_failed")
+        self.assertEqual(
+            caught.exception.data,
+            {
+                "stage": "browser_execute",
+                "reasonCode": "runtime_error",
+                "outcomeUnknown": True,
+                "retryable": False,
+            },
+        )
 
     def test_pause_then_unexpected_adoption_exception_revokes_same_generation(self):
         self.assert_takeover_receipt_failure(False, "exception")
@@ -611,8 +625,7 @@ class DaemonPopupPeerTests(unittest.TestCase):
             raise RuntimeError("adapter failed after generation renewal")
 
         self.intercept_adoption_receipt(renew)
-        with self.assertRaises(RuntimeError):
-            self.daemon._run_task(params)
+        self.assert_execution_failure(params)
         state = self.rpc(op="state")
         self.assertEqual((state["generation"], state["revoked"]), (2, False))
         self.assertEqual(state["leases"], [[1, "task"]])
@@ -635,8 +648,7 @@ class DaemonPopupPeerTests(unittest.TestCase):
             raise RuntimeError("adapter failed after task termination")
 
         self.intercept_adoption_receipt(finish)
-        with self.assertRaises(RuntimeError):
-            self.daemon._run_task(params)
+        self.assert_execution_failure(params)
         self.assertEqual(
             (self.task["generation"], self.task["state"], self.task["modeGeneration"]),
             (1, final_state, 3),
@@ -672,8 +684,7 @@ class DaemonPopupPeerTests(unittest.TestCase):
             raise RuntimeError("adapter failed after approved adoption")
 
         self.intercept_adoption_receipt(broken)
-        with self.assertRaises(RuntimeError):
-            self.daemon._run_task(params)
+        self.assert_execution_failure(params)
         self.assert_unknown_takeover_adoption(params)
 
     def test_unexpected_transport_failure_after_adoption_releases_without_replay(self):
@@ -683,8 +694,7 @@ class DaemonPopupPeerTests(unittest.TestCase):
             raise RuntimeError("synthetic adapter failed after adoption")
 
         self.intercept_adoption_receipt(broken)
-        with self.assertRaisesRegex(RuntimeError, "synthetic adapter failed"):
-            self.daemon._run_task(params)
+        self.assert_execution_failure(params)
         self.assert_released_state()
         before = len(self.calls)
         with self.assertRaises(self.module.ProtocolError):

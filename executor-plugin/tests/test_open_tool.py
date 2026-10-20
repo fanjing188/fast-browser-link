@@ -125,6 +125,71 @@ CHROME = {
 
 
 class OpenToolTests(unittest.TestCase):
+    def test_summary_refusal_keeps_fixed_cause_without_reopening_or_prompting_for_consent(self):
+        self.make([EDGE])
+        original = self.runtime.call
+        client_module = native_runtime.load_module(
+            PLUGIN.parent / "native-bridge/client.py", "summary_client_"
+        )
+
+        def call(method, params):
+            if method == "shared.run" and params["action"] == "semantic_snapshot":
+                raise client_module.BridgeError(
+                    "permission_denied",
+                    "SECRET_CANARY",
+                    {
+                        "stage": "authority",
+                        "reasonCode": "stale_generation",
+                        "outcomeUnknown": False,
+                    },
+                )
+            return original(method, params)
+
+        self.runtime.call = call
+        result = self.open({"url": "https://shop.example/a"})
+        self.assertEqual(result["tab_id"], 41)
+        self.assertEqual(
+            result["summary_missing"],
+            {
+                "reason": "permission_denied",
+                "stage": "authority",
+                "reasonCode": "stale_generation",
+            },
+        )
+        self.assertEqual(self.methods().count("shared.create"), 1)
+        self.assertNotIn("SECRET_CANARY", json.dumps(result))
+
+    def test_failed_open_preserves_safe_execution_phase_and_original_request(self):
+        self.make([EDGE])
+        original = self.runtime.call
+        client_module = native_runtime.load_module(
+            PLUGIN.parent / "native-bridge/client.py", "bug_client_"
+        )
+
+        def call(method, params):
+            if method == "shared.run" and params["action"] == "new_tab":
+                raise client_module.BridgeError(
+                    "bridge_execution_failed",
+                    "SECRET_CANARY",
+                    {
+                        "stage": "dispatch_journal",
+                        "reasonCode": "runtime_error",
+                        "outcomeUnknown": True,
+                        "retryable": False,
+                    },
+                )
+            return original(method, params)
+
+        self.runtime.call = call
+        result = self.open({"url": "https://shop.example/a"})
+        self.assertEqual(result["code"], "bridge_execution_failed")
+        self.assertEqual(result["stage"], "dispatch_journal")
+        self.assertEqual(result["reasonCode"], "runtime_error")
+        self.assertEqual(result["request_id"], "call-1")
+        self.assertTrue(result["outcome_unknown"])
+        self.assertFalse(result["retryable"])
+        self.assertNotIn("SECRET_CANARY", json.dumps(result))
+
     def test_primary_browser_precedes_environment_default(self):
         self.make([{**EDGE, "primary": True}, CHROME])
         with patch.dict(os.environ, {"FAST_BROWSER_DEFAULT": "chrome"}):

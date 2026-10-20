@@ -432,14 +432,17 @@ function executionError(error, message) {
     if (['http:', 'https:'].includes(url.protocol) && !url.username && !url.password)
       currentOrigin = url.origin;
   } catch {}
+  // 中文注释：拒绝原因来自上面的固定分类，不等同用户点了拒绝，也不放宽任何检查。
   const stage =
-    code === 'document_changed' || code === 'overlay_frame_changed'
-      ? { stage: 'document', reasonCode: 'document_changed' }
-      : code === 'overlay_injection_failed' &&
-          error?.stage === 'overlay' &&
-          ['initialization_exception', 'return_type_invalid'].includes(error?.reasonCode)
-        ? { stage: 'overlay', reasonCode: error.reasonCode }
-        : {};
+    code === 'permission_denied'
+      ? { stage: 'authority', reasonCode: detail.replaceAll(' ', '_') }
+      : code === 'document_changed' || code === 'overlay_frame_changed'
+        ? { stage: 'document', reasonCode: 'document_changed' }
+        : code === 'overlay_injection_failed' &&
+            error?.stage === 'overlay' &&
+            ['initialization_exception', 'return_type_invalid'].includes(error?.reasonCode)
+          ? { stage: 'overlay', reasonCode: error.reasonCode }
+          : {};
   return {
     code,
     message: text,

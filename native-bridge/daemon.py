@@ -170,6 +170,30 @@ class ProtocolError(Exception):
         self.data = safe_summary(data) if code == "cookie_mirror_denied" else _safe_error_data(data)
 
 
+def _execution_failure(error, stage):
+    # 中文注释：只回传固定异常类别和执行阶段；原始异常可能含网页内容或凭据。
+    reason = next(
+        (
+            code
+            for kind, code in (
+                (NameError, "name_error"),
+                (AttributeError, "attribute_error"),
+                (TypeError, "type_error"),
+                (KeyError, "key_error"),
+                (OSError, "io_error"),
+                (RuntimeError, "runtime_error"),
+            )
+            if isinstance(error, kind)
+        ),
+        "unexpected_error",
+    )
+    return ProtocolError(
+        "bridge_execution_failed",
+        "浏览器执行链异常；请核对原请求状态，不要重放。",
+        {"stage": stage, "reasonCode": reason, "outcomeUnknown": True, "retryable": False},
+    )
+
+
 _SCOPE_HINT = "同站用 goto_url，新站用 fast_browser_open。"
 
 
@@ -2750,9 +2774,11 @@ class BridgeDaemon:
             command_params["allowedOrigins"] = list(task["allowedOrigins"])
             if artifact_payload is not None:
                 command_params.update(artifact_payload)
+            execution_stage = "dispatch_journal"
             try:
                 with _outside_task_lock(lock):
                     self._persist_dispatched(task, entry)
+                    execution_stage = "browser_execute"
                     if action in {"gateway.authorize", "vault.authorize"}:
                         # 中文注释：批准 browser_exec 或 Vault 私有写入后只签发一次资格，不派发页面动作。
                         result = {"authorized": True}
@@ -2909,7 +2935,7 @@ class BridgeDaemon:
                         {"outcomeUnknown": not read_only, "retryable": False},
                     ) from None
                 raise
-            except Exception:
+            except Exception as exc:
                 # A dispatched full-mode operation is also uncertain on an unexpected
                 # adapter failure, not just an approval worker operation.
                 with self.state_lock:
@@ -2926,7 +2952,7 @@ class BridgeDaemon:
                     self._best_effort_release(extension, task_id, generation, False)
                 except Exception:
                     pass
-                raise
+                raise _execution_failure(exc, execution_stage) from None
 
             race_cleanup = False
             changed_state = None

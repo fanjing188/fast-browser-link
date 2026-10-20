@@ -99,6 +99,61 @@ test('unique task-tab download is redirected into the task staging folder', asyn
   assert.equal(f.reports[0].downloadRef, 5);
 });
 
+test('late owned CDP begin is matched before bounded filename decision expires', async () => {
+  const f = fixture();
+  const item = { id: 31, url: 'https://site.test/late', filename: 'late.csv' };
+  const suggestions = [];
+  f.tracker.created(item);
+  f.tracker.determine(item, (value) => suggestions.push(value));
+  await f.advance(300);
+  assert.deepEqual(suggestions, [], 'absence of the earlier CDP event is not an ownership verdict');
+  begin(f, 11, item.url);
+  await f.advance(300);
+  assert.deepEqual(suggestions, [
+    { filename: 'fast-browser-tasks/0123456789abcdef/late.csv', conflictAction: 'uniquify' },
+  ]);
+  assert.equal(f.reports[0].event, 'attributed');
+  assert.equal(f.reports[0].taskId, 'task-a');
+});
+
+test('missing begin falls back once at deadline and never retroactively claims the user file', async () => {
+  const f = fixture();
+  const item = { id: 32, url: 'https://site.test/missing', filename: 'user.csv' };
+  const suggestions = [];
+  f.tracker.determine(item, (value) => suggestions.push(value));
+  await f.advance(300);
+  assert.deepEqual(suggestions, []);
+  await f.advance(1200);
+  assert.deepEqual(suggestions, [undefined]);
+  begin(f, 11, item.url);
+  await f.advance(1500);
+  assert.deepEqual(suggestions, [undefined]);
+  assert.equal(f.tracker.attributed.size, 0);
+  assert.deepEqual(f.reports, []);
+  assert.deepEqual(f.cancelled, []);
+});
+
+test('late begin cannot attribute simultaneous same-URL user downloads or revoked leases', async () => {
+  for (const revoke of [false, true]) {
+    const f = fixture();
+    const item = { id: 33, url: 'https://site.test/shared', filename: 'shared.csv' };
+    const suggestions = [];
+    f.tracker.determine(item, (value) => suggestions.push(value));
+    await f.advance(300);
+    if (revoke) f.executor.tasks.get('task-a').revoked = true;
+    else f.tracker.created({ ...item, id: 34 });
+    begin(f, 11, item.url);
+    await f.advance(1200);
+    assert.deepEqual(suggestions, [undefined]);
+    assert.equal(f.tracker.attributed.size, 0);
+    assert.deepEqual(
+      f.reports.map((row) => row.event),
+      revoke ? [] : ['ambiguous'],
+    );
+    assert.deepEqual(f.cancelled, []);
+  }
+});
+
 test('user download of the same URL inside the window is never claimed', async () => {
   const f = fixture();
   f.tracker.created({ id: 7, url: 'https://site.test/report' });
@@ -173,7 +228,7 @@ test('events from foreign tabs or after revocation are ignored', async () => {
   f.tracker.created({ id: 4, url: 'https://site.test/z' });
   const seen = [];
   f.tracker.determine({ id: 4, url: 'https://site.test/z' }, (value) => seen.push(value));
-  await f.advance(300);
+  await f.advance(1500);
   assert.deepEqual(seen, [undefined]);
   begin(f, 11, 'https://site.test/w');
   f.executor.tasks.get('task-a').revoked = true;

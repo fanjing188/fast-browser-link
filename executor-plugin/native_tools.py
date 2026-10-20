@@ -1124,6 +1124,7 @@ def make_tool_handler(tool_name, profile_runtime, *, host_bridge=None, backend_c
                 "execution_denied": "浏览器拒绝执行，原因未分类；请查看任务和扩展状态，先读取页面核实结果。不要自动重试。",
                 "invalid_semantic_options": "semantic_snapshot 的 options 不支持所列字段；sections/maxScan/schema 请使用 page.parse。",
                 "outcome_unknown": "执行结果不确定，请先检查页面；禁止自动重试。",
+                "bridge_execution_failed": "浏览器执行链异常；请核对原请求及执行阶段，不要重放。",
                 "extension_timeout": "浏览器响应超时，结果不确定；禁止自动重试。",
                 "scroll_timeout": "滚动派发未在短期限内返回；先读取原标签页面确认位置，再决定是否继续。",
                 "extension_disconnected": "扩展连接已中断；请检查连接，读取任务状态后再继续。结果不确定时禁止自动重试。",
@@ -1135,7 +1136,7 @@ def make_tool_handler(tool_name, profile_runtime, *, host_bridge=None, backend_c
                 # 中文注释：分页游标失效需要重新解析页面，保留类型供调用者区分连接与授权错误。
                 "parse_cursor_stale": "页面或解析选项已变化，分页游标已失效；请不带旧游标重新读取。",
                 "parse_budget_too_small": "解析结果超过预算；请增大 budget 或缩小 sections。未返回结果。",
-                "permission_denied": "操作未获授权。",
+                "permission_denied": "任务、工作页、来源或确认状态校验失败；请核对 reasonCode，不要自动重试或新建任务绕过。",
                 "target_unavailable": "目标不可用；请重新读取页面，若位于 iframe 则使用 frame token。",
                 # 中文注释：此错误也可能来自点击后的核验，是否已派发由 outcome_unknown 回执说明。
                 "invalid_target_state": "控件状态无法按要求核验或改变；请核对页面实际状态，不要直接重试。",
@@ -1328,7 +1329,11 @@ def make_tool_handler(tool_name, profile_runtime, *, host_bridge=None, backend_c
                 or safe_before_dispatch
             )
             unknown = (
-                False
+                (
+                    data.get("outcomeUnknown") is True
+                    or code
+                    in {"outcome_unknown", "request_outcome_unavailable", "bridge_execution_failed"}
+                )
                 if read_only
                 else (
                     data.get("outcomeUnknown")

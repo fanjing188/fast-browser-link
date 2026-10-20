@@ -267,12 +267,14 @@ class InteractionWireTests(unittest.TestCase):
         )
         self.assertEqual(self.control("noop")["commands"], 0)
 
-    def test_read_only_bounds_error_is_not_an_unknown_write(self):
+    def test_read_only_bounds_preserves_upstream_unknown_without_dispatching_input(self):
         self.run_action("interaction.capture", "read-shot")
         result = self.run_action(
             "interaction.bounds", "missing-shot", screenshot_id="missing", selector="#button"
         )
-        self.assertFalse(result["outcome_unknown"])
+        # 中文注释：此夹具明确回报 outcomeUnknown=true，工具不能只因只读就篡改原始状态。
+        self.assertTrue(result["outcome_unknown"])
+        self.assertFalse(result["retryable"])
         self.assertEqual(self.control("noop")["commands"], 0)
 
     def test_expired_screenshot_is_rejected_before_drag_dispatch(self):

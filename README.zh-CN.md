@@ -6,7 +6,7 @@ Fast-browser-link 让 AI Agent 使用你已经登录的浏览器：读取页面�
 
 ## 三步安装
 
-1. 准备 macOS、Chrome 或 Edge、Python 3.11+，按[安装说明](docs/installation.zh-CN.md)获取已发布安装包，或从源码构建当前候选。**Unreleased (2.2.0 candidate)**，尚未发布。
+1. 准备 macOS、Chrome 或 Edge、Python 3.11+，按[安装说明](docs/installation.zh-CN.md)获取已发布安装包，或从源码构建当前候选。**Unreleased (2.2.1 candidate)**，尚未发布。
 2. 在包目录运行 `python3 -B -m fbl setup`，加载打印的扩展目录，并确认浏览器连接。
 3. 在 Codex 或 Claude Code 中使用已安装的 Skill；也可预览 `fbl mcp install --agent codex` / `fbl mcp install --agent claude`，审阅后加 `--apply`。打开侧栏即可先试本地工具。
 
@@ -28,6 +28,6 @@ Fast-browser-link 让 AI Agent 使用你已经登录的浏览器：读取页面�
 
 [导出多页表格](docs/export-tables.zh-CN.md) · [故障排查](docs/fbl-troubleshooting.zh-CN.md) · [可选 Hermes 集成](docs/installation.zh-CN.md#hermes) · [无痕模式](docs/incognito.zh-CN.md)
 
-[开发](docs/development.md) · [设计与安全合同](docs/design/architecture.md) · [测试](docs/testing.md) · [版本说明](docs/releases/release-2.2.0.md)
+[开发](docs/development.md) · [设计与安全合同](docs/design/architecture.md) · [测试](docs/testing.md) · [版本说明](docs/releases/release-2.2.1.md)
 
 MIT · [第三方声明](THIRD_PARTY_NOTICES.md)

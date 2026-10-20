@@ -1,6 +1,6 @@
 {
   "name": "fast-browser-link",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "private": true,
   "description": "任何 Agent 均可通过 Skills、CLI 或 MCP 使用核心浏览器能力；Assist（协作）支持 Hermes 和 Codex。",
   "type": "module",

@@ -41,6 +41,30 @@ class PreserveSkillsUpdate(unittest.TestCase):
             parser().parse_args(["update", "--preserve-skills", "--dry-run"]).preserve_skills
         )
 
+    def test_runtime_only_update_preserves_marked_profile_files(self):
+        self.install()
+        fixtures.repair(self.hermes, "fast-copilot", fixtures.private_write, "fixture-model")
+        profile = self.hermes / "profiles/fast-copilot"
+        config = profile / "config.yaml"
+        value = json.loads(config.read_text())
+        value["reasoning_effort"] = "high"
+        config.write_text(json.dumps(value, indent=4))
+        paths = [config, profile / ".copilot-profile.json"]
+        before = [(p.read_bytes(), p.stat().st_mtime_ns) for p in paths]
+        result = update(self.ctx, self.release, preserve_skills=True)
+        self.assertEqual(result["status"], "updated")
+        self.assertEqual([(p.read_bytes(), p.stat().st_mtime_ns) for p in paths], before)
+
+    def test_preview_lists_profile_migration_only_for_full_update(self):
+        self.install()
+        fixtures.repair(self.hermes, "fast-copilot", fixtures.private_write, "fixture-model")
+        profile = self.hermes / "profiles/fast-copilot"
+        full = plan(self.ctx, self.release)["targets"]
+        runtime_only = plan(self.ctx, self.release, preserve_skills=True)["targets"]
+        for name in ("config.yaml", ".copilot-profile.json"):
+            self.assertIn(str(profile / name), full)
+            self.assertNotIn(str(profile / name), runtime_only)
+
 
 if __name__ == "__main__":
     unittest.main()

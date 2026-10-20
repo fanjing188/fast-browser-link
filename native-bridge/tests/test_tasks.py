@@ -39,7 +39,8 @@ from pathlib import Path
 sys.path.insert(0, sys.argv[1])
 from client import socket_address
 cwd = Path.cwd()
-path = cwd / ('汉' * 20) / 'bridge.sock'
+# 相对地址102字节，即使CI临时目录很短，绝对路径仍超过103字节。
+path = cwd / ('汉' * 30) / 'bridge.sock'
 path.parent.mkdir()
 assert len(os.fsencode(path)) > 103
 address = socket_address(path)

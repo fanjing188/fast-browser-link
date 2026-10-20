@@ -10,7 +10,7 @@ import shutil
 import tempfile
 import time
 import sys
-from fbl_runtime import Context, HOST, ORIGIN, AGENTS, load, read, safe, manifests
+from fbl_runtime import HOST, ORIGIN, AGENTS, load, read, safe, manifests
 from copilot import private_write
 from copilot_setup import setup as setup_templates
 from fbl_profiles import repair
@@ -385,6 +385,9 @@ def plan(ctx, source=None, *, preserve_skills=False):
         *extension_targets(ctx),
         *([] if preserve_skills else skill_targets(ctx)),
     ]
+    profile = ctx.hermes / "profiles/fast-copilot"
+    if not preserve_skills and (profile / ".copilot-profile.json").is_file():
+        targets.extend(safe(profile / name) for name in ("config.yaml", ".copilot-profile.json"))
     return {
         "runtimes": list(map(str, roots)),
         "targets": list(map(str, targets)),
@@ -597,10 +600,10 @@ def update(
                     json.dumps({"version": 1, "sha256": tree_digest(stage)}),
                 )
                 prepared.append((stage, path))
-            # 中文注释：只迁移带标记的专用配置；根和其他 profile 不进入写集合。
+            # 中文注释：运行时更新不迁移配置；完整更新也只迁移带标记的专用 profile。
             profile = "fast-copilot"
             target = ctx.hermes / "profiles" / profile
-            if (target / ".copilot-profile.json").is_file():
+            if not preserve_skills and (target / ".copilot-profile.json").is_file():
                 staged_home = transaction / ("profile-" + profile)
                 stage = staged_home / "profiles" / profile
                 from fbl_profiles import read_config

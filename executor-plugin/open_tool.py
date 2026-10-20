@@ -112,21 +112,33 @@ def _summary(
             "headings": [],
             "items": [],
             "read_intent": read_intent,
+            "read_options": options,
         }
     )
     categories = set()
     for row in page.get("items", []):
         item = {
             key: row[key]
-            for key in ("ref", "role", "name", "disabled", "checked", "cells")
+            for key in (
+                "ref",
+                "role",
+                "name",
+                "disabled",
+                "checked",
+                "cells",
+                "cellText",
+                "fragment",
+                "truncated",
+            )
             if key in row
         }
-        if (
-            len(result["items"]) >= 20
-            or len(_json({**result, "items": [*result["items"], item]})) > 1200
-        ):
-            categories.add("summary_items")
-            break
+        if "fragment" in item:
+            item["fragment"] = {
+                key: item["fragment"][key]
+                for key in ("field", "index", "start", "end", "total", "part")
+                if key in item["fragment"]
+            }
+        # 中文注释：只在语义引擎内按预算分页，不二次裁剪已取条目；游标恰好接在交付片段之后。
         result["items"].append(item)
     if page.get("nextCursor") or page.get("coverage", {}).get("complete") is False:
         categories.add("snapshot_coverage")
@@ -137,7 +149,7 @@ def _summary(
             {
                 "truncated": True,
                 "truncation": sorted(categories),
-                "read_hint": "用 read_page(query/root/mode) 缩小范围；按 coverage 和 nextCursor 续读，摘要不代表完整正文。",
+                "read_hint": "按 read_options 和 nextCursor 续读；无游标且覆盖不完整时缩小范围，摘要不代表全文。",
             }
         )
     return result

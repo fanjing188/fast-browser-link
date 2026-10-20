@@ -89,8 +89,13 @@ class FakeRuntime:
                     if mode == "content"
                     else [
                         {"ref": f"r{index}", "role": "button", "name": "操作" * 100}
-                        for index in range(30)
+                        for index in range(12)
                     ],
+                    "nextCursor": "after-12" if mode != "content" else None,
+                    "coverage": {
+                        "complete": mode == "content",
+                        "returned": 12 if mode != "content" else 1,
+                    },
                 }
             if params["action"] == "navigate":
                 tab = next(
@@ -317,15 +322,111 @@ class OpenToolTests(unittest.TestCase):
         self.assertNotEqual(first["task_id"], second["task_id"])
         self.assertEqual(self.methods().count("shared.create"), 2)
 
+    def test_summary_delivers_the_whole_budgeted_page_without_reread(self):
+        self.make([EDGE])
+        # 中文注释：底层已按预算分页，二次字符裁剪会迫使首段重读并使原游标跳项。
+        items = [
+            {
+                "ref": "same",
+                "role": "text",
+                "name": "正文" * 90,
+                "fragment": {
+                    "field": "name",
+                    "start": i * 180,
+                    "end": (i + 1) * 180,
+                    "total": 1080,
+                    "part": i,
+                },
+            }
+            for i in range(6)
+        ]
+        page = {
+            "snapshotId": "s",
+            "binding": {"documentId": "d"},
+            "items": items,
+            "nextCursor": "after-6",
+            "coverage": {"complete": False, "returned": 6},
+        }
+        with patch.object(self.runtime, "call", return_value=page) as call:
+            summary = open_tool._summary(self.runtime, "o", "t", 1, "c", "https://shop.example/")
+        self.assertEqual(summary["items"], items)
+        self.assertEqual(summary["nextCursor"], "after-6")
+        self.assertEqual(summary["coverage"], page["coverage"])
+        self.assertEqual(call.call_args.args[1]["options"]["budget"], 1400)
+        self.assertNotIn("summary_items", summary.get("truncation", []))
+
     def test_summary_is_bounded_and_can_be_disabled(self):
         self.make([EDGE])
         result = self.open({"url": "https://shop.example/a"})
         self.assertEqual(result["summary"]["snapshotId"], "snap-1")
-        self.assertLessEqual(len(json.dumps(result["summary"], ensure_ascii=False)), 1500)
-        self.assertLessEqual(len(result["summary"]["items"]), 20)
+        # 中文注释：一页预算由引擎保证，投影头另有界；不再用第二个字符/条数上限截断游标页。
+        self.assertLessEqual(
+            len(json.dumps(result["summary"], ensure_ascii=False)), 1400 * 4 + 1200
+        )
+        self.assertEqual(len(result["summary"]["items"]), result["summary"]["coverage"]["returned"])
         self.assertTrue(result["summary"]["truncated"])
         without = self.open({"url": "https://shop.example/b", "summary": False}, call="call-2")
         self.assertNotIn("summary", without)
+
+    def test_summary_projection_cannot_skip_fetched_snapshot_items(self):
+        self.make([EDGE])
+        page = {
+            "snapshotId": "snap-1",
+            "items": [{"ref": f"r{i}", "role": "text", "name": "正文" * 80} for i in range(20)],
+            "nextCursor": "after-all-20",
+            "coverage": {"complete": True, "matched": 20, "returned": 20, "omitted": 0},
+        }
+        with patch.object(self.runtime, "call", return_value=page):
+            summary = open_tool._summary(
+                self.runtime,
+                "owner",
+                "task",
+                1,
+                "call",
+                "https://shop.example/a",
+                read_intent="content",
+                root="#article",
+            )
+        self.assertEqual(summary["items"], page["items"])
+        self.assertEqual(summary["nextCursor"], "after-all-20")
+        self.assertTrue(summary["coverage"]["complete"])
+        self.assertEqual(summary["coverage"]["returned"], len(summary["items"]))
+        self.assertEqual(summary["coverage"]["omitted"], 20 - len(summary["items"]))
+        self.assertIn("续读", summary["read_hint"])
+        self.assertEqual(page["coverage"]["returned"], 20)
+        self.assertTrue(page["coverage"]["complete"])
+
+    def test_unclipped_summary_preserves_fragments_and_continuation_options(self):
+        self.make([EDGE])
+        for field in ("name", "cells"):
+            with self.subTest(field=field):
+                fragment = {"field": field, "start": 0, "end": 2, "total": 4, "part": 0}
+                item = {"ref": "r", "role": "text", "name": "正文", "fragment": fragment}
+                if field == "cells":
+                    item.update(name="", cellText="单元")
+                    fragment["index"] = 0
+                page = {
+                    "snapshotId": "snap-1",
+                    "items": [{**item, "fragment": {**fragment, "debug": "not-public"}}],
+                    "nextCursor": "next",
+                    "coverage": {"complete": False, "matched": 1, "returned": 1},
+                }
+                with patch.object(self.runtime, "call", return_value=page):
+                    summary = open_tool._summary(
+                        self.runtime,
+                        "owner",
+                        "task",
+                        1,
+                        "call",
+                        "https://shop.example/a",
+                        read_intent="content",
+                        root="#article",
+                    )
+                self.assertEqual(summary["items"], [item])
+                self.assertEqual(summary["nextCursor"], "next")
+                self.assertEqual(
+                    summary["read_options"], {"mode": "content", "budget": 1400, "root": "#article"}
+                )
 
     def test_open_summary_ref_is_usable_without_another_snapshot(self):
         self.make([EDGE])

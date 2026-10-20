@@ -866,6 +866,65 @@ class ResultPrivacyTests(unittest.TestCase):
             },
         )
 
+    def test_long_text_fragments_survive_public_results_and_action_observations(self):
+        # 中文注释：同一节点的多个片段不能按 ref 合并，单元格正文也必须穿过公共回执。
+        items = [
+            {
+                "ref": "r",
+                "role": "row",
+                "name": "前半",
+                "fragment": {"field": "name", "start": 0, "end": 2, "total": 4, "part": 0},
+            },
+            {
+                "ref": "r",
+                "role": "row",
+                "name": "后半",
+                "fragment": {"field": "name", "start": 2, "end": 4, "total": 4, "part": 1},
+            },
+            {
+                "ref": "r",
+                "role": "row",
+                "name": "",
+                "cellText": "表格正文",
+                "fragment": {
+                    "field": "cells",
+                    "index": 0,
+                    "start": 0,
+                    "end": 4,
+                    "total": 4,
+                    "part": 2,
+                },
+                "truncated": True,
+            },
+        ]
+        page = {
+            "snapshotId": "s",
+            "items": [
+                {**item, "fragment": {**item["fragment"], "debug": CANARY}, "value": CANARY}
+                for item in items
+            ],
+            "nextCursor": "next",
+            "resync": {"reason": "cursor_invalidated"},
+            "coverage": {"complete": False, "truncated": 1},
+        }
+        expected = {**page, "items": items}
+        output, _ = self.invoke(
+            True, "run", {"task_id": "t", "tab_id": 1, "action": "semantic_snapshot"}, page
+        )
+        self.assertEqual(output, expected)
+        for action in (
+            "ref_click",
+            "ref_fill",
+            "ref_press",
+            "ref_set_checked",
+            "ref_select_option",
+        ):
+            with self.subTest(action=action):
+                projected = load("runtime")._project_tool_result(
+                    "fast_browser_run", {"action": action}, {"observation": page}
+                )
+                self.assertEqual(projected["observation"], expected)
+
     def test_semantic_and_action_compatibility(self):
         semantic = {
             "version": 2,

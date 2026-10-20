@@ -359,6 +359,8 @@ _RESULT_SEMANTIC = {
             "context": [_scalar_fields("ref role name index surfaceKind")],
             "targetPath": [_scalar_fields("kind mode frameRef hostRef frameToken documentId")],
             "cells": [None],
+            "cellText": None,
+            "fragment": _scalar_fields("field index start end total part"),
         }
     ],
     "removed": [None],

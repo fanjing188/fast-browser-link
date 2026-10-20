@@ -75,7 +75,7 @@ except ImportError:
 from typing import Any, Dict
 from urllib.parse import urlsplit
 from cookie_mirror import CookieMirrorService, MirrorDenied
-from client import safe_summary
+from client import safe_summary, socket_address
 from api_client import ApiClient, ApiDenied
 from artifacts import ArtifactStore, ArtifactError, LOCAL_PATH_ORIGIN
 from downloads import (
@@ -1154,7 +1154,7 @@ class BridgeDaemon:
         self._prepare_socket_path()
         server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.server = server
-        server.bind(str(self.socket_path))
+        server.bind(socket_address(self.socket_path))
         os.chmod(self.socket_path, 0o600)
         server.listen(64)
         server.setblocking(False)

@@ -16,6 +16,7 @@ import unittest
 BRIDGE_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BRIDGE_DIR))
 from tests.support import stop_fixture_daemon, temporary_bridge_home
+from client import socket_address
 
 ORIGIN = "chrome-extension://abcdefghijklmnopabcdefghijklmnop/"
 
@@ -33,7 +34,7 @@ class NativeHostFixture(unittest.TestCase):
         (data / "host-config.json").write_text(json.dumps({"allowedOrigins": [ORIGIN]}))
         server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.addCleanup(server.close)
-        server.bind(str(data / "bridge.sock"))
+        server.bind(socket_address(data / "bridge.sock"))
         server.listen(1)
         server.settimeout(2)
         # 中文注释：只连接测试套接字，绝不启动或重启用户的 Hermes daemon。

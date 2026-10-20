@@ -229,6 +229,7 @@ def choose_model(catalog):
 
 def daemon_version(ctx):
     import socket
+    from client import socket_address
 
     try:
         token = ctx.data / "token"
@@ -236,7 +237,7 @@ def daemon_version(ctx):
             return None
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
             connection.settimeout(2)
-            connection.connect(str(ctx.data / "bridge.sock"))
+            connection.connect(socket_address(ctx.data / "bridge.sock"))
             connection.sendall(
                 (
                     json.dumps({"role": "client", "token": token.read_text().strip()})

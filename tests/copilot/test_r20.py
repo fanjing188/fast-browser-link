@@ -23,6 +23,7 @@ from copilot_setup import setup
 from daemon import BridgeDaemon, ProtocolError, _extension_frames, _encode_line
 from host import record_exit
 from tests.support import temporary_bridge_home
+from client import socket_address
 
 ORIGIN = "chrome-extension://abcdefghijklmnopabcdefghijklmnop/"
 R20B_OBSERVATION = {
@@ -89,7 +90,7 @@ class Replay(unittest.TestCase):
         self.addCleanup(self.app.close)
         self.server = socket.socket(socket.AF_UNIX)
         self.addCleanup(self.server.close)
-        self.server.bind(str(self.data / "bridge.sock"))
+        self.server.bind(socket_address(self.data / "bridge.sock"))
         self.server.listen(4)
         self.frames = []
         self.workers = []

@@ -4,15 +4,71 @@ from pathlib import Path
 import sys
 import time
 import threading
+import errno
+import subprocess
+import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 
 BRIDGE_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BRIDGE_DIR))
 
-from client import BridgeClient, BridgeError  # noqa: E402
+from client import BridgeClient, BridgeError, socket_address  # noqa: E402
 from daemon import BridgeDaemon, _safe_error_data  # noqa: E402
 from tests.support import ExtensionPeer, stop_fixture_daemon, temporary_bridge_home  # noqa: E402
+
+
+class SocketAddressTests(unittest.TestCase):
+    def test_absolute_limit_counts_encoded_bytes_and_preserves_short_addresses(self):
+        from client import socket_address
+
+        short = "/" + "a" * 102
+        self.assertEqual(len(os.fsencode(short)), 103)
+        self.assertEqual(socket_address(Path(short)), short)
+        for path in ("/" + "a" * 104, "/" + "汉" * 36):
+            with self.subTest(path=path):
+                self.assertGreater(len(os.fsencode(path)), 103)
+                with self.assertRaises(OSError) as caught:
+                    socket_address(Path(path))
+                self.assertEqual(caught.exception.errno, errno.ENAMETOOLONG)
+
+    def test_long_canonical_path_binds_in_place_without_changing_cwd(self):
+        script = """
+import os, socket, sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from client import socket_address
+cwd = Path.cwd()
+path = cwd / ('汉' * 20) / 'bridge.sock'
+path.parent.mkdir()
+assert len(os.fsencode(path)) > 103
+address = socket_address(path)
+assert len(os.fsencode(address)) <= 103
+assert Path(address).resolve() == path
+with socket.socket(socket.AF_UNIX) as server, socket.socket(socket.AF_UNIX) as client:
+    server.settimeout(2)
+    client.settimeout(2)
+    server.bind(address)
+    os.chmod(path, 0o600)
+    server.listen(1)
+    client.connect(socket_address(path))
+    peer, _ = server.accept()
+    with peer:
+        client.sendall(b'fixture')
+        assert peer.recv(7) == b'fixture'
+assert path.is_socket()
+assert path.stat().st_mode & 0o777 == 0o600
+assert Path.cwd() == cwd
+"""
+        with tempfile.TemporaryDirectory() as home:
+            result = subprocess.run(
+                [sys.executable, "-B", "-c", script, str(BRIDGE_DIR)],
+                cwd=home,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
 
 
 class RedirectScopeTests(unittest.TestCase):
@@ -153,7 +209,9 @@ class TaskTests(unittest.TestCase):
     def test_fixture_socket_path_is_canonical_and_fits_macos_uds(self):
         socket_path = self.home / "plugin-data" / "fast-browser-link-native" / "bridge.sock"
         self.assertEqual(socket_path, socket_path.resolve())
-        self.assertLessEqual(len(os.fsencode(socket_path)), 103)
+        address = socket_address(socket_path)
+        self.assertEqual(Path(address).resolve(), socket_path)
+        self.assertLessEqual(len(os.fsencode(address)), 103)
 
     def test_owner_is_private_and_tab_lease_conflict_is_rejected(self):
         extension = self.extension("shared-profile", "chrome")

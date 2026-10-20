@@ -11,6 +11,20 @@ const exec = promisify(execFile);
 const python =
   process.env.HERMES_PYTHON || path.join(process.env.HOME, '.hermes/hermes-agent/venv/bin/python');
 
+test('socket address preserves its target and enforces encoded-byte limits', () => {
+  const absolute = `/${'a'.repeat(102)}`;
+  assert.equal(runner.socketAddress(absolute), absolute);
+  const longPath = path.join(runner.root, '汉'.repeat(20), 'bridge.sock');
+  assert.ok(Buffer.byteLength(longPath) > 103);
+  const address = runner.socketAddress(longPath);
+  assert.equal(path.resolve(runner.root, address), longPath);
+  assert.ok(Buffer.byteLength(address) <= 103);
+  for (const invalid of [`/${'a'.repeat(104)}`, `/${'汉'.repeat(36)}`]) {
+    assert.ok(Buffer.byteLength(invalid) > 103);
+    assert.throws(() => runner.socketAddress(invalid), /too long/u);
+  }
+});
+
 test('real-session verifies connection access without removed approval controls', async () => {
   for (const file of ['real-session.mjs', 'real-native-v2.mjs']) {
     const source = await readFile(new URL(`./${file}`, import.meta.url), 'utf8');
@@ -76,12 +90,15 @@ test('compactScratch stages isolated source and package homes with a bindable so
         await access(filename);
       }
       const socketPath = path.join(compactHome, 'plugin-data/fast-browser-link-native/bridge.sock');
-      assert.ok(Buffer.byteLength(socketPath) <= 103, socketPath);
-      console.log(`compact socket: ${socketPath} (${Buffer.byteLength(socketPath)} bytes)`);
+      const address = runner.socketAddress(socketPath);
+      assert.equal(path.resolve(runner.root, address), socketPath);
+      assert.ok(Buffer.byteLength(address) <= 103, address);
+      console.log(`compact socket address: ${Buffer.byteLength(address)} bytes`);
       await exec(python, [
         '-c',
-        'import socket,sys; s=socket.socket(socket.AF_UNIX); s.bind(sys.argv[1]); s.close()',
+        'import socket,sys; sys.path.insert(0,sys.argv[2]); from client import socket_address; s=socket.socket(socket.AF_UNIX); s.bind(socket_address(sys.argv[1])); s.close()',
         socketPath,
+        path.join(runner.root, 'native-bridge'),
       ]);
       const manifest = JSON.parse(await readFile(staged.manifests[0], 'utf8'));
       assert.equal(manifest.path, staged.host);
@@ -102,14 +119,20 @@ test('compactScratch stages isolated source and package homes with a bindable so
       assert.equal(restored.extension, staged.extension);
       await unlink(socketPath);
       // 中文注释：真实 helper RPC 仅查询空实例，验证 daemon 路径与安全清理，不启动浏览器。
+      const inheritedBridge = process.env.FAST_BROWSER_BRIDGE_HOME;
+      const unrelatedBridge = path.join(work, 'must-not-use-as-bridge');
+      process.env.FAST_BROWSER_BRIDGE_HOME = unrelatedBridge;
       try {
         assert.deepEqual(
           await runner.helperCall('rpc', work, 'compact-offline', 'browsers', '{}'),
           [],
         );
+        await assert.rejects(realpath(unrelatedBridge), { code: 'ENOENT' });
         const identity = await runner.helperCall('inspect', work);
         assert.ok(identity.daemonCommand.includes(compactHome));
       } finally {
+        if (inheritedBridge === undefined) delete process.env.FAST_BROWSER_BRIDGE_HOME;
+        else process.env.FAST_BROWSER_BRIDGE_HOME = inheritedBridge;
         await runner.helperCall('cleanup', work);
       }
     }

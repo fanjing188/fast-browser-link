@@ -18,6 +18,7 @@ from vault_private import VaultPrivateService  # noqa: E402
 from vault_adapter.adapter import VaultAdapter  # noqa: E402
 from vault_adapter.integration import NativeVaultPrivatePort  # noqa: E402
 from tests.support import temporary_bridge_home  # noqa: E402
+from client import socket_address  # noqa: E402
 
 
 class FakeDaemon(BridgeDaemon):
@@ -90,7 +91,9 @@ class VaultPrivateTests(unittest.TestCase):
 
     def test_fixture_uses_owned_tmpdir_and_bindable_private_socket(self):
         self.assertEqual(self.home.parent, Path(tempfile.gettempdir()).resolve())
-        self.assertLessEqual(len(str(self.service.socket_path).encode()), 103)
+        address = socket_address(self.service.socket_path)
+        self.assertEqual(Path(address).resolve(), self.service.socket_path)
+        self.assertLessEqual(len(address.encode()), 103)
         self.assertTrue(self.service.socket_path.is_socket())
 
     def test_secret_uses_private_socket_and_nonce_is_single_use(self):

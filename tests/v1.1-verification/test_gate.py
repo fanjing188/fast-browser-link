@@ -594,7 +594,7 @@ class GateNegativeControls(unittest.TestCase):
     def test_baseline_and_supplemental_step_counts_are_separate(self):
         # 中文注释：逐文件运行全部已审阅 Node 清单；唯一名称及固定命令形态防止合并或漏跑。
         steps = gate.matrix(Path("/scratch/source"), "/scratch/python")
-        self.assertEqual(len(steps), 174)
+        self.assertEqual(len(steps), 181)
         node_steps = [(name, command) for name, command, kind in steps if kind == "tap"]
         self.assertEqual(len(node_steps), 105)
         self.assertEqual(len({name for name, _command in node_steps}), 105)
@@ -622,6 +622,12 @@ class GateNegativeControls(unittest.TestCase):
                 gate.resolve_browser_use_cli_source(cli, override),
                 override.resolve(),
             )
+
+    def test_native_bridge_runners_are_all_explicitly_reviewed(self):
+        runners = gate.PYTHON_FILES["native-bridge/tests"]
+        discovered = {path.name for path in (gate.ROOT / "native-bridge/tests").glob("test_*.py")}
+        self.assertEqual(set(runners), discovered)
+        self.assertEqual(len(runners), len(set(runners)))
 
     def test_coverage_inventory_lists_unrun_files_without_marking_them_green(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -659,9 +665,9 @@ class GateNegativeControls(unittest.TestCase):
         # 中文注释：V1.3 新增受审阅的脚本 runner，保留显式清单与数量校验；1.8.5 后加入 version-set 回归。
         # 中文注释：1.11.1 登记 tests/v1.11.0 的定位恢复与动作后回读两个 Python runner，清单增加两项。
         # 中文注释：新增真实 Hermes 注册表兼容回归，保留显式数量与发现门禁。
-        self.assertEqual(len(steps), 54)
-        self.assertEqual(len(gate.REVIEWED_RUNNER_PATHS), 54)
-        self.assertEqual(len(set(gate.REVIEWED_RUNNER_PATHS)), 54)
+        self.assertEqual(len(steps), 55)
+        self.assertEqual(len(gate.REVIEWED_RUNNER_PATHS), 55)
+        self.assertEqual(len(set(gate.REVIEWED_RUNNER_PATHS)), 55)
         self.assertTrue(
             {
                 "tests/v1.11.0/test_recovery_protocol.py",
@@ -676,7 +682,7 @@ class GateNegativeControls(unittest.TestCase):
         # 中文注释：镜像 Node/Python 两个离线文件也纳入发现与固定清单核对。
         # 中文注释：新增自动更新固定 runner 后，审阅允许清单增加一项。
         # 中文注释：version-set 回归登记后允许清单再增加一项。
-        self.assertEqual(len(gate.known_v11_runner_paths()), 96)
+        self.assertEqual(len(gate.known_v11_runner_paths()), 97)
         self.assertIn("tests/v1.11.0/recovery.test.mjs", gate.known_v11_runner_paths())
         # 中文注释：1.5.1 桌面 API 与交互均登记，真实浏览器脚本不进入离线门禁。
         # 中文注释：后台审批 runner 登记后显式清单增加一项。

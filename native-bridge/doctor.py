@@ -37,7 +37,7 @@ def probe(home):
             return {"ok": False, "code": "token_invalid"}
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
             connection.settimeout(12)
-            connection.connect(str(data / "bridge.sock"))
+            connection.connect(_client.socket_address(data / "bridge.sock"))
             with connection.makefile("rb") as reader:
                 connection.sendall((json.dumps({"role": "client", "token": token}) + "\n").encode())
                 result = {}

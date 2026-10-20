@@ -17,6 +17,8 @@ Python standard-library daemon and Chromium Native Messaging host. Wire contract
 
 Runtime data lives in `$HERMES_HOME/plugin-data/fast-browser-link-native/` (mode `0700`); `bridge.sock`, `token`, `daemon.pid` and `tasks.json` are `0600`. The token never appears in a Native Messaging manifest.
 
+Unix socket addresses are limited to 103 encoded bytes. `client.socket_address()` keeps a fitting absolute address; otherwise it uses a fitting path relative to the caller's current directory, pointing to the same canonical socket. If neither fits, it refuses before connecting or binding. It does not change the process working directory, create aliases, relocate runtime data, or weaken authentication and permissions.
+
 ## Behavior worth knowing
 
 - Native host uses cancellable unbuffered pipe I/O and joins both forwarding threads before closing its socket reader. Bridge EOF, partial frames and a browser that stops draining output do not leave a buffered daemon thread alive at interpreter shutdown.

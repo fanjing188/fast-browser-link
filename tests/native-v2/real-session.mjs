@@ -30,15 +30,19 @@ const scratchRoot = (compactScratch) => {
   );
 };
 
+export function socketAddress(socketPath) {
+  if (Buffer.byteLength(socketPath) <= 103) return socketPath;
+  // 中文注释：helper 固定在仓库根目录启动；只缩短传给内核的地址，实际位置不变。
+  const relative = path.relative(root, socketPath);
+  if (Buffer.byteLength(relative) <= 103) return relative;
+  throw Error('TMPDIR is too long for a compact fixture bridge socket');
+}
+
 async function createCompactHome(scratch) {
-  // 中文注释：四位随机名直接位于 scratch 下，独占创建；真实绝对 socket 路径按字节检查。
+  // 中文注释：四位随机名直接位于 scratch 下，独占创建；检查实际传给内核的地址字节数。
   for (let attempt = 0; attempt < 100; attempt++) {
     const home = path.join(scratch, randomBytes(2).toString('hex'));
-    if (
-      Buffer.byteLength(path.join(home, 'plugin-data/fast-browser-link-native/bridge.sock')) > 103
-    ) {
-      throw Error('TMPDIR is too long for a compact fixture bridge socket');
-    }
+    socketAddress(path.join(home, 'plugin-data/fast-browser-link-native/bridge.sock'));
     try {
       await mkdir(home, { mode: 0o700 });
       return home;

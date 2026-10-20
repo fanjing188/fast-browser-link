@@ -19,7 +19,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "native-bridge"))
 from tests.support import stop_fixture_daemon  # noqa: E402
-from client import _probe  # noqa: E402
+from client import _probe, socket_address  # noqa: E402
 
 
 def load(path: Path, name: str):
@@ -64,8 +64,7 @@ def compact_home(work: Path, home: Path):
         or not home.is_dir()
     ):
         raise ValueError("compact Hermes home must be a private scratch sibling")
-    if len(os.fsencode(home / "plugin-data/fast-browser-link-native/bridge.sock")) > 103:
-        raise ValueError("compact fixture socket path is too long")
+    socket_address(home / "plugin-data/fast-browser-link-native/bridge.sock")
     return home
 
 
@@ -176,6 +175,8 @@ def rpc(work: Path, session: str, suffix: str, args: dict):
         sys.path.remove(str(hermes_source))
     tools = load(value["plugin"] / "native_tools.py", "native_v2_tools_" + uuid.uuid4().hex)
     profile = tools.runtime_module().NativeProfileRuntime(value["hermes"], value["plugin"])
+    if profile.bridge_home != value["hermes"]:
+        raise RuntimeError("fixture RPC resolved a non-fixture bridge home")
     diagnostic = {}
     original_call = profile.call
 
@@ -225,6 +226,8 @@ def batch(work: Path, session: str, kind: str, args: dict):
         sys.path.remove(str(hermes_source))
     tools = load(value["plugin"] / "native_tools.py", "native_v2_batch_tools_" + uuid.uuid4().hex)
     profile = tools.runtime_module().NativeProfileRuntime(value["hermes"], value["plugin"])
+    if profile.bridge_home != value["hermes"]:
+        raise RuntimeError("fixture batch resolved a non-fixture bridge home")
     diagnostic = {}
     original_call = profile.call
 
@@ -786,6 +789,9 @@ def kill_fixture_daemon(work: Path):
 def main():
     mode = sys.argv[1]
     work = Path(sys.argv[2])
+    if mode not in {"stage", "stage_package"}:
+        # 中文注释：Hermes 导入可能加载宿主环境；显式锁定隔离桥接根，绝不借用个人 daemon。
+        os.environ["FAST_BROWSER_BRIDGE_HOME"] = str(paths(work)["hermes"])
     if mode == "stage":
         result = stage(
             work, json.loads(sys.argv[3]), Path(sys.argv[4]) if len(sys.argv) > 4 else None

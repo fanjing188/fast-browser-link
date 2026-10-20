@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[2]
 BRIDGE_DIR = ROOT / "native-bridge"
 sys.path.insert(0, str(BRIDGE_DIR))
 
-from client import BridgeClient, BridgeError, ensure_service  # noqa: E402
+from client import BridgeClient, BridgeError, ensure_service, socket_address  # noqa: E402
 from tests.support import stop_fixture_daemon, temporary_bridge_home  # noqa: E402
 
 ORIGIN = "https://example.test"
@@ -38,7 +38,7 @@ class DroppingResponseProxy:
         self.dropped_request_count = 0
         self.dropped_response = None
         self._listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        self._listener.bind(self.proxy_socket)
+        self._listener.bind(socket_address(self.proxy_socket))
         os.chmod(self.proxy_socket, 0o600)
         self._listener.listen(8)
         self._listener.settimeout(0.1)
@@ -59,7 +59,7 @@ class DroppingResponseProxy:
     def _serve_connection(self, client):
         backend = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         try:
-            backend.connect(self.daemon_socket)
+            backend.connect(socket_address(self.daemon_socket))
             client_reader = client.makefile("rb")
             backend_reader = backend.makefile("rb")
             hello = self._line(client_reader)
@@ -126,9 +126,9 @@ class ProductionConcurrencyTests(unittest.TestCase):
     def setUp(self):
         self.home = self.enterContext(temporary_bridge_home())
         self.socket_path = self.home / "plugin-data" / "fast-browser-link-native" / "bridge.sock"
-        self.assertLess(
-            len(os.fsencode(self.socket_path)), 104, "fixture AF_UNIX path exceeds macOS limit"
-        )
+        address = socket_address(self.socket_path)
+        self.assertEqual(Path(address).resolve(), self.socket_path)
+        self.assertLessEqual(len(os.fsencode(address)), 103)
         self.peer = None
         self.reader_thread = None
         self.messages = queue.Queue()
@@ -498,7 +498,15 @@ class ProductionConcurrencyTests(unittest.TestCase):
             with self.assertRaises(BridgeError) as caught:
                 running.result(timeout=5)
             self.assertEqual(caught.exception.code, "permission_denied")
-            self.assertEqual(caught.exception.data, {"outcomeUnknown": False, "retryable": False})
+            self.assertEqual(
+                caught.exception.data,
+                {
+                    "outcomeUnknown": False,
+                    "retryable": False,
+                    "stage": "authority",
+                    "reasonCode": "stale_generation",
+                },
+            )
             terminal = self.control("wait_stopped", instanceId=INSTANCE["chrome"])
             self.assertEqual(
                 (terminal["state"], terminal["cleanupState"]), ("cancelled", "succeeded")
@@ -607,7 +615,15 @@ class ProductionConcurrencyTests(unittest.TestCase):
             with self.assertRaises(BridgeError) as caught:
                 inflight.result(timeout=5)
             self.assertEqual(caught.exception.code, "permission_denied")
-            self.assertEqual(caught.exception.data, {"outcomeUnknown": False, "retryable": False})
+            self.assertEqual(
+                caught.exception.data,
+                {
+                    "outcomeUnknown": False,
+                    "retryable": False,
+                    "stage": "authority",
+                    "reasonCode": "stale_generation",
+                },
+            )
 
         for task in unaffected:
             current = self.rpc("shared.get", {"owner": task["owner"], "taskId": task["id"]})
@@ -666,9 +682,9 @@ class ProductionConcurrencyTests(unittest.TestCase):
         )
         os.chmod(proxy_data / "token", 0o600)
         proxy_socket = proxy_data / "bridge.sock"
-        self.assertLess(
-            len(os.fsencode(proxy_socket)), 104, "proxy AF_UNIX path exceeds macOS limit"
-        )
+        address = socket_address(proxy_socket)
+        self.assertEqual(Path(address).resolve(), proxy_socket)
+        self.assertLessEqual(len(os.fsencode(address)), 103)
         self.proxy = DroppingResponseProxy(self.socket_path, proxy_socket, request_id)
 
         lost_client = BridgeClient(proxy_home, timeout=8)

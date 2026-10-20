@@ -14,6 +14,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "native-bridge"))
 from tests.support import temporary_bridge_home
+from client import socket_address
 
 
 def load(path):
@@ -51,9 +52,10 @@ class DoctorTests(unittest.TestCase):
         with temporary_bridge_home() as home:
             self.assertEqual(home.parent, Path(tempfile.gettempdir()).resolve())
             self.assertEqual(home.stat().st_mode & 0o777, 0o700)
-            self.assertLessEqual(
-                len(os.fsencode(home / "plugin-data/fast-browser-link-native/bridge.sock")), 103
-            )
+            socket_path = home / "plugin-data/fast-browser-link-native/bridge.sock"
+            address = socket_address(socket_path)
+            self.assertEqual(Path(address).resolve(), socket_path)
+            self.assertLessEqual(len(os.fsencode(address)), 103)
         self.assertFalse(home.exists())
 
     def test_single_probe_timeout_is_unconfirmed_with_next_action(self):
@@ -132,7 +134,7 @@ class DoctorTests(unittest.TestCase):
             (data / "token").write_text("synthetic")
             (data / "token").chmod(0o600)
             server = socket.socket(socket.AF_UNIX)
-            server.bind(str(data / "bridge.sock"))
+            server.bind(socket_address(data / "bridge.sock"))
             server.listen()
             seen = []
 
@@ -236,15 +238,14 @@ class SharedRuntimeTests(unittest.TestCase):
                         (json.dumps({"id": request["id"], "result": result}) + "\n").encode()
                     )
 
-        with temporary_bridge_home() as base:
+        with temporary_bridge_home() as base, temporary_bridge_home() as standalone:
             hermes = base / "h"
-            standalone = base / "s"
             data = standalone / "plugin-data/fast-browser-link-native"
             data.mkdir(parents=True)
             (data / "token").write_text("synthetic")
             (data / "token").chmod(0o600)
             with socketserver.ThreadingUnixStreamServer(
-                str(data / "bridge.sock"), Handler
+                socket_address(data / "bridge.sock"), Handler
             ) as server:
                 worker = threading.Thread(target=server.serve_forever)
                 worker.start()

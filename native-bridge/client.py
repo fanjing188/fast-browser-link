@@ -23,6 +23,18 @@ _STARTUP_LOCKS_GUARD = threading.Lock()
 _STARTUP_LOCKS: dict[Path, threading.Lock] = {}
 
 
+def socket_address(path: os.PathLike[str] | str) -> str:
+    """保留实际 socket 位置；仅在绝对地址超限时使用同一目标的短相对地址。"""
+    address = os.fspath(path)
+    if len(os.fsencode(address)) <= 103:
+        return address
+    # 中文注释：不切换进程 cwd、不建短链接，也不把 socket 移到系统临时目录。
+    relative = os.path.relpath(address)
+    if len(os.fsencode(relative)) <= 103:
+        return relative
+    raise OSError(errno.ENAMETOOLONG, "Unix socket address exceeds 103 bytes")
+
+
 def resolve_bridge_home(home):
     """中文注释：RPC 与只读诊断共用显式桥接根/profile 解析；不按在线状态猜测其他安装。"""
     home = Path(home).expanduser().resolve()
@@ -408,7 +420,7 @@ class BridgeClient:
             sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             try:
                 sock.settimeout(self.timeout)
-                sock.connect(str(data_dir / "bridge.sock"))
+                sock.connect(socket_address(data_dir / "bridge.sock"))
                 sock.sendall(_encode_line({"role": "client", "token": token}))
                 self._socket = sock
                 self._reader = sock.makefile("rb")
@@ -634,7 +646,7 @@ def _probe(home: Path) -> bool:
     sock.settimeout(0.25)
     reader = None
     try:
-        sock.connect(str(data_dir / "bridge.sock"))
+        sock.connect(socket_address(data_dir / "bridge.sock"))
         reader = sock.makefile("rb")
         sock.sendall(_encode_line({"role": "client", "token": token}))
         request_id = uuid.uuid4().hex

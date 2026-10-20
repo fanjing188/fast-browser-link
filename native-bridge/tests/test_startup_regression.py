@@ -14,7 +14,7 @@ import unittest
 
 
 BRIDGE_DIR = Path(__file__).resolve().parents[1]
-SCRATCH = Path.home() / ".hermes" / "cache" / "scratch"
+SCRATCH = Path(tempfile.gettempdir()).resolve()
 sys.path.insert(0, str(BRIDGE_DIR))
 
 from client import BridgeError, ensure_service  # noqa: E402

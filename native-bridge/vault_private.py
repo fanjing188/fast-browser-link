@@ -14,6 +14,7 @@ import stat
 import threading
 import time
 from typing import Any
+from client import socket_address
 
 
 MAX_FRAME = 384 * 1024
@@ -48,7 +49,7 @@ def remove_stale_socket(path, refusal: str) -> None:
     probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     probe.settimeout(0.2)
     try:
-        probe.connect(str(path))
+        probe.connect(socket_address(path))
     except (ConnectionRefusedError, FileNotFoundError):
         pass
     except OSError:
@@ -103,7 +104,7 @@ class VaultPrivateService:
                 os.fsync(handle.fileno())
         server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         try:
-            server.bind(str(self.socket_path))
+            server.bind(socket_address(self.socket_path))
         except OSError:
             server.close()
             raise

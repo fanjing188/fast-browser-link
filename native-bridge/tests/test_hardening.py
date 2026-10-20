@@ -14,18 +14,18 @@ from concurrent.futures import ThreadPoolExecutor
 BRIDGE_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BRIDGE_DIR))
 
-from client import BridgeClient, BridgeError, _read_token  # noqa: E402
+from client import BridgeClient, BridgeError, _read_token, socket_address  # noqa: E402
 from daemon import BridgeDaemon, ProtocolError  # noqa: E402
-from tests.support import ExtensionPeer, stop_fixture_daemon  # noqa: E402
+from tests.support import ExtensionPeer, stop_fixture_daemon, temporary_bridge_home  # noqa: E402
 
 
 class HardeningTests(unittest.TestCase):
     def setUp(self):
-        # Use the canonical short path for both daemon bind and peer connect.
-        scratch = (Path.home() / ".hermes" / "cache" / "scratch").resolve()
+        # 中文注释：数据与 socket 均留在指定 scratch，socket home 复用短随机隔离布局。
+        scratch = Path(tempfile.gettempdir()).resolve()
         scratch.mkdir(parents=True, exist_ok=True)
         self.temp = tempfile.TemporaryDirectory(prefix="bh-", dir=scratch)
-        self.home = Path(self.temp.name) / "h"
+        self.home = self.enterContext(temporary_bridge_home())
         self.clients = []
         self.peers = []
         self.direct_daemons = []
@@ -91,11 +91,13 @@ class HardeningTests(unittest.TestCase):
     def test_fixture_socket_path_is_canonical_and_fits_macos_uds(self):
         socket_path = self.home / "plugin-data" / "fast-browser-link-native" / "bridge.sock"
         self.assertEqual(socket_path, socket_path.resolve())
-        self.assertLessEqual(len(os.fsencode(socket_path)), 103)
+        address = socket_address(socket_path)
+        self.assertEqual(Path(address).resolve(), socket_path)
+        self.assertLessEqual(len(os.fsencode(address)), 103)
 
     def test_request_history_is_bounded_and_survives_restart_without_results(self):
         daemon, task = self.direct_daemon(request_history_limit=2)
-        daemon._extension_call = lambda _extension, _method, params: {
+        daemon._extension_call = lambda extension, method, params, timeout=15.0: {
             "secretPageText": "must-not-persist",
             "requestId": params["requestId"],
         }
@@ -256,7 +258,7 @@ class HardeningTests(unittest.TestCase):
         self.assertEqual(approved["state"], "ready")
         self.assertEqual(approved["generation"], 2)
 
-    def test_unauthorized_navigation_releases_every_task_lease(self):
+    def test_cross_site_navigation_keeps_leases_but_invalid_url_releases_them(self):
         extension = self.extension("navigation-revoke", "chrome")
         client = self.client()
         origins = ["https://example.com"]
@@ -273,7 +275,7 @@ class HardeningTests(unittest.TestCase):
             "extension.approve",
             {"taskId": first["id"], "tabIds": [41, 42], "allowedOrigins": origins},
         )
-        denied = extension.request(
+        navigated = extension.request(
             "extension.tab_event",
             {
                 "taskId": first["id"],
@@ -285,7 +287,22 @@ class HardeningTests(unittest.TestCase):
                 "url": "https://not-approved.example/path",
             },
         )
-        self.assertEqual(denied["error"]["code"], "origin_denied")
+        # 中文注释：当前契约允许租约页跨站；非 HTTP(S) 导航仍撤销整个任务的租约。
+        self.assertEqual(navigated["state"], "ready")
+        self.assertEqual(navigated["tabIds"], [41, 42])
+        self.assertIn("https://not-approved.example", navigated["allowedOrigins"])
+        denied = extension.request(
+            "extension.tab_event",
+            {
+                "taskId": first["id"],
+                "tabId": 41,
+                "generation": first["generation"],
+                "event": "navigated",
+                "documentGeneration": 3,
+                "url": "javascript:void(0)",
+            },
+        )
+        self.assertEqual(denied["error"]["code"], "invalid_url")
         revoked = client.call("shared.get", {"owner": "owner-nav-a", "taskId": first["id"]})
         self.assertEqual(revoked["state"], "needs_sync")
         self.assertEqual(revoked["tabIds"], [])
@@ -388,7 +405,7 @@ class HardeningTests(unittest.TestCase):
             self.assertEqual((data_dir / "daemon.pid").read_text(encoding="ascii"), str(second.pid))
             probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             try:
-                probe.connect(str(data_dir / "bridge.sock"))
+                probe.connect(socket_address(data_dir / "bridge.sock"))
             finally:
                 probe.close()
         finally:

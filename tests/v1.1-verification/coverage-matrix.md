@@ -90,6 +90,7 @@
 - `tests/v1.1-build-closure/build-closure.test.mjs`
 - `tests/v1.1-compatibility/test_inventory_official_browser.py`
 - `tests/v1.1-concurrency/test_production_concurrency.py`
+- `tests/v1.1-concurrency/test_fixture_isolation.py`：继承桥接根污染负控、核心入口子进程固定隔离根及私有夹具 RPC；不查询个人 daemon。
 - `tests/v1.1-diagnostics/test_doctor_protocol.py`
 - `tests/v1.1-diagnostics/test_task_diagnostics.py`
 - `tests/v1.1-diagnostics-api/test_diagnostics_api.py`

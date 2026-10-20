@@ -14,7 +14,7 @@ import daemon as module
 class ConnectionGenerationTests(unittest.TestCase):
     def test_overlapping_hello_cannot_send_an_old_reply_to_the_new_socket(self):
         # 中文注释：在登记旧连接后精确暂停，使新连接在旧 hello 回执前完成替换。
-        with tempfile.TemporaryDirectory(prefix="hello-", dir="/private/tmp") as directory:
+        with tempfile.TemporaryDirectory(prefix="hello-") as directory:
             daemon = module.BridgeDaemon(Path(directory))
             daemon._persist_tasks = lambda: None
             daemon._notify_tasks_changed = lambda _: None
@@ -112,7 +112,7 @@ class ConnectionGenerationTests(unittest.TestCase):
                     conn.close()
 
     def test_replaced_socket_cannot_dispatch_an_already_read_revocation(self):
-        with tempfile.TemporaryDirectory(prefix="connection-", dir="/private/tmp") as directory:
+        with tempfile.TemporaryDirectory(prefix="connection-") as directory:
             daemon = module.BridgeDaemon(Path(directory))
             daemon._persist_tasks = lambda: None
             daemon._notify_tasks_changed = lambda _: None

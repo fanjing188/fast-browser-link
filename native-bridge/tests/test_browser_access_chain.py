@@ -3,7 +3,6 @@
 import os
 from pathlib import Path
 import sys
-import tempfile
 import time
 import unittest
 from concurrent.futures import ThreadPoolExecutor
@@ -12,16 +11,12 @@ BRIDGE_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BRIDGE_DIR))
 sys.path.insert(0, str(BRIDGE_DIR / "tests"))
 from client import BridgeClient, ensure_service  # noqa: E402
-from support import ExtensionPeer, stop_fixture_daemon  # noqa: E402
+from support import ExtensionPeer, stop_fixture_daemon, temporary_bridge_home  # noqa: E402
 
 
 class BrowserAccessChainTests(unittest.TestCase):
     def setUp(self):
-        scratch = Path.home() / ".hermes" / "cache" / "scratch"
-        scratch.mkdir(parents=True, exist_ok=True)
-        self.temp = tempfile.TemporaryDirectory(prefix="ba-", dir=scratch)
-        self.addCleanup(self.temp.cleanup)
-        self.home = Path(self.temp.name) / "h"
+        self.home = self.enterContext(temporary_bridge_home())
         ensure_service(self.home)
         self.addCleanup(self.stop_service)
         self.client = BridgeClient(self.home, timeout=5)

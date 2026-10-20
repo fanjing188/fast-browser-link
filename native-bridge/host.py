@@ -15,7 +15,7 @@ import threading
 import time
 from typing import Any, ContextManager, Dict
 
-from client import ensure_service, maintenance_active
+from client import ensure_service, maintenance_active, socket_address
 
 _MAX_MESSAGE = 1024 * 1024
 
@@ -185,7 +185,7 @@ def main() -> int:
     ensure_service(home)
     token = (data_dir / "token").read_text(encoding="ascii").strip()
     bridge = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    bridge.connect(str(data_dir / "bridge.sock"))
+    bridge.connect(socket_address(data_dir / "bridge.sock"))
     bridge_reader = bridge.makefile("rb")
     socket_write_lock = threading.RLock()
     native_write_lock = threading.Lock()

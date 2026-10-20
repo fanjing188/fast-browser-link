@@ -15,13 +15,13 @@ from concurrent.futures import ThreadPoolExecutor
 BRIDGE_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BRIDGE_DIR))
 
-from client import BridgeClient, BridgeError, ensure_service  # noqa: E402
+from client import BridgeClient, BridgeError, ensure_service, socket_address  # noqa: E402
 from tests.support import stop_fixture_daemon, temporary_bridge_home  # noqa: E402
 
 
 class BridgeIntegrationTests(unittest.TestCase):
     def setUp(self):
-        scratch = Path.home() / ".hermes" / "cache" / "scratch"
+        scratch = Path(tempfile.gettempdir())
         scratch.mkdir(parents=True, exist_ok=True)
         self.temp = tempfile.TemporaryDirectory(prefix="bn-", dir=scratch)
         self.bridge_home = temporary_bridge_home()
@@ -278,7 +278,7 @@ class BridgeIntegrationTests(unittest.TestCase):
         (data_dir / "token").chmod(0o600)
         socket_path = data_dir / "bridge.sock"
         server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        server.bind(str(socket_path))
+        server.bind(socket_address(socket_path))
         server.listen(8)
         server.settimeout(0.2)
         seen_requests = []

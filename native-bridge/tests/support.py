@@ -13,7 +13,7 @@ import uuid
 from typing import Any
 from unittest.mock import patch
 
-from client import _probe, ensure_service
+from client import _probe, ensure_service, socket_address
 
 MAX_LINE = 1024 * 1024
 
@@ -24,8 +24,7 @@ def temporary_bridge_home():
     root = Path(tempfile.gettempdir()).resolve()
     for _ in range(100):
         home = root / uuid.uuid4().hex[:3]
-        if len(os.fsencode(home / "plugin-data/fast-browser-link-native/bridge.sock")) > 103:
-            raise ValueError("TMPDIR is too long for a fixture bridge socket")
+        socket_address(home / "plugin-data/fast-browser-link-native/bridge.sock")
         try:
             home.mkdir(mode=0o700)
             break
@@ -92,7 +91,7 @@ class ExtensionPeer:
         data_dir = self.home / "plugin-data" / "fast-browser-link-native"
         self.socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.socket.settimeout(3)
-        self.socket.connect(str(data_dir / "bridge.sock"))
+        self.socket.connect(socket_address(data_dir / "bridge.sock"))
         self.reader = self.socket.makefile("rb")
         self.write_lock = threading.Lock()
         token = (data_dir / "token").read_text().strip()

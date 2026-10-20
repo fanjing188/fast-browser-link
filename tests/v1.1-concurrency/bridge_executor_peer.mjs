@@ -4,6 +4,7 @@ import { createInterface } from 'node:readline';
 import { Bridge, BrowserConsent } from '../../native-extension/bridge.mjs';
 import { Executor } from '../../native-extension/core.mjs';
 import { workspaceFixture } from '../native-extension/workspace-fixture.mjs';
+import { socketAddress } from '../native-v2/real-session.mjs';
 
 // OAuth regression mode connects production daemon transport to real Executor/Bridge.
 // Chrome APIs below are synthetic; no personal browser or installation is used.
@@ -372,7 +373,7 @@ function makeSession({ instanceId, browser }) {
 
 async function connectSession(session) {
   if (session.bridge) throw new Error('peer already connected');
-  const socket = createConnection(socketPath);
+  const socket = createConnection(socketAddress(socketPath));
   await new Promise((resolve, reject) => {
     socket.once('connect', resolve);
     socket.once('error', reject);

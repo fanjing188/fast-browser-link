@@ -8,6 +8,7 @@ from pathlib import Path
 import socket
 import stat
 import uuid
+from client import socket_address
 
 
 MAX_FRAME = 384 * 1024
@@ -46,7 +47,7 @@ def call(home: Path, operation: str, params: dict) -> dict:
     # 中文注释：单次连接只发送一条请求；写入后超时或断线均按结果未知处理。
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
         conn.settimeout(20)
-        conn.connect(str(data_dir / "vault.sock"))
+        conn.connect(socket_address(data_dir / "vault.sock"))
         with conn.makefile("rb") as reader:
             conn.sendall(
                 json.dumps({"role": "vault-client", "token": token}, separators=(",", ":")).encode(

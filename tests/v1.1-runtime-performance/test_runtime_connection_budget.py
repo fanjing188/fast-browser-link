@@ -16,10 +16,12 @@ import threading
 import time
 import types
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "native-bridge"))
 from tests.support import temporary_bridge_home
+from client import socket_address
 
 SCRATCH = Path(os.environ.get("TMPDIR", tempfile.gettempdir())).resolve()
 CLIENT_PATH = ROOT / "native-bridge" / "client.py"
@@ -140,7 +142,7 @@ class FaultingScratchBridge:
         os.chmod(token_path, 0o600)
         self.socket_path = self.data_dir / "bridge.sock"
         self.server = socket_module.socket(socket_module.AF_UNIX, socket_module.SOCK_STREAM)
-        self.server.bind(str(self.socket_path))
+        self.server.bind(socket_address(self.socket_path))
         self.server.listen(8)
         self.server.settimeout(0.1)
         self.stop_event = threading.Event()
@@ -211,7 +213,7 @@ class ScratchExtensionPeer:
         data_dir = self.home / "plugin-data" / "fast-browser-link-native"
         self.socket = socket_module.socket(socket_module.AF_UNIX, socket_module.SOCK_STREAM)
         self.socket.settimeout(3)
-        self.socket.connect(str(data_dir / "bridge.sock"))
+        self.socket.connect(socket_address(data_dir / "bridge.sock"))
         self.reader = self.socket.makefile("rb")
         self.write_lock = threading.Lock()
         self._send(
@@ -285,8 +287,11 @@ class NativeRuntimeConnectionBudgetTests(unittest.TestCase):
         SCRATCH.mkdir(parents=True, exist_ok=True)
         self.home = self.enterContext(temporary_bridge_home())
         socket_path = self.home / "plugin-data" / "fast-browser-link-native" / "bridge.sock"
-        self.assertLessEqual(len(os.fsencode(socket_path)), 103, str(socket_path))
+        address = socket_address(socket_path)
+        self.assertEqual(Path(address).resolve(), socket_path)
+        self.assertLessEqual(len(os.fsencode(address)), 103, address)
 
+        self.enterContext(patch.dict(os.environ, {"FAST_BROWSER_BRIDGE_HOME": str(self.home)}))
         self.runtime_module = _load_native_runtime()
         self.client_module = self.runtime_module.load_module(
             CLIENT_PATH, "runtime_performance_real_client_"
@@ -308,6 +313,7 @@ class NativeRuntimeConnectionBudgetTests(unittest.TestCase):
         self.client_module._spawn_detached = spawn_owned
         self.monitor = ConnectionMonitor(self.client_module)
         self.profile = self.runtime_module.NativeProfileRuntime(self.home, ROOT / "executor-plugin")
+        self.assertEqual(self.profile.bridge_home, self.home)
         self.profile._client_module = self.client_module
 
     def tearDown(self):

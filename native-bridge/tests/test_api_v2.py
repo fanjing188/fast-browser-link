@@ -15,7 +15,7 @@ import daemon
 
 
 class ApiTests(unittest.TestCase):
-    def test_page_request_uses_smart_approval_or_full_and_clears_private_memory(self):
+    def test_approved_page_request_runs_directly_and_clears_private_memory(self):
         import tempfile
 
         with tempfile.TemporaryDirectory(dir=Path.home() / ".hermes/cache/scratch") as home:
@@ -45,20 +45,17 @@ class ApiTests(unittest.TestCase):
                 "url": "https://example.com/api",
                 "fields": ["count"],
             }
-            self.assertEqual(d._run_task(p)["status"], "approval_required")
-            # 中文注释：切到全部访问后同源页面请求直接执行，不要求另一个 API 开关。
-            d._dispatch_extension(
-                "fixture",
-                "extension.mode",
-                {
-                    "taskId": t["id"],
-                    "generation": t["generation"],
-                    "modeGeneration": t["modeGeneration"],
-                    "mode": "full",
-                },
-            )
+            # 中文注释：已批准的租约页直接执行；本例核凭据只在受控调用期间保留于内存。
+            self.assertEqual(d.tasks[t["id"]]["state"], "ready")
             private = secrets.token_hex(24)
-            d._extension_call = lambda *a, **kw: {"cookies": [{"name": "sid", "value": private}]}
+            calls = []
+
+            def extension_call(extension, method, params, timeout=15.0):
+                calls.append(method)
+                self.assertEqual(method, "browser.credentials")
+                return {"cookies": [{"name": "sid", "value": private}]}
+
+            d._extension_call = extension_call
 
             class Local:
                 def request(self, url, method, fields, cookies, valid, track):
@@ -70,6 +67,7 @@ class ApiTests(unittest.TestCase):
             d.api_client = Local()
             p["requestId"] = "second"
             self.assertEqual(d._run_task(p), {"status": 200, "data": {"count": 3}})
+            self.assertEqual(calls, ["browser.credentials"])
             self.assertFalse(d.api_credentials)
             # 中文注释：任务快照按短窗口异步落盘；显式刷新后再检查文件中没有凭据。
             d._flush_tasks()

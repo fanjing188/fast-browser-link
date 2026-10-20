@@ -33,7 +33,8 @@ const policyAction=action=>({'images':'snapshot','console':'snapshot','dialog':'
 import {Interactions,createChromeDebuggerAdapter} from '../browser-interactions/index.mjs';
 import {DownloadTracker} from './downloads.mjs';
 import {PageRuntime} from './page-runtime.mjs';
-import {observePage} from './page-observation.mjs';
+import {observePage,createPageWait} from './page-observation.mjs';
+const PAGE_WAIT=Symbol('page wait');
 import {PageObservers,listImages} from './page-observers.mjs';
 import {VaultController} from './vault.mjs';
 import {OAuthPopups,isOAuthProvider,OAUTH_PROVIDERS} from './oauth-popups.mjs';
@@ -1595,9 +1596,21 @@ export class Executor {
   const t=this.tasks.get(p.taskId),sourceTabId=t?.popupReturns?.get(p.tabId);
   const returned=Number.isInteger(sourceTabId)&&SITE_READ_ACTIONS.has(p.action)&&!this.leases.has(p.tabId)&&this.leases.get(sourceTabId)===t?.id;
   if(returned)p={...p,tabId:sourceTabId};
+  let wait;
+  if(p.action==='page.observe'&&p.options?.wait){
+   this.check(t,p);
+   const modeGeneration=t.policy.modeGeneration;
+   wait=createPageWait(p.options,()=>{
+    this.check(t,p);
+    if(t.paused||t.pauseRequested)throw Object.assign(Error('task paused'),{preDispatch:true});
+    if(this.leases.get(p.tabId)!==t.id)throw Error('tab lease denied');
+    if(t.policy.modeGeneration!==modeGeneration)throw Error('mode revoked');
+   },t.waitReads??=new Set());
+   p={...p,[PAGE_WAIT]:wait,[OBSERVATION_FENCE]:wait.guard};
+  }
   const priorRefs=new Set(this.tasks.get(p.taskId)?.popupDiscoveries?.keys()||[]);
   return observeAction(async()=>{
-   let result=await this.executeAction(p);
+   let result=await (wait?wait.run(()=>this.executeAction(p)):this.executeAction(p));
    if(returned){
     result={...result,popupClosed:{returnedTo:sourceTabId}};
    }
@@ -1605,6 +1618,7 @@ export class Executor {
   },this.diagnostics,{component:'mv3_background',event_type:'action_state',action:p.action,request_id:crypto.randomUUID(),connection_id:this.diagnosticConnection});
  }
  async executeAction(p) {
+  p[OBSERVATION_FENCE]?.();
   assertV1Action(p.action);
   const t=this.tasks.get(p.taskId);this.check(t,p);
   if(t.paused||t.pauseRequested)throw Object.assign(Error('task paused'),{code:'TASK_PAUSED',preDispatch:true});
@@ -1634,6 +1648,7 @@ export class Executor {
    const perform=async()=>{
     let failure=null;
     try{
+     p[OBSERVATION_FENCE]?.();
      if(t.paused||t.pauseRequested)throw Object.assign(Error('task paused'),{code:'TASK_PAUSED',preDispatch:true});
      this.phase(p,'queue_wait',queuedAt);
 
@@ -1649,7 +1664,7 @@ export class Executor {
     finally{
      // 中文注释：在同页锁内等待收回放行；异常、超时和撤销都执行，且不把撤销后的页面重新授权。
      const entry=t.overlays?.get(p.tabId);
-     if(entry&&!this.observers.pending(t,p.tabId)){
+     if(entry&&!p[PAGE_WAIT]&&!this.observers.pending(t,p.tabId)){
       const current=!t.revoked&&!t.paused&&!t.pauseRequested&&t.policy.modeGeneration===modeGeneration&&this.leases.get(p.tabId)===t.id;
       const op=current&&failure?.message!=='INTERACTION_HIGHLIGHT_FRAME_TIMEOUT'?'update':'reblock';
       const extra={expectedActionToken:p[OVERLAY_ACTION_TOKEN],...(op==='update'?{update:{state:failure&&!failure.preDispatch?'unknown':'waiting'}}:{})};
@@ -2305,9 +2320,10 @@ export class Executor {
    if(!t.overlays)t.overlays=new Map();t.overlays.set(tabId,entry);
    // 中文注释：历史属于任务而非文档；刷新和新登录窗口立即恢复最近步骤。
    if(t.recentSteps)await this.overlayCall(tabId,entry,'log',{steps:t.recentSteps});
+   guard();
    if(this.onOverlayReady)void Promise.resolve(this.onOverlayReady(t)).catch(()=>{});
    return entry;
-  }catch(error){this.api.debugger.onEvent.removeListener(entry.listener);await this.overlayCall(tabId,entry,'remove').catch(()=>{});throw error;}
+  }catch(error){if(t.overlays?.get(tabId)===entry)t.overlays.delete(tabId);this.api.debugger.onEvent.removeListener(entry.listener);await this.overlayCall(tabId,entry,'remove').catch(()=>{});throw error;}
  }
  semanticBinding(t,tabId,loaderId,frameId=null) {
   const key=frameId?`${tabId}:${frameId}`:tabId;
@@ -2371,6 +2387,7 @@ export class Executor {
   return meta;
  }
  async checkedFrameTree(target,t,guard,allFrames=false) {
+  guard();
   const tree=await this.api.debugger.sendCommand(target,'Page.getFrameTree',{});guard();
   const urls=allFrames?this.frameUrls(tree.frameTree):[tree.frameTree?.frame?.url];
   try{this.allowed(t,urls[0]);if(allFrames)for(const url of urls.slice(1))this.allowed(t,url);}catch(e){throw Error(allFrames?'frame origin denied':e.message);}
@@ -2389,6 +2406,7 @@ export class Executor {
   }return result.result?.value;
  }
  async callSemanticWorld(target,frameId,op,payload,guard,executionContextId=null) {
+  guard();
   // 中文注释：无障碍补充是显式局部读取；先绑定 DOM 引用，再获取名称，最终重新过滤和预算。
   if(op==='semantic_snapshot'&&payload.options?.accessibility===true){
    const {accessibility:_accessibility,...options}=payload.options;
@@ -2438,6 +2456,7 @@ export class Executor {
    // 中文注释：只恢复 CDP 明确报告的不存在上下文；执行中销毁或连接错误可能已写入，绝不重试。
    let details;try{details=JSON.parse(error.message);}catch{throw error;}
    if(details.code!==-32000||details.message!=='Cannot find context with specified id')throw error;
+   guard();
    this.semanticWorlds.delete(key());world=await createWorld();guard();await install();result=await invoke();
   }
   guard();
@@ -2578,6 +2597,7 @@ export class Executor {
   return values;
  }
  async performRecovering(t,p){
+  if(p[PAGE_WAIT])return p[PAGE_WAIT].poll((action,options)=>this.performSettled(t,{...p,action,options}));
   const after=actionObservationOptions(p),modeGeneration=t.policy.modeGeneration;
   const finish=async result=>after?{...result,observation:result?.recovery?.observation||await this.observeAfterAction(t,p,after,modeGeneration)}:result;
   const queryRead=p.action==='semantic_snapshot'&&!!(p.options?.query||p.options?.roles?.length)&&!p.options?.cursor;
@@ -2693,8 +2713,9 @@ export class Executor {
   finally{clearTimeout(timer);expired=true;}
  }
  async performSettled(t,p){
+  p[OBSERVATION_FENCE]?.();
   if(!SETTLING_READ_ACTIONS.has(p.action))return this.perform(t,p);
-  const guard=()=>{this.check(t,p);if(this.leases.get(p.tabId)!==t.id)throw Error('tab lease denied');};
+  const guard=()=>{p[OBSERVATION_FENCE]?.();this.check(t,p);if(this.leases.get(p.tabId)!==t.id)throw Error('tab lease denied');};
   await this.timed(p,'settle_wait',()=>this.domReadyTab(t,p,guard));
   try{return await this.perform(t,p);}
   catch(error){
@@ -2887,6 +2908,7 @@ export class Executor {
   }
  }
  async perform(t,p) {
+  p[OBSERVATION_FENCE]?.();
   if(t.silent&&this.resourceGuard){const url=p.url||p.params?.url;if(typeof url==='string'&&/^https?:/.test(url))await this.resourceGuard(t,url);}
   if(t.silent&&p.action==='cdp.send'&&SILENT_WINDOW_METHODS.has(p.method))throw Error('SILENT_TASK_FOCUS_DENIED');
   await this.assertSilentTarget(t,p.tabId);
@@ -3041,9 +3063,10 @@ export class Executor {
   // 中文注释：组合读取只遍历同源可访问 DOM；无关跨源框架不能阻止顶层解析，框架动作仍单独授权。
   const initialTree=await this.checkedFrameTree(target,t,guard,false);
   const overlay=await this.timed(p,'overlay',()=>this.ensureOverlay(t,p.tabId,target,guard,false,initialTree,initialTab));
+  guard();
   if(overlay)void this.syncPreveil(t,p.tabId).catch(()=>{});
   if(['click','fill','ref_click','ref_fill','ref_press','ref_set_checked','ref_select_option','interaction.click','interaction.drag_coordinates','interaction.drag_elements'].includes(p.action)&&!overlay)throw Error('INTERACTION_HIGHLIGHT_UNAVAILABLE');
-  if(overlay){
+  if(overlay&&!p[PAGE_WAIT]){
    const scoped=await this.overlayCall(p.tabId,overlay,'scope-running',{taskId:t.id,generation:t.generation,documentId:overlay.documentId,modeGeneration,actionToken:p[OVERLAY_ACTION_TOKEN],update:{state:'running',step:p.action}});
    guard();if(scoped!==true)throw Error('overlay scope stale');
   }

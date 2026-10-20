@@ -2,6 +2,7 @@
 
 import importlib.util
 import json
+import os
 from pathlib import Path
 import sqlite3
 import sys
@@ -45,6 +46,10 @@ class Context:
 
 class AutocloseTests(unittest.TestCase):
     def setUp(self):
+        self.environment = patch.dict(os.environ)
+        self.environment.start()
+        self.addCleanup(self.environment.stop)
+        os.environ.pop("FAST_BROWSER_BRIDGE_HOME", None)
         self.tmp = tempfile.TemporaryDirectory(prefix="ac-")
         self.addCleanup(self.tmp.cleanup)
         self.home = Path(self.tmp.name).resolve()
@@ -169,6 +174,39 @@ class AutocloseTests(unittest.TestCase):
         self.assertTrue(self.releases[0]["closeAgentTabs"])
         self.assertNotIn(("fixture", 7), self.daemon.tab_leases)
 
+    def test_completed_unknown_release_is_not_replayed_or_reported_successful(self):
+        self.daemon.idle_close_seconds = 0
+        calls = []
+
+        def lost_reply(extension, method, params, **_):
+            calls.append(method)
+            raise ProtocolError("extension_timeout", "synthetic lost release reply")
+
+        self.daemon._extension_call = lost_reply
+        self.completed()
+        self.completed()
+        self.ctx.hooks["on_session_finalize"](session_id="session-a")
+        self.assertEqual(calls, ["browser.release"])
+        self.assertEqual(self.task["state"], "closed")
+        self.assertEqual(self.task["cleanupState"], "unknown")
+        self.assertNotIn("autoClosePending", self.task)
+
+    def test_late_release_from_old_connection_stays_unknown(self):
+        self.daemon.idle_close_seconds = 0
+        original = self.daemon._extension_call
+
+        def late_reply(extension, method, params, **kwargs):
+            self.daemon.extensions["fixture"] = {**self.ext}
+            return original(extension, method, params, **kwargs)
+
+        self.daemon._extension_call = late_reply
+        self.completed()
+        self.assertEqual(len(self.releases), 1)
+        self.assertEqual(self.task["cleanupState"], "unknown")
+        self.assertEqual(self.task["cleanupReason"], "browser_offline")
+        self.completed()
+        self.assertEqual(len(self.releases), 1)
+
     def test_grace_activity_cancels_deadline_and_survives_reload(self):
         self.completed()
         self.now += 590
@@ -253,6 +291,43 @@ class AutocloseTests(unittest.TestCase):
             self.ctx.hooks["agent_loop_stopped"](session_key="session-a")
         self.assertEqual(self.task["state"], "ready")
         self.assertEqual(self.releases, [])
+
+    def test_stop_routes_stay_in_named_profile_with_separate_bridge_home(self):
+        # 中文注释：共享 bridge 不拥有宿主路由；同名 key 不能串到根目录或另一个 profile。
+        profile = self.home / "hermes/profiles/work"
+        profile.mkdir(parents=True)
+        bridge = self.home / "standalone"
+        bridge.mkdir()
+        key = "agent:work:route"
+        for home, session in [(profile, "session-a"), (bridge, "other-session")]:
+            with sqlite3.connect(home / "state.db") as db:
+                db.execute(
+                    "CREATE TABLE gateway_routing (scope TEXT, session_key TEXT, entry_json TEXT)"
+                )
+                db.execute(
+                    "INSERT INTO gateway_routing VALUES (?, ?, ?)",
+                    (
+                        str(home / "sessions"),
+                        key,
+                        json.dumps({"session_key": key, "session_id": session}),
+                    ),
+                )
+        with patch.dict(os.environ, {"FAST_BROWSER_BRIDGE_HOME": str(bridge)}):
+            runtime = TOOLS.runtime_module().NativeProfileRuntime(
+                profile, ROOT / "executor-plugin", bridge_client=self.runtime._client
+            )
+        runtime.authority._remember_owner(runtime.authority.owner_for_session("session-a"))
+        runtime.authority._remember_owner(runtime.authority.owner_for_session("other-session"))
+        self.assertEqual(runtime.bridge_home, bridge)
+        ctx = Context()
+        TOOLS.register_native_context(ctx, runtime)
+        self.addCleanup(runtime.close)
+        own = self.new_task(runtime.authority.owner_for_session("session-a"))
+        foreign = self.new_task(runtime.authority.owner_for_session("other-session"))
+        ctx.hooks["agent_loop_stopped"](session_key=key, platform="tui")
+        self.assertEqual(own["state"], "closed")
+        self.assertEqual(foreign["state"], "ready")
+        self.assertEqual(self.task["state"], "ready")
 
     def test_wrong_scope_foreign_owner_or_corrupt_route_closes_nothing(self):
         with sqlite3.connect(self.home / "state.db") as db:

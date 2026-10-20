@@ -70,6 +70,28 @@ class Runtime:
 
 
 class Round1fTests(unittest.TestCase):
+    def test_wait_uses_one_cross_layer_request_and_an_absolute_deadline(self):
+        receipt = {
+            "satisfied": True,
+            "timed_out": False,
+            "last_observation": {"count": 1},
+            "coverage": {"complete": True},
+            "reason": None,
+        }
+
+        def call(op, args):
+            self.assertEqual((op, args[0]), ("run", "page.observe"))
+            self.assertIn("wait", args[1]["options"])
+            self.assertEqual(args[1]["options"]["wait"]["deadlineMs"], 103000)
+            return receipt
+
+        with (
+            patch.object(CHILD.time, "time", return_value=100),
+            patch.object(CHILD, "_call", side_effect=call) as rpc,
+        ):
+            self.assertIs(CHILD.wait_for("#result", timeout=3), receipt)
+        self.assertEqual(rpc.call_count, 1)
+
     def test_run_fields_are_fixed_and_values_are_not_echoed(self):
         runtime = Runtime()
         handler = TOOLS.make_tool_handler("fast_browser_run", runtime)
@@ -88,77 +110,34 @@ class Round1fTests(unittest.TestCase):
         self.assertNotIn("new_tab", schema["if"]["properties"]["action"]["enum"])
         self.assertEqual(schema["then"]["required"], ["tab_id"])
 
-    def test_wait_reduces_full_parse_and_preserves_hit_and_deadline(self):
-        # 中文注释：虚拟单调时钟与旧 0.25 秒轮询使用同一命中时间，测试不靠真实 sleep。
-        for hit, state in [
-            (2, "present"),
-            (None, "present"),
-            (0, "stable"),
-            (0, "text"),
-            (0, "count"),
-            (None, "absent"),
-        ]:
-            clock, calls = [0.0], []
+    def test_wait_passes_conditions_and_tab_without_child_polling(self):
+        # 中文注释：命中/稳定/覆盖/文档变化的算法断言迁到 round1f.test.mjs，Python 只守传参边界。
+        for state in ("present", "absent", "stable", "text", "count"):
+            with patch.object(CHILD, "_call", return_value={"satisfied": True}) as call:
+                self.assertTrue(
+                    CHILD.wait_for("#result", state=state, text="ready", count=1, tab=7)[
+                        "satisfied"
+                    ]
+                )
+            self.assertEqual(call.call_count, 1)
+            options = call.call_args.args[1][1]["options"]
+            self.assertEqual(options["selector"], "#result")
+            self.assertEqual(options["wait"]["state"], state)
+            self.assertEqual(options["wait"].get("text"), "ready" if state == "text" else None)
+            self.assertEqual(options["wait"].get("count"), 1 if state == "count" else None)
 
-            def call(op, args):
-                self.assertEqual((op, args[0]), ("run", "page.observe"))
-                calls.append(clock[0])
-                present = hit is not None and clock[0] >= hit
-                return {
-                    "count": int(present),
-                    "text": ["ready"] if present else [],
-                    "complete": True,
-                    "binding": BINDING,
-                }
-
-            def extract(*a, **k):
-                present = hit is not None and clock[0] >= hit
-                return {
-                    "binding": BINDING,
-                    "records": [{"fields": {"text": "ready"}}] if present else [],
-                    "coverage": {"complete": True},
-                }
-
-            with (
-                patch.object(CHILD.time, "monotonic", side_effect=lambda: clock[0]),
-                patch.object(
-                    CHILD.time,
-                    "sleep",
-                    side_effect=lambda duration: clock.__setitem__(0, clock[0] + duration),
-                ),
-                patch.object(CHILD, "_call", side_effect=call),
-                patch.object(CHILD, "extract", side_effect=extract) as parse,
-            ):
-                result = CHILD.wait_for("#result", state=state, timeout=3, text="ready", count=1)
-            self.assertEqual(parse.call_count, 1)
-            expected = hit is not None or state == "absent"
-            self.assertEqual(result["satisfied"], expected)
-            if hit == 2:
-                self.assertEqual(clock[0], 2)  # 中文注释：与旧轮询命中时间相同。
-                self.assertGreaterEqual(1 - parse.call_count / len(calls), 0.70)
-            if hit is None and state == "present":
-                self.assertEqual(clock[0], 3)
-                self.assertTrue(result["timed_out"])
-                self.assertGreaterEqual(1 - parse.call_count / len(calls), 0.70)
-
-    def test_wait_partial_or_document_change_cannot_satisfy(self):
-        observation = {"count": 1, "text": ["ready"], "complete": True, "binding": BINDING}
-        for page in [
-            {"binding": BINDING, "records": [], "coverage": {"complete": False}},
-            {
-                "binding": {**BINDING, "documentId": "new"},
-                "records": [{"fields": {"text": "ready"}}],
-                "coverage": {"complete": True},
-            },
-        ]:
-            with (
-                patch.object(CHILD, "_call", return_value=observation),
-                patch.object(CHILD, "extract", return_value=page),
-            ):
-                result = CHILD.wait_for("#result")
-                self.assertFalse(result["satisfied"])
-                self.assertFalse(result["timed_out"])
-                self.assertEqual(result["reason"], "condition_changed")
+    def test_wait_preserves_negative_extension_receipt_without_reread(self):
+        for reason in ("deadline_reached", "condition_changed"):
+            receipt = {
+                "satisfied": False,
+                "timed_out": reason == "deadline_reached",
+                "reason": reason,
+                "coverage": {"complete": False},
+                "last_observation": None,
+            }
+            with patch.object(CHILD, "_call", return_value=receipt) as call:
+                self.assertIs(CHILD.wait_for("#result"), receipt)
+            self.assertEqual(call.call_count, 1)
 
     def test_wait_timeout_limits_are_explicit_and_safe(self):
         for timeout in [65, 90, 120, float("nan"), 0, True]:
@@ -245,7 +224,8 @@ class Round1fTests(unittest.TestCase):
             }
         )
         summary = OPEN._summary(runtime, "o", "t", 7, "c", "https://fixture.test/")
-        self.assertIn("summary_items", summary["truncation"])
+        self.assertNotIn("summary_items", summary["truncation"])
+        self.assertEqual(summary["items"], runtime.summary["items"])
         self.assertIn("snapshot_coverage", summary["truncation"])
         self.assertEqual(summary["nextCursor"], "cursor")
         self.assertIn("续读", summary["read_hint"])
@@ -313,6 +293,182 @@ class Round1fTests(unittest.TestCase):
 
         self.assertIn("page.observe", SITE_READ_ACTIONS)
         self.assertNotIn("page.observe", SCRIPT_ACTIONS)
+
+    def test_wait_wire_accepts_bounded_condition_and_rejects_scope_expansion(self):
+        import time
+
+        wait = {
+            "state": "text",
+            "text": "ready",
+            "intervalMs": 50,
+            "deadlineMs": time.time() * 1000 + 59000,
+        }
+        params = {
+            "owner": "o",
+            "taskId": "t",
+            "requestId": "r",
+            "action": "page.observe",
+            "tabId": 7,
+            "options": {"selector": "#result", "wait": wait},
+        }
+        BridgeDaemon._validate_run_params("page.observe", params)
+        for change in [
+            {"deadlineMs": float("nan")},
+            {"deadlineMs": time.time() * 1000 + 90000},
+            {"intervalMs": True},
+            {"intervalMs": 0},
+            {"state": "click"},
+            {"count": -1, "state": "count"},
+            {"text": "x" * 12001},
+            {"script": "PRIVATE"},
+        ]:
+            with self.subTest(change=list(change)), self.assertRaises(ProtocolError):
+                BridgeDaemon._validate_run_params(
+                    "page.observe",
+                    {**params, "options": {"selector": "#result", "wait": {**wait, **change}}},
+                )
+
+    def test_wait_client_deadline_covers_condition_then_resets(self):
+        import time
+
+        class Client:
+            def __init__(self, _home, timeout):
+                self.timeout = timeout
+
+            def call(self, *args):
+                return self.timeout
+
+            def close(self):
+                pass
+
+        with tempfile.TemporaryDirectory() as home:
+            runtime = TOOLS.runtime_module().NativeProfileRuntime(home, ROOT / "executor-plugin")
+            runtime._client_module = types.SimpleNamespace(BridgeClient=Client)
+            try:
+                timeout = runtime.call(
+                    "shared.run",
+                    {
+                        "action": "page.observe",
+                        "options": {"wait": {"deadlineMs": time.time() * 1000 + 59000}},
+                    },
+                )
+                self.assertGreater(timeout, 60)
+                self.assertLessEqual(timeout, 65)
+                self.assertEqual(runtime.call("health", {}), 35)
+            finally:
+                runtime.close()
+
+    def test_wait_daemon_queue_expires_without_browser_dispatch(self):
+        import time
+        import threading
+
+        with tempfile.TemporaryDirectory() as home:
+            daemon = BridgeDaemon(Path(home))
+            daemon._prepare_data_dir()
+            daemon._notify_tasks_changed = lambda _: None
+            daemon.extensions["i"] = {"instanceId": "i", "browser": "edge", "version": "2.2.0"}
+            created = daemon._dispatch_client(
+                "shared.create",
+                {
+                    "owner": "o",
+                    "instanceId": "i",
+                    "title": "queue",
+                    "allowedOrigins": ["https://fixture.test"],
+                },
+            )
+            task = daemon.tasks[created["id"]]
+            task.update(state="ready", tabIds=[7], agentTabIds=[7])
+            daemon.tab_leases[("i", 7)] = task["id"]
+            done, errors, calls = threading.Event(), [], []
+            daemon._extension_call = lambda *a, **k: calls.append(a) or {"count": 0}
+            params = {
+                "owner": "o",
+                "taskId": task["id"],
+                "tabId": 7,
+                "requestId": "wait",
+                "action": "page.observe",
+                "options": {
+                    "selector": "#result",
+                    "wait": {
+                        "state": "present",
+                        "intervalMs": 50,
+                        "deadlineMs": time.time() * 1000 + 50,
+                    },
+                },
+            }
+
+            def work():
+                try:
+                    daemon._dispatch_client("shared.run", params)
+                except ProtocolError as exc:
+                    errors.append(exc)
+                finally:
+                    done.set()
+
+            with daemon.task_locks[task["id"]]:
+                worker = threading.Thread(target=work)
+                worker.start()
+                expired = done.wait(0.5)
+            worker.join(2)
+            self.assertTrue(expired, "daemon queue ignored the wait deadline")
+            self.assertEqual(calls, [])
+            self.assertEqual(errors[0].code, "element_timeout")
+            self.assertFalse(errors[0].data["outcomeUnknown"])
+
+    def test_wait_expiring_during_journal_flush_never_dispatches_to_browser(self):
+        import time
+
+        with tempfile.TemporaryDirectory() as home:
+            daemon = BridgeDaemon(Path(home))
+            daemon._prepare_data_dir()
+            daemon._notify_tasks_changed = lambda _: None
+            daemon.extensions["i"] = {"instanceId": "i", "browser": "edge", "version": "2.2.0"}
+            task = daemon._create_task(
+                {
+                    "owner": "o",
+                    "instanceId": "i",
+                    "title": "journal",
+                    "allowedOrigins": ["https://fixture.test"],
+                }
+            )
+            task = daemon.tasks[task["id"]]
+            task.update(state="ready", tabIds=[7], agentTabIds=[7])
+            daemon.tab_leases[("i", 7)] = task["id"]
+            calls = []
+            daemon._extension_call = lambda *a, **k: calls.append(a) or {
+                "origin": "https://fixture.test",
+                "satisfied": True,
+            }
+            params = {
+                "owner": "o",
+                "taskId": task["id"],
+                "tabId": 7,
+                "requestId": "wait-journal",
+                "action": "page.observe",
+                "options": {
+                    "selector": "#result",
+                    "wait": {
+                        "state": "present",
+                        "intervalMs": 50,
+                        "deadlineMs": time.time() * 1000 + 50,
+                    },
+                },
+            }
+            persist = daemon._persist_dispatched
+            with patch("daemon.time.time", return_value=time.time()) as clock:
+
+                def flush(*args):
+                    persist(*args)
+                    clock.return_value += 1
+
+                with patch.object(daemon, "_persist_dispatched", side_effect=flush):
+                    with self.assertRaises(ProtocolError) as caught:
+                        daemon._dispatch_client("shared.run", params)
+            self.assertEqual(caught.exception.code, "element_timeout")
+            self.assertFalse(caught.exception.data["outcomeUnknown"])
+            # 中文注释：准入前的来源复核仍须执行，落盘跨截止后不得再发 browser.execute。
+            self.assertEqual([call[1] for call in calls], ["browser.read_origin"])
+            daemon._flush_tasks()
 
     def test_script_output_clip_reports_category_and_workspace_continuation(self):
         class Launch:

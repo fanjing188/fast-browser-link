@@ -11,11 +11,13 @@ from __future__ import annotations
 
 import hashlib
 import importlib.util
+from contextlib import closing
 import secrets
 import json
 import sqlite3
 import sys
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -150,10 +152,11 @@ class NativeProfileRuntime:
         # 中文注释：只读宿主当前路由表，精确匹配 scope/key；不把路由 key 当作会话 ID，也不猜旧 JSON 镜像。
         if not isinstance(session_key, str) or not session_key.strip():
             return None
-        path = self.bridge_home / "state.db"
-        scope = str((self.bridge_home / "sessions").resolve())
+        # 中文注释：bridge 可跨 profile 共享，但路由只属于发出停止信号的宿主 profile。
+        path = self.hermes_home / "state.db"
+        scope = str((self.hermes_home / "sessions").resolve())
         try:
-            with sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=1) as db:
+            with closing(sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=1)) as db:
                 rows = db.execute(
                     "SELECT entry_json FROM gateway_routing WHERE scope = ? AND session_key = ?",
                     (scope, session_key),
@@ -191,6 +194,11 @@ class NativeProfileRuntime:
                 # 中文注释：JS 的 daemon 期限为 75 秒，客户端再留 5 秒回执时间，避免长脚本被提前报未知。
                 if method == "shared.run" and params.get("action") == "js.evaluate":
                     timeout = 80.0
+                if method == "shared.run" and params.get("action") == "page.observe":
+                    wait = params.get("options", {}).get("wait")
+                    if isinstance(wait, dict) and type(wait.get("deadlineMs")) in (int, float):
+                        # 中文注释：沿用原截止，仅为 daemon 回执留五秒；普通调用随后恢复 35 秒。
+                        timeout = min(65.0, max(1.0, wait["deadlineMs"] / 1000 - time.time()) + 5)
                 if (
                     method == "shared.run"
                     and params.get("action") == "cdp.send"

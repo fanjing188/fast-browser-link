@@ -17,6 +17,8 @@ HERMES_SOURCE="$PWD/.ci/hermes" HERMES_PYTHON="$PWD/.ci/hermes/.venv/bin/python"
 
 ## 1.4.4 bounded waits
 
+当前源码：`wait_for` 通过一次 `page.observe` 请求在扩展内轮询，命中后一次局部解析；绝对截止覆盖 daemon 排队、扩展排队、探测及最终解析，落盘跨截止或迟到回执不得续派解析。每任务仅准入一个等待流程，排队前占位，超时后仍保留到队列与在途读取真实结算；这只终止本地等待，不证明底层 CDP 已取消。Python 条件传参断言在 `test_round1f.py`，五种条件、覆盖/文档终验、挂起/迟到/容量、接管/撤销断言在 `round1f.test.mjs`。开页摘要保留引擎 1400 预算整页及原游标，不再二次字符裁剪；片段按 `read_options` 原样续读，不重取首段。
+
 离线测试 `tests/v1.4.4/test_round1f.py` 与 `round1f.test.mjs` 已纳入 npm 门禁；`replay-check.py` 只使用动作/错误码白名单和合成契约。
 
 ```bash

@@ -495,9 +495,9 @@ def wait_for(
         or not math.isfinite(interval)
     ):
         invalid.append("interval")
-    if state == "text" and not isinstance(text, str):
+    if state == "text" and (not isinstance(text, str) or len(text) > 12000):
         invalid.append("text")
-    if state == "count" and (type(count) is not int or count < 0):
+    if state == "count" and (type(count) is not int or not 0 <= count <= 2**53 - 1):
         invalid.append("count")
     if invalid:
         # 中文注释：不回显值；超限明确报告原因和固定上限。
@@ -509,66 +509,26 @@ def wait_for(
             code="invalid_fields",
             outcome_unknown=False,
         )
-    deadline = time.monotonic() + timeout
-    last = None
-    stable = 0
-
-    def matches(observed, stable_count):
-        return observed["complete"] and (
-            state == "present"
-            and observed["count"] > 0
-            or state == "absent"
-            and observed["count"] == 0
-            or state == "count"
-            and observed["count"] == count
-            or state == "text"
-            and any(text in (value or "") for value in observed["text"])
-            or state == "stable"
-            and observed["count"] > 0
-            and stable_count >= 2
-        )
-
-    while True:
-        try:
-            observed = _call("run", ["page.observe", {"options": {"selector": selector}}])
-        except BrowserError as exc:
-            if exc.code != "invalid_params":
-                raise
-            raise BrowserError(
-                "invalid_fields: selector; invalid_selector",
-                code="invalid_fields",
-                outcome_unknown=False,
-            ) from None
-        stable = stable + 1 if observed == last else 0
-        satisfied = matches(observed, stable)
-        if satisfied or time.monotonic() >= deadline:
-            # 中文注释：命中或截止后仅做一次完整解析；页面变化或不完整时不报告满足，不继续重复等待。
-            page = extract(
-                {"record": selector, "fields": {"text": {"selector": ":scope", "type": "text"}}},
-                budget=12000,
-            )
-            rows = page.get("records", [])
-            final = {
-                "count": len(rows),
-                "text": [row["fields"].get("text") for row in rows],
-                "complete": page.get("coverage", {}).get("complete") is True,
-            }
-            same_document = page.get("binding") == observed.get("binding")
-            stable_count = stable if final == {key: observed[key] for key in final} else 0
-            satisfied = bool(same_document and matches(final, stable_count))
-            return {
-                "satisfied": satisfied,
-                "timed_out": not satisfied and time.monotonic() >= deadline,
-                "last_observation": final,
-                "coverage": page.get("coverage"),
-                "reason": None
-                if satisfied
-                else "deadline_reached"
-                if time.monotonic() >= deadline
-                else "condition_changed",
-            }
-        last = observed
-        time.sleep(min(interval, max(0, deadline - time.monotonic())))
+    # 中文注释：轮询留在扩展内；从脚本发起时起算同一个截止时间，排队和最终局部解析不重置预算。
+    wait = {
+        "state": state,
+        "deadlineMs": time.time() * 1000 + timeout * 1000,
+        "intervalMs": interval * 1000,
+    }
+    if state == "text":
+        wait["text"] = text
+    if state == "count":
+        wait["count"] = count
+    try:
+        return _call("run", ["page.observe", {"options": {"selector": selector, "wait": wait}}])
+    except BrowserError as exc:
+        if exc.code != "invalid_params":
+            raise
+        raise BrowserError(
+            "invalid_fields: selector; invalid_selector",
+            code="invalid_fields",
+            outcome_unknown=False,
+        ) from None
 
 
 class _ExpectedEvent:

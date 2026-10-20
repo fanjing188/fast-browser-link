@@ -173,13 +173,20 @@ class JournalTests(unittest.TestCase):
         lock, waiting, main = threading.RLock(), threading.Event(), threading.current_thread()
 
         class Gate:
-            def __enter__(self):
+            def acquire(self, *args, **kwargs):
                 if threading.current_thread() is not main:
                     waiting.set()
-                lock.acquire()
+                return lock.acquire(*args, **kwargs)
+
+            def release(self):
+                lock.release()
+
+            def __enter__(self):
+                self.acquire()
+                return self
 
             def __exit__(self, *_):
-                lock.release()
+                self.release()
 
         self.bridge.task_locks["task"] = Gate()
         sent = []

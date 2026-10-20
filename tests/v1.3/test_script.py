@@ -51,24 +51,29 @@ class ScriptTests(unittest.TestCase):
             self.assertEqual(payload["expression"], "(x)=>x")
             self.assertEqual(payload["arguments"], value)
 
-    def test_wait_uses_reads_only_and_does_not_accept_partial_absence(self):
+    def test_wait_for_absence_preserves_observer_receipt_without_extra_reads(self):
         child = load("child")
-        # 中文注释：新版先做轻量观察，截止时完整解析；不完整范围不能证明不存在。
-        with (
-            patch.object(child, "_call", return_value={"count": 0, "text": [], "complete": False}),
-            patch.object(
-                child, "extract", return_value={"records": [], "coverage": {"complete": False}}
-            ),
-        ):
-            result = child.wait_for(".missing", state="absent", timeout=0.01, interval=0.05)
-            self.assertFalse(result["satisfied"])
-        with (
-            patch.object(child, "_call", return_value={"count": 0, "text": [], "complete": True}),
-            patch.object(
-                child, "extract", return_value={"records": [], "coverage": {"complete": True}}
-            ),
-        ):
-            self.assertTrue(child.wait_for(".missing", state="absent")["satisfied"])
+        # 中文注释：覆盖判定已迁入扩展，Python 原样保留回执；算法回归在 round1f.test.mjs。
+        for complete in (False, True):
+            receipt = {
+                "satisfied": complete,
+                "timed_out": not complete,
+                "last_observation": {"count": 0, "text": []},
+                "coverage": {"complete": complete},
+            }
+            with (
+                self.subTest(complete=complete),
+                patch.object(child, "_call", return_value=receipt) as call,
+                patch.object(child, "extract") as extract,
+            ):
+                result = child.wait_for(".missing", state="absent", timeout=0.01, interval=0.05)
+                self.assertIs(result, receipt)
+                self.assertEqual(result["satisfied"], complete)
+                self.assertEqual(call.call_count, 1)
+                self.assertEqual(call.call_args.args[0], "run")
+                self.assertEqual(call.call_args.args[1][0], "page.observe")
+                self.assertEqual(call.call_args.args[1][1]["options"]["wait"]["state"], "absent")
+                extract.assert_not_called()
 
     def test_response_listener_precedes_action_and_reports_ambiguous_receipts(self):
         child = load("child")

@@ -42,6 +42,31 @@ def _outside_task_lock(lock):
         lock.acquire()
 
 
+@contextmanager
+def _task_admission(lock, deadline_ms=None):
+    # 中文注释：只读等待的期限从脚本发起起算；排队过期不进入浏览器，也不重置后续预算。
+    def expired():
+        return deadline_ms is not None and time.time() * 1000 >= deadline_ms
+
+    acquired = (
+        lock.acquire()
+        if deadline_ms is None
+        else lock.acquire(timeout=max(0, deadline_ms / 1000 - time.time()))
+    )
+    if not acquired:
+        raise ProtocolError(
+            "element_timeout", "page wait deadline reached", {"outcomeUnknown": False}
+        )
+    try:
+        if expired():
+            raise ProtocolError(
+                "element_timeout", "page wait deadline reached", {"outcomeUnknown": False}
+            )
+        yield
+    finally:
+        lock.release()
+
+
 # Source checkout and installed host-bin use explicit local package roots.
 _diag_source = Path(__file__).resolve().parent.parent / "browser-diagnostics" / "python"
 if _diag_source.is_dir():
@@ -2234,7 +2259,9 @@ class BridgeDaemon:
         request_hash = _sha256(request_id)
         payload_hash = _sha256(fingerprint)
         lock = self.task_locks[task_id]
-        with lock:
+        wait = params.get("options", {}).get("wait") if action == "page.observe" else None
+        wait_deadline = wait["deadlineMs"] if wait else None
+        with _task_admission(lock, wait_deadline):
             with self.state_lock:
                 self._expire_approvals_locked()
                 # 中文注释：撤权后连缓存结果也不再返回，旧任务不会因重新开启访问而复活。
@@ -2778,6 +2805,12 @@ class BridgeDaemon:
             try:
                 with _outside_task_lock(lock):
                     self._persist_dispatched(task, entry)
+                    if wait_deadline is not None and time.time() * 1000 >= wait_deadline:
+                        raise ProtocolError(
+                            "element_timeout",
+                            "page wait deadline reached",
+                            {"outcomeUnknown": False},
+                        )
                     execution_stage = "browser_execute"
                     if action in {"gateway.authorize", "vault.authorize"}:
                         # 中文注释：批准 browser_exec 或 Vault 私有写入后只签发一次资格，不派发页面动作。
@@ -2814,6 +2847,9 @@ class BridgeDaemon:
                                 }
                                 else 15.0
                             )
+                            if wait_deadline is not None:
+                                # 中文注释：只给回执传播留一秒；浏览器内的绝对截止不延长。
+                                timeout = max(0.1, wait_deadline / 1000 - time.time()) + 1
                             result = self._extension_call(
                                 extension, "browser.execute", command_params, timeout=timeout
                             )
@@ -4325,11 +4361,37 @@ class BridgeDaemon:
             options = params.get("options")
             if (
                 not isinstance(options, dict)
-                or set(options) != {"selector"}
+                or "selector" not in options
+                or set(options) - {"selector", "wait"}
                 or not isinstance(options["selector"], str)
                 or not 1 <= len(options["selector"]) <= 512
             ):
                 raise ProtocolError("invalid_params", "invalid page observation options")
+            if "wait" in options:
+                wait = options["wait"]
+                if (
+                    not isinstance(wait, dict)
+                    or set(wait) - {"state", "text", "count", "deadlineMs", "intervalMs"}
+                    or wait.get("state") not in ("present", "absent", "text", "count", "stable")
+                    or type(wait.get("deadlineMs")) not in (int, float)
+                    or not math.isfinite(wait["deadlineMs"])
+                    or not 0 < wait["deadlineMs"] <= time.time() * 1000 + 60000
+                    or type(wait.get("intervalMs")) not in (int, float)
+                    or not math.isfinite(wait["intervalMs"])
+                    or not 50 <= wait["intervalMs"] <= 2000
+                    or (
+                        wait["state"] == "text"
+                        and (not isinstance(wait.get("text"), str) or len(wait["text"]) > 12000)
+                    )
+                    or (
+                        wait["state"] == "count"
+                        and (
+                            type(wait.get("count")) is not int
+                            or not 0 <= wait["count"] <= 2**53 - 1
+                        )
+                    )
+                ):
+                    raise ProtocolError("invalid_params", "invalid page wait options")
         if action == "page.parse":
             options = params.get("options", {})
             if (

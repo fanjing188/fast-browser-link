@@ -29,6 +29,8 @@ with (
 ) as scratch:
     # 中文注释：复用已审阅的显式用例清单，避免通配符启动真实浏览器测试。
     env = {**os.environ, "TMPDIR": str(Path(scratch).resolve()), "PYTHONDONTWRITEBYTECODE": "1"}
+    # 中文注释：缺少局部夹具绑定时宁可失败，也不能继承个人浏览器的桥接路径。
+    env["FAST_BROWSER_BRIDGE_HOME"] = str(Path(env["TMPDIR"]) / "offline-unused-bridge")
     # 中文注释：显式指定优先；其次用 Hermes 自带 venv（夹具会导入 hermes_cli，其依赖只装在 venv 里）；最后才用当前解释器。
     _hermes_venv = Path.home() / ".hermes/hermes-agent/venv/bin/python"
     env.setdefault("HERMES_PYTHON", str(_hermes_venv) if _hermes_venv.is_file() else sys.executable)

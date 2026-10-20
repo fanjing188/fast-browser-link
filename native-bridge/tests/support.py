@@ -11,6 +11,7 @@ import threading
 import time
 import uuid
 from typing import Any
+from unittest.mock import patch
 
 from client import _probe, ensure_service
 
@@ -33,7 +34,9 @@ def temporary_bridge_home():
     else:
         raise RuntimeError("could not allocate a private fixture home")
     try:
-        yield home
+        # 中文注释：宿主加载默认配置前固定桥接根，继承的个人连接路径不能逃逸夹具。
+        with patch.dict(os.environ, {"FAST_BROWSER_BRIDGE_HOME": str(home)}):
+            yield home
     finally:
         shutil.rmtree(home)
 

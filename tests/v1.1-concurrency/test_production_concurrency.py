@@ -291,6 +291,7 @@ class ProductionConcurrencyTests(unittest.TestCase):
         finally:
             sys.path.remove(str(plugin))
         profile = native_runtime.NativeProfileRuntime(self.home, plugin)
+        self.assertEqual(profile.bridge_home, self.home, "运行时必须仍绑定本轮隔离 daemon")
         script = native_runtime.load_module(plugin / "script_lane/host_bridge.py", "audit_script_")
         integration = native_runtime.load_module(
             plugin / "single_tool_adapter/integration.py", "audit_binding_"

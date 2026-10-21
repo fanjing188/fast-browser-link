@@ -50,8 +50,14 @@ def assert_first_empty_inference(case, entries):
             inference.append((text, payload))
     case.assertEqual(len(inference), 1)
     text, payload = inference[0]
-    case.assertEqual(payload["statuses"], {})
-    case.assertEqual(payload["suggestions"], [])
+    case.assertTrue(all(value == "pending" for value in payload["statuses"].values()))
+    case.assertTrue(
+        all(
+            row["action"] == "assist.task" and not row["params"]["materials"]
+            for row in payload["suggestions"]
+        )
+    )
+    case.assertEqual(len(payload["statuses"]), len(payload["suggestions"]))
     case.assertEqual(payload["page"], {**R20B_OBSERVATION["page"], "truncated": False})
     sent = next(
         row
@@ -197,7 +203,15 @@ class Replay(unittest.TestCase):
         state = self.request("extension.copilot.state", {})
         self.assertTrue(state["enabled"])
         self.assertTrue(state["ready"])
-        self.assertEqual(state["suggestions"], [])
+        # 中文注释：空模型建议仍可保留本地有证据的采集入口，不能自动读页或执行。
+        self.assertTrue(
+            all(
+                row.get("capture_required")
+                and row["recommendation_state"]
+                == ("ready" if row["action"] == "native.tool" else "needs_parameters")
+                for row in state["suggestions"]
+            )
+        )
         logs = self.request("extension.copilot.logs_read", {})["entries"]
         receipt = next(
             row for row in logs if row["event"] == "inference_return" and "added" in row["details"]
@@ -481,7 +495,11 @@ class Local(unittest.TestCase):
                 ],
             },
         )
-        row = next(iter(self.app._state("fixture")["suggestions"].values()))
+        row = next(
+            row
+            for row in self.app._state("fixture")["suggestions"].values()
+            if row["action"] == "general.task" and row["params"].get("task") == "fixture"
+        )
         self.app.request("fixture", "execute", {"id": row["id"]})
         wait(lambda: row["status"] in {"completed", "failed"})
         self.assertEqual(row["status"], "completed", row)
@@ -564,7 +582,15 @@ class Local(unittest.TestCase):
         state = self.app.view("fixture")
         self.assertTrue(state["enabled"])
         self.assertTrue(state["ready"])
-        self.assertEqual(state["suggestions"], [])
+        # 中文注释：空模型建议仍可保留本地有证据的采集入口，不能自动读页或执行。
+        self.assertTrue(
+            all(
+                row.get("capture_required")
+                and row["recommendation_state"]
+                == ("ready" if row["action"] == "native.tool" else "needs_parameters")
+                for row in state["suggestions"]
+            )
+        )
         entries = self.app.journal.view("fixture")["entries"]
         receipt = next(
             row

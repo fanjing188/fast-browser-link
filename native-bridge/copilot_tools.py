@@ -97,13 +97,8 @@ class ToolSupport:
             )
 
     def _limit_suggestions(self, instance):
-        from copilot_follow import limit_pending
-
-        state = self._state(instance)
-        kept = limit_pending(state["suggestions"])
-        for key in state["suggestions"].keys() - kept.keys():
-            self._emit(instance, "remove", id=key)
-        state["suggestions"] = kept
+        # 中文注释：候选与排序字段同步发布，避免下一次view才补派生状态或替换执行对象。
+        self.workbench.refresh(instance)
 
     def _initialize_tools(self):
         from copilot import private_write, validate
@@ -149,12 +144,18 @@ class ToolSupport:
                 if str(path.parent) not in directories
             ]
         self.packages = Packages(
-            directories, include_builtin=not self.config.get("managed_packs", False)
+            directories, include_builtin=not self.config.get("managed_packs", False), strict=False
         )
+        for key, value in self.adapter_config.items():
+            self.config[key] = copy.deepcopy(value)
+        self.packages.configure(self.config)
         self.templates.packages = self.packages
         self.registry.packages = self.packages
         self.registry.schemas = {**CAPABILITIES, **self.packages.schemas}
         self.registry.health.clear()
+        for current in self.states.values():
+            current["context_revision"] += 1
+            current["candidate_order"] = []
 
     def _resource_policy(self):
         policies = {}
@@ -525,7 +526,12 @@ class ToolSupport:
                     self._emit(instance, "update", suggestion=dict(current))
         for proposal in rows:
             identity = suggestion_id("workflow.run", proposal["params"])
-            if any(item["id"] == identity for item in state["work_feedback"]):
+            from copilot_recommendations import feedback_active
+
+            if any(
+                item["id"] == identity and feedback_active(item, work_id=state["work_id"])
+                for item in state["work_feedback"]
+            ):
                 continue
             if self.ignored.get(identity) == time.strftime("%Y-%m-%d"):
                 continue

@@ -50,11 +50,15 @@ class ResultSupport:
 
         if set(params) - {"id", "rows"}:
             raise ValueError("invalid generic result filter")
-        records = row["result"]["records"]
+        records = (
+            self.workbench.full_result(row)
+            if row.get("standard_task") and "rows" not in params
+            else row["result"]
+        )["records"]
         selected = params.get("rows", list(range(len(records))))
         if (
             not isinstance(selected, list)
-            or len(selected) > 1000
+            or len(selected) > (5000 if row.get("standard_task") and "rows" not in params else 1000)
             or any(type(index) is not int or not 0 <= index < len(records) for index in selected)
             or len(set(selected)) != len(selected)
         ):
@@ -243,6 +247,8 @@ class ResultSupport:
         )[-6:]
 
     def _execute(self, instance, key, epoch):
+        from copilot_workbench import local_task
+
         row = None
         try:
             with self.lock:
@@ -251,7 +257,7 @@ class ResultSupport:
                 if (
                     not self._valid(instance, epoch)
                     and not (
-                        row["action"] == "seo.save_pool"
+                        (row["action"] == "seo.save_pool" or local_task(row))
                         and not self.closed
                         and state["epoch"] == epoch
                     )
@@ -287,6 +293,9 @@ class ResultSupport:
                 )
                 row["started_at"] = time.time()
                 self._emit(instance, "update", suggestion=dict(row))
+            if row["action"] == "assist.task":
+                self.workbench.run(instance, row, epoch, execution_config)
+                return
             if row.get("basket_plan"):
                 execution_config["inference_model"] = row["basket_plan"].get("model_id") or ""
                 self.basket.run(instance, row, epoch, execution_config)
@@ -643,6 +652,7 @@ class ResultSupport:
                     self._emit(instance, "update", suggestion=dict(row))
                 if row is not None and row["status"] in {"completed", "failed", "stopped"}:
                     self._completion_status(self._state(instance), row)
+                    self.workbench.settled(instance, row)
                 if (
                     self._valid(instance, epoch)
                     and row is not None
@@ -684,13 +694,16 @@ class ResultSupport:
         private_write(Path(row["report"]), result_report(result, row["title"]))
 
     def _drain_queue(self, instance, epoch):
+        from copilot_workbench import local_task
+
         with self.lock:
             state = self._state(instance)
             if not self._valid(instance, epoch) and not (
                 not self.closed
                 and state["epoch"] == epoch
                 and any(
-                    row["status"] == "queued" and row["action"] == "seo.save_pool"
+                    row["status"] == "queued"
+                    and (row["action"] == "seo.save_pool" or local_task(row))
                     for row in state["suggestions"].values()
                 )
             ):
@@ -708,7 +721,11 @@ class ResultSupport:
                     row
                     for row in state["suggestions"].values()
                     if row["status"] == "queued"
-                    and (self._valid(instance, epoch) or row["action"] == "seo.save_pool")
+                    and (
+                        self._valid(instance, epoch)
+                        or row["action"] == "seo.save_pool"
+                        or local_task(row)
+                    )
                 ),
                 None,
             )
@@ -756,6 +773,10 @@ class ResultSupport:
         return None
 
     def _result_template(self, row):
+        if row["action"] == "assist.task":
+            from copilot_task_catalog import template
+
+            return template()
         template = self.templates.get(row.get("render_as", row["action"]))
         if row["action"] != "workflow.run" or row.get("basket_batch"):
             return template

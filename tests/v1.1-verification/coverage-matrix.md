@@ -2,6 +2,25 @@
 
 这些显式清单由 `scripts/verify-v1.1-offline.py` 维护，不启动真实浏览器；执行结果与环境限制另行记录。
 
+## 通用任务与统一推荐
+
+- `tests/copilot/task-workbench.test.mjs`：材料与参数表单、实际 Python 目录合同对接、页面/Canvas 采集覆盖、结果回读、原生对话框焦点及受阻卡不挤占就绪卡。
+- `tests/copilot/settings-tabs.test.mjs`：设置类别、键盘导航、停放控件、跨类别草稿及显式保存。
+- `tests/copilot/result-content.test.mjs`：类型化结果、通用内容、安全渲染与长内容预览。
+- `tests/copilot/test_task_data.py`：表格解析、清洗/筛选/聚合/关联、零值/空值、OCR 几何和证据还原。
+- `tests/copilot/test_task_recommendations.py`：任务描述投影、坏包隔离、来源版本/范围/时效、去重、多样性、受阻准备提示上限与有界 MCP 分页。
+- `tests/copilot/test_unified_recommendations.py`：规则与注册插件候选统一、上下文变化、执行前复验及反馈抑制。
+- `tests/copilot/test_host_inference_context.py`：候选与工作修订随真实宿主推理入口传递，迟到回执不恢复旧任务。
+- `tests/copilot/test_task_integration.py`：真实队列、完整产物与预览边界、结果续作、候选身份及目录变更竞态。
+- `tests/copilot/test_workbench.py`：本地/受限模型任务、材料来源隔离、更新失效、学习记录、部分完成及 CSV 产物保护。
+- `tests/copilot/test_workbench_catalog.py`：完整目录逐项通过实际队列，模型和 OCR 末端使用合成替身，不代表真实模型准确率。
+- `tests/copilot/test_workbench_review.py`：两表数量合同、结果限额、来源证据及停止后的模型资源边界。
+- `tests/copilot/test_declared_mcp_discovery.py`：声明工具、完整目录确认、输入/输出 schema 与配置绑定。
+- `tests/copilot/test_template_upgrade.py`：受管模板迁移，同时保留用户修改的正式模板、候选 `.json.new` 与原配置。
+- `tests/copilot/test_copilot_results.py`：表头和单元格公式保护、Excel 文本/数值类型及结果导出。
+
+`tests/copilot/real-workbench.mjs` 为 opt-in 临时浏览器验收，**不进入离线清单**；覆盖真实原生侧栏、Native 本机任务队列、完成详情与设置交互。截图/DOM/模型替身的证据边界见 `docs/testing.md`。
+
 ## 核心 Node
 
 - `tests/copilot/ui.test.mjs`：中文状态、结果表/复制/报告请求、SPA稳定等待、工作页排除及去重。

@@ -259,18 +259,53 @@ export function rankedSuggestions(rows, state) {
       intersection = [...targetWords].filter((word) => candidate.has(word)).length;
     return intersection / Math.max(1, new Set([...targetWords, ...candidate]).size);
   };
-  return rows
+  const ordered = rows
     .map((row, index) => ({ row, index, score: relevance(row) }))
     .sort(
       (a, b) =>
+        (Number.isFinite(a.row.recommendation_rank) && Number.isFinite(b.row.recommendation_rank)
+          ? a.row.recommendation_rank - b.row.recommendation_rank
+          : 0) ||
         Number(!!b.row.local_table) - Number(!!a.row.local_table) ||
         b.score - a.score ||
         Number(!!a.row.missing_capabilities?.length) -
           Number(!!b.row.missing_capabilities?.length) ||
         a.index - b.index,
     )
-    .slice(0, 10)
     .map((item) => item.row);
+  const recommended = [],
+    selected = new Set(),
+    types = new Set();
+  const needsSetup = (row) =>
+    row.recommendation_section === 'preparation' ||
+    row.recommendation_state === 'blocked' ||
+    !!row.missing_capabilities?.length;
+  const candidates = ordered.filter((row) => !row.explicit && !needsSetup(row));
+  const preparation = ordered.find((row) => !row.explicit && needsSetup(row));
+  const add = (row) => {
+    recommended.push(row);
+    selected.add(row.id);
+  };
+  for (const row of candidates) {
+    const type =
+      row.task_type ||
+      (row.action === 'assist.task'
+        ? row.params?.task
+        : row.action === 'workflow.run'
+          ? row.params?.flow
+          : row.action) ||
+      row.id;
+    if (types.has(type)) continue;
+    types.add(type);
+    add(row);
+    if (recommended.length === 10) break;
+  }
+  for (const row of candidates) {
+    if (recommended.length === 10) break;
+    if (!selected.has(row.id)) add(row);
+  }
+  if (preparation && recommended.length < 10) add(preparation);
+  return [...recommended, ...ordered.filter((row) => row.explicit)];
 }
 const elapsedLabel = (seconds, en) =>
   en
@@ -363,8 +398,25 @@ export function renderDashboard(doc, state, { command } = {}, now = Date.now()) 
           : 'results'
     ].push(row);
   groups.pending = rankedSuggestions(groups.pending, state);
+  const prepared = groups.pending.filter((row) => row.explicit).length;
+  const preparedNotice = $('prepared-tasks-notice');
+  if (preparedNotice) {
+    preparedNotice.hidden = !prepared;
+    preparedNotice.textContent = prepared
+      ? en
+        ? `${prepared} tasks you prepared are retained below.`
+        : `保留 ${prepared} 个你已准备的待执行任务。`
+      : '';
+  }
+
   updateDashboardTabs(doc, state);
-  $('suggestions-count').textContent = String(groups.pending.length);
+  $('suggestions-count').textContent = String(groups.pending.length - prepared);
+  $('suggestions-count').setAttribute(
+    'aria-label',
+    en
+      ? `${groups.pending.length - prepared} recommendations, ${prepared} prepared tasks`
+      : `${groups.pending.length - prepared} 个推荐，${prepared} 个已准备任务`,
+  );
   $('running-count').dataset.native = String(groups.running.length);
   $('running-count').textContent = String(
     groups.running.length + doc.querySelectorAll('#running .table-job[data-active=true]').length,
@@ -599,7 +651,12 @@ export function renderDashboard(doc, state, { command } = {}, now = Date.now()) 
         meta = node(doc, 'div', undefined, 'meta');
       if (row.automatic) meta.append(node(doc, 'span', en ? 'Automatic' : '自动', 'tag'));
       if (group === 'pending') {
-        if (row.risk !== 'zero')
+        if (row.explicit) meta.append(node(doc, 'span', en ? 'Prepared' : '已准备', 'tag'));
+        if (row.standard_task)
+          meta.append(
+            node(doc, 'span', row.local_task ? (en ? 'Local' : '本机处理') : 'Agent', 'tag'),
+          );
+        if (row.risk !== 'zero' && !row.local_task)
           meta.append(node(doc, 'span', en ? 'Uses quota' : '耗额度', 'cost'));
       } else
         meta.append(
@@ -642,7 +699,8 @@ export function renderDashboard(doc, state, { command } = {}, now = Date.now()) 
       }
       heading.append(title);
       if (meta.childNodes.length) heading.append(meta);
-      context.append(node(doc, 'p', objectName(row), 'object'));
+      if (!row.standard_task || objectName(row) !== row.title)
+        context.append(node(doc, 'p', objectName(row), 'object'));
       content.append(heading, context);
       const actions = node(doc, 'div', undefined, 'actions');
       if (group === 'pending' && row.automatic && row.result) {
@@ -655,8 +713,50 @@ export function renderDashboard(doc, state, { command } = {}, now = Date.now()) 
         const reason = node(doc, 'p', row.why, 'reason compact-copy');
         reason.title = row.why || '';
         context.append(reason);
-        const run = button('执行', 'execute', row);
-        if (row.missing_capabilities?.length) {
+        const configure = row.standard_task && row.recommendation_state !== 'ready';
+        const nativeLabel =
+          row.action === 'native.tool' &&
+          {
+            tables: en ? 'Detect tables' : '识别表格',
+            collect: en ? 'Configure collection' : '配置采集',
+            annotate: en ? 'Toggle annotations' : '开启或停止标注',
+            basket: en ? 'Open work basket' : '打开工作篮',
+          }[row.params?.tool];
+        const run = button(
+          nativeLabel || (configure ? (en ? 'Prepare task' : '配置任务') : en ? 'Run' : '执行'),
+          row.standard_task ? 'configure_task' : 'execute',
+          row,
+        );
+        if (row.standard_task) {
+          if (row.material_count)
+            context.append(
+              node(
+                doc,
+                'p',
+                `${row.material_count} ${en ? 'materials' : '份材料'} · ${row.output_kind || ''}`,
+                'small',
+              ),
+            );
+          if (row.recommendation_state === 'blocked')
+            context.append(
+              node(
+                doc,
+                'p',
+                en ? 'Required capability needs preparation' : '所需能力待准备',
+                'small',
+              ),
+            );
+          if (row.capture_required || row.recommendation_state === 'needs_material')
+            context.append(
+              node(
+                doc,
+                'p',
+                en ? 'Read page or selection to start' : '先读取当前页或选区，再处理材料',
+                'small',
+              ),
+            );
+        }
+        if (row.missing_capabilities?.length && !row.standard_task) {
           run.disabled = true;
           actions.append(button('绑定能力', 'open_capabilities', row));
         } else if (!primaryAssigned) {
@@ -759,7 +859,9 @@ export function renderDashboard(doc, state, { command } = {}, now = Date.now()) 
     }
   }
   const runButtons = [
-      ...doc.querySelectorAll('#pending article:not([hidden]) [data-action=execute]'),
+      ...doc.querySelectorAll(
+        '#pending article:not([hidden]) :is([data-action=execute],[data-action=configure_task])',
+      ),
     ],
     primary = runButtons.find((button) => !button.disabled);
   for (const button of runButtons) button.classList.toggle('primary', button === primary);
@@ -854,18 +956,26 @@ export class PanelViews {
     });
   }
   show(name) {
-    if (!['work', 'settings', 'logs'].includes(name)) return;
+    if (
+      !['work', 'settings', 'plugins', 'logs'].includes(name) ||
+      this.beforeShow?.(name) === false
+    )
+      return;
     const old = this.current;
-    this.current = name === 'settings' ? 'settings' : 'work';
-    this.doc.getElementById('work-view').hidden = name === 'settings';
-    const el = this.doc.getElementById('settings-view');
-    el.dataset.active = String(name === 'settings');
-    el.inert = name !== 'settings';
-    el.toggleAttribute('inert', name !== 'settings');
-    el.setAttribute('aria-hidden', String(name !== 'settings'));
+    this.current = ['settings', 'plugins'].includes(name) ? name : 'work';
+    this.doc.getElementById('work-view').hidden = ['settings', 'plugins'].includes(name);
+    for (const view of ['settings', 'plugins']) {
+      const el = this.doc.getElementById(`${view}-view`);
+      if (!el) continue;
+      el.dataset.active = String(name === view);
+      el.inert = name !== view;
+      el.toggleAttribute('inert', name !== view);
+      el.setAttribute('aria-hidden', String(name !== view));
+    }
     if (name === 'logs') selectDashboardTab(this.doc, 'logs');
     if (name === 'work') this.doc.getElementById('open-' + old)?.focus();
-    else if (name === 'settings') el.querySelector('[data-back]')?.focus();
+    else if (['settings', 'plugins'].includes(name))
+      this.doc.getElementById(`${name}-view`)?.querySelector('[data-back]')?.focus();
     this.onShow(name);
   }
 }

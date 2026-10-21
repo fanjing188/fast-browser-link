@@ -56,9 +56,8 @@ def column(index):
 def csv_bytes(headers, rows):
     output = io.StringIO(newline="")
     writer = csv.writer(output)
-    writer.writerow(headers)
-    for row in rows:
-        # 中文注释：外部网页的公式样式文本按文字保护；数值列仍为数值。
+    for row in (headers, *rows):
+        # 中文注释：表头与数据同样可能来自外部内容；公式样式文本统一保护，数值列仍为数值。
         writer.writerow(
             [
                 "'" + v

@@ -211,6 +211,7 @@ def record_schema(flow, schemas):
 
 
 def validate_flow(flow, objects, schemas):
+    validate_recommendation(flow.get("recommendation"))
     if flow.get("object", "keyword") not in BUILTIN_OBJECTS | objects.keys():
         raise ValueError("unknown workflow object")
     for name, limit in (("description", 500), ("when", 500)):
@@ -355,3 +356,87 @@ def local_transform(name, records, options):
     return [
         {alias: row[field] for field, alias in fields.items() if field in row} for row in records
     ]
+
+
+RECOMMENDATION_KINDS = {
+    "page",
+    "text_selection",
+    "table",
+    "record_set",
+    "page_set",
+    "artifact",
+    "business_object",
+}
+RECOMMENDATION_INTENTS = {
+    "summarize",
+    "compare",
+    "extract",
+    "clean",
+    "analyze",
+    "learn",
+    "verify",
+    "execute",
+    "organize",
+}
+
+
+def validate_recommendation(value):
+    if value is None:
+        return
+    if not isinstance(value, dict) or set(value) - {
+        "recommendation_contract",
+        "task_type",
+        "intent",
+        "scope",
+        "subject_kinds",
+        "min_subjects",
+        "max_subjects",
+        "required_fields",
+        "output_kind",
+        "completion",
+        "equivalence",
+    }:
+        raise ValueError("invalid recommendation declaration")
+    if (
+        type(value.get("recommendation_contract")) is not int
+        or value["recommendation_contract"] != 1
+    ):
+        raise ValueError("unsupported recommendation contract")
+    for key in ("task_type", "output_kind", "equivalence"):
+        if key in value and (
+            not isinstance(value[key], str)
+            or not re.fullmatch(r"[a-z][a-z0-9_.-]{0,79}", value[key])
+        ):
+            raise ValueError("invalid recommendation identity")
+    if not isinstance(value.get("scope", "page"), str) or value.get("scope", "page") not in {
+        "page",
+        "general",
+    }:
+        raise ValueError("invalid recommendation scope")
+    for key, choices in (
+        ("subject_kinds", RECOMMENDATION_KINDS),
+        ("intent", RECOMMENDATION_INTENTS),
+    ):
+        if key in value and (
+            not isinstance(value[key], list)
+            or not value[key]
+            or len(value[key]) > len(choices)
+            or any(not isinstance(v, str) or v not in choices for v in value[key])
+            or len(set(value[key])) != len(value[key])
+        ):
+            raise ValueError("invalid recommendation kinds")
+    if value.get("scope") == "general" and not value.get("subject_kinds"):
+        raise ValueError("general recommendation requires explicit subjects")
+    low, high = value.get("min_subjects", 1), value.get("max_subjects", 1)
+    if type(low) is not int or type(high) is not int or not 1 <= low <= high <= 30:
+        raise ValueError("invalid recommendation subject count")
+    fields = value.get("required_fields", [])
+    if (
+        not isinstance(fields, list)
+        or len(fields) > 100
+        or any(not isinstance(v, str) or not re.fullmatch(DATA_FIELD, v) for v in fields)
+        or len(set(fields)) != len(fields)
+    ):
+        raise ValueError("invalid recommendation required fields")
+    if "completion" in value:
+        localized(value["completion"], 500)

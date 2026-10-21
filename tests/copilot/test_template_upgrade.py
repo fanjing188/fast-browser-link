@@ -118,6 +118,45 @@ class TemplateUpgradeTests(unittest.TestCase):
         self.assertTrue((self.data / "templates/new.action.json").is_file())
         self.assertEqual((self.data / "config.json").read_bytes(), config)
 
+    def test_user_edited_pending_template_is_preserved_and_reported(self):
+        setup(self.data)
+        target = self.data / "templates/general.task.json"
+        target.write_text(target.read_text() + "\n")
+        pending = target.with_suffix(".json.new")
+        pending.write_text("USER-EDITED-PENDING")
+        config = (self.data / "config.json").read_bytes()
+        for _ in range(2):
+            setup(self.data)
+            self.assertEqual(pending.read_text(), "USER-EDITED-PENDING")
+            record = json.loads((self.data / "managed-templates.json").read_text())["templates"][
+                target.name
+            ]
+            self.assertTrue(record["pending_conflict"])
+            self.assertEqual(pending_templates(self.data), [target.name])
+            self.assertEqual((self.data / "config.json").read_bytes(), config)
+
+    def test_edited_managed_pending_is_not_adopted_and_conflict_can_resolve(self):
+        setup(self.data)
+        target = self.data / "templates/general.task.json"
+        target.write_text(target.read_text() + "\n")
+        setup(self.data)
+        pending = target.with_suffix(".json.new")
+        candidate = pending.read_bytes()
+        pending.write_text("USER-EDITED-MANAGED-CANDIDATE")
+        setup(self.data)
+        self.assertEqual(pending.read_text(), "USER-EDITED-MANAGED-CANDIDATE")
+        records = json.loads((self.data / "managed-templates.json").read_text())["templates"]
+        self.assertTrue(records[target.name]["pending_conflict"])
+        self.assertEqual(
+            records[target.name]["pending_sha256"], hashlib.sha256(candidate).hexdigest()
+        )
+        pending.write_bytes(candidate)
+        setup(self.data)
+        record = json.loads((self.data / "managed-templates.json").read_text())["templates"][
+            target.name
+        ]
+        self.assertFalse(record["pending_conflict"])
+
     def test_unknown_legacy_preserved_and_symlinks_refused_before_write(self):
         target = self.data / "templates/seo.keyword_check.json"
         target.parent.mkdir(parents=True)
@@ -168,7 +207,13 @@ class TemplateUpgradeTests(unittest.TestCase):
                     ],
                 },
             )
-            self.assertEqual(app.view("fixture")["suggestions"], [])
+            rows = app.view("fixture")["suggestions"]
+            self.assertFalse(
+                any(row["action"] in {"seo.keyword_check", "seo.longtail"} for row in rows)
+            )
+            self.assertTrue(
+                all(row.get("standard_task") and row.get("capture_required") for row in rows)
+            )
             logs = [
                 row
                 for row in app.journal.view("fixture")["entries"]

@@ -30,7 +30,7 @@ def work_context(state):
     return {
         "inferred": state["work"],
         "user_direction": state["user_direction"],
-        "feedback": state["work_feedback"],
+        "feedback": state["work_feedback"][-8:],
     }
 
 

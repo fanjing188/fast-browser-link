@@ -23,6 +23,7 @@ class ActiveFollow(unittest.TestCase):
     tearDown = fixtures.GenericPacks.tearDown
     save = fixtures.GenericPacks.save
     proposal = fixtures.GenericPacks.proposal
+    assert_only_host_configuration = fixtures.GenericPacks.assert_only_host_configuration
 
     def application(self):
         app, state = fixtures.GenericPacks.application(self)
@@ -138,10 +139,15 @@ class ActiveFollow(unittest.TestCase):
         with patch.object(app, "_schedule") as schedule:
             app.tick()
         schedule.assert_not_called()
-        self.assertTrue(state["suggestions"])
+        self.assertTrue(
+            any(row["action"] == "workflow.run" for row in state["suggestions"].values())
+        )
         app.request("browser", "page_context", {"url": URL, "incognito": False, "tab_id": 2})
         app._refresh_tool_suggestions("browser")
-        self.assertFalse(state["suggestions"])
+        self.assertFalse(
+            any(row["action"] == "workflow.run" for row in state["suggestions"].values())
+        )
+        self.assertTrue(all(row.get("capture_required") for row in state["suggestions"].values()))
 
     def test_host_snapshot_budget_prioritizes_structure_and_caps_heading_levels(self):
         app, _ = self.application()
@@ -192,10 +198,14 @@ class ActiveFollow(unittest.TestCase):
         self.trigger([{"dwell_seconds": 20}])
         app, state = self.application()
         app._replace("browser", {"scene": "support", "suggestions": [self.proposal()]})
-        self.assertFalse(state["suggestions"])
+        self.assert_only_host_configuration(state)
         state["page_since"] = app.clock() - 21
         app._refresh_tool_suggestions("browser")
-        key = next(iter(state["suggestions"]))
+        key = next(
+            key
+            for key, row in state["suggestions"].items()
+            if row["action"] == "workflow.run" and row["params"]["flow"] == "support_materials"
+        )
         for kind in ("wrong", "later", "done"):
             state["work_feedback"] = []
             app._refresh_tool_suggestions("browser")
@@ -224,19 +234,32 @@ class ActiveFollow(unittest.TestCase):
         self.value["tools"][0]["pages"][0]["flows"] = list(self.value["flows"])
         self.save()
         app, state = self.application()
+        app._refresh_tool_suggestions("browser")
+        neutral = [row["params"]["flow"] for row in state["suggestions"].values()]
         app.work_memory.record(
             "support-triage-example", "case", "support_13", "case_id", "accepted"
         )
         app._refresh_tool_suggestions("browser")
         rows = list(state["suggestions"].values())
         self.assertEqual(len(rows), 10)
-        self.assertEqual(rows[0]["params"]["flow"], "support_13")
+        # 中文注释：点击只表示愿意尝试，不能代替宿主核实的成功证据。
+        self.assertEqual([row["params"]["flow"] for row in rows], neutral)
+        verified = rows[-1]
+        verified["verified_success"] = True
+        app._limit_suggestions("browser")
+        self.assertEqual(next(iter(state["suggestions"].values()))["id"], verified["id"])
         app._replace("browser", {"scene": "support", "suggestions": [self.proposal()] * 10})
         self.assertEqual(len(state["suggestions"]), 10)
         self.assertTrue(all(row.get("trigger_reason") for row in state["suggestions"].values()))
         state["page_context"]["url"] = "https://other.example.test/cases?q=CS-1001"
         app._refresh_tool_suggestions("browser")
-        self.assertFalse(state["suggestions"])
+        self.assert_only_host_configuration(state)
+        self.assertTrue(
+            all(
+                row["source_url"] == state["page_context"]["url"]
+                for row in state["suggestions"].values()
+            )
+        )
         payload, _ = app._increment(state)
         self.assertLessEqual(len(payload["habits"]["items"]), 5)
         self.assertIn("不是当前证据", payload["habits"]["notice"])

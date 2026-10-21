@@ -22,7 +22,7 @@ const suggestion = (id, keyword, status = 'pending', extra = {}) => ({
 });
 const fixture = () => new JSDOM(html, { url: 'https://example.test/' });
 const state = { enabled: true, ready: true, locale: 'zh' };
-test('suggestions show at most ten rows and rank current object similarity before availability and stable priority', () => {
+test('suggestions retain at most ten recommendations and rank current object similarity', () => {
   const rows = [
     suggestion('other', 'unrelated'),
     suggestion('partial', 'job scheduler api'),
@@ -56,7 +56,8 @@ test('suggestions show at most ten rows and rank current object similarity befor
       },
       { command: async () => {} },
     );
-    assert.equal(doc.querySelectorAll('#pending article:not([hidden]):not(.leaving)').length, 10);
+    assert.equal(doc.querySelectorAll('#pending > article:not([hidden]):not(.leaving)').length, 10);
+    assert.equal(doc.querySelector('#more-suggestions'), null);
     assert.equal(doc.getElementById('suggestions-count').textContent, '10');
     assert.equal(doc.querySelector('#pending article').dataset.id, 'exact');
     assert.equal(doc.querySelectorAll('#pending .primary').length, 1);

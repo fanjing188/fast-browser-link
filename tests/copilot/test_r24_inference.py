@@ -182,7 +182,22 @@ class R24Inference(unittest.TestCase):
 
     def test_empty_model_output_without_explicit_object_never_guesses_a_fallback(self):
         self.app._replace("fixture", {"scene": "general", "suggestions": []})
-        self.assertEqual(self.state["suggestions"], {})
+        rows = list(self.state["suggestions"].values())
+        self.assertEqual(
+            {row["params"].get("task") for row in rows},
+            {"page.summary", "table.clean", "links.organize"},
+        )
+        self.assertTrue(
+            all(
+                row["action"] == "assist.task"
+                and row.get("standard_task")
+                and row.get("capture_required")
+                and row["recommendation_state"] == "needs_parameters"
+                and row["missing_parameters"] == ["materials"]
+                and row["params"]["materials"] == []
+                for row in rows
+            )
+        )
         self.assertFalse(
             any(
                 row["event"] == "inference_fallback"

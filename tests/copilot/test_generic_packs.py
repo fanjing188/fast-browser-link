@@ -83,24 +83,50 @@ class GenericPacks(unittest.TestCase):
             "params": {"flow": "support_materials", "object": "CS-1001"},
         }
 
+    def assert_only_host_configuration(self, state):
+        rows = list(state["suggestions"].values())
+        self.assertTrue(all(row.get("capture_required") for row in rows))
+        self.assertEqual(
+            {row["params"]["tool"] for row in rows if row["action"] == "native.tool"},
+            {"tables", "collect", "annotate"},
+        )
+        rows = [row for row in rows if row["action"] != "native.tool"]
+        self.assertEqual(
+            {row["params"].get("task") for row in rows},
+            {"page.summary", "page.question", "page.extract"},
+        )
+        self.assertTrue(
+            all(
+                row["action"] == "assist.task"
+                and row.get("standard_task")
+                and row.get("capture_required")
+                and row["recommendation_state"] == "needs_parameters"
+                and row["missing_parameters"] == ["materials"]
+                and row["params"]["materials"] == []
+                for row in rows
+            )
+        )
+
     def test_recommendation_in_general_and_own_scene_but_not_other_scene_or_page(self):
         app, state = self.application()
         for scene in ("general", "support"):
             state["suggestions"] = {}
             app._replace("browser", {"scene": scene, "suggestions": [self.proposal()]})
-            row = next(iter(state["suggestions"].values()))
+            row = next(
+                row for row in state["suggestions"].values() if row["action"] == "workflow.run"
+            )
             self.assertEqual(row["params"]["object"], "CS-1001")
             self.assertEqual(row["scene"], scene)
             self.assertEqual(row["flow_name"], "核对工单材料")
         app._replace("browser", {"scene": "seo", "suggestions": []})
-        self.assertFalse(state["suggestions"])
+        self.assert_only_host_configuration(state)
         state["suggestions"] = {}
         app._replace("browser", {"scene": "seo", "suggestions": [self.proposal()]})
-        self.assertFalse(state["suggestions"])
+        self.assert_only_host_configuration(state)
         state["page_context"]["url"] = "https://other.example.test/cases?q=CS-1001"
         state["page"]["url"] = state["page_context"]["url"]
         app._replace("browser", {"scene": "general", "suggestions": [self.proposal()]})
-        self.assertFalse(state["suggestions"])
+        self.assert_only_host_configuration(state)
         self.assertFalse(app.registry.recommendations(state["page_context"], "CS-1001"))
         with self.assertRaises(ModelOutputInvalid):
             app._replace("browser", {"scene": "support", "suggestions": []})
@@ -192,14 +218,18 @@ class GenericPacks(unittest.TestCase):
     def test_completed_ignored_and_deferred_workflow_not_recommended_again(self):
         app, state = self.application()
         app._replace("browser", {"scene": "support", "suggestions": [self.proposal()]})
-        key, row = next(iter(state["suggestions"].items()))
+        key, row = next(
+            (key, row)
+            for key, row in state["suggestions"].items()
+            if row["action"] == "workflow.run"
+        )
         row["status"] = "completed"
         app._replace("browser", {"scene": "general", "suggestions": [self.proposal()]})
         self.assertEqual(state["suggestions"][key]["status"], "completed")
         state["suggestions"] = {}
         state["work_feedback"] = [{"id": key, "kind": "later"}]
         app._replace("browser", {"scene": "support", "suggestions": [self.proposal()]})
-        self.assertFalse(state["suggestions"])
+        self.assert_only_host_configuration(state)
 
     def test_end_to_end_page_suggestion_execute_export_and_basket(self):
         app, state = self.application()

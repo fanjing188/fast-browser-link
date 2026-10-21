@@ -243,6 +243,21 @@ class VaultPrivateTests(unittest.TestCase):
         )
         self.assertNotIn("SyntheticSecret!", json.dumps(self.daemon.calls))
 
+    def test_unified_adapter_uses_the_real_private_socket(self):
+        result = json.loads(
+            self.adapter().invoke(
+                "browser_vault", {"action": "fill", "handle": "login"}, session_id="session"
+            )
+        )
+        self.assertTrue(result["success"], result)
+        self.assertEqual(result["filled_fields"], 1)
+        self.assertEqual(
+            [name for name, _ in self.daemon.calls], ["browser.vault_inspect", "browser.vault_fill"]
+        )
+        self.assertNotIn(
+            "SyntheticSecret!", json.dumps([result, self.daemon.calls, self.daemon.tasks])
+        )
+
     def test_write_transport_failure_is_unknown_scrubbed_and_never_replayed(self):
         # 中文注释：扩展已收到秘密但回执超时或断线时，公开工具只返回未知，私有 nonce 已消耗。
         original = self.daemon._extension_call

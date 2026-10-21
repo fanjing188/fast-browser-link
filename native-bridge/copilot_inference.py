@@ -40,7 +40,7 @@ def inference_prompt(state, templates):
     )
     contracts += workflows
     scenes = sorted({"general", "seo"} | {item["scene"] for item in workflows})
-    work_contract = "work: {goal: string, evidence: string[], constraints: string[], open_questions: string[], next_step: string}"
+    work_contract = "Optional candidate_order: existing candidate ids ordered by relevance; never invent ids or parameters. work: {goal: string, evidence: string[], constraints: string[], open_questions: string[], next_step: string}"
     if templates.language == "en":
         return (
             "Local experience (policy only, not current measurements): "
@@ -174,6 +174,7 @@ class InferenceSupport:
                     if remaining > 0:
                         self._schedule(instance)
                         return
+                    self.workbench.refresh(instance)
                     state.update(running=True, dirty=False, timer=None, last_inference=self.clock())
                     payload, statuses = self._increment(state)
                     if not any(value for key, value in payload.items() if key != "type"):
@@ -184,6 +185,12 @@ class InferenceSupport:
                     snapshot_work = copy.deepcopy(work_context(state))
                     snapshot_results = copy.deepcopy(state["result_updates"])
                     snapshot_completed = list(state["completion_status"])
+                    snapshot_candidates = copy.deepcopy(
+                        payload.get("candidates", state.get("sent_candidates", []))
+                    )
+                    from copilot_recommendations import digest
+
+                    snapshot_catalog = digest([self.packages.flows, self.packages.bindings])
                     snapshot_tool = copy.deepcopy(state.get("tool_context", {}))
                     before_rows = {
                         key: json.dumps(
@@ -209,12 +216,18 @@ class InferenceSupport:
                     with self.lock:
                         if not self._valid(instance, epoch):
                             return
-                        if snapshot_context != (
+                        if snapshot_catalog != digest(
+                            [self.packages.flows, self.packages.bindings]
+                        ) or snapshot_context != (
                             state.get("context_revision", 0),
                             state["work_revision"],
                         ):
                             return
-                        self._replace(instance, output)
+                        self._replace(
+                            instance,
+                            output,
+                            candidate_ids={row["id"] for row in snapshot_candidates},
+                        )
                         after = state["suggestions"]
                         metrics = state.get("last_prompt_metrics", {})
                         duration = time.monotonic() - inference_started
@@ -248,6 +261,7 @@ class InferenceSupport:
                             sent_page=snapshot_page,
                             sent_status=statuses,
                             sent_completions=snapshot_completed,
+                            sent_candidates=snapshot_candidates,
                             sent_tool_context=snapshot_tool,
                             sent_work=snapshot_work,
                             sent_results=snapshot_results,
@@ -341,7 +355,7 @@ class InferenceSupport:
             )
         return True
 
-    def _replace(self, instance, output):
+    def _replace(self, instance, output, *, candidate_ids=()):
         if (
             not isinstance(output, dict)
             or not isinstance(output.get("scene"), str)
@@ -381,7 +395,26 @@ class InferenceSupport:
                 ],
             }
             self.journal.add(instance, "inference_fallback")
-        if set(output) - {"scene", "suggestions", "work"}:
+        order = output.get("candidate_order", [])
+        if (
+            isinstance(order, list)
+            and len(order) <= 20
+            and all(isinstance(identity, str) for identity in order)
+        ):
+            state["candidate_order"] = list(
+                dict.fromkeys(
+                    identity
+                    for identity in order
+                    if identity in candidate_ids
+                    and identity in state["suggestions"]
+                    and state["suggestions"][identity]["status"] == "pending"
+                )
+            )
+            state["candidate_order_context"] = [
+                state.get("context_revision", 0),
+                state["work_revision"],
+            ]
+        if set(output) - {"scene", "suggestions", "work", "candidate_order"}:
             repairs.append("extra_fields")
         if len(output["suggestions"]) > 10:
             repairs.append("suggestions")
@@ -504,8 +537,10 @@ class InferenceSupport:
                 ):
                     continue
             key = suggestion_id(row["action"], row["params"])
+            from copilot_recommendations import feedback_active
+
             if any(
-                item["id"] == key and item["kind"] in {"wrong", "later", "done"}
+                item["id"] == key and feedback_active(item, work_id=state["work_id"])
                 for item in state["work_feedback"]
             ):
                 continue
@@ -567,7 +602,12 @@ class InferenceSupport:
             ):
                 self._emit(instance, "remove", id=key)
                 continue
-            if row["status"] != "pending" or row.get("explicit") or row.get("tool_aware"):
+            if (
+                row["status"] != "pending"
+                or row.get("explicit")
+                or row.get("tool_aware")
+                or row.get("standard_task")
+            ):
                 next_rows[key] = row
             elif key not in next_rows:
                 row.setdefault("first_seen", self.clock())

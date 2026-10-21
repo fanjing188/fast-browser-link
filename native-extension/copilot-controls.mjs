@@ -254,7 +254,7 @@ export function mountControls(doc) {
   }
   function sync() {
     for (const [input, update] of widgets) {
-      if (!input.isConnected) {
+      if (!doc.contains(input)) {
         widgets.delete(input);
         closers.delete(input);
       } else update();

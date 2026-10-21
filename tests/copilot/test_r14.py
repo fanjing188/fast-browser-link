@@ -253,7 +253,9 @@ class R14Tests(unittest.TestCase):
             ],
         }
         self.app._replace("fixture", suggestion)
-        key = next(iter(state["suggestions"]))
+        key = next(
+            key for key, row in state["suggestions"].items() if row["action"] == "general.task"
+        )
         self.now += 4
         self.app._replace("fixture", {"scene": "general", "suggestions": []})
         self.assertIn(key, state["suggestions"])
@@ -266,7 +268,15 @@ class R14Tests(unittest.TestCase):
         self.app._replace("fixture", suggestion)
         state["page"] = {"url": "https://example.test/b"}
         self.app._replace("fixture", {"scene": "general", "suggestions": []})
-        self.assertFalse(state["suggestions"])
+        self.assertFalse(
+            any(row["action"] == "general.task" for row in state["suggestions"].values())
+        )
+        self.assertTrue(
+            all(
+                row.get("capture_required") and row["action"] in {"assist.task", "native.tool"}
+                for row in state["suggestions"].values()
+            )
+        )
 
     def test_step_logs_are_named_and_fold_consecutive_events(self):
         for _ in range(12):

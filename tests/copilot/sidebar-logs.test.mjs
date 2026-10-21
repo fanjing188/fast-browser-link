@@ -396,7 +396,33 @@ test('actual sidebar entrypoint starts balanced only on explicit enable and cons
   const f = fixture(),
     listeners = [],
     calls = [];
-  let state = structuredClone(initial),
+  let state = {
+      ...structuredClone(initial),
+      suggestions: [
+        ...(initial.suggestions || []),
+        {
+          id: 'saved-trend',
+          title: '已有趋势',
+          status: 'completed',
+          action: 'seo.trends',
+          params: {},
+          result: {
+            verdict: '合成趋势',
+            series: [
+              {
+                keyword: 'sample',
+                region: 'US',
+                period: '12m',
+                points: [
+                  { date: '2026-01', value: 25 },
+                  { date: '2026-02', value: 35 },
+                ],
+              },
+            ],
+          },
+        },
+      ],
+    },
     entries = [row(1)],
     logRevision = 100;
   Object.defineProperty(f.dom.window.navigator, 'clipboard', {
@@ -490,9 +516,16 @@ test('actual sidebar entrypoint starts balanced only on explicit enable and cons
       calls.some((message) => message.command === 'models'),
       false,
     );
+    assert.match(
+      f.doc.querySelector('#results [data-id="saved-trend"]').textContent,
+      /已有趋势/,
+      'saved trend card renders while inactive settings stay unmounted',
+    );
     const name = f.doc.getElementById('board-name-input');
     name.value = 'My Agent';
-    await name.onchange();
+    name.dispatchEvent(new f.dom.window.Event('input', { bubbles: true }));
+    assert.notEqual(f.doc.title, 'My Agent', 'draft does not save on input');
+    await f.doc.getElementById('settings-save').onclick();
     await flush();
     assert.equal(f.doc.title, 'My Agent');
     assert.equal(f.doc.getElementById('board-name').textContent, 'My Agent');

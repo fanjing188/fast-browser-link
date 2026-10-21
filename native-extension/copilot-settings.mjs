@@ -49,7 +49,7 @@ export function readSettings(doc) {
   return values;
 }
 export class SettingsForm {
-  constructor(doc, request) {
+  constructor(doc, request, { explicitSave = false, revealField = () => {} } = {}) {
     this.doc = doc;
     this.request = request;
     this.memory = new MemoryPanel(doc, request);
@@ -60,6 +60,9 @@ export class SettingsForm {
     this.queue = Promise.resolve();
     this.timers = new Map();
     this.feedbackTimers = new Map();
+    this.explicitSave = explicitSave;
+    this.revealField = revealField;
+    this.drafts = new Map();
     const form = doc.getElementById('copilot-settings-form');
     form.onsubmit = (event) => event.preventDefault();
     form.oninput = (event) => {
@@ -154,6 +157,7 @@ export class SettingsForm {
           }
         };
     }
+    if (explicitSave) this.bindDrafts(form);
   }
   t(zh, en) {
     return this.state?.locale === 'en' ? en : zh;
@@ -276,14 +280,35 @@ export class SettingsForm {
     }
     this.doc.getElementById('ball').checked = state.show_ball !== false;
     this.doc.getElementById('selection-popup').checked = state.selection_popup !== false;
+    if (this.explicitSave) {
+      this.restoreDrafts();
+      this.draftFeedback();
+    }
   }
   valid(values) {
     for (const key of ['inference_model', 'exec_model'])
       this.doc
         .getElementById(key + '-manual')
         .setCustomValidity(
-          validModel(values[key]) ? '' : this.t('模型 ID 格式无效', 'Invalid model ID'),
+          this.doc.getElementById('setting-' + key).value === 'manual' && !values[key]
+            ? this.t('请填写模型 ID，或选择跟随默认', 'Enter a model ID or choose Use default')
+            : validModel(values[key])
+              ? ''
+              : this.t('模型 ID 格式无效', 'Invalid model ID'),
         );
+    if (this.explicitSave) {
+      const invalid = this.doc
+        .querySelectorAll(
+          '#settings-category input, #settings-category select, .settings-group input, .settings-group select',
+        )
+        .find((field) => !field.checkValidity());
+      if (invalid) {
+        this.revealField(invalid);
+        invalid.reportValidity();
+        invalid.focus();
+        return false;
+      }
+    }
     return this.doc.getElementById('copilot-settings-form').reportValidity();
   }
   async saveField(key) {
@@ -341,6 +366,11 @@ export class SettingsForm {
   }
   async savePreference(key, value, field) {
     if (this.disposed) return false;
+    if (this.explicitSave && !this.savingDraft) {
+      field.value = value;
+      this.stage(field);
+      return true;
+    }
     const feedback =
         this.doc.querySelector(`[data-feedback="${key}"]`) ||
         this.doc.getElementById(
@@ -375,6 +405,255 @@ export class SettingsForm {
       return false;
     } finally {
       if (!this.disposed) field.disabled = false;
+    }
+  }
+  bindDrafts(form) {
+    const doc = this.doc;
+    for (const id of [
+      'ball',
+      'selection-popup',
+      'board-name-input',
+      'table-export-dir',
+      'table-max-pages',
+      'table-delay-min',
+      'table-delay-max',
+      'page-annotations',
+      'auto-zero',
+      'annotation-density',
+      'memory-enabled',
+    ]) {
+      const field = doc.getElementById(id);
+      field.onchange = null;
+    }
+    form.oninput = (event) => this.editDraft(event);
+    form.onchange = (event) => this.editDraft(event);
+    doc.getElementById('settings-save').onclick = () => this.saveDrafts();
+    doc.getElementById('settings-reset').onclick = () => this.resetDrafts();
+    this.beforeUnload = (event) => {
+      if (!this.drafts.size) return;
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    doc.defaultView.addEventListener('beforeunload', this.beforeUnload);
+    this.draftFeedback();
+  }
+  bindAgent(agent) {
+    this.agent = agent;
+    const field = this.doc.getElementById('agent-default-select');
+    field.onchange = () => this.stage(field);
+  }
+  fieldValue(field) {
+    return field.type === 'checkbox' ? field.checked : field.value;
+  }
+  stage(field) {
+    if (!field?.id) return;
+    if (field.id === 'agent-default-select') field.dataset.settingsDraft = field.value;
+    this.drafts.set(field.id, this.fieldValue(field));
+    this.dirty = true;
+    this.version++;
+    this.draftFeedback();
+  }
+  editDraft(event) {
+    const field = event.target;
+    if (
+      !field.matches('input,select') ||
+      field.id === 'agent-default-select' ||
+      field.classList.contains('shared-search')
+    )
+      return;
+    if (field.name === 'mode') {
+      const values = { ...readSettings(this.doc), ...presetValues(field.value, this.models) };
+      this.fill(values);
+      for (const key of keys) {
+        if (key === 'mode') continue;
+        this.stage(this.doc.getElementById('setting-' + key));
+        if (key.endsWith('_model')) this.stage(this.doc.getElementById(key + '-manual'));
+      }
+      this.drafts.set('mode', values.mode);
+      this.draftFeedback();
+      return;
+    }
+    const key = field.id.replace(/^setting-/, '').replace(/-manual$/, '');
+    if (keys.includes(key)) {
+      if (field.value === 'refresh' && key.endsWith('_model')) {
+        const value = this.drafts.get(field.id) ?? this.state?.config?.[key] ?? '';
+        field.value = value;
+        void this.load(true);
+        return;
+      }
+      this.doc.querySelector('[name=mode][value=custom]').checked = true;
+      this.drafts.set('mode', 'custom');
+      this.manualFields();
+    }
+    this.stage(field);
+  }
+  restoreDrafts() {
+    for (const [id, value] of this.drafts) {
+      if (id === 'mode') this.doc.querySelector(`[name=mode][value="${value}"]`).checked = true;
+      else {
+        const field = this.doc.getElementById(id);
+        if (!field) continue;
+        if (field.type === 'checkbox') field.checked = value;
+        else field.value = value;
+      }
+    }
+    this.manualFields();
+  }
+  draftFeedback(message = '', error = false) {
+    if (!this.explicitSave) return;
+    const pending = this.drafts.size > 0,
+      busy = !!this.savingDraft;
+    const status = this.doc.getElementById('settings-draft-status');
+    status.textContent =
+      message ||
+      (pending
+        ? this.t('有未保存的更改', 'Unsaved changes')
+        : this.t('所有更改已保存', 'All changes saved'));
+    status.classList.toggle('failure', error);
+    for (const id of ['settings-save', 'settings-reset'])
+      this.doc.getElementById(id).disabled = !pending || busy;
+    this.doc.getElementById('settings-save').textContent = busy
+      ? this.t('保存中…', 'Saving…')
+      : this.t('保存更改', 'Save changes');
+    this.doc.getElementById('settings-reset').textContent = this.t('重置更改', 'Reset changes');
+  }
+  resetDrafts() {
+    if (!this.drafts.size || this.savingDraft) return;
+    if (
+      !this.doc.defaultView.confirm(
+        this.t('放弃全部未保存的更改？', 'Discard all unsaved changes?'),
+      )
+    )
+      return;
+    this.drafts.clear();
+    delete this.doc.getElementById('agent-default-select').dataset.settingsDraft;
+    this.agent?.render();
+    this.dirty = false;
+    this.lastConfig = null;
+    if (this.memory) this.memory.signature = null;
+    this.update(this.state);
+    this.draftFeedback(this.t('已恢复保存的设置', 'Restored saved settings'));
+  }
+  confirmLeave() {
+    return (
+      !this.drafts.size ||
+      this.doc.defaultView.confirm(
+        this.t(
+          '有未保存的更改。离开后仍会保留草稿，是否返回工作区？',
+          'There are unsaved changes. Keep the draft and leave settings?',
+        ),
+      )
+    );
+  }
+  async saveDrafts() {
+    if (!this.drafts.size || this.savingDraft) return false;
+    const values = readSettings(this.doc);
+    if (!this.valid(values)) return false;
+    for (const id of ['table-max-pages', 'table-delay-min', 'table-delay-max']) {
+      const field = this.doc.getElementById(id);
+      if (!field.checkValidity()) {
+        this.revealField(field);
+        field.reportValidity();
+        return false;
+      }
+    }
+    const min = Number(this.doc.getElementById('table-delay-min').value),
+      max = Number(this.doc.getElementById('table-delay-max').value);
+    if (min > max) {
+      this.revealField(this.doc.getElementById('table-delay-max'));
+      this.draftFeedback(
+        this.t('最大页间间隔不能小于最小间隔', 'Maximum delay must be at least the minimum delay'),
+        true,
+      );
+      return false;
+    }
+    const pending = new Map(this.drafts),
+      preferences = {},
+      settings = {};
+    const preferenceKeys = {
+      'board-name-input': 'board_name',
+      'table-export-dir': 'table_export_dir',
+      'table-max-pages': 'table_max_pages',
+      'table-delay-min': 'table_delay_min',
+      'table-delay-max': 'table_delay_max',
+      'page-annotations': 'page_annotations',
+      'auto-zero': 'auto_zero',
+      'annotation-density': 'annotation_density',
+    };
+    for (const [id, value] of pending) {
+      if (preferenceKeys[id])
+        preferences[preferenceKeys[id]] =
+          id.startsWith('table-') && id !== 'table-export-dir' ? Number(value) : value;
+      if (id === 'ball') settings.show_ball = value;
+      if (id === 'selection-popup') settings.selection_popup = value;
+    }
+    const operations = [];
+    if (
+      [...pending.keys()].some(
+        (id) => id === 'mode' || id.startsWith('setting-') || id.endsWith('-manual'),
+      )
+    )
+      operations.push([
+        'configure',
+        values,
+        [...pending.keys()].filter(
+          (id) => id === 'mode' || id.startsWith('setting-') || id.endsWith('-manual'),
+        ),
+      ]);
+    if (Object.keys(preferences).length)
+      operations.push([
+        'preferences',
+        preferences,
+        [...pending.keys()].filter((id) => preferenceKeys[id]),
+      ]);
+    if (Object.keys(settings).length)
+      operations.push(['settings', settings, ['ball', 'selection-popup']]);
+    if (pending.has('agent-default-select'))
+      operations.push([
+        'agent_select',
+        { agent_id: pending.get('agent-default-select') },
+        ['agent-default-select'],
+      ]);
+    if (pending.has('memory-enabled'))
+      operations.push(['memory', { enabled: pending.get('memory-enabled') }, ['memory-enabled']]);
+    this.savingDraft = true;
+    let failed = false;
+    this.draftFeedback(this.t('保存中…', 'Saving…'));
+    try {
+      for (const [name, params, ids] of operations) {
+        const state = await this.request(name, params);
+        for (const id of ids) if (this.drafts.get(id) === pending.get(id)) this.drafts.delete(id);
+        this.dirty = this.drafts.size > 0;
+        this.lastConfig = null;
+        if (name === 'agent_select') {
+          if (!this.drafts.has('agent-default-select'))
+            delete this.doc.getElementById('agent-default-select').dataset.settingsDraft;
+          this.agent?.apply(state);
+          this.agent?.render();
+        } else this.update(name === 'memory' ? { ...this.state, memory: state } : state);
+      }
+      this.draftFeedback(this.t('已保存', 'Saved'));
+      return true;
+    } catch {
+      failed = true;
+      this.draftFeedback(
+        this.t(
+          '部分更改未保存，已保留草稿；请重试',
+          'Some changes were not saved. Draft retained; retry.',
+        ),
+        true,
+      );
+      return false;
+    } finally {
+      this.savingDraft = false;
+      this.draftFeedback(
+        this.drafts.size
+          ? failed
+            ? this.t('仍有未保存的更改，请重试', 'Changes remain unsaved. Retry.')
+            : this.t('新更改尚未保存', 'New changes remain unsaved')
+          : this.t('已保存', 'Saved'),
+        failed,
+      );
     }
   }
   async loadDirectories() {
@@ -459,7 +738,9 @@ export class SettingsForm {
         );
         this.directoryFeedback(
           saved
-            ? this.t('默认导出目录已更新', 'Default export folder updated')
+            ? this.explicitSave
+              ? this.t('已选择目录，保存更改后生效', 'Folder selected. Save changes to apply.')
+              : this.t('默认导出目录已更新', 'Default export folder updated')
             : this.t('目录未保存，请重试', 'Folder was not saved. Retry.'),
           !saved,
         );
@@ -511,7 +792,12 @@ export class SettingsForm {
       );
       this.directoryFeedback(
         saved
-          ? this.t('已恢复默认导出目录', 'Default export folder restored')
+          ? this.explicitSave
+            ? this.t(
+                '已选择默认目录，保存更改后生效',
+                'Default folder selected. Save changes to apply.',
+              )
+            : this.t('已恢复默认导出目录', 'Default export folder restored')
           : this.t('目录未保存，请重试', 'Folder was not saved. Retry.'),
         !saved,
       );
@@ -616,6 +902,8 @@ export class SettingsForm {
   dispose() {
     this.disposed = true;
     this.memory.dispose();
+    if (this.beforeUnload)
+      this.doc.defaultView.removeEventListener('beforeunload', this.beforeUnload);
     this.directoryVersion = (this.directoryVersion || 0) + 1;
     if (this.directoryTimer) this.doc.defaultView.clearTimeout(this.directoryTimer);
     this.directoryWait?.();

@@ -97,6 +97,7 @@ export class TablePanel {
             row.status === 'pending' &&
             !row.explicit &&
             (row.action === 'table.export' ||
+              (row.action === 'native.tool' && row.task_type === 'native.tables') ||
               (row.action === 'general.task' &&
                 row.title === '保存本页表格' &&
                 /^保存(?:本页|当前)(?:的)?表格[。.]?$/.test(row.params?.task || '')))

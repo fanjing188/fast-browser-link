@@ -1,8 +1,10 @@
 // 中文注释：手动验收脚本。real-session 使用临时配置加载源码扩展；本文件不进入离线测试清单。
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import path from 'node:path';
 import { openRealSession, openTask } from '../native-v2/real-session.mjs';
+import { CdpClient, fetchJson, waitFor } from '../native-v2/cdp-client.mjs';
 
 const fixture = await readFile(new URL('./fixture.html', import.meta.url), 'utf8');
 const server = createServer((request, response) => {
@@ -24,6 +26,8 @@ try {
   session = await openRealSession({
     browser: process.argv.includes('--edge') ? 'edge' : 'chrome',
     label: 'complex-ui',
+    compactScratch: true,
+    headed: process.argv.includes('--headed'),
   });
   await session.enableFullAccess();
   const tab = await openTask(session, {
@@ -173,7 +177,87 @@ try {
   const covered = await tab.run('ref_click', await ref('保存', ['button']));
   assert.equal(covered.error, undefined, JSON.stringify(covered));
   assert.equal(covered.recovery?.triggered, true, JSON.stringify(covered.recovery));
-  console.log('复杂界面真实浏览器验收通过');
+  // 中文注释：用真实扩展与 Native 链路验证新增复杂场景；所有内容和回读都是本地合成夹具。
+  await tab.read(
+    `document.body.innerHTML='<main style="max-width:100%;overflow-wrap:anywhere"><h1>复杂页面执行验收</h1><section id="orders"><article><h2>订单 A</h2><button>删除记录</button></article><article><h2>订单 B</h2><button>删除记录</button></article></section><button id="lazy-combo" role="combobox" aria-label="延迟地区" aria-controls="lazy-list" aria-expanded="false">地区</button><div id="shadow-host" style="display:contents"></div><div id="deep-grid" role="future grid generic"><div role="row generic"><span role="columnheader generic">商品</span><span role="columnheader generic">数量</span></div><div role="row generic"><span role="gridcell generic">苹果</span><span role="gridcell generic">2</span></div></div></main>';window.deepCounts={deleted:0,open:0,selected:0,shadow:0,input:0};document.querySelectorAll('#orders button').forEach(b=>b.onclick=()=>deepCounts.deleted++);document.querySelector('#lazy-combo').onclick=e=>{deepCounts.open++;e.currentTarget.setAttribute('aria-expanded','true');setTimeout(()=>{const list=document.createElement('div');list.id='lazy-list';list.setAttribute('role','listbox');list.innerHTML='<div role="option" data-value="b" style="padding:12px">Beta</div>';list.firstChild.onclick=e=>{deepCounts.selected++;e.currentTarget.setAttribute('aria-selected','true')};document.querySelector('main').append(list)},100)};const shadow=document.querySelector('#shadow-host').attachShadow({mode:'open'});shadow.innerHTML='<button>无盒影子按钮</button><input aria-label="影子委托输入"><select aria-label="影子原生选择"><option value="a">A</option><option value="b">B</option></select>';shadow.querySelector('button').onclick=()=>deepCounts.shadow++;document.addEventListener('input',e=>{if(e.composedPath().includes(document.querySelector('#shadow-host')))deepCounts.input++});true`,
+  );
+  const orders = await run('semantic_snapshot', { options: { root: '#orders' } });
+  await tab.read(`document.querySelector('#orders article').remove()`);
+  const stale = await tab.run('ref_click', {
+    binding: orders.binding,
+    snapshot_id: orders.snapshotId,
+    ref: orders.items[0].ref,
+  });
+  assert.ok(stale.error, '旧记录必须拒绝');
+  assert.equal(await tab.read('deepCounts.deleted'), 0);
+  await run('ref_select_option', {
+    ...(await ref('延迟地区', ['combobox'])),
+    by: 'value',
+    values: ['b'],
+  });
+  await run('ref_click', await ref('无盒影子按钮', ['button']));
+  await run('ref_fill', { ...(await ref('影子委托输入', ['textbox'])), text: '合成验收输入' });
+  await run('ref_select_option', {
+    ...(await ref('影子原生选择', ['combobox'])),
+    by: 'value',
+    values: ['b'],
+  });
+  const counts = await tab.read('deepCounts');
+  assert.deepEqual(counts, { deleted: 0, open: 1, selected: 1, shadow: 1, input: 2 });
+  const structured = await run('page.parse', {
+    options: { root: '#deep-grid', sections: ['tables'] },
+  });
+  assert.equal(structured.tables.length, 2);
+  assert.deepEqual(
+    structured.tables[0].cells.map((cell) => cell.text),
+    ['商品', '数量'],
+  );
+  assert.deepEqual(
+    structured.tables[1].cells.map((cell) => cell.text),
+    ['苹果', '2'],
+  );
+  const browser = process.argv.includes('--edge') ? 'edge' : 'chrome';
+  const output = path.join(process.env.TMPDIR, `complex-ui-evidence-${browser}`);
+  await mkdir(output, { recursive: true });
+  const target = (await fetchJson(`${session.base}/json/list`)).find(
+    (target) => target.url === origin + '/',
+  );
+  assert.ok(target);
+  const cdp = new CdpClient(target.webSocketDebuggerUrl);
+  await cdp.connect();
+  try {
+    for (const width of [1440, 375]) {
+      await cdp.call('Emulation.setDeviceMetricsOverride', {
+        width,
+        height: 900,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      await waitFor(() => tab.read(`innerWidth===${width}`), 5000);
+      assert.equal(await tab.read('document.documentElement.scrollWidth<=innerWidth'), true);
+      const shot = await run('screenshot');
+      assert.equal(typeof shot.data, 'string');
+      await writeFile(path.join(output, `complex-${width}.png`), Buffer.from(shot.data, 'base64'));
+    }
+  } finally {
+    cdp.close();
+  }
+  await writeFile(
+    path.join(output, 'result.json'),
+    JSON.stringify(
+      {
+        browser,
+        fixture: 'local synthetic page / real Native extension',
+        counts,
+        rows: structured.tables.length,
+        viewports: [1440, 375],
+        staleRejected: true,
+      },
+      null,
+      2,
+    ),
+  );
+  console.log(`复杂界面真实浏览器验收通过：${output}`);
 } finally {
   await session?.close?.();
   await new Promise((resolve) => server.close(resolve));

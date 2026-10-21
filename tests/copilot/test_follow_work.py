@@ -24,7 +24,9 @@ class FollowWork(unittest.TestCase):
         self.app._replace(
             "fixture", {"scene": "general", "suggestions": [self.suggestion()], **extra}
         )
-        return next(iter(self.state["suggestions"].values()))
+        return next(
+            row for row in self.state["suggestions"].values() if row["action"] == "general.task"
+        )
 
     def test_work_is_tentative_cross_page_and_user_direction_is_separate(self):
         self.replace(
@@ -144,7 +146,15 @@ class FollowWork(unittest.TestCase):
             self.app._infer("fixture", 1)
         self.assertEqual(self.state["user_direction"], "只看免费用户")
         self.assertEqual(self.state["work"]["goal"], "")
-        self.assertEqual(self.state["suggestions"], {})
+        self.assertTrue(
+            all(
+                row.get("capture_required") and row["action"] in {"assist.task", "native.tool"}
+                for row in self.state["suggestions"].values()
+            )
+        )
+        self.assertFalse(
+            any(row["action"] == "general.task" for row in self.state["suggestions"].values())
+        )
         self.assertIsNone(self.state["sent_work"])
 
     def test_new_work_keeps_task_history_but_excludes_old_results_and_trace(self):
@@ -160,6 +170,24 @@ class FollowWork(unittest.TestCase):
         packet, _ = self.app._increment(self.state)
         self.assertNotIn("OLD_RESULT", json.dumps(packet))
         self.assertEqual(packet["suggestions"], [])
+        configured = [
+            item
+            for item in self.app.view("fixture")["suggestions"]
+            if item.get("standard_task") and item.get("capture_required")
+        ]
+        self.assertEqual(
+            {item["params"]["task"] for item in configured},
+            {"page.summary", "table.clean", "links.organize"},
+        )
+        self.assertTrue(
+            all(
+                item["standard_task"]
+                and item["action"] == "assist.task"
+                and not item["params"]["materials"]
+                and item["recommendation_state"] == "needs_parameters"
+                for item in configured
+            )
+        )
         self.state["enabled"] = True
         now = time.time() * 1000
         with patch.object(self.app, "_schedule"):
@@ -175,6 +203,24 @@ class FollowWork(unittest.TestCase):
             )
         self.assertEqual([row["description"] for row in self.state["trace"]], ["复制 NEW"])
         self.assertEqual(self.app._resume_context(self.state)["suggestions"], [])
+        configured = [
+            item
+            for item in self.app.view("fixture")["suggestions"]
+            if item.get("standard_task") and item.get("capture_required")
+        ]
+        self.assertEqual(
+            {item["params"]["task"] for item in configured},
+            {"page.summary", "page.question", "page.extract"},
+        )
+        self.assertTrue(
+            all(
+                item["standard_task"]
+                and item["action"] == "assist.task"
+                and not item["params"]["materials"]
+                and item["recommendation_state"] == "needs_parameters"
+                for item in configured
+            )
+        )
 
     def test_new_work_starts_clean_model_session_without_summarizing_old_goal(self):
         self.state["work_reset"] = True

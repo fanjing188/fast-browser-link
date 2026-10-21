@@ -42,8 +42,99 @@ def assets(ctx):
     return next((path for path in candidates if path.is_dir()), candidates[-1])
 
 
-def pack_state(ctx, capabilities=None, *, busy=False):
-    from copilot_packages import read_package
+def pack_health(ctx, packages, config, capabilities, *, loaded, managed, builtin):
+    """只检查本地先决条件；不运行包命令或调用外部服务。"""
+    from copilot_capabilities import Registry, command_status
+    from copilot_contracts import Templates, validate
+
+    checks = [{"label": "package", "status": "ok", "reason": "declaration_valid"}]
+    if not loaded:
+        checks.append({"label": "registration", "status": "error", "reason": "package_not_loaded"})
+    if not builtin and not managed:
+        checks.append(
+            {"label": "integrity", "status": "warning", "reason": "unmanaged_or_modified"}
+        )
+    local = Registry(packages, ctx.copilot, private_write, validate)
+    packages.configure(config)
+    templates = Templates(ctx.copilot / "templates", packages)
+    for action in packages.templates:
+        try:
+            templates.get(action)
+            check = {"label": action, "status": "ok", "reason": "template_valid"}
+        except (OSError, ValueError, KeyError, TypeError):
+            check = {"label": action, "status": "error", "reason": "invalid_template"}
+        checks.append(check)
+    missing = []
+    for capability, bindings in packages.bindings.items():
+        current = {
+            row["id"]: row for row in (capabilities or {}).get(capability, {}).get("bindings", [])
+        }
+        for binding in bindings:
+            status = (
+                current.get(binding["id"], {}).get("status")
+                if capabilities is not None
+                else local.structural(binding)
+            )
+            status = status or "binding_not_loaded"
+            if status != "available":
+                missing.append(capability)
+            checks.append(
+                {
+                    "label": capability + ":" + binding["id"],
+                    "status": "ok"
+                    if status == "available"
+                    else "error"
+                    if status.startswith("missing_") or status == "binding_not_loaded"
+                    else "warning",
+                    "reason": status,
+                }
+            )
+    for name, command in {**packages.fetchers, **packages.pool}.items():
+        status = command_status(command)
+        checks.append(
+            {"label": name, "status": "ok" if status == "available" else "error", "reason": status}
+        )
+    requires_agent = bool(packages.templates) or any(
+        step.get("model") for flow in packages.flows.values() for step in flow["steps"]
+    )
+    if requires_agent:
+        engine = config.get("default_agent", "hermes")
+        available = bool(shutil.which(config.get(engine + "_command", engine)))
+        configured = bool(config.get("agent_onboarded")) and available
+        checks.append(
+            {
+                "label": "agent",
+                "status": "ok" if configured else "warning",
+                "reason": "agent_configured" if configured else "agent_setup_required",
+            }
+        )
+    status = (
+        "error"
+        if any(row["status"] == "error" for row in checks)
+        else "needs_update"
+        if any(row["reason"] in {"needs_metadata_refresh", "needs_mcp_check"} for row in checks)
+        else "needs_setup"
+        if any(row["status"] == "warning" for row in checks)
+        else "ready"
+    )
+    return {
+        "status": status,
+        "reason": next(
+            (row["reason"] for row in checks if row["status"] == "error"),
+            next(
+                (row["reason"] for row in checks if row["status"] == "warning"),
+                "local_prerequisites_passed",
+            ),
+        ),
+        "checked_at": time.time(),
+        "scope": "local_readonly",
+        "execution_verified": False,
+        "checks": checks,
+    }, sorted(set(missing))
+
+
+def pack_state(ctx, capabilities=None, *, busy=False, loaded_packages=None):
+    from copilot_packages import Packages, read_package
 
     config = read(ctx.copilot / "config.json")
     registered = {
@@ -72,12 +163,30 @@ def pack_state(ctx, capabilities=None, *, busy=False):
                 or root == builtin
                 and not config.get("managed_packs")
             )
+            if loaded_packages is not None:
+                source_id = hashlib.sha256(str(root).encode()).hexdigest()[:24]
+                loaded = any(
+                    row.get("source_id") == source_id and row.get("state") == "registered"
+                    for row in loaded_packages.package_records
+                )
+            packages = Packages([root], include_builtin=False)
+            from fbl_pack_test import contained
+
+            files = value.get("files", [])
+            if not isinstance(files, list) or any(
+                not contained(root, name).is_file() for name in files
+            ):
+                raise ValueError("declared package file missing")
+            health, missing = pack_health(
+                ctx,
+                packages,
+                config,
+                capabilities,
+                loaded=loaded,
+                managed=managed,
+                builtin=root == builtin,
+            )
             names = list(value.get("capabilities", {}))
-            missing = [
-                name
-                for name in names
-                if (capabilities or {}).get(name, {}).get("status") != "available"
-            ]
             rows.append(
                 {
                     "id": value["id"],
@@ -93,6 +202,7 @@ def pack_state(ctx, capabilities=None, *, busy=False):
                     "capabilities": names,
                     "workflows": list(value.get("flows", {})),
                     "needs_setup": missing,
+                    "health": health,
                 }
             )
         except (OSError, ValueError, KeyError, TypeError):
@@ -109,6 +219,20 @@ def pack_state(ctx, capabilities=None, *, busy=False):
                     "capabilities": [],
                     "workflows": [],
                     "needs_setup": [],
+                    "health": {
+                        "status": "error",
+                        "reason": "invalid_or_unreadable_package",
+                        "checked_at": time.time(),
+                        "scope": "local_readonly",
+                        "execution_verified": False,
+                        "checks": [
+                            {
+                                "label": "package",
+                                "status": "error",
+                                "reason": "invalid_or_unreadable_package",
+                            }
+                        ],
+                    },
                 }
             )
     return {

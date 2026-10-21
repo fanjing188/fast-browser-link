@@ -63,6 +63,7 @@ from copilot_contracts import (
     object_key,
     Templates,
 )
+from copilot_workbench import Workbench, local_task
 from copilot_state import work_state, work_context, result_context
 from copilot_observation import ObservationSupport
 from copilot_inference import (
@@ -134,6 +135,7 @@ class Copilot(ObservationSupport, InferenceSupport, ResultSupport, ToolSupport):
         self.packages = Packages(
             list(dict.fromkeys([*self.config["extension_dirs"], *local_extensions])),
             include_builtin=not self.config.get("managed_packs", False),
+            strict=False,
         )
         self.packages.configure(self.config)
         self.templates = Templates(self.directory / "templates", self.packages)
@@ -184,6 +186,7 @@ class Copilot(ObservationSupport, InferenceSupport, ResultSupport, ToolSupport):
                 except (ValueError, KeyError, TypeError):
                     continue
         self.basket = Basket(self, atomic_write)
+        self.workbench = Workbench(self)
         self.external_confirmations = {}
         self.closed = False
         self.agents = Agents(self)
@@ -463,9 +466,16 @@ class Copilot(ObservationSupport, InferenceSupport, ResultSupport, ToolSupport):
             key: value
             for key, value in row.items()
             if key
-            not in {"basket_plan", "workflow_checkpoint", "fetch_checkpoint", "ranking_checkpoint"}
+            not in {
+                "basket_plan",
+                "workflow_checkpoint",
+                "fetch_checkpoint",
+                "ranking_checkpoint",
+                "full_result_file",
+                "outcome_attempt",
+            }
         }
-        if row.get("action") != "workflow.run" or not row.get("result"):
+        if row.get("action") not in {"workflow.run", "assist.task"} or not row.get("result"):
             return row
         result = row["result"]
         return {
@@ -498,6 +508,7 @@ class Copilot(ObservationSupport, InferenceSupport, ResultSupport, ToolSupport):
         with self.lock:
             state = self._state(instance)
             self._refresh_daily()
+            self.workbench.refresh(instance)
             keys = (
                 "enabled",
                 "show_ball",
@@ -523,7 +534,6 @@ class Copilot(ObservationSupport, InferenceSupport, ResultSupport, ToolSupport):
                 "context_revision",
                 "work",
                 "user_direction",
-                "work_feedback",
                 "work_revision",
                 "work_restored",
             )
@@ -534,6 +544,7 @@ class Copilot(ObservationSupport, InferenceSupport, ResultSupport, ToolSupport):
                         "suggestions": [
                             self._display_row(row) for row in state["suggestions"].values()
                         ],
+                        "work_feedback": state["work_feedback"][-8:],
                         "daily_tokens": self.daily["tokens"],
                         "daily_usage": self.daily["usage"],
                         "daily_estimated_tokens": self.daily.get("estimated_tokens", 0),
@@ -565,6 +576,7 @@ class Copilot(ObservationSupport, InferenceSupport, ResultSupport, ToolSupport):
                             "pool": bool(self.config["pool_command"]),
                         },
                         "basket": self.basket.snapshot(),
+                        "workbench": self.workbench.snapshot(instance),
                         "page_annotations": self.config["page_annotations"],
                         "annotation_density": self.config["annotation_density"],
                         "auto_zero": self.config["auto_zero"],
@@ -679,6 +691,10 @@ class Copilot(ObservationSupport, InferenceSupport, ResultSupport, ToolSupport):
         self.config.update(values)
 
     def request(self, instance, method, params):
+        if method.startswith("workbench_"):
+            if not isinstance(params, dict) or self.closed:
+                raise ValueError("invalid workbench request")
+            return self.workbench.request(instance, method, params)
         if method in AGENT_METHODS:
             return self.agents.request(instance, method, params)
         if method in DIRECTORY_METHODS:
@@ -720,6 +736,8 @@ class Copilot(ObservationSupport, InferenceSupport, ResultSupport, ToolSupport):
             state = self._state(instance)
             if method == "memory":
                 result = self.work_memory.manage(params)
+                if params.get("clear") is True:
+                    self.workbench.forget()
                 if params.get("delete") == "current" or params.get("clear") is True:
                     for current in self.states.values():
                         current.update(
@@ -767,6 +785,7 @@ class Copilot(ObservationSupport, InferenceSupport, ResultSupport, ToolSupport):
                     raise ValueError("invalid work update")
                 state["work_revision"] += 1
                 state["work_restored"] = False
+                self.workbench.refresh(instance)
                 self._save_work_memory(instance)
                 self._emit(instance, "work")
                 self._schedule(instance)
@@ -787,6 +806,9 @@ class Copilot(ObservationSupport, InferenceSupport, ResultSupport, ToolSupport):
                     {
                         "id": row["id"],
                         "kind": params["kind"],
+                        "work_id": state["work_id"],
+                        "at": time.time(),
+                        **({"until": time.time() + 3600} if params["kind"] == "later" else {}),
                         "action": row["action"],
                         "object": str(
                             row["params"].get("keyword")
@@ -796,7 +818,24 @@ class Copilot(ObservationSupport, InferenceSupport, ResultSupport, ToolSupport):
                         )[:300],
                     }
                 )
-                state["work_feedback"] = (state["work_feedback"] + [feedback])[-8:]
+                feedback.update(
+                    id=row["id"],
+                    work_id=state["work_id"],
+                    kind=params["kind"],
+                    action=row["action"],
+                )
+                from copilot_recommendations import feedback_active
+
+                # 中文注释：展示历史可以缩短，仍有效的抑制记录不能随历史窗口丢失。
+                active_feedback = [
+                    item
+                    for item in state["work_feedback"]
+                    if item.get("id") != row["id"]
+                    and feedback_active(item, work_id=state["work_id"])
+                ]
+                if len(active_feedback) >= 200:
+                    raise ValueError("当前工作反馈已达200条，请开始新工作或等待稍后记录到期")
+                state["work_feedback"] = [*active_feedback, feedback]
                 if params["kind"] != "done":
                     self._record_habit(instance, row, "ignored")
                 self._save_work_memory(instance)
@@ -865,11 +904,14 @@ class Copilot(ObservationSupport, InferenceSupport, ResultSupport, ToolSupport):
             ):
                 parsed = urlsplit(params["url"])
                 if (
-                    parsed.scheme not in {"https", "http"}
-                    or not parsed.hostname
-                    or parsed.username
-                    or parsed.password
-                    or len(params["url"]) > 8192
+                    params["url"] != ""
+                    and (
+                        parsed.scheme not in {"https", "http"}
+                        or not parsed.hostname
+                        or parsed.username
+                        or parsed.password
+                        or len(params["url"]) > 8192
+                    )
                     or type(params["incognito"]) is not bool
                 ):
                     raise ValueError("invalid page context")
@@ -1482,8 +1524,10 @@ class Copilot(ObservationSupport, InferenceSupport, ResultSupport, ToolSupport):
                             }
                         self.external_confirmations.pop(params["confirmation"])
                         row["secondary_confirmed"] = True
-                    if row["action"] not in {"seo.save_pool", "local.lookup"} and (
-                        not state["enabled"] or not state["ready"]
+                    if (
+                        not local_task(row)
+                        and row["action"] not in {"seo.save_pool", "local.lookup"}
+                        and (not state["enabled"] or not state["ready"])
                     ):
                         raise ValueError("collaboration not ready; suggestion retained")
                     job_key = instance + ":" + row["id"]
@@ -1508,6 +1552,18 @@ class Copilot(ObservationSupport, InferenceSupport, ResultSupport, ToolSupport):
                             )
                             self._emit(instance, "update", suggestion=dict(row))
                             return self.view(instance)
+                    if row.get("standard_task"):
+                        fresh = self.workbench.prepare(
+                            instance,
+                            row["params"]["task"],
+                            row["params"]["materials"],
+                            row["params"]["options"],
+                            True,
+                        )
+                        if fresh["material_revisions"] != row.get("material_revisions"):
+                            raise ValueError("材料已变化，请重新配置任务")
+                        if fresh["recommendation_state"] != "ready":
+                            raise ValueError("请先补齐任务参数或连接Agent")
                     self._record_habit(instance, row, "accepted")
                     self.executions.prepare(job_key)
                     self.fetcher.prepare(job_key)
@@ -2216,6 +2272,7 @@ class Copilot(ObservationSupport, InferenceSupport, ResultSupport, ToolSupport):
             runtime.close()
 
     def _deactivate(self, instance):
+        self.workbench.cancel(instance)
         for key in list(self.registry.jobs):
             if key.startswith(instance + ":"):
                 self.registry.stop(key)
@@ -2256,6 +2313,8 @@ class Copilot(ObservationSupport, InferenceSupport, ResultSupport, ToolSupport):
     def _archive(self, state, row):
         archived = copy.deepcopy(row)
         archived["id"] = row["id"] + "-" + uuid.uuid4().hex[:8]
+        if row.get("standard_task"):
+            archived["artifact_owner_id"] = row.get("artifact_owner_id", row["id"])
         if row.get("result") and row.get("report"):
             result = legacy(row["action"], row["result"], row.get("params", {}))
             path = self._report_path(archived["id"])
@@ -2286,6 +2345,7 @@ class Copilot(ObservationSupport, InferenceSupport, ResultSupport, ToolSupport):
                     }
                     for row in state["suggestions"].values()
                     if row.get("work_id", state["work_id"]) == state["work_id"]
+                    and not row.get("capture_required")
                 ],
             }
         )

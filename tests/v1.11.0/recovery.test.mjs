@@ -42,6 +42,80 @@ const defaults = {
   capture: async () => ({ data: 'image' }),
 };
 
+test('恢复不凭可见性排名消解同名歧义，也不重试已经明确歧义的引用', async () => {
+  for (const reason of [
+    'REF_TARGET_MISSING',
+    'REF_TARGET_AMBIGUOUS',
+    'TARGET_NOT_UNIQUE',
+    'BINDING_MISMATCH',
+    'DOCUMENT_REPLACED',
+  ]) {
+    let dispatched = 0;
+    await assert.rejects(
+      recoverTarget({
+        ...defaults,
+        hint: { name: '删除', role: 'button' },
+        run: async (chosen) => {
+          if (!chosen) throw Object.assign(Error(reason), { preDispatch: true });
+          dispatched++;
+          return { clicked: true };
+        },
+        scan: async () => [
+          { ref: 'a', role: 'button', name: '删除', inViewport: true, occluded: false },
+          { ref: 'b', role: 'button', name: '删除', inViewport: false, occluded: true },
+        ],
+      }),
+    );
+    assert.equal(dispatched, 0, reason);
+  }
+});
+
+test('引用恢复保持原绑定、frame、Shadow 路径和业务身份', () => {
+  const hint = {
+    ref: 'old',
+    name: '删除',
+    role: 'button',
+    binding: { documentId: 'doc' },
+    frameToken: 'frame-a',
+    targetPath: [{ kind: 'shadow', hostRef: 'host-a' }],
+    identityKey: 'order-a',
+  };
+  const valid = { ...hint, ref: 'replacement' };
+  for (const changes of [
+    { frameToken: 'frame-b' },
+    { binding: { documentId: 'new' } },
+    { targetPath: [{ kind: 'shadow', hostRef: 'host-b' }] },
+    { identityKey: 'order-b' },
+  ])
+    assert.deepEqual(rankTargets([{ ...valid, ...changes }], hint), []);
+  assert.equal(rankTargets([valid], hint).length, 1);
+  assert.deepEqual(rankTargets([valid], { ...hint, identityKey: undefined }), []);
+});
+
+test('局部根的引用不能通过整页恢复扩展作用域', () => {
+  const f = page(
+    '<section><button>保存</button></section><section><button>保存</button></section>',
+  );
+  try {
+    const snapshot = f.call('semantic_snapshot', {
+      binding: f.binding,
+      options: { root: 'section' },
+    });
+    const hint = {
+      ...snapshot.items[0],
+      binding: snapshot.binding,
+      ...f.call('recovery_hint', {
+        binding: snapshot.binding,
+        snapshotId: snapshot.snapshotId,
+        ref: snapshot.items[0].ref,
+      }),
+    };
+    assert.equal(rankTargets(f.scan(), hint).length, 0);
+  } finally {
+    f.close();
+  }
+});
+
 test('延迟出现：每轮重新扫描，元素出现后只点击一次', async () => {
   const f = page('<main></main>');
   let scans = 0,
@@ -77,8 +151,8 @@ test('延迟出现：每轮重新扫描，元素出现后只点击一次', async
     f.close();
   }
 });
-test('节点被替换：用原 role 和 accessible name 找到新引用', async () => {
-  const f = page('<button>提交</button>');
+test('节点被替换：原文档和结构身份一致时找到新引用', async () => {
+  const f = page('<button id="replacement">提交</button>');
   let clicks = 0;
   try {
     const original = f.scan()[0];

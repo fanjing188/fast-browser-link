@@ -50,6 +50,10 @@ def authorize_binding(binding, context):
 
 def action_risk(app, row):
     action = row["action"]
+    if action == "assist.task":
+        from copilot_workbench import local_task
+
+        return "zero" if local_task(row) else "metered"
     if action == "local.lookup" or app._cached(row):
         return "zero"
     template = app.templates.get(action)

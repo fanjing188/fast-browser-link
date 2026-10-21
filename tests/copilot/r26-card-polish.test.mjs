@@ -85,7 +85,7 @@ for (const locale of ['zh', 'en'])
       dom.window.close();
     }
   });
-test('pending polish preserves similarity ordering, ten suggestion limit and running/result type icons', () => {
+test('pending polish preserves similarity ordering, ten unified recommendations and running/result icons', () => {
   const dom = new JSDOM(html),
     doc = dom.window.document;
   try {
@@ -112,6 +112,8 @@ test('pending polish preserves similarity ordering, ten suggestion limit and run
     );
     const pending = [...doc.querySelectorAll('#pending article:not([hidden])')];
     assert.equal(pending.length, 10);
+    assert.equal(doc.querySelectorAll('#pending > article').length, 10);
+    assert.equal(doc.querySelector('#more-suggestions'), null);
     assert.equal(pending[0].dataset.id, 'current');
     assert.equal(doc.getElementById('suggestions-count').textContent, '10');
     assert.ok(pending.every((card) => !card.querySelector('.task-heading svg')));

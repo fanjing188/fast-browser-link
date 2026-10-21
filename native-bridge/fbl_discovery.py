@@ -13,6 +13,7 @@ import time
 import tempfile
 import copy
 import sys
+from contextlib import contextmanager
 from urllib.parse import urlsplit
 from fbl_runtime import agent_roots, read, safe
 from fbl_runtime import private_write
@@ -98,6 +99,40 @@ def mcp_rpc(server, method, params=None, *, timeout=5):
         raise ValueError("MCP method not allowed")
     if server.get("url"):
         return mcp_http(server, method, params or {}, timeout=timeout)
+    with mcp_stdio_session(server, timeout=timeout) as call:
+        return call(method, params)
+
+
+class MCPBudget:
+    def __init__(self, timeout, max_bytes):
+        self.deadline = time.monotonic() + timeout
+        self.remaining_bytes = max_bytes
+
+    def remaining(self):
+        remaining = self.deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("MCP metadata timed out")
+        return remaining
+
+    def consume(self, data):
+        self.remaining()
+        self.remaining_bytes -= len(data)
+        if self.remaining_bytes < 0:
+            raise ValueError("MCP response exceeds total byte limit")
+
+
+def mcp_message(data):
+    message = json.loads(data)
+    if not isinstance(message, dict):
+        raise ValueError("invalid MCP message")
+    if message.get("method") == "notifications/tools/list_changed":
+        raise ValueError("MCP tool directory changed; refresh required")
+    return message
+
+
+@contextmanager
+def mcp_stdio_session(server, *, timeout=5, max_bytes=4 * 1024 * 1024):
+    """一次握手覆盖整个目录，游标不能跨进程复用。"""
     command = server.get("command")
     args = server.get("args", [])
     if not isinstance(command, str) or not isinstance(args, list):
@@ -105,42 +140,59 @@ def mcp_rpc(server, method, params=None, *, timeout=5):
     if not isinstance(server.get("env", {}), dict):
         raise ValueError("invalid MCP environment")
     env = {**os.environ, **{key: str(value) for key, value in server.get("env", {}).items()}}
+    budget = MCPBudget(timeout, max_bytes)
     process = subprocess.Popen(
         [command, *args],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
         env=env,
-        text=True,
+        bufsize=0,
         start_new_session=True,
     )
+    os.set_blocking(process.stdin.fileno(), False)
     selector = selectors.DefaultSelector()
     selector.register(process.stdout, selectors.EVENT_READ)
+    buffer = b""
+
+    def send(payload):
+        data = memoryview((json.dumps(payload, allow_nan=False) + "\n").encode())
+        if len(data) > 4 * 1024 * 1024:
+            raise ValueError("MCP request exceeds limit")
+        with selectors.DefaultSelector() as writer:
+            writer.register(process.stdin, selectors.EVENT_WRITE)
+            while data:
+                if not writer.select(budget.remaining()):
+                    continue
+                try:
+                    data = data[os.write(process.stdin.fileno(), data[:65536]) :]
+                except BlockingIOError:
+                    continue
 
     def call(identity, name, values):
-        process.stdin.write(
-            json.dumps({"jsonrpc": "2.0", "id": identity, "method": name, "params": values}) + "\n"
-        )
-        process.stdin.flush()
-        deadline = time.monotonic() + timeout
-        buffer = b""
-        while time.monotonic() < deadline:
-            if not selector.select(min(0.1, max(0, deadline - time.monotonic()))):
+        nonlocal buffer
+        budget.remaining()
+        send({"jsonrpc": "2.0", "id": identity, "method": name, "params": values})
+        while True:
+            if not selector.select(min(0.1, budget.remaining())):
                 continue
             chunk = os.read(process.stdout.fileno(), 65536)
             if not chunk:
                 raise ValueError("MCP exited")
+            budget.consume(chunk)
             buffer += chunk
             if len(buffer) > 262144:
                 raise ValueError("MCP schema exceeds limit")
+            matched = None
             while b"\n" in buffer:
                 line, buffer = buffer.split(b"\n", 1)
-                message = json.loads(line)
+                message = mcp_message(line)
                 if message.get("id") == identity:
                     if "error" in message:
                         raise ValueError("MCP metadata unavailable")
-                    return message.get("result", {})
-        raise TimeoutError("MCP metadata timed out")
+                    matched = message.get("result", {})
+            if matched is not None:
+                return matched
 
     try:
         call(
@@ -152,11 +204,15 @@ def mcp_rpc(server, method, params=None, *, timeout=5):
                 "clientInfo": {"name": "fbl", "version": "1"},
             },
         )
-        process.stdin.write(
-            json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}) + "\n"
-        )
-        process.stdin.flush()
-        return call(2, method, params or {})
+        send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+        identity = 1
+
+        def request(method, params=None):
+            nonlocal identity
+            identity += 1
+            return call(identity, method, params or {})
+
+        yield request
     finally:
         selector.close()
         if process.poll() is None:
@@ -179,6 +235,12 @@ def mcp_rpc(server, method, params=None, *, timeout=5):
 def mcp_http(server, method, params, timeout=5):
     if method not in {"tools/list", "tools/call"}:
         raise ValueError("MCP method not allowed")
+    with mcp_http_session(server, timeout=timeout) as call:
+        return call(method, params)
+
+
+@contextmanager
+def mcp_http_session(server, *, timeout=5, max_bytes=4 * 1024 * 1024):
     import urllib.request
 
     parsed = urlsplit(server["url"])
@@ -195,6 +257,7 @@ def mcp_http(server, method, params, timeout=5):
             raise ValueError("MCP redirects require configuration review")
 
     opener = urllib.request.build_opener(NoRedirect())
+    budget = MCPBudget(timeout, max_bytes)
     headers = {
         **server.get("http_headers", {}),
         **server.get("headers", {}),
@@ -215,24 +278,53 @@ def mcp_http(server, method, params, timeout=5):
         request = urllib.request.Request(
             server["url"], data=json.dumps(payload).encode(), headers=headers
         )
-        with opener.open(request, timeout=timeout) as response:
+        with opener.open(request, timeout=budget.remaining()) as response:
             if response.headers.get("Mcp-Session-Id"):
                 headers["Mcp-Session-Id"] = response.headers["Mcp-Session-Id"]
-            data = response.read(262145)
-            if len(data) > 262144:
-                raise ValueError("MCP response exceeds limit")
-        if identity is None or not data:
-            return {}
-        text = data.decode()
-        messages = (
-            [json.loads(line[5:].strip()) for line in text.splitlines() if line.startswith("data:")]
-            if text.lstrip().startswith(("event:", "data:"))
-            else [json.loads(text)]
-        )
-        message = next((item for item in messages if item.get("id") == identity), None)
-        if not message or "error" in message:
-            raise ValueError("MCP metadata unavailable")
-        return message.get("result", {})
+            data, total = b"", 0
+            while True:
+                # 中文注释：read1 不等待 SSE 连接关闭；每次读取仍服从同一绝对截止。
+                socket = getattr(getattr(getattr(response, "fp", None), "raw", None), "_sock", None)
+                if socket:
+                    socket.settimeout(budget.remaining())
+                chunk = getattr(response, "read1", response.read)(65536)
+                budget.consume(chunk)
+                total += len(chunk)
+                if total > 262144:
+                    raise ValueError("MCP response exceeds limit")
+                data += chunk
+                messages = []
+                normalized = data.replace(b"\r\n", b"\n")
+                if normalized.lstrip().startswith((b"event:", b"data:", b":")):
+                    while b"\n\n" in normalized:
+                        frame, normalized = normalized.split(b"\n\n", 1)
+                        lines = [
+                            line[5:].lstrip(b" ")
+                            for line in frame.splitlines()
+                            if line.startswith(b"data:")
+                        ]
+                        if lines:
+                            messages.append(mcp_message(b"\n".join(lines)))
+                    data = normalized
+                else:
+                    try:
+                        messages = [mcp_message(data)] if data else []
+                        data = b""
+                    except json.JSONDecodeError:
+                        if not chunk:
+                            raise ValueError("invalid MCP response") from None
+                matched = None
+                for message in messages:
+                    if message.get("id") == identity and identity is not None:
+                        if "error" in message or not isinstance(message.get("result"), dict):
+                            raise ValueError("MCP metadata unavailable")
+                        matched = message["result"]
+                if matched is not None:
+                    return matched
+                if identity is None:
+                    return {}
+                if not chunk:
+                    raise ValueError("MCP metadata unavailable")
 
     initialized = call(
         1,
@@ -245,7 +337,119 @@ def mcp_http(server, method, params, timeout=5):
     )
     headers["MCP-Protocol-Version"] = initialized.get("protocolVersion", "2025-03-26")
     call(None, "notifications/initialized", {})
-    return call(2, method, params)
+    identity = 1
+
+    def request(method, params=None):
+        nonlocal identity
+        identity += 1
+        return call(identity, method, params or {})
+
+    yield request
+
+
+def mcp_schema(schema):
+    """保留远端 JSON Schema；仅校验形状，不解析引用或下载外部 schema。"""
+    if not isinstance(schema, dict) or schema.get("type") != "object":
+        raise ValueError("invalid MCP schema root")
+    kinds = {"object", "array", "string", "integer", "number", "boolean", "null"}
+
+    def check(node, depth=0):
+        if type(node) is bool:
+            return
+        if not isinstance(node, dict) or depth > 32:
+            raise ValueError("invalid MCP schema node")
+        if "type" in node:
+            values = node["type"] if isinstance(node["type"], list) else [node["type"]]
+            if not values or any(not isinstance(v, str) or v not in kinds for v in values):
+                raise ValueError("invalid MCP schema type")
+        for key in ("properties", "patternProperties", "$defs", "definitions", "dependentSchemas"):
+            if key in node:
+                if not isinstance(node[key], dict):
+                    raise ValueError("invalid MCP schema mapping")
+                for child in node[key].values():
+                    check(child, depth + 1)
+        if "required" in node and (
+            not isinstance(node["required"], list)
+            or any(not isinstance(v, str) for v in node["required"])
+            or len(set(node["required"])) != len(node["required"])
+        ):
+            raise ValueError("invalid MCP schema required fields")
+        for key in (
+            "items",
+            "additionalProperties",
+            "unevaluatedProperties",
+            "contains",
+            "not",
+            "if",
+            "then",
+            "else",
+            "propertyNames",
+        ):
+            if key in node:
+                check(node[key], depth + 1)
+        for key in ("allOf", "anyOf", "oneOf", "prefixItems"):
+            if key in node:
+                if not isinstance(node[key], list) or not node[key]:
+                    raise ValueError("invalid MCP schema alternatives")
+                for child in node[key]:
+                    check(child, depth + 1)
+        if "$ref" in node and not isinstance(node["$ref"], str):
+            raise ValueError("invalid MCP schema reference")
+
+    check(schema)
+
+
+def mcp_tool_list(
+    server, probe=mcp_rpc, *, max_pages=20, max_tools=2000, timeout=5, max_bytes=4 * 1024 * 1024
+):
+    """完整分页后才发布清单；重复游标、重复工具或超限都不发布半份结果。"""
+    if probe is mcp_rpc:
+        session = mcp_http_session if server.get("url") else mcp_stdio_session
+        with session(server, timeout=timeout, max_bytes=max_bytes) as call:
+            return mcp_tool_list(
+                server,
+                lambda _, method, params=None: call(method, params),
+                max_pages=max_pages,
+                max_tools=max_tools,
+                timeout=timeout,
+                max_bytes=max_bytes,
+            )
+    budget = MCPBudget(timeout, max_bytes)
+    tools, cursors, names = [], set(), set()
+    result = probe(server, "tools/list")
+    for page in range(max_pages):
+        budget.consume(json.dumps(result, allow_nan=False).encode())
+        if not isinstance(result, dict) or not isinstance(result.get("tools"), list):
+            raise ValueError("invalid MCP tool listing")
+        for tool in result["tools"]:
+            if (
+                not isinstance(tool, dict)
+                or not isinstance(tool.get("name"), str)
+                or not tool["name"]
+                or tool["name"] in names
+            ):
+                raise ValueError("invalid or duplicate MCP tool")
+            mcp_schema(tool.get("inputSchema"))
+            if "outputSchema" in tool:
+                mcp_schema(tool["outputSchema"])
+            names.add(tool["name"])
+            tools.append(tool)
+        if len(tools) > max_tools:
+            raise ValueError("MCP tool listing exceeds bound")
+        cursor = result.get("nextCursor")
+        if cursor is None:
+            return {"tools": tools}
+        if (
+            not isinstance(cursor, str)
+            or not cursor
+            or len(cursor) > 4096
+            or cursor in cursors
+            or page + 1 == max_pages
+        ):
+            raise ValueError("incomplete MCP tool listing")
+        cursors.add(cursor)
+        result = probe(server, "tools/list", {"cursor": cursor})
+    raise ValueError("incomplete MCP tool listing")
 
 
 def capability_for(name, properties):
@@ -268,6 +472,64 @@ def capability_for(name, properties):
             and set(properties) & {"keyword", "keywords", "domain", "url"}
         ),
         None,
+    )
+
+
+def declared_mcp_bindings(directory):
+    """只读取已登记功能包；已声明的通用绑定仍需单独确认远端元数据。"""
+    directory = Path(directory)
+    config = read(directory / "config.json", {})
+    directories = list(config.get("extension_dirs", []))
+    directories += [
+        str(path.parent)
+        for path in sorted((directory / "extensions").glob("*/package.json"))
+        if str(path.parent) not in directories
+    ]
+    packages = Packages(
+        directories, include_builtin=not config.get("managed_packs", False), strict=False
+    )
+    records = {row["id"]: row for row in packages.package_records if row["state"] == "registered"}
+    rows = []
+    for capability, bindings in packages.bindings.items():
+        schema = packages.schemas.get(capability, CAPABILITIES.get(capability))
+        for binding in bindings:
+            if (
+                binding["type"] != "mcp"
+                or Path(binding.get("_root", "")) == directory / "extensions/discovered"
+            ):
+                continue
+            clean = {key: value for key, value in binding.items() if not key.startswith("_")}
+            record = records[binding["_package"]]
+            rows.append(
+                {
+                    "capability": capability,
+                    "binding": clean,
+                    "schema": schema,
+                    "package_file": str(Path(binding["_root"]) / "package.json"),
+                    "declaration": {
+                        "package": binding["_package"],
+                        "release": record["release"],
+                        "declaration_digest": record["declaration_digest"],
+                        "binding_digest": digest(clean),
+                        "schema_digest": digest(schema),
+                    },
+                }
+            )
+    return rows
+
+
+def declared_mcp_matches(entry, item, tool):
+    binding, schema = entry["binding"], entry["schema"]
+    if (binding["config_path"], binding["server"], binding["tool_name"]) != (
+        item["config"],
+        item["name"],
+        tool["name"],
+    ):
+        return False
+    return (
+        tool.get("inputSchema") == schema["input"]
+        and ("outputSchema" not in tool or tool["outputSchema"] == schema["output"])
+        and set(binding.get("input_fields", [])) == set(schema["input"].get("properties", {}))
     )
 
 
@@ -386,6 +648,9 @@ def scan(
     files = {}
     drafts = []
     errors = []
+    sources = []
+    mcp_tools = []
+    captured_at = time.time()
     for root in agent_roots(ctx):
         directory = Path(root["path"])
         if not directory.is_dir() or directory.is_symlink():
@@ -501,13 +766,80 @@ def scan(
         errors.append(
             {"source": "model_draft", "code": "inference_not_configured", "count": len(drafts)}
         )
+    declarations = declared_mcp_bindings(ctx.copilot)
+    for entry in declarations:
+        files[entry["package_file"]] = file_digest(entry["package_file"])
     for item in mcp_servers(ctx):
         files[item["config"]] = file_digest(item["config"])
+        source = {
+            "source_id": digest([item["config"], item["name"]]),
+            "kind": "mcp",
+            "coverage": "failed",
+            "captured_at": captured_at,
+            "notification_scope": "request_session_only",
+            "fresh_until": captured_at + 86400,
+            "config_digest": file_digest(item["config"]),
+        }
+        sources.append(source)
         try:
-            result = mcp_probe(item["server"], "tools/list")
+            result = mcp_tool_list(item["server"], mcp_probe)
+            source.update(
+                coverage="complete",
+                metadata_digest=digest(result),
+                revision=digest(result),
+                tool_count=len(result["tools"]),
+            )
             files["mcp:" + item["config"] + ":" + item["name"]] = digest(result)
-            for tool in result.get("tools", [])[:200]:
+            for tool in result["tools"]:
                 schema = tool.get("inputSchema", {})
+                mcp_tools.append(
+                    {
+                        **copy.deepcopy(tool),
+                        "source_id": source["source_id"],
+                        "name": tool["name"],
+                        "contract_digest": digest(schema),
+                        "metadata_digest": source["metadata_digest"],
+                        "output_contract_digest": digest(tool["outputSchema"])
+                        if "outputSchema" in tool
+                        else None,
+                        "captured_at": captured_at,
+                    }
+                )
+                declared = [
+                    entry
+                    for entry in declarations
+                    if (
+                        entry["binding"]["config_path"],
+                        entry["binding"]["server"],
+                        entry["binding"]["tool_name"],
+                    )
+                    == (item["config"], item["name"], tool["name"])
+                ]
+                for entry in declared:
+                    if not declared_mcp_matches(entry, item, tool):
+                        errors.append({"source": "mcp", "code": "declared_contract_mismatch"})
+                        continue
+                    row = candidate(
+                        {
+                            "source": "mcp",
+                            "source_id": source["source_id"],
+                            "captured_at": captured_at,
+                            "contract_digest": digest(schema),
+                            "metadata_digest": source["metadata_digest"],
+                            "source_ref": item["config"],
+                            "capability": entry["capability"],
+                            "binding": entry["binding"],
+                            "declaration": entry["declaration"],
+                            "cost": entry["binding"].get("cost", "unknown"),
+                            "confidence": 1.0,
+                            "validation": "available",
+                            "basis": "installed declaration and exact tools/list contract",
+                        }
+                    )
+                    row["selected"] = False
+                    found.append(row)
+                if declared:
+                    continue
                 cap = capability_for(tool.get("name", ""), schema.get("properties", {}))
                 if not cap:
                     continue
@@ -525,6 +857,10 @@ def scan(
                     candidate(
                         {
                             "source": "mcp",
+                            "source_id": source["source_id"],
+                            "captured_at": captured_at,
+                            "contract_digest": digest(schema),
+                            "metadata_digest": source["metadata_digest"],
                             "source_ref": item["config"],
                             "capability": cap,
                             "binding": binding,
@@ -535,7 +871,7 @@ def scan(
                         }
                     )
                 )
-        except (ValueError, OSError, TimeoutError):
+        except (ValueError, OSError, TimeoutError, TypeError):
             errors.append({"source": "mcp", "code": "schema_unavailable"})
     pages = list(urls)
     if scan_tabs:
@@ -561,6 +897,10 @@ def scan(
             errors.append({"source": "browser", "code": "page_unavailable"})
     value = {
         "version": 1,
+        "captured_at": captured_at,
+        "sources": sources,
+        "mcp_tools": mcp_tools,
+        "coverage": "partial" if errors else "registered_sources_only",
         "candidates": list({row["id"]: row for row in found}.values()),
         "files": files,
         "errors": errors,
@@ -596,8 +936,19 @@ def confirm(ctx, ids, edits=None):
     package = read(
         target / "package.json", {"id": "discovered", "version": 1, "capabilities": {}, "tools": []}
     )
+    declarations = declared_mcp_bindings(ctx.copilot)
     for identity in dict.fromkeys(ids):
         row = selected[identity]
+        if row.get("declaration"):
+            if (edits or {}).get(identity) or not any(
+                entry["capability"] == row["capability"]
+                and entry["binding"] == row["binding"]
+                and entry["declaration"] == row["declaration"]
+                for entry in declarations
+            ):
+                raise ValueError("installed MCP declaration changed; discover and confirm again")
+            # 中文注释：确认既有实现的元数据，不把同一绑定再次安装到 discovered 包。
+            continue
         if row["capability"] not in CAPABILITIES:
             raise ValueError("unknown capability")
         edit = (edits or {}).get(identity, {})
@@ -661,11 +1012,43 @@ def confirm(ctx, ids, edits=None):
     config["extension_dirs"] = list(dict.fromkeys([*config.get("extension_dirs", []), str(target)]))
     private_write(ctx.copilot / "config.json", json.dumps(config, indent=2))
     previous = read(ctx.copilot / "discovery-confirmed.json")
+    complete_sources = {
+        source["source_id"]
+        for source in draft.get("sources", [])
+        if source.get("coverage") == "complete"
+    }
     private_write(
         ctx.copilot / "discovery-confirmed.json",
         json.dumps(
             {
                 "version": 1,
+                "captured_at": time.time(),
+                "sources": list(
+                    {
+                        source["source_id"]: source
+                        for source in [
+                            *previous.get("sources", []),
+                            *[
+                                source
+                                for source in draft.get("sources", [])
+                                if source.get("coverage") == "complete"
+                            ],
+                        ]
+                    }.values()
+                ),
+                "mcp_tools": list(
+                    {
+                        (tool["source_id"], tool["name"]): tool
+                        for tool in [
+                            *[
+                                tool
+                                for tool in previous.get("mcp_tools", [])
+                                if tool["source_id"] not in complete_sources
+                            ],
+                            *draft.get("mcp_tools", []),
+                        ]
+                    }.values()
+                ),
                 "files": {**previous.get("files", {}), **draft.get("files", {})},
                 "ids": list(dict.fromkeys([*previous.get("ids", []), *ids])),
                 "candidates": list(
@@ -682,6 +1065,29 @@ def confirm(ctx, ids, edits=None):
         ),
     )
     return {"installed": len(ids), "path": str(target), "confirmed": True}
+
+
+def invalidate_mcp_source(directory, item, *, metadata_digest=None):
+    """只落失效凭据，不把变更检查当作用户重新确认，也不发布半份目录。"""
+    path = Path(directory) / "discovery-draft.json"
+    draft = read(path, {})
+    source_id = digest([item["config"], item["name"]])
+    source = {
+        "source_id": source_id,
+        "kind": "mcp",
+        "coverage": "invalidated",
+        "captured_at": time.time(),
+        "notification_scope": "request_session_only",
+        "metadata_digest": metadata_digest,
+    }
+    draft["sources"] = [r for r in draft.get("sources", []) if r.get("source_id") != source_id] + [
+        source
+    ]
+    draft["mcp_tools"] = [r for r in draft.get("mcp_tools", []) if r.get("source_id") != source_id]
+    draft["candidates"] = [
+        r for r in draft.get("candidates", []) if r.get("source_id") != source_id
+    ]
+    private_write(path, json.dumps(draft, ensure_ascii=False, indent=2))
 
 
 def changes(
@@ -723,10 +1129,13 @@ def changes(
             if key not in files:
                 continue
             try:
-                if digest(mcp_probe(item["server"], "tools/list")) != files[key]:
+                current = digest(mcp_tool_list(item["server"], mcp_probe))
+                if current != files[key]:
                     changed.append(key)
-            except (OSError, RuntimeError, TimeoutError, ValueError):
+                    invalidate_mcp_source(ctx.copilot, item, metadata_digest=current)
+            except (OSError, RuntimeError, TimeoutError, ValueError, TypeError):
                 changed.append("schema_unavailable:" + item["name"])
+                invalidate_mcp_source(ctx.copilot, item)
     known = set(files)
     for root in agent_roots(ctx):
         path = Path(root["path"])
@@ -741,6 +1150,11 @@ def changes(
 
 def mcp_call(binding, inputs):
     from fbl_profiles import read_config
+    from copilot_recommendations import HEALTH_TTL, metadata_current
+
+    directory = binding.get("_mcp_directory")
+    if not directory or not metadata_current(directory, binding, time.time(), ttl=HEALTH_TTL):
+        raise ValueError("MCP metadata confirmation expired; discover and confirm again")
 
     path = Path(binding["config_path"])
     if not path.is_file() or path.is_symlink():
@@ -755,18 +1169,60 @@ def mcp_call(binding, inputs):
     server = servers.get(binding["server"])
     if not isinstance(server, dict):
         raise ValueError("MCP server no longer configured")
-    result = mcp_rpc(
-        server,
-        "tools/call",
-        {
-            "name": binding["tool_name"],
-            "arguments": {
-                key: value
-                for key, value in inputs.items()
-                if key in binding.get("input_fields", [])
-            },
-        },
+    confirmed = read(Path(directory) / "discovery-confirmed.json", {})
+    source_id = digest([binding["config_path"], binding["server"]])
+    expected = next(
+        (
+            tool
+            for tool in confirmed.get("mcp_tools", [])
+            if tool.get("source_id") == source_id and tool.get("name") == binding["tool_name"]
+        ),
+        {},
     )
+    mcp_schema(expected.get("inputSchema"))
+    session = mcp_http_session if server.get("url") else mcp_stdio_session
+    dispatched = False
+    try:
+        with session(server) as call:
+            current = mcp_tool_list(server, lambda _, method, params=None: call(method, params))
+            if digest(current) != expected.get("metadata_digest"):
+                raise ValueError("MCP tool directory changed; discover and confirm again")
+            tool = next(
+                (tool for tool in current["tools"] if tool["name"] == binding["tool_name"]), {}
+            )
+            if any(tool.get(key) != expected.get(key) for key in ("inputSchema", "outputSchema")):
+                raise ValueError("MCP tool contract changed or missing; confirm again")
+            if not metadata_current(directory, binding, time.time(), ttl=HEALTH_TTL):
+                raise ValueError("MCP metadata changed before execution")
+            # 中文注释：同会话全目录预检后只派发一次；未知结果绝不重放 tools/call。
+            dispatched = True
+            result = call(
+                "tools/call",
+                {
+                    "name": binding["tool_name"],
+                    "arguments": {
+                        key: value
+                        for key, value in inputs.items()
+                        if key in binding.get("input_fields", [])
+                    },
+                },
+            )
+        return mcp_output(result, binding)
+    except (ValueError, OSError, TimeoutError, TypeError):
+        invalidate_mcp_source(
+            directory, {"config": binding["config_path"], "name": binding["server"]}
+        )
+        if dispatched:
+            from copilot_capabilities import Stopped
+
+            # 中文注释：复用 Registry 的停止边界，禁止未知派发转到下一供应商重试。
+            raise Stopped("MCP tool outcome unknown; read back before any retry") from None
+        raise
+
+
+def mcp_output(result, binding):
+    if not isinstance(result, dict):
+        raise ValueError("invalid MCP tool result")
     if result.get("isError"):
         raise ValueError("MCP tool failed")
     value = result.get("structuredContent")
@@ -787,4 +1243,8 @@ def mcp_call(binding, inputs):
     if not isinstance(value, dict):
         raise ValueError("MCP result must be an object or records array")
     value.setdefault("source", binding["id"])
+    if binding.get("_schema"):
+        from copilot_contracts import validate
+
+        validate(value, binding["_schema"])
     return value

@@ -1,8 +1,5 @@
 // 中文注释：只翻译界面固定文案；模型结果、关键词、来源原文保持原语言。
 const messages = {
-  '先试试，无需 Agent': 'Try first, no Agent needed',
-  '直接使用当前页面；主动建议需要配置并开启协作。':
-    'Use this page directly; proactive suggestions require Agent setup and enabling Assist.',
   识别并导出表格: 'Detect and export tables',
   多页采集: 'Multi-page collection',
   页面标注: 'Page annotations',

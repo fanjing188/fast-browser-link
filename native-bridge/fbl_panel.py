@@ -48,16 +48,28 @@ def readiness(ctx, diagnostic):
 
 def request(copilot, method, params):
     ctx = context(copilot)
-    if method == "fbl_pack_state" and not params:
+    if (
+        method == "fbl_pack_state"
+        and not params
+        or method == "fbl_pack_check"
+        and set(params) == {"name"}
+        and isinstance(params["name"], str)
+    ):
         from fbl_cli import pack_state
 
-        return pack_state(
+        result = pack_state(
             ctx,
             copilot.registry.inspect(copilot._tool_context(copilot.active or "pack-manager")),
             busy=any(state["enabled"] for state in copilot.states.values())
             or bool(copilot.registry.jobs)
             or copilot.tool_health_running,
+            loaded_packages=copilot.packages,
         )
+        if method == "fbl_pack_check" and params["name"] not in {
+            row["id"] for row in result["plugins"]
+        }:
+            raise ValueError("plugin not installed")
+        return result
     if (
         method in {"fbl_pack_install", "fbl_pack_remove"}
         and set(params) == {"name"}
@@ -87,6 +99,7 @@ def request(copilot, method, params):
             return pack_state(
                 ctx,
                 copilot.registry.inspect(copilot._tool_context(copilot.active or "pack-manager")),
+                loaded_packages=copilot.packages,
             )
     if method in {"fbl_readiness", "fbl_fix"} and not params:
         return readiness(ctx, doctor(ctx, fix=method == "fbl_fix"))

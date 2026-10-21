@@ -53,7 +53,9 @@ class ActiveContext(unittest.TestCase):
         self.state["suggestions"]["new"] = self.row("new")
         self.context("https://example.test/report?q=B", tab=2)
         self.assertNotIn("new", self.state["suggestions"])
-        self.assertEqual(self.app.view("fixture")["context_revision"], revision + 1)
+        self.assertEqual(self.state["context_revision"], revision + 1)
+        initial = self.app.view("fixture")["context_revision"]
+        self.assertEqual(self.app.view("fixture")["context_revision"], initial)
 
     def test_same_sanitized_url_and_same_dom_still_schedule_the_new_query(self):
         self.context("https://example.test/report?q=A")

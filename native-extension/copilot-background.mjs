@@ -146,6 +146,91 @@ export class CopilotBackground {
     });
   }
   async localCommand(name, params) {
+    if (name === 'workbench_capture') {
+      const [tab] = await this.api.tabs.query({ active: true, currentWindow: true });
+      await this.refreshOwnership();
+      if (!tab || this.owned(tab) || !ordinaryPage(tab.url || '') || tab.incognito)
+        throw Error('请在普通网页中选择内容');
+      if (!(await this.foreground(tab.id))) throw Error('请保持目标网页在前台');
+      const epoch = this.tableEpochs.get(tab.id) || 0;
+      const mode = ['page', 'selection', 'table', 'canvas'].includes(params.mode)
+        ? params.mode
+        : 'page';
+      const [captured] = await this.api.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: async (moduleURL, mode) => {
+          const module = await import(moduleURL);
+          if (mode === 'table') {
+            const tables = await import(chrome.runtime.getURL('copilot-tables.mjs'));
+            return tables.captureTables(document, { minimumRows: 1 });
+          }
+          try {
+            return module.captureMaterial(document, location.href, mode);
+          } catch (error) {
+            return { capture_error: error.message };
+          }
+        },
+        args: [this.api.runtime.getURL('copilot-observation.mjs'), mode],
+      });
+      const current = await this.api.tabs.get(tab.id);
+      await this.refreshOwnership();
+      if (
+        !current ||
+        current.url !== tab.url ||
+        this.owned(current) ||
+        this.tableLoading.has(tab.id) ||
+        (this.tableEpochs.get(tab.id) || 0) !== epoch
+      )
+        throw Error('目标页面已变化');
+      const [identity] = await this.api.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: () => location.href,
+      });
+      if (identity.documentId !== captured.documentId || identity.result !== tab.url)
+        throw Error('目标页面已变化');
+      const foreground = await this.foreground(tab.id);
+      if (!foreground || foreground.url !== tab.url) throw Error('请保持目标网页在前台');
+      if (captured.result?.capture_error) throw Error(captured.result.capture_error);
+      if (mode === 'canvas') {
+        let state;
+        for (const material of captured.result.materials || [])
+          state = await this.request('workbench_add', {
+            ...material,
+            document_id: captured.documentId || '',
+          });
+        if (!state) throw Error('当前视图没有可读取的 Canvas 图表');
+        return state;
+      }
+      if (mode !== 'table')
+        return this.request('workbench_add', {
+          ...captured.result,
+          document_id: captured.documentId || '',
+        });
+      if (!captured.result.tables?.length) throw Error('未识别到可读取的表格');
+      let state;
+      for (const table of captured.result.tables.slice(0, 10)) {
+        state = await this.request('workbench_add', {
+          kind: 'table',
+          title: table.name || tab.title || '页面表格',
+          table: {
+            headers: table.headers,
+            records: table.rows.map((row) =>
+              Object.fromEntries(
+                table.headers.map((key, i) => [
+                  key,
+                  typeof row[i] === 'string' ? row[i] : row[i]?.text || '',
+                ]),
+              ),
+            ),
+          },
+          source: safeURL(tab.url),
+          partial: !!table.incomplete,
+          document_id: captured.documentId || '',
+        });
+      }
+      return state;
+    }
+
     if (name === 'annotate_page') {
       const [tab] = await this.api.tabs.query({ active: true, currentWindow: true });
       await this.refreshOwnership();
@@ -209,9 +294,7 @@ export class CopilotBackground {
       await this.request('result', { id: params.id });
       const url =
         this.api.runtime.getURL('copilot-result.html') + '?id=' + encodeURIComponent(params.id);
-      if (params.popup === true)
-        await this.api.windows.create({ url, type: 'popup', width: 1060, height: 820 });
-      else await this.api.tabs.create({ url, active: false });
+      await this.api.tabs.create({ url, active: params.popup === true });
       return {};
     }
     if (name === 'table_state' || name === 'recognize_tables')
@@ -441,6 +524,18 @@ export class CopilotBackground {
   owned(tab) {
     return this.isWorkTab(tab.id) || this.workspaceWindows.has(tab.windowId);
   }
+  async syncPageContext(tabId) {
+    const [tab] = await this.api.tabs.query({ active: true, lastFocusedWindow: true });
+    if (!tab || (tabId !== undefined && tab.id !== tabId)) return;
+    const window = await this.api.windows.get(tab.windowId);
+    if (!window.focused) return;
+    await this.refreshOwnership();
+    const context =
+      this.owned(tab) || !ordinaryPage(tab.url || '')
+        ? { url: '', incognito: false }
+        : { url: tab.url, incognito: !!tab.incognito, tab_id: tab.id };
+    await this.request('page_context', context);
+  }
   async foreground(tabId) {
     const [tab] = await this.api.tabs.query({ active: true, lastFocusedWindow: true });
     if (!tab || tab.id !== tabId || this.owned(tab) || !ordinaryPage(tab.url || '')) return null;
@@ -663,6 +758,11 @@ export class CopilotBackground {
       if (this.tableCaptures.get(tabId)?.url !== tab?.url) this.invalidateTables(tabId);
       void this.tableConfirmationChanged();
     }
+    if (
+      this.panelPorts.size &&
+      ['导航到新页面', '打开标签页', '切换标签页', '页面加载完成'].includes(description)
+    )
+      this.queue = this.queue.catch(() => {}).then(() => this.syncPageContext(tabId));
     if (!this.enabled || this.isWorkTab(tabId)) return;
     this.queue = this.queue
       .catch(() => {})
@@ -1045,6 +1145,19 @@ export class CopilotBackground {
       panel &&
       message.type === 'copilot.command' &&
       [
+        'workbench_state',
+        'workbench_catalog',
+        'workbench_add',
+        'workbench_update',
+        'workbench_remove',
+        'workbench_clear',
+        'workbench_plan',
+        'workbench_interpret',
+        'workbench_preference',
+        'workbench_study_read',
+        'workbench_open_artifact',
+        'workbench_answer',
+        'workbench_from_result',
         'agent_catalog',
         'agent_setup_start',
         'agent_setup_status',
@@ -1061,6 +1174,7 @@ export class CopilotBackground {
         'basket_execute',
         'fbl_readiness',
         'fbl_pack_state',
+        'fbl_pack_check',
         'fbl_save_flow',
         'fbl_pack_install',
         'fbl_pack_remove',
@@ -1121,7 +1235,9 @@ export class CopilotBackground {
       work = (
         message.command === 'open_result'
           ? this.localCommand('open_result', message.params || {})
-          : this.request(message.command, message.params || {})
+          : message.command === 'state'
+            ? this.syncPageContext().then(() => this.request('state', message.params || {}))
+            : this.request(message.command, message.params || {})
       ).then(async (state) => {
         if (message.command === 'settings' || message.command === 'preferences')
           await this.settings(state);
@@ -1151,11 +1267,23 @@ export class CopilotBackground {
             '表格已变化，请重新识别',
             '单行内容超过本机分块限制',
             '工作区尚未连接',
+            '请在普通网页中选择内容',
+            '请先选择非输入区域的文字',
+            '页面暂无可读取的正文',
+            '未识别到可读取的表格',
+            '请保持目标网页在前台',
+            '当前视图没有可读取的 Canvas 图表',
+            'Canvas 图尺寸过大或为空，请导入较小的 PNG 图片',
+            'Canvas 受跨源保护，无法读取；请导入有权使用的 PNG 图片',
+            'Canvas 未返回有效 PNG 图片',
+            'Canvas 图片超过150KiB，请导入较小的 PNG 图片',
           ];
           const detail =
             error.tableError || known.includes(error.message)
               ? error.message
-              : '无法确认目标表格，请重新识别后重试。';
+              : message.command === 'workbench_capture'
+                ? '材料读取未完成，请缩小范围或检查本机连接。'
+                : '无法确认目标表格，请重新识别后重试。';
           respond({
             error: detail,
             code: 'table_operation_failed',

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
-import { PacksPanel } from '../../native-extension/copilot-packs-panel.mjs';
+import { PacksPanel, pluginStatus } from '../../native-extension/copilot-packs-panel.mjs';
 import { readTrends, collectBrowserData } from '../../native-extension/copilot-browser-data.mjs';
 const html =
   '<details id="functional-plugins"><output id="plugins-notice"></output><div class="plugins-body"></div></details>';
@@ -48,10 +48,13 @@ test('plugin list shows metadata, confirms uninstall and preserves unmanaged pac
     await panel.refresh();
     const root = dom.window.document.querySelector('[data-pack=adapter]');
     assert.match(root.textContent, /1.0.0|case.inspect|review/);
-    assert.equal(dom.window.document.querySelector('[data-pack=custom] button'), null);
-    root.querySelector('button').click();
+    assert.equal(
+      dom.window.document.querySelector('[data-pack=custom] [data-pack-action=remove]'),
+      null,
+    );
+    root.querySelector('[data-pack-action=remove]').click();
     assert.deepEqual(calls, [['fbl_pack_state']]);
-    await root.querySelector('button').onclick();
+    await root.querySelector('[data-pack-action=confirm-remove]').onclick();
     assert.deepEqual(calls.at(-1), ['fbl_pack_remove', { name: 'adapter' }]);
     const input = dom.window.document.querySelector('input');
     input.value = '/synthetic/new';
@@ -61,7 +64,10 @@ test('plugin list shows metadata, confirms uninstall and preserves unmanaged pac
     assert.deepEqual(calls.at(-1), ['fbl_pack_install', { name: '/synthetic/new' }]);
     panel.state = { ...state, busy: true };
     panel.render();
-    assert.equal(dom.window.document.querySelector('[data-pack=adapter] button').disabled, true);
+    assert.equal(
+      dom.window.document.querySelector('[data-pack=adapter] [data-pack-action=remove]').disabled,
+      true,
+    );
   } finally {
     dom.window.close();
   }
@@ -403,4 +409,196 @@ test('a complete report with no pagination is not marked partial at a one page b
   assert.equal(result.partial, false);
   assert.equal(result.reason, '');
   assert.equal(result.pages, 1);
+});
+test('plugin status never confuses loaded packages with locally checked availability', () => {
+  assert.equal(pluginStatus({ loaded: true, needs_setup: [] }).label, '已安装 · 待检查');
+  assert.equal(
+    pluginStatus({ loaded: true, health: { status: 'needs_setup' } }).label,
+    '已安装 · 待配置',
+  );
+  assert.equal(
+    pluginStatus({ health: { status: 'error', reason: 'missing command' } }).key,
+    'failed',
+  );
+  assert.equal(
+    pluginStatus({
+      health: { status: 'ready', scope: 'local_readonly', execution_verified: false },
+    }).label,
+    '本地先决条件通过',
+  );
+  assert.equal(pluginStatus({ installed: false }).label, '未安装');
+  assert.equal(pluginStatus({ health: { status: 'needs_update' } }).key, 'waiting');
+  assert.equal(pluginStatus({}, 'checking').label, '检查中');
+});
+test('independent plugin view supports local checks during Assist, clear diagnostics and configuration routing', async () => {
+  const dom = new JSDOM(html),
+    calls = [],
+    configured = [];
+  let resolveCheck;
+  const pending = new Promise((resolve) => (resolveCheck = resolve));
+  const panel = new PacksPanel(
+    dom.window.document,
+    async (name, params) => {
+      calls.push([name, params]);
+      if (name === 'fbl_pack_check') return pending;
+      return { ...state, busy: true };
+    },
+    { onConfigure: (row) => configured.push(row.id) },
+  );
+  await panel.refresh();
+  let root = dom.window.document.querySelector('[data-pack=adapter]');
+  assert.equal(root.querySelector('[data-pack-action=remove]').disabled, true);
+  assert.equal(root.querySelector('[data-pack-action=check]').disabled, false);
+  const checking = root.querySelector('[data-pack-action=check]').onclick();
+  root = dom.window.document.querySelector('[data-pack=adapter]');
+  assert.match(root.querySelector('[role=status]').textContent, /检查中/);
+  resolveCheck({
+    ...state,
+    busy: true,
+    plugins: [
+      {
+        ...state.plugins[0],
+        health: {
+          status: 'error',
+          reason: 'Local binding command is missing',
+          checked_at: 1,
+          scope: 'local_readonly',
+          checks: [{ label: 'Command', status: 'error', reason: 'Missing executable' }],
+          execution_verified: false,
+        },
+      },
+    ],
+  });
+  await checking;
+  root = dom.window.document.querySelector('[data-pack=adapter]');
+  assert.match(root.textContent, /Local binding command is missing/);
+  assert.match(root.textContent, /Missing executable/);
+  assert.match(root.textContent, /不调用付费服务，不读取真实网页/);
+  await root.querySelector('[data-pack-action=configure]').onclick();
+  assert.deepEqual(configured, ['adapter']);
+  assert.deepEqual(calls, [
+    ['fbl_pack_state', undefined],
+    ['fbl_pack_check', { name: 'adapter' }],
+  ]);
+  assert.equal(
+    calls.some(([name]) => name === 'capability_health'),
+    false,
+  );
+  dom.window.close();
+});
+test('failed plugin actions keep an actionable visible error and preserve installed state', async () => {
+  const dom = new JSDOM(html);
+  const panel = new PacksPanel(dom.window.document, async (name) => {
+    if (name === 'fbl_pack_state') return state;
+    throw Error('failed');
+  });
+  await panel.refresh();
+  await dom.window.document.querySelector('[data-pack=adapter] [data-pack-action=check]').onclick();
+  assert.match(dom.window.document.getElementById('plugins-notice').textContent, /操作未完成/);
+  assert.ok(dom.window.document.querySelector('[data-pack=adapter]'));
+  assert.equal(
+    dom.window.document.querySelector('[data-pack=adapter] [data-pack-action=check]').disabled,
+    false,
+  );
+  dom.window.close();
+});
+test('functional plugins have an independent view and return keyboard focus to the work surface', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const { PanelViews } = await import('../../native-extension/copilot-view.mjs');
+  const dom = new JSDOM(
+    await readFile(new URL('../../native-extension/copilot-panel.html', import.meta.url), 'utf8'),
+  );
+  const doc = dom.window.document,
+    views = new PanelViews(doc);
+  assert.ok(doc.querySelector('#plugins-view #functional-plugins'));
+  assert.equal(doc.querySelector('#settings-view #functional-plugins'), null);
+  doc.getElementById('open-plugins').onclick = () => views.show('plugins');
+  doc.getElementById('open-plugins').click();
+  assert.equal(doc.getElementById('plugins-view').getAttribute('aria-hidden'), 'false');
+  assert.equal(doc.getElementById('plugins-view').hasAttribute('inert'), false);
+  assert.equal(doc.getElementById('settings-view').getAttribute('aria-hidden'), 'true');
+  assert.equal(doc.getElementById('work-view').hidden, true);
+  doc.querySelector('#plugins-view [data-back]').click();
+  assert.equal(doc.getElementById('plugins-view').hasAttribute('inert'), true);
+  assert.equal(doc.getElementById('work-view').hidden, false);
+  assert.equal(doc.activeElement.id, 'open-plugins');
+  dom.window.close();
+});
+test('local plugin checks are available only to the trusted extension panel', async () => {
+  const { CopilotBackground } = await import('../../native-extension/copilot-background.mjs');
+  const calls = [],
+    api = { runtime: { id: 'ext', getURL: (path) => 'chrome-extension://ext/' + path } };
+  const service = new CopilotBackground(api, async (name, params) => {
+    calls.push([name, params]);
+    return { plugins: [], available: [], busy: false };
+  });
+  const message = {
+    type: 'copilot.command',
+    command: 'fbl_pack_check',
+    params: { name: 'adapter' },
+  };
+  assert.equal(
+    service.handle(
+      message,
+      { id: 'ext', url: 'https://example.test/', frameId: 0, tab: { id: 1 } },
+      () => {},
+    ),
+    false,
+  );
+  const result = await new Promise((resolve) =>
+    assert.equal(
+      service.handle(
+        message,
+        { id: 'ext', url: 'chrome-extension://ext/copilot-panel.html' },
+        resolve,
+      ),
+      true,
+    ),
+  );
+  assert.deepEqual(calls, [['fbl_pack_check', { name: 'adapter' }]]);
+  assert.ok(result.result);
+});
+test('plugin reason severity and compact card scope match the actual local health result', async () => {
+  const dom = new JSDOM(html);
+  const panel = new PacksPanel(dom.window.document, async () => ({
+    ...state,
+    plugins: [
+      {
+        ...state.plugins[0],
+        id: 'ready',
+        health: {
+          status: 'ready',
+          reason: 'local_prerequisites_passed',
+          scope: 'local_readonly',
+          execution_verified: false,
+        },
+      },
+      { ...state.plugins[0], id: 'error', health: { status: 'error', reason: 'missing_command' } },
+      {
+        ...state.plugins[0],
+        id: 'setup',
+        health: { status: 'needs_setup', reason: 'agent_setup_required' },
+      },
+    ],
+  }));
+  await panel.refresh();
+  const doc = dom.window.document,
+    ready = doc.querySelector('[data-pack=ready]');
+  assert.equal(
+    ready.querySelector(':scope > .plugin-reason').classList.contains('plugin-error'),
+    false,
+  );
+  assert.equal(ready.querySelector(':scope > .plugin-scope'), null);
+  assert.match(ready.querySelector('.plugin-details .plugin-scope').textContent, /不调用付费服务/);
+  assert.ok(doc.querySelector('[data-pack=error] > .plugin-error'));
+  assert.ok(doc.querySelector('[data-pack=setup] > .plugin-warning'));
+  assert.match(
+    doc.querySelector('[data-pack=error] > .plugin-reason').textContent,
+    /找不到所需本机命令/,
+  );
+  assert.doesNotMatch(
+    doc.querySelector('[data-pack=error] > .plugin-reason').textContent,
+    /missing_command/,
+  );
+  dom.window.close();
 });

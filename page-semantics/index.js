@@ -51,7 +51,7 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
   const contextRoles=new Set('region dialog row listitem group listbox tablist menu toolbar radiogroup tree treeitem grid treegrid tabpanel'.split(' '));
   // 中文注释：按 WAI-ARIA 1.2 采用首个有效非抽象角色，未知 token 不覆盖原生语义。
   const ariaRoles=new Set([...actionRoles,...contextRoles,...'alert alertdialog application article banner blockquote caption cell code columnheader complementary contentinfo definition deletion directory document emphasis feed figure form generic gridcell heading img insertion list log main marquee math menubar meter navigation none note paragraph presentation progressbar rowgroup rowheader scrollbar search separator status strong subscript suggestion superscript table term time timer tooltip'.split(' ')]);
-  const selectors={interactive:`${controls},[role],div,span`,content:'h1,h2,h3,h4,h5,h6,p,li,blockquote,pre,figcaption,[role=heading]',table:'tr,[role=row],[data-ui-name="Body.Row"]'};
+  const selectors={interactive:`${controls},[role],div,span`,content:'h1,h2,h3,h4,h5,h6,p,li,blockquote,pre,figcaption,[role=heading]',table:'tr,[role],[data-ui-name="Body.Row"]'};
   function ref(node){if(!refs.has(node))refs.set(node,`${instance}:e${++sequence}`);return refs.get(node);}
   const redact=createPageTextRedactor();
   let truncated=false;
@@ -242,10 +242,10 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
   function rowCells(row){
     if(row.getAttribute('data-ui-name')==='Body.Row')return Array.from(row.children);
     const cells=[],walker=row.ownerDocument.createTreeWalker(row,1,{acceptNode:node=>
-      node.matches('tr,[role=row],table,[role=table],[role=grid],[role=treegrid]')?2:1});
+      node.matches('tr,table')||['row','table','grid','treegrid'].includes(role(node))?2:1});
     let node,scanned=0;
     while((node=walker.nextNode())&&scanned++<maxScan){
-      if(node.matches('th,td,[role=cell],[role=gridcell],[role=columnheader],[role=rowheader]')&&visible(node,false))cells.push(node);
+      if((node.matches('th,td')||['cell','gridcell','columnheader','rowheader'].includes(role(node)))&&visible(node,false))cells.push(node);
     }
     return cells;
   }
@@ -440,7 +440,19 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
     while(parent&&ancestors.length<4){ancestors.push([parent.localName,parent.getAttribute('role')||'',parent.id||'',parent.getAttribute('aria-rowindex')||parent.getAttribute('aria-posinset')||'']);parent=parent.parentElement||parent.getRootNode().host;}
     // 中文注释：虚拟记录索引来自语义祖先，不能因组件包装层超过四层而漏掉身份变化。
     const positions=value.context?.filter(entry=>entry.index!==undefined).map(entry=>[entry.role,entry.index])||[];
-    return JSON.stringify([node.localName,value.role,value.name,attrs,ancestors,positions]);
+    // 中文注释：同名按钮不代表同一业务记录。只取明确标签/直接标题与索引；无标签记录绑定真实容器，不拿进度正文猜身份。
+    const records=[];
+    for(let parent=parentOf(node);parent;parent=parentOf(parent)){
+      if(!parent.matches('article,li,tr')&&!['row','listitem','treeitem'].includes(explicitRole(parent)))continue;
+      const heading=Array.from(parent.children).find(child=>child.matches('h1,h2,h3,h4,h5,h6'));
+      // 中文注释：身份不用展示用的短标题；超过有界全文容量时绑定本次 epoch，任何后续变更都需重读。
+      truncated=false;
+      const label=explicitName(parent)?fullItem(parent).name:heading&&visible(heading,false)?readText(heading,true):'';
+      const incomplete=truncated;
+      const index=parent.getAttribute('aria-rowindex')||parent.getAttribute('aria-posinset')||'';
+      records.push([role(parent),parent.id||'',label,index,label||index||parent.id?'':ref(parent),incomplete?epoch:null]);
+    }
+    return JSON.stringify([node.localName,value.role,value.name,attrs,ancestors,positions,records]);
   }
   // 中文注释：保存真实文档、Shadow 树及边界节点身份，路径名称相同不能替代原作用域。
   function targetScope(node){
@@ -516,6 +528,7 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
       output.coverage.scanned++;
       if(node.localName==='canvas'&&visible(node,false))output.coverage.unsupportedCanvas++;
       if(!node.matches(selectors[mode]))continue;
+      if(mode==='table'&&role(node)!=='row')continue;
       if(mode==='interactive' && !node.matches(controls) && !actionRoles.has(role(node)))continue;
       const visibility=mode==='interactive'?interactionVisibility(node):null;
       if(visibility?visibility.visible===false||!visible(visibility.target,viewport)||node.matches('input[type="hidden"]'):!visible(node,viewport)){output.coverage.filtered++;continue;}
@@ -574,8 +587,8 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
   }
   function recoveryHint(token){
     if(!token||Object.keys(binding).some(key=>token[key]!==binding[key]))throw Error('BINDING_MISMATCH');
-    const record=snapshots.get(token.snapshotId)?.records.get(token.ref);
-    return record?{role:record.value.role,name:record.value.name,rect:record.rect}:null;
+    const snap=snapshots.get(token.snapshotId),record=snap?.records.get(token.ref);
+    return record?{role:record.value.role,name:record.value.name,rect:record.rect,identityKey:JSON.stringify([ref(snap.root),record.key]),targetPath:record.value.targetPath||[]}:null;
   }
   function resolve(token){
     sync();
@@ -598,7 +611,7 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
     } else if(node.isConnected)current=snap.mode==='interactive'?item(node,snap.root):fullItem(node);
     // 中文注释：同一真实控件沿用结构身份，周边进度文本不作废引用；AX 和正文片段仍严格比较。
     const identity=value=>JSON.stringify({...value,context:value.context?.map(({name:_name,...entry})=>entry)});
-    if(node.isConnected&&within(node)&&shown(node)&&(JSON.stringify(current)===JSON.stringify(saved)||snap.mode==='interactive'&&saved.nameSource!=='accessibility'&&stableKey(node,current)===record.key&&identity(current)===identity(saved)))return node;
+    if(node.isConnected&&within(node)&&shown(node)&&(snap.mode!=='interactive'||stableKey(node,current)===record.key)&&(JSON.stringify(current)===JSON.stringify(saved)||snap.mode==='interactive'&&saved.nameSource!=='accessibility'&&identity(current)===identity(saved)))return node;
     // 中文注释：只遍历原作用域的普通子树，不进入其他 frame 或 Shadow 树。
     const matches=[],candidates=[],scope=root===doc?snap.root:root.host?root:owner.body;
     const walker=owner.createTreeWalker(scope,1);

@@ -1,5 +1,20 @@
 # Testing
 
+## Task workbench in the native side panel
+
+`tests/copilot/real-workbench.mjs` 是手动 opt-in 验收，不进入离线清单。运行前显式设置私有 `TMPDIR` 及仓库固定 SDK 的 `HERMES_SOURCE` / `HERMES_PYTHON`：
+
+```sh
+node tests/copilot/real-workbench.mjs --edge
+node tests/copilot/real-workbench.mjs
+```
+
+该 runner 通过原生 `sidePanel` 打开真实侧栏，并确认它不是普通标签页。只使用临时 profile、本地合成表格和未连接 Agent 的配置，覆盖当前普通页读取、实际 Native 队列、本机去重与结果回读、模型任务阻塞、两表任务数量限制、Escape 焦点恢复、长材料名及短视口关闭。
+
+每次输出工作台五种状态和设置六个类别的 320/375/480 深浅色 DOM 矩阵，以及完成详情的 1440/375 深浅色矩阵。初始页、材料就绪页和通用设置各有 320/375 深浅色截图，完成详情另有 1440/375 深浅色截图，保存到 `$TMPDIR/native-workbench-evidence-{edge,chrome}/`。设置覆盖分类切换、草稿保留、显式保存和原生键盘导航；完成详情覆盖真实结果读取及 Escape 关闭标签。
+
+原生侧栏 480 只有 DOM 证据：headless 宿主宽度小于此值，超宽截图会平铺，不列作通过图片。截图前等待有界动画的 `finished`，不截取滑入过渡的中间画面；逐张目视，矩阵行数不计为截图数。此验收不证明模型内容准确、真实账户业务或个人安装已生效。
+
 ## Login surfaces and OAuth popup acceptance
 
 离线回归覆盖账号/密码/验证码用途、模态与固定浮层归属、Shadow DOM 和 iframe 边界、popup 发现与精确审批、操作权和删除权分离、公共结果脱敏及 Vault/script 绑定。

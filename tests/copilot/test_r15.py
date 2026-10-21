@@ -660,12 +660,14 @@ class R15(unittest.TestCase):
         self.assertTrue(any(method == "shared.close" for method, _ in calls))
 
     def test_http_mcp_schema_handshake_never_calls_tool_or_follows_redirect(self):
+        from email.message import Message
         from fbl_discovery import mcp_http
 
         calls = []
 
         class Response:
-            headers = {}
+            headers = Message()
+            headers["Content-Type"] = "application/json"
 
             def __enter__(inner):
                 return inner

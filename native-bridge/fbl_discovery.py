@@ -122,7 +122,10 @@ class MCPBudget:
 
 
 def mcp_message(data):
-    message = json.loads(data)
+    try:
+        message = json.loads(data)
+    except RecursionError:
+        raise ValueError("MCP JSON nesting exceeds limit") from None
     if not isinstance(message, dict):
         raise ValueError("invalid MCP message")
     if message.get("method") == "notifications/tools/list_changed":
@@ -188,9 +191,9 @@ def mcp_stdio_session(server, *, timeout=5, max_bytes=4 * 1024 * 1024):
                 line, buffer = buffer.split(b"\n", 1)
                 message = mcp_message(line)
                 if message.get("id") == identity:
-                    if "error" in message:
+                    if "error" in message or not isinstance(message.get("result"), dict):
                         raise ValueError("MCP metadata unavailable")
-                    matched = message.get("result", {})
+                    matched = message["result"]
             if matched is not None:
                 return matched
 
@@ -239,8 +242,115 @@ def mcp_http(server, method, params, timeout=5):
         return call(method, params)
 
 
+def mcp_http_opener(budget):
+    """每次底层 I/O 共用截止；保留 urllib 的代理、TLS 校验和拒绝重定向。"""
+    import http.client
+    import io
+    import socket
+    import urllib.request
+
+    class DeadlineReader(io.RawIOBase):
+        def __init__(self, sock):
+            self.sock = sock
+            self.stream = sock.makefile("rb", buffering=0)
+
+        def readable(self):
+            return True
+
+        def readinto(self, buffer):
+            self.sock.settimeout(budget.remaining())
+            return self.stream.readinto(buffer)
+
+        def close(self):
+            try:
+                self.stream.close()
+            finally:
+                super().close()
+
+    class ResponseSocket:
+        def __init__(self, sock):
+            self.sock = sock
+
+        def makefile(self, *_):
+            return io.BufferedReader(DeadlineReader(self.sock))
+
+    class DeadlineResponse(http.client.HTTPResponse):
+        def __init__(self, sock, *args, **kwargs):
+            super().__init__(ResponseSocket(sock), *args, **kwargs)
+
+    def connect(address, timeout, source_address):
+        host, port = address
+        # 中文注释：系统 DNS 无法在这里中断；返回后先查截止，绝不迟到派发。
+        addresses = socket.getaddrinfo(host, port, 0, socket.SOCK_STREAM)
+        error = OSError("MCP host has no addresses")
+        for family, kind, proto, _, target in addresses:
+            sock = socket.socket(family, kind, proto)
+            try:
+                if source_address:
+                    sock.bind(source_address)
+                sock.settimeout(budget.remaining())
+                sock.connect(target)
+                sock.settimeout(budget.remaining())
+                return sock
+            except (OSError, TimeoutError) as failure:
+                error = failure
+                sock.close()
+        raise error
+
+    class DeadlineConnection:
+        response_class = DeadlineResponse
+
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self._create_connection = connect
+
+        def connect(self):
+            super().connect()
+            self.sock.settimeout(budget.remaining())
+
+        def _tunnel(self):
+            super()._tunnel()
+            self.sock.settimeout(budget.remaining())
+
+        def send(self, data):
+            budget.remaining()
+            if self.sock is None:
+                self.connect()
+            sys.audit("http.client.send", self, data)
+            # 中文注释：请求只有序列化 JSON 字节；SSL 的多次短写也逐次扣同一截止。
+            remaining = memoryview(data)
+            while remaining:
+                self.sock.settimeout(budget.remaining())
+                sent = self.sock.send(remaining[:65536])
+                if not sent:
+                    raise OSError("MCP connection closed during request write")
+                remaining = remaining[sent:]
+            budget.remaining()
+
+    class HTTPConnection(DeadlineConnection, http.client.HTTPConnection):
+        pass
+
+    class HTTPSConnection(DeadlineConnection, http.client.HTTPSConnection):
+        pass
+
+    class HTTPHandler(urllib.request.HTTPHandler):
+        def http_open(self, request):
+            return self.do_open(HTTPConnection, request)
+
+    class HTTPSHandler(urllib.request.HTTPSHandler):
+        def https_open(self, request):
+            return self.do_open(HTTPSConnection, request, context=self._context)
+
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, *args, **kwargs):
+            raise ValueError("MCP redirects require configuration review")
+
+    return urllib.request.build_opener(HTTPHandler(), HTTPSHandler(), NoRedirect())
+
+
 @contextmanager
 def mcp_http_session(server, *, timeout=5, max_bytes=4 * 1024 * 1024):
+    import http.client
     import urllib.request
 
     parsed = urlsplit(server["url"])
@@ -252,12 +362,8 @@ def mcp_http_session(server, *, timeout=5, max_bytes=4 * 1024 * 1024):
     ):
         raise ValueError("invalid MCP URL")
 
-    class NoRedirect(urllib.request.HTTPRedirectHandler):
-        def redirect_request(self, *args, **kwargs):
-            raise ValueError("MCP redirects require configuration review")
-
-    opener = urllib.request.build_opener(NoRedirect())
     budget = MCPBudget(timeout, max_bytes)
+    opener = mcp_http_opener(budget)
     headers = {
         **server.get("http_headers", {}),
         **server.get("headers", {}),
@@ -271,7 +377,7 @@ def mcp_http_session(server, *, timeout=5, max_bytes=4 * 1024 * 1024):
     if token_name and os.environ.get(token_name):
         headers["Authorization"] = "Bearer " + os.environ[token_name]
 
-    def call(identity, name, values):
+    def exchange(identity, name, values):
         payload = {"jsonrpc": "2.0", "method": name, "params": values}
         if identity is not None:
             payload["id"] = identity
@@ -281,12 +387,10 @@ def mcp_http_session(server, *, timeout=5, max_bytes=4 * 1024 * 1024):
         with opener.open(request, timeout=budget.remaining()) as response:
             if response.headers.get("Mcp-Session-Id"):
                 headers["Mcp-Session-Id"] = response.headers["Mcp-Session-Id"]
+            sse = response.headers.get_content_type() == "text/event-stream"
             data, total = b"", 0
             while True:
-                # 中文注释：read1 不等待 SSE 连接关闭；每次读取仍服从同一绝对截止。
-                socket = getattr(getattr(getattr(response, "fp", None), "raw", None), "_sock", None)
-                if socket:
-                    socket.settimeout(budget.remaining())
+                # 中文注释：read1 不等待 SSE 连接关闭；头部及 body 均由底层 reader 限时。
                 chunk = getattr(response, "read1", response.read)(65536)
                 budget.consume(chunk)
                 total += len(chunk)
@@ -294,8 +398,9 @@ def mcp_http_session(server, *, timeout=5, max_bytes=4 * 1024 * 1024):
                     raise ValueError("MCP response exceeds limit")
                 data += chunk
                 messages = []
-                normalized = data.replace(b"\r\n", b"\n")
-                if normalized.lstrip().startswith((b"event:", b"data:", b":")):
+                if sse:
+                    # 中文注释：传输模式由响应头固定；心跳后剩余的半帧仍是 SSE。
+                    normalized = data.replace(b"\r\n", b"\n")
                     while b"\n\n" in normalized:
                         frame, normalized = normalized.split(b"\n\n", 1)
                         lines = [
@@ -326,6 +431,13 @@ def mcp_http_session(server, *, timeout=5, max_bytes=4 * 1024 * 1024):
                 if not chunk:
                     raise ValueError("MCP metadata unavailable")
 
+    def call(identity, name, values):
+        try:
+            return exchange(identity, name, values)
+        except http.client.HTTPException as error:
+            # 中文注释：只规范传输协议错误，scan 不吞自己的编程错误。
+            raise ValueError("invalid MCP HTTP response") from error
+
     initialized = call(
         1,
         "initialize",
@@ -348,10 +460,51 @@ def mcp_http_session(server, *, timeout=5, max_bytes=4 * 1024 * 1024):
 
 
 def mcp_schema(schema):
-    """保留远端 JSON Schema；仅校验形状，不解析引用或下载外部 schema。"""
+    """有界校验 2020-12 关键词；保留扩展，不解析或下载引用。"""
+    import math
+
     if not isinstance(schema, dict) or schema.get("type") != "object":
         raise ValueError("invalid MCP schema root")
     kinds = {"object", "array", "string", "integer", "number", "boolean", "null"}
+
+    # 中文注释：注解、enum 和未知扩展也要计入结构预算，不能只限制子 schema。
+    pending, count = [(schema, 0)], 0
+    while pending:
+        value, depth = pending.pop()
+        count += 1
+        if depth > 64 or count > 10000:
+            raise ValueError("MCP schema structure exceeds limit")
+        if isinstance(value, dict):
+            if any(not isinstance(key, str) for key in value):
+                raise ValueError("invalid MCP schema JSON key")
+            children = value.values()
+        elif isinstance(value, list):
+            children = value
+        else:
+            if value is not None and type(value) not in (str, int, float, bool):
+                raise ValueError("invalid MCP schema JSON value")
+            children = ()
+        if len(pending) + len(children) + count > 10000:
+            raise ValueError("MCP schema structure exceeds limit")
+        pending.extend((child, depth + 1) for child in children)
+    if len(json.dumps(schema, allow_nan=False).encode()) > 262144:
+        raise ValueError("MCP schema exceeds byte limit")
+
+    def strings(value):
+        if (
+            not isinstance(value, list)
+            or any(not isinstance(v, str) for v in value)
+            or len(set(value)) != len(value)
+        ):
+            raise ValueError("invalid MCP schema string array")
+
+    def regex(value):
+        if not isinstance(value, str):
+            raise ValueError("invalid MCP schema regex")
+        try:
+            re.compile(value)
+        except (re.error, RecursionError, OverflowError):
+            raise ValueError("invalid MCP schema regex") from None
 
     def check(node, depth=0):
         if type(node) is bool:
@@ -362,22 +515,94 @@ def mcp_schema(schema):
             values = node["type"] if isinstance(node["type"], list) else [node["type"]]
             if not values or any(not isinstance(v, str) or v not in kinds for v in values):
                 raise ValueError("invalid MCP schema type")
+            strings(values)
+        for key in (
+            "minLength",
+            "maxLength",
+            "minItems",
+            "maxItems",
+            "minContains",
+            "maxContains",
+            "minProperties",
+            "maxProperties",
+        ):
+            if key in node:
+                v = node[key]
+                if (
+                    type(v) not in (int, float)
+                    or v < 0
+                    or (type(v) is float and not math.isfinite(v))
+                    or int(v) != v
+                ):
+                    raise ValueError("invalid MCP schema integer bound")
+        for key in ("minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf"):
+            if key in node and (
+                type(node[key]) not in (int, float)
+                or (type(node[key]) is float and not math.isfinite(node[key]))
+                or (key == "multipleOf" and node[key] <= 0)
+            ):
+                raise ValueError("invalid MCP schema numeric bound")
+        for key in ("uniqueItems", "readOnly", "writeOnly", "deprecated"):
+            if key in node and type(node[key]) is not bool:
+                raise ValueError("invalid MCP schema boolean keyword")
+        for key in (
+            "$id",
+            "$schema",
+            "$ref",
+            "$dynamicRef",
+            "$recursiveRef",
+            "$comment",
+            "title",
+            "description",
+            "format",
+            "contentEncoding",
+            "contentMediaType",
+        ):
+            if key in node and not isinstance(node[key], str):
+                raise ValueError("invalid MCP schema string keyword")
+        for key in ("$anchor", "$dynamicAnchor", "$recursiveAnchor"):
+            if key in node and (
+                not isinstance(node[key], str)
+                or not re.fullmatch(r"[A-Za-z_][-A-Za-z0-9._]*", node[key])
+            ):
+                raise ValueError("invalid MCP schema anchor")
+        if "$id" in node and not re.fullmatch(r"[^#]*#?", node["$id"]):
+            raise ValueError("invalid MCP schema identifier")
+        if "$vocabulary" in node and (
+            not isinstance(node["$vocabulary"], dict)
+            or any(type(v) is not bool for v in node["$vocabulary"].values())
+        ):
+            raise ValueError("invalid MCP schema vocabulary")
+        for key in ("enum", "examples"):
+            if key in node and not isinstance(node[key], list):
+                raise ValueError("invalid MCP schema value array")
+        if "pattern" in node:
+            regex(node["pattern"])
         for key in ("properties", "patternProperties", "$defs", "definitions", "dependentSchemas"):
             if key in node:
                 if not isinstance(node[key], dict):
                     raise ValueError("invalid MCP schema mapping")
-                for child in node[key].values():
+                for name, child in node[key].items():
+                    if key == "patternProperties":
+                        regex(name)
                     check(child, depth + 1)
-        if "required" in node and (
-            not isinstance(node["required"], list)
-            or any(not isinstance(v, str) for v in node["required"])
-            or len(set(node["required"])) != len(node["required"])
-        ):
-            raise ValueError("invalid MCP schema required fields")
+        if "required" in node:
+            strings(node["required"])
+        for key in ("dependentRequired", "dependencies"):
+            if key in node:
+                if not isinstance(node[key], dict):
+                    raise ValueError("invalid MCP schema dependencies")
+                for child in node[key].values():
+                    if key == "dependencies" and not isinstance(child, list):
+                        check(child, depth + 1)
+                    else:
+                        strings(child)
         for key in (
             "items",
             "additionalProperties",
             "unevaluatedProperties",
+            "unevaluatedItems",
+            "contentSchema",
             "contains",
             "not",
             "if",
@@ -393,8 +618,6 @@ def mcp_schema(schema):
                     raise ValueError("invalid MCP schema alternatives")
                 for child in node[key]:
                     check(child, depth + 1)
-        if "$ref" in node and not isinstance(node["$ref"], str):
-            raise ValueError("invalid MCP schema reference")
 
     check(schema)
 
@@ -1208,15 +1431,17 @@ def mcp_call(binding, inputs):
                 },
             )
         return mcp_output(result, binding)
-    except (ValueError, OSError, TimeoutError, TypeError):
-        invalidate_mcp_source(
-            directory, {"config": binding["config_path"], "name": binding["server"]}
-        )
-        if dispatched:
-            from copilot_capabilities import Stopped
+    except Exception:
+        try:
+            invalidate_mcp_source(
+                directory, {"config": binding["config_path"], "name": binding["server"]}
+            )
+        finally:
+            if dispatched:
+                from copilot_capabilities import Stopped
 
-            # 中文注释：复用 Registry 的停止边界，禁止未知派发转到下一供应商重试。
-            raise Stopped("MCP tool outcome unknown; read back before any retry") from None
+                # 中文注释：派发后任何普通异常（含解析/清理失败）都不能转供应商重放。
+                raise Stopped("MCP tool outcome unknown; read back before any retry") from None
         raise
 
 

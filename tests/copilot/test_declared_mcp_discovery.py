@@ -33,6 +33,36 @@ from fbl_discovery import (
 from fbl_runtime import Context
 
 
+MALFORMED_SCHEMA_KEYWORDS = [
+    {"minLength": "oops"},
+    {"pattern": "["},
+    {"enum": 12},
+    {"maxItems": -1},
+    {"minProperties": True},
+    {"maxContains": 1.5},
+    {"minimum": "0"},
+    {"exclusiveMaximum": False},
+    {"multipleOf": 0},
+    {"uniqueItems": "yes"},
+    {"readOnly": 1},
+    {"examples": {}},
+    {"dependentRequired": {"x": "y"}},
+    {"dependentRequired": {"x": ["y", "y"]}},
+    {"patternProperties": {"[": {}}},
+    {"unevaluatedItems": []},
+    {"contentSchema": 1},
+    {"type": ["string", "string"]},
+    {"$ref": 12},
+    {"$dynamicRef": []},
+    {"$anchor": "not an anchor"},
+    {"$id": "https://example.test/schema#fragment"},
+    {"$vocabulary": {"urn:test": 1}},
+    {"description": 1},
+    {"format": []},
+    {"dependencies": {"x": ["y", "y"]}},
+]
+
+
 class DeclaredMCPDiscovery(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix="fbl-declared-mcp-")
@@ -364,7 +394,17 @@ class MCPSessionPagination(unittest.TestCase):
         )
 
     @contextmanager
-    def http_fixture(self, listing=None, *, changed=False, delay=0, call_result=None, stream=False):
+    def http_fixture(
+        self,
+        listing=None,
+        *,
+        changed=False,
+        delay=0,
+        call_result=None,
+        stream=False,
+        fault=None,
+        sse_chunks=None,
+    ):
         requests, sessions = [], {}
 
         class Handler(BaseHTTPRequestHandler):
@@ -425,6 +465,32 @@ class MCPSessionPagination(unittest.TestCase):
                 data = json.dumps(
                     {"jsonrpc": "2.0", "id": request["id"], "result": result}
                 ).encode()
+                if method == "initialize" and fault:
+                    kind = fault.get("kind")
+                    if kind == "redirect":
+                        self.send_response(307)
+                        self.send_header("Location", "/other")
+                        self.end_headers()
+                        return
+                    if kind == "status":
+                        self.connection.sendall(b"not-an-http-status\r\n\r\n")
+                        self.close_connection = True
+                        return
+                    if kind == "slow_headers":
+                        try:
+                            self.connection.sendall(b"HTTP/1.1 200 OK\r\n")
+                            for _ in range(10):
+                                threading.Event().wait(0.03)
+                                self.connection.sendall(b"X-Drip: value\r\n")
+                            self.connection.sendall(b"Content-Length: 0\r\n\r\n")
+                        except (BrokenPipeError, ConnectionResetError):
+                            pass
+                        self.close_connection = True
+                        return
+                    if kind == "deep":
+                        data = b'{"id":1,"result":' + b"[" * 1100 + b"0" + b"]" * 1100 + b"}"
+                    elif kind == "nonobject":
+                        data = b'{"id":1,"result":[]}'
                 if changed and method == "tools/list":
                     data = (
                         b"event: message\ndata: "
@@ -436,14 +502,20 @@ class MCPSessionPagination(unittest.TestCase):
                 self.send_response(200)
                 self.send_header("Mcp-Session-Id", session)
                 self.send_header(
-                    "Content-Type", "text/event-stream" if stream else "application/json"
+                    "Content-Type",
+                    "text/event-stream"
+                    if stream or (changed and method == "tools/list")
+                    else "application/json",
                 )
                 if not stream:
                     self.send_header("Content-Length", str(len(data)))
                 self.end_headers()
                 try:
-                    self.wfile.write(data)
-                    self.wfile.flush()
+                    for chunk in sse_chunks(data) if sse_chunks else [data]:
+                        self.wfile.write(chunk)
+                        self.wfile.flush()
+                        if sse_chunks:
+                            threading.Event().wait(0.01)
                     if stream:
                         threading.Event().wait(0.4)
                 except (BrokenPipeError, ConnectionResetError):
@@ -467,6 +539,49 @@ class MCPSessionPagination(unittest.TestCase):
             [r["method"] for r in requests],
             ["initialize", "notifications/initialized", "tools/list", "tools/list"],
         )
+
+    def test_untrusted_initialize_failure_invalidates_source_and_scan_continues(self):
+        original_root = self.root
+        tool = {
+            "name": "keyword_metrics",
+            "inputSchema": {"type": "object", "properties": {"keyword": {"type": "string"}}},
+        }
+        for kind in ("deep", "status", "nonobject"):
+            with self.subTest(kind=kind):
+                self.root = original_root / kind
+                self.root.mkdir()
+                fault = {}
+                with self.http_fixture(lambda *_: {"tools": [tool]}, fault=fault) as (server, _):
+                    ctx, binding = self.confirmed_binding(server)
+                    with self.http_fixture() as (healthy, _):
+                        private_write(
+                            ctx.user / ".claude/settings.json",
+                            json.dumps({"mcpServers": {"healthy": healthy}}),
+                        )
+                        fault["kind"] = kind
+                        draft = scan(ctx)
+                    self.assertEqual([s["coverage"] for s in draft["sources"]].count("failed"), 1)
+                    self.assertEqual([s["coverage"] for s in draft["sources"]].count("complete"), 1)
+                    self.assertFalse(metadata_current(ctx.copilot, binding, time.time()))
+                    self.assertEqual(len(draft["mcp_tools"]), 2)
+                    with self.assertRaises(ValueError):
+                        mcp_tool_list(server)
+        self.root = original_root
+
+    def test_stdio_initialize_nonobject_or_deep_json_is_a_value_error(self):
+        original = self.script.read_text()
+        for raw in ("[]", "null", "1", "[" * 1100 + "0" + "]" * 1100):
+            with self.subTest(raw=raw[:30]):
+                self.script.write_text(
+                    original.replace(
+                        'result = {"protocolVersion": "2024-11-05", "capabilities": {"tools": {"listChanged": True}}}',
+                        'print(\'{"id":1,"result":\' + '
+                        + repr(raw)
+                        + ' + "}", flush=True)\n        continue',
+                    )
+                )
+                with self.assertRaises(ValueError):
+                    mcp_tool_list(self.server)
 
     def test_http_rejects_bad_cursor_duplicate_names_partial_failure_and_bounds(self):
         tool = {"name": "one", "inputSchema": {"type": "object"}}
@@ -519,6 +634,64 @@ class MCPSessionPagination(unittest.TestCase):
                 with self.http_fixture(listing) as (server, _):
                     with self.assertRaisesRegex(ValueError, "schema"):
                         mcp_tool_list(server)
+
+    def test_schema_keyword_types_and_regex_reject_entire_catalog(self):
+        for invalid in MALFORMED_SCHEMA_KEYWORDS:
+            for field in ("inputSchema", "outputSchema"):
+                with self.subTest(invalid=invalid, field=field):
+                    tool = {
+                        "name": "invalid",
+                        "inputSchema": {"type": "object"},
+                        field: {"type": "object", "properties": {"x": invalid}},
+                    }
+                    with self.assertRaisesRegex(ValueError, "schema"):
+                        mcp_tool_list(
+                            {},
+                            lambda *_: {
+                                "tools": [
+                                    {"name": "valid", "inputSchema": {"type": "object"}},
+                                    tool,
+                                ]
+                            },
+                        )
+
+    def test_schema_annotations_and_enum_structure_are_bounded(self):
+        deep = 0
+        for _ in range(70):
+            deep = [deep]
+        for value in (deep, list(range(11000))):
+            with self.subTest(value="deep" if value is deep else "wide"):
+                with self.assertRaisesRegex(ValueError, "schema"):
+                    mcp_tool_list(
+                        {},
+                        lambda *_: {
+                            "tools": [
+                                {
+                                    "name": "invalid",
+                                    "inputSchema": {"type": "object", "default": value},
+                                }
+                            ]
+                        },
+                    )
+
+    def test_valid_rich_schema_preserves_references_extensions_and_large_integer_bounds(self):
+        schema = {
+            "type": "object",
+            "$defs": {"optional": {"type": ["string", "null"]}},
+            "properties": {
+                "ref": {"$ref": "https://example.invalid/never-fetch.json"},
+                "size": {"type": "integer", "minimum": -(10**400), "maximum": 10**400},
+                "text": {"type": "string", "pattern": "^[a-z]+$", "minLength": 1.0},
+                "list": {"type": "array", "prefixItems": [True], "unevaluatedItems": False},
+                "choice": {"enum": [None, {"a": [1, True]}, "text"]},
+            },
+            "dependentRequired": {"ref": ["text"]},
+            "additionalProperties": False,
+            "x-extension": {"preserve": [1, 2]},
+        }
+        listing = {"tools": [{"name": "rich", "inputSchema": schema}]}
+        with patch("urllib.request.urlopen", side_effect=AssertionError("must not resolve refs")):
+            self.assertEqual(mcp_tool_list({}, lambda *_: listing), listing)
 
     def test_total_deadline_covers_handshake_and_all_pages(self):
         self.script.write_text(
@@ -575,6 +748,87 @@ class MCPSessionPagination(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "bound|limit"):
                 mcp_tool_list(server, max_bytes=200)
 
+    def test_response_header_drip_obeys_shared_deadline_without_late_dispatch(self):
+        with self.http_fixture(fault={"kind": "slow_headers"}) as (server, requests):
+            started = time.monotonic()
+            with self.assertRaises(TimeoutError):
+                mcp_rpc(server, "tools/call", {"name": "never_dispatch"}, timeout=0.09)
+            elapsed = time.monotonic() - started
+            self.assertLess(elapsed, 0.22, f"headers exceeded deadline: {elapsed:.3f}s")
+            threading.Event().wait(0.35)
+            self.assertEqual([r["method"] for r in requests], ["initialize"])
+
+    def test_deadline_transport_does_not_follow_redirects(self):
+        with self.http_fixture(fault={"kind": "redirect"}) as (server, requests):
+            with self.assertRaisesRegex(ValueError, "redirect"):
+                mcp_tool_list(server)
+            self.assertEqual([r["method"] for r in requests], ["initialize"])
+
+    def test_deadline_transport_keeps_default_tls_certificate_and_hostname_checks(self):
+        import ssl
+        import urllib.request
+        from fbl_discovery import MCPBudget, mcp_http_opener
+
+        opener = mcp_http_opener(MCPBudget(1, 1024))
+        handler = next(h for h in opener.handlers if isinstance(h, urllib.request.HTTPSHandler))
+        with patch.object(handler, "do_open") as do_open:
+            handler.https_open(urllib.request.Request("https://localhost/"))
+        factory = do_open.call_args.args[0]
+        connection = factory("localhost", **do_open.call_args.kwargs)
+        self.assertTrue(connection._context.check_hostname)
+        self.assertEqual(connection._context.verify_mode, ssl.CERT_REQUIRED)
+        connection.close()
+
+    def test_partial_request_sends_cannot_renew_the_shared_deadline(self):
+        import urllib.request
+        from fbl_discovery import MCPBudget, mcp_http_opener
+
+        class PartialSocket:
+            def settimeout(self, _):
+                pass
+
+            def send(self, _):
+                threading.Event().wait(0.03)
+                return 1
+
+            def sendall(self, data):
+                # 中文注释：模拟 SSL sendall 内多次短写，不能只设置一次相对 timeout。
+                for byte in data:
+                    self.send(bytes([byte]))
+
+            def close(self):
+                pass
+
+        opener = mcp_http_opener(MCPBudget(0.09, 1024))
+        handler = next(h for h in opener.handlers if isinstance(h, urllib.request.HTTPHandler))
+        with patch.object(handler, "do_open") as do_open:
+            handler.http_open(urllib.request.Request("http://localhost/"))
+        connection = do_open.call_args.args[0]("localhost")
+        connection.sock = PartialSocket()
+        started = time.monotonic()
+        try:
+            with self.assertRaises(TimeoutError):
+                connection.send(b"1234567890")
+            self.assertLess(time.monotonic() - started, 0.22)
+        finally:
+            connection.close()
+
+    def test_dns_returning_after_deadline_cannot_send_a_late_request(self):
+        import socket
+
+        resolve = socket.getaddrinfo
+
+        def slow_dns(*args, **kwargs):
+            threading.Event().wait(0.12)
+            return resolve(*args, **kwargs)
+
+        with self.http_fixture() as (server, requests):
+            with patch("socket.getaddrinfo", side_effect=slow_dns):
+                with self.assertRaises(OSError):
+                    mcp_rpc(server, "tools/call", {"name": "never_dispatch"}, timeout=0.05)
+            threading.Event().wait(0.1)
+            self.assertFalse(requests)
+
     def confirmed_binding(self, server):
         # 中文注释：完整发现与确认后再测试真实传输执行，不伪造 ready 状态。
         user = self.root / "user"
@@ -593,6 +847,24 @@ class MCPSessionPagination(unittest.TestCase):
             result = mcp_tool_list(server, timeout=0.25)
             self.assertEqual([tool["name"] for tool in result["tools"]], ["one", "two"])
             self.assertEqual([r["method"] for r in requests].count("initialize"), 1)
+
+    def test_sse_id_first_and_split_id_after_heartbeat_keep_stream_mode(self):
+        for chunks in (
+            lambda data: [b"id: event-1\r\nretry: 5\r\n" + data],
+            lambda data: [b": heartbeat\r\n\r\n", b"id: eve", b"nt-1\r\nretry: 5\r\n" + data],
+        ):
+            with self.subTest(chunks=chunks):
+                with self.http_fixture(stream=True, sse_chunks=chunks) as (server, requests):
+                    result = mcp_tool_list(server, timeout=0.35)
+                    self.assertEqual([t["name"] for t in result["tools"]], ["one", "two"])
+                    self.assertEqual([r["method"] for r in requests].count("initialize"), 1)
+
+    def test_sse_id_first_matching_result_cannot_hide_same_chunk_list_changed(self):
+        with self.http_fixture(
+            changed=True, stream=True, sse_chunks=lambda data: [b"id: event-1\n" + data]
+        ) as (server, _):
+            with self.assertRaisesRegex(ValueError, "changed"):
+                mcp_tool_list(server)
 
     def test_execution_rechecks_all_pages_then_calls_once_in_same_session(self):
         def listing(request, _):
@@ -788,6 +1060,85 @@ class MCPSessionPagination(unittest.TestCase):
             requests.clear()
             with self.assertRaisesRegex(Stopped, "outcome unknown"):
                 mcp_call(binding, {"keyword": "A"})
+            self.assertEqual([r["method"] for r in requests].count("tools/call"), 1)
+
+    def test_deep_json_output_stops_registry_without_fallback_and_invalidates_source(self):
+        def listing(*_):
+            return {
+                "tools": [
+                    {
+                        "name": "keyword_metrics",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {"keyword": {"type": "string"}},
+                        },
+                    }
+                ]
+            }
+
+        result = {"content": [{"type": "text", "text": "[" * 1100 + "0" + "]" * 1100}]}
+        with self.http_fixture(listing, call_result=result) as (server, requests):
+            ctx, binding = self.confirmed_binding(server)
+            packages = Packages([ctx.copilot / "extensions/discovered"], include_builtin=False)
+            packages.bindings["keyword.metrics"].append(
+                {
+                    "id": "fallback",
+                    "type": "command",
+                    "argv": [sys.executable],
+                    "priority": 200,
+                    "cost": "zero",
+                }
+            )
+            registry = Registry(packages, ctx.copilot, private_write, validate)
+            requests.clear()
+            with patch.object(registry, "_command", return_value={"records": []}) as fallback:
+                with self.assertRaisesRegex(Stopped, "outcome unknown"):
+                    registry.execute(
+                        "keyword.metrics",
+                        {"keyword": "A"},
+                        self.root / "work",
+                        threading.Event(),
+                        {"secondary_confirmed": True},
+                    )
+                fallback.assert_not_called()
+            self.assertEqual([r["method"] for r in requests].count("tools/call"), 1)
+            self.assertFalse(metadata_current(ctx.copilot, binding, time.time()))
+
+    def test_dispatch_exception_boundary_preserves_process_control_exceptions(self):
+        tool = {
+            "name": "keyword_metrics",
+            "inputSchema": {"type": "object", "properties": {"keyword": {"type": "string"}}},
+        }
+        with self.http_fixture(
+            lambda *_: {"tools": [tool]}, call_result={"structuredContent": {}}
+        ) as (server, requests):
+            ctx, binding = self.confirmed_binding(server)
+            for error in (RuntimeError, LookupError, AssertionError, KeyboardInterrupt, SystemExit):
+                with self.subTest(error=error):
+                    draft = scan(ctx)
+                    confirm(ctx, [draft["candidates"][0]["id"]])
+                    requests.clear()
+                    with patch("fbl_discovery.mcp_output", side_effect=error("synthetic")):
+                        with self.assertRaises(Stopped if issubclass(error, Exception) else error):
+                            mcp_call(binding, {"keyword": "A"})
+                    self.assertEqual([r["method"] for r in requests].count("tools/call"), 1)
+                    if issubclass(error, Exception):
+                        self.assertFalse(metadata_current(ctx.copilot, binding, time.time()))
+
+    def test_invalidation_write_failure_after_dispatch_still_stops(self):
+        tool = {
+            "name": "keyword_metrics",
+            "inputSchema": {"type": "object", "properties": {"keyword": {"type": "string"}}},
+        }
+        with self.http_fixture(
+            lambda *_: {"tools": [tool]},
+            call_result={"content": [{"type": "text", "text": "invalid"}]},
+        ) as (server, requests):
+            _, binding = self.confirmed_binding(server)
+            requests.clear()
+            with patch("fbl_discovery.invalidate_mcp_source", side_effect=OSError("disk failed")):
+                with self.assertRaises(Stopped):
+                    mcp_call(binding, {"keyword": "A"})
             self.assertEqual([r["method"] for r in requests].count("tools/call"), 1)
 
     def test_registry_does_not_fall_through_to_another_provider_after_unknown_dispatch(self):

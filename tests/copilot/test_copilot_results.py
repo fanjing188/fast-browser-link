@@ -191,7 +191,24 @@ class ResultContracts(unittest.TestCase):
                 self.assertTrue(preview["basket_preview"])
                 self.assertEqual(preview["plan"]["count"], 2)
                 self.assertEqual(preview["plan"]["model_calls"], 1)
-                self.assertEqual(len(state["suggestions"]), 1)
+                self.assertEqual(
+                    {
+                        key
+                        for key, row in state["suggestions"].items()
+                        if not row.get("standard_task")
+                    },
+                    {"parent"},
+                )
+                self.assertEqual(
+                    len(
+                        [
+                            row
+                            for row in state["suggestions"].values()
+                            if row.get("capture_required")
+                        ]
+                    ),
+                    3,
+                )
                 records = lambda: [
                     json.loads(line)
                     for line in (root / "exec-acp-requests.jsonl").read_text().splitlines()
@@ -315,6 +332,14 @@ class SilentTaskBoundaries(unittest.TestCase):
 
 
 class TableExports(unittest.TestCase):
+    def test_csv_formula_protection_applies_to_headers_and_data(self):
+        headers = ["=1+1", " \t@SUM(1,2)", "normal"]
+        rows = [["=2+2", "  +CMD()", -2], ["-3", "ordinary", None]]
+        actual = list(csv.reader(io.StringIO(csv_bytes(headers, rows).decode("utf-8-sig"))))
+        self.assertEqual(actual[0], ["'=1+1", "' \t@SUM(1,2)", "normal"])
+        self.assertEqual(actual[1], ["'=2+2", "'  +CMD()", "-2"])
+        self.assertEqual(actual[2], ["-3", "ordinary", ""])
+
     def test_number_formats_and_xlsx_csv_roundtrip(self):
         for raw, value in [
             ("12.1K", 12100),

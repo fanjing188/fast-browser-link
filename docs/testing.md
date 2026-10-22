@@ -1,5 +1,20 @@
 # Testing
 
+## Task workbench in the native side panel
+
+`tests/copilot/real-workbench.mjs` 是手动 opt-in 验收，不进入离线清单。运行前显式设置私有 `TMPDIR` 及仓库固定 SDK 的 `HERMES_SOURCE` / `HERMES_PYTHON`：
+
+```sh
+node tests/copilot/real-workbench.mjs --edge
+node tests/copilot/real-workbench.mjs
+```
+
+该 runner 通过原生 `sidePanel` 打开真实侧栏，并确认它不是普通标签页。只使用临时 profile、本地合成表格和未连接 Agent 的配置，覆盖当前普通页读取、实际 Native 队列、本机去重与结果回读、模型任务阻塞、两表任务数量限制、Escape 焦点恢复、长材料名及短视口关闭。
+
+每次输出工作台五种状态和设置六个类别的 320/375/480 深浅色 DOM 矩阵，以及完成详情的 1440/375 深浅色矩阵。初始页、材料就绪页和通用设置各有 320/375 深浅色截图，完成详情另有 1440/375 深浅色截图，保存到 `$TMPDIR/native-workbench-evidence-{edge,chrome}/`。设置覆盖分类切换、草稿保留、显式保存和原生键盘导航；完成详情覆盖真实结果读取及 Escape 关闭标签。
+
+原生侧栏 480 只有 DOM 证据：headless 宿主宽度小于此值，超宽截图会平铺，不列作通过图片。截图前等待有界动画的 `finished`，不截取滑入过渡的中间画面；逐张目视，矩阵行数不计为截图数。此验收不证明模型内容准确、真实账户业务或个人安装已生效。
+
 ## Existing-page attachment
 
 `existing_tab=true` 的离线回归位于现有 `test_open_tool.py`、`test_lifecycle.py`、`browser-consent.test.mjs`、`work-window.test.mjs` 与单工具/脚本适配测试。只接受当前页或唯一精确 URL，不接受模型指定任意 tabId；覆盖租约冲突、URL 变化、连接代次、原页操作与删除权分离。
@@ -104,6 +119,8 @@ python3 -m unittest discover -s native-bridge/tests -p 'test_tasks.py' -v
 ```
 
 Set `TMPDIR` to a scratch directory; several tests create temporary homes and sockets there.
+
+For private local acceptance, also set `FAST_BROWSER_VERIFY_SCRATCH` to that same explicit private directory. The full gate selects its snapshot root from this variable and then passes it as `TMPDIR` to child suites; setting only the caller's `TMPDIR` leaves the gate's default `/tmp` in effect. Keep the real `HOME`; do not change production socket paths or relax timing limits to accommodate a fixture.
 
 ### Adding tests
 

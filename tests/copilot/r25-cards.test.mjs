@@ -22,7 +22,7 @@ const suggestion = (id, keyword, status = 'pending', extra = {}) => ({
 });
 const fixture = () => new JSDOM(html, { url: 'https://example.test/' });
 const state = { enabled: true, ready: true, locale: 'zh' };
-test('suggestions show at most ten rows and rank current object similarity before availability and stable priority', () => {
+test('suggestions retain at most ten recommendations and rank current object similarity', () => {
   const rows = [
     suggestion('other', 'unrelated'),
     suggestion('partial', 'job scheduler api'),
@@ -33,7 +33,7 @@ test('suggestions show at most ten rows and rank current object similarity befor
     rankedSuggestions(rows, { tool_context: { current: { object: 'job scheduler' } } }).map(
       (row) => row.id,
     ),
-    ['exact', 'blocked', 'partial', 'other'],
+    ['exact', 'partial', 'other', 'blocked'],
   );
   assert.deepEqual(
     rankedSuggestions(rows, {
@@ -56,10 +56,74 @@ test('suggestions show at most ten rows and rank current object similarity befor
       },
       { command: async () => {} },
     );
-    assert.equal(doc.querySelectorAll('#pending article:not([hidden]):not(.leaving)').length, 10);
+    assert.equal(doc.querySelectorAll('#pending > article:not([hidden]):not(.leaving)').length, 10);
+    assert.equal(doc.querySelector('#more-suggestions'), null);
     assert.equal(doc.getElementById('suggestions-count').textContent, '10');
     assert.equal(doc.querySelector('#pending article').dataset.id, 'exact');
     assert.equal(doc.querySelectorAll('#pending .primary').length, 1);
+  } finally {
+    dom.window.close();
+  }
+});
+test('legacy unmapped pending cards preserve text without offering execution', () => {
+  const dom = fixture();
+  try {
+    const doc = dom.window.document;
+    renderDashboard(
+      doc,
+      {
+        ...state,
+        suggestions: [
+          {
+            id: 'legacy',
+            title: '旧自由任务',
+            why: '迁移前的建议原文',
+            action: 'general.task',
+            params: { task: '旧任务正文' },
+            status: 'pending',
+            legacy_unmapped: true,
+          },
+        ],
+      },
+      {
+        command: async () => {
+          throw new Error('must not execute');
+        },
+      },
+    );
+    const card = doc.querySelector('#pending article[data-id=legacy]');
+    assert.ok(card);
+    assert.match(card.textContent, /迁移前的建议原文/);
+    assert.match(card.textContent, /仅供查看/);
+    assert.equal(card.querySelector('[data-action=execute]'), null);
+    assert.equal(card.querySelector('[data-action=configure_task]'), null);
+  } finally {
+    dom.window.close();
+  }
+});
+test('read-only legacy cards remain visible outside the active recommendation quota', () => {
+  const dom = fixture();
+  try {
+    const doc = dom.window.document;
+    const legacy = Array.from({ length: 12 }, (_, i) => ({
+      ...suggestion(`legacy-${i}`, 'old'),
+      action: 'general.task',
+      params: { task: `旧任务 ${i}` },
+      legacy_unmapped: true,
+    }));
+    renderDashboard(
+      doc,
+      {
+        ...state,
+        suggestions: [
+          ...legacy,
+          ...Array.from({ length: 15 }, (_, i) => suggestion(`active-${i}`, 'new')),
+        ],
+      },
+      { command: async () => {} },
+    );
+    assert.equal(doc.querySelectorAll('#pending [data-action=execute]').length, 10);
+    for (const row of legacy) assert.ok(doc.querySelector(`#pending article[data-id="${row.id}"]`));
   } finally {
     dom.window.close();
   }

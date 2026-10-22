@@ -32,6 +32,56 @@ export function classifySelection(text) {
     ? 'keyword'
     : 'text';
 }
+// 中文注释：Range.toString 会包含隐藏后代；所有选区入口只投影可见文本节点，并保留精确边界。
+export function visibleRangeText(doc, range) {
+  const root = range.commonAncestorContainer,
+    walker = doc.createTreeWalker(root, 4),
+    parts = [];
+  let current = root.nodeType === 3 ? root : walker.nextNode(),
+    scanned = 0,
+    length = 0,
+    previousBlock = null;
+  while (current) {
+    if (++scanned > 20000) return '';
+    const parent = current.parentElement;
+    if (
+      parent &&
+      range.intersectsNode(current) &&
+      !parent.closest(`${controls},script,style,noscript,template`) &&
+      !privateAccountNode(parent)
+    ) {
+      let visible = true;
+      for (let element = parent; element; element = element.parentElement) {
+        const style = doc.defaultView.getComputedStyle(element);
+        if (
+          element.hidden ||
+          element.getAttribute('aria-hidden') === 'true' ||
+          style.display === 'none' ||
+          ['hidden', 'collapse'].includes(style.visibility) ||
+          style.opacity === '0'
+        ) {
+          visible = false;
+          break;
+        }
+      }
+      if (visible) {
+        const value = current.textContent.slice(
+          current === range.startContainer ? range.startOffset : 0,
+          current === range.endContainer ? range.endOffset : undefined,
+        );
+        length += value.length;
+        if (length > 100000) return '';
+        const block = parent.closest('p,li,h1,h2,h3,h4,h5,h6,tr,blockquote,pre');
+        if (value && parts.length && block && previousBlock && block !== previousBlock)
+          parts.push('\n');
+        if (value) parts.push(value);
+        if (value && block) previousBlock = block;
+      }
+    }
+    current = walker.nextNode();
+  }
+  return parts.join('');
+}
 export function selectedText(doc) {
   const selection = doc.getSelection();
   if (!selection?.rangeCount || selection.isCollapsed) return null;
@@ -78,8 +128,7 @@ export function selectedText(doc) {
   ) || []) {
     if (privateAccountNode(node) && range.intersectsNode(node)) return null;
   }
-  const text = selection
-    .toString()
+  const text = visibleRangeText(doc, range)
     .split(/\r\n?|\n/u)
     .map(redactPageText)
     .join('\n')

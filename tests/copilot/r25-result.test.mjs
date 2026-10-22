@@ -16,6 +16,16 @@ function fixture() {
   const dom = new JSDOM('<article></article><p id="notice"></p>');
   return { dom, doc: dom.window.document, article: dom.window.document.querySelector('article') };
 }
+function dialogFixture(doc) {
+  const dialog = doc.getElementById('result-dialog');
+  dialog.showModal = () => {
+    dialog.setAttribute('open', '');
+    dialog.querySelector('[autofocus]')?.focus();
+  };
+  dialog.close = () => dialog.removeAttribute('open');
+  doc.defaultView.matchMedia = () => ({ matches: true });
+  return dialog;
+}
 test('full result uses titled cards and preserves complete keyword filtering, selection and export', async () => {
   const { dom, doc, article } = fixture(),
     calls = [];
@@ -191,7 +201,7 @@ test('full keyword analysis keeps SERP and reasons alongside the sortable table'
     dom.window.close();
   }
 });
-test('popup opening validates the saved result before creating an extension-only window and keeps default background tab', async () => {
+test('result opening validates the saved result before opening an active modal tab and keeps the default background tab', async () => {
   const calls = [],
     api = {
       runtime: { getURL: (path) => 'chrome-extension://fixture/' + path },
@@ -213,12 +223,10 @@ test('popup opening validates the saved result before creating an extension-only
   assert.deepEqual(calls, [
     ['request', 'result', { id: 'a&b' }],
     [
-      'window',
+      'tab',
       {
         url: 'chrome-extension://fixture/copilot-result.html?id=a%26b',
-        type: 'popup',
-        width: 1060,
-        height: 820,
+        active: true,
       },
     ],
   ]);
@@ -242,7 +250,7 @@ test('popup opening validates the saved result before creating an extension-only
   );
   assert.equal(calls.length, 0);
 });
-test('result window provides task and all-log entries and shares the extension CSP', async () => {
+test('result window provides result and task-log tabs and shares the extension CSP', async () => {
   const html = await readFile(
       new URL('../../native-extension/copilot-result.html', import.meta.url),
       'utf8',
@@ -252,11 +260,13 @@ test('result window provides task and all-log entries and shares the extension C
       'utf8',
     );
   assert.match(html, /id="result-task-log"/);
-  assert.match(html, /id="result-all-logs"/);
+  assert.match(html, /id="result-data-tab"/);
+  assert.doesNotMatch(html, /id="result-all-logs"/);
+  assert.equal(new JSDOM(html).window.document.querySelectorAll('[role=tab]').length, 2);
   assert.match(html, /copilot-result.css/);
   assert.match(source, /command\('result',\s*\{\s*id\s*\}\)/);
   assert.match(source, /logs\.open\(row\)/);
-  assert.match(source, /logs\.open\(null\)/);
+  assert.doesNotMatch(source, /logs\.open\(null\)/);
   assert.match(source, /copilot\.logs/);
   assert.doesNotMatch(source, /innerHTML|insertAdjacentHTML/);
 });
@@ -314,6 +324,7 @@ test('mounted result popup loads saved instance, streams task logs, restores foc
       };
     let mounted;
     try {
+      dialogFixture(doc);
       mounted = await mountResultDocument(doc, api);
       assert.deepEqual(calls[0].params, { id: 'one' });
       assert.equal(doc.getElementById('result').getAttribute('aria-busy'), 'false');
@@ -325,7 +336,9 @@ test('mounted result popup loads saved instance, streams task logs, restores foc
         const button = doc.getElementById('result-task-log');
         button.focus();
         await button.onclick();
-        assert.equal(doc.getElementById('work-view').inert, true);
+        assert.equal(!!doc.getElementById('work-view').inert, false);
+        assert.equal(doc.getElementById('result-data-pane').hidden, true);
+        assert.equal(doc.getElementById('result-log-pane').hidden, false);
         assert.equal(doc.querySelectorAll('.task-log-card').length, 1);
         for (const listener of listeners)
           listener({
@@ -344,8 +357,12 @@ test('mounted result popup loads saved instance, streams task logs, restores foc
             },
           });
         assert.equal(doc.querySelectorAll('.task-log-card').length, 2);
-        mounted.logs.close();
-        assert.equal(doc.activeElement, button);
+        await mounted.selectTab(0);
+        assert.equal(doc.getElementById('result-data-pane').hidden, false);
+        assert.equal(doc.getElementById('result-log-pane').hidden, true);
+        assert.equal(calls.filter((call) => call.command === 'logs_read').length, 1);
+        await mounted.selectTab(1);
+        assert.equal(calls.filter((call) => call.command === 'logs_read').length, 1);
       }
     } finally {
       mounted?.dispose();
@@ -446,6 +463,7 @@ test('English result windows set language before creating trend controls and raw
   };
   let mounted;
   try {
+    dialogFixture(doc);
     mounted = await mountResultDocument(doc, api);
     assert.equal(doc.documentElement.lang, 'en');
     assert.match(doc.querySelector('.trend-point-reading').textContent, /Focus or hover a point/);
@@ -453,5 +471,493 @@ test('English result windows set language before creating trend controls and raw
   } finally {
     mounted?.dispose();
     dom.window.close();
+  }
+});
+
+test('detail tabs retain metadata, keyboard focus and per-pane position while loading only task logs on demand', async () => {
+  const html = await readFile(
+    new URL('../../native-extension/copilot-result.html', import.meta.url),
+    'utf8',
+  );
+  const { mountResultDocument } = await import('../../native-extension/copilot-result.mjs');
+  const dom = new JSDOM(html, { url: 'https://example.test/result?id=one' }),
+    doc = dom.window.document,
+    calls = [];
+  const api = {
+    i18n: { getUILanguage: () => 'en-US' },
+    runtime: {
+      onMessage: { addListener() {}, removeListener() {} },
+      sendMessage: async (message) => {
+        calls.push(message);
+        return {
+          result:
+            message.command === 'result'
+              ? {
+                  id: 'one',
+                  title: 'Completed analysis',
+                  status: 'completed',
+                  started_at: 10,
+                  finished_at: 12.5,
+                  result: '# Summary\n\n**Source** checked.',
+                }
+              : { entries: [], revision: 1 },
+        };
+      },
+    },
+  };
+  let mounted;
+  try {
+    dialogFixture(doc);
+    mounted = await mountResultDocument(doc, api);
+    assert.equal(doc.querySelectorAll('[role=tab]').length, 2);
+    assert.equal(doc.getElementById('result-data-tab').getAttribute('aria-selected'), 'true');
+    assert.match(doc.getElementById('result-elapsed').textContent, /2\.5s/);
+    assert.match(doc.getElementById('result-status').textContent, /Completed/);
+    assert.equal(doc.querySelector('#result h1').textContent, 'Summary');
+    assert.equal(calls.filter((call) => call.command === 'logs_read').length, 0);
+    doc.getElementById('result-data-pane').scrollTop = 150;
+    const resultTab = doc.getElementById('result-data-tab');
+    resultTab.focus();
+    resultTab.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'End', bubbles: true }));
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(doc.activeElement.id, 'result-task-log');
+    assert.equal(doc.getElementById('result-task-log').getAttribute('aria-selected'), 'true');
+    assert.equal(calls.filter((call) => call.command === 'logs_read').length, 1);
+    assert.match(doc.getElementById('result-log-pane').textContent, /No execution logs/);
+    doc
+      .getElementById('result-task-log')
+      .dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Home', bubbles: true }));
+    assert.equal(doc.activeElement, resultTab);
+    assert.equal(doc.getElementById('result-data-pane').scrollTop, 150);
+    assert.equal(doc.getElementById('result-title').textContent, 'Completed analysis');
+  } finally {
+    mounted?.dispose();
+    dom.window.close();
+  }
+});
+
+test('result loading and failure states permit an explicit retry and preserve falsy returned data', async () => {
+  const html = await readFile(
+    new URL('../../native-extension/copilot-result.html', import.meta.url),
+    'utf8',
+  );
+  const { mountResultDocument } = await import('../../native-extension/copilot-result.mjs');
+  const dom = new JSDOM(html, { url: 'https://example.test/result?id=one' }),
+    doc = dom.window.document;
+  let resolve, reject;
+  const api = {
+    i18n: { getUILanguage: () => 'zh-CN' },
+    runtime: {
+      onMessage: { addListener() {}, removeListener() {} },
+      sendMessage: () =>
+        new Promise((done, error) => {
+          resolve = () =>
+            done({ result: { id: 'one', status: 'completed', title: '零值结果', result: 0 } });
+          reject = () => error(Error('PRIVATE_FAILURE'));
+        }),
+    },
+  };
+  let mounted;
+  try {
+    dialogFixture(doc);
+    const mounting = mountResultDocument(doc, api);
+    assert.equal(doc.getElementById('result').getAttribute('aria-busy'), 'true');
+    assert.match(doc.getElementById('result').textContent, /正在读取/);
+    reject();
+    mounted = await mounting;
+    assert.equal(doc.getElementById('result').getAttribute('aria-busy'), 'false');
+    assert.doesNotMatch(doc.body.textContent, /PRIVATE/);
+    const retry = doc.querySelector('#result button').onclick();
+    resolve();
+    await retry;
+    assert.equal(doc.getElementById('result').textContent, '0');
+    assert.equal(doc.getElementById('result-task-log').disabled, false);
+  } finally {
+    mounted?.dispose();
+    dom.window.close();
+  }
+});
+
+test('large native result modal closes by button, Escape or backdrop and never treats content dragging as a backdrop click', async () => {
+  const html = await readFile(
+    new URL('../../native-extension/copilot-result.html', import.meta.url),
+    'utf8',
+  );
+  const { mountResultDocument } = await import('../../native-extension/copilot-result.mjs');
+  for (const mode of ['button', 'escape', 'backdrop']) {
+    const dom = new JSDOM(html, { url: 'https://example.test/result?id=one' }),
+      doc = dom.window.document,
+      removed = [];
+    const dialog = dialogFixture(doc);
+    dialog.getBoundingClientRect = () => ({ left: 100, top: 100, right: 1000, bottom: 800 });
+    const api = {
+      i18n: { getUILanguage: () => 'zh-CN' },
+      tabs: { getCurrent: async () => ({ id: 77 }), remove: async (id) => removed.push(id) },
+      runtime: {
+        onMessage: { addListener() {}, removeListener() {} },
+        sendMessage: async () => ({
+          result: { id: 'one', status: 'completed', title: '详情', result: '内容' },
+        }),
+      },
+    };
+    let mounted;
+    try {
+      mounted = await mountResultDocument(doc, api);
+      assert.equal(dialog.open, true);
+      assert.equal(dialog.getAttribute('aria-labelledby'), 'result-title');
+      assert.equal(doc.activeElement.id, 'result-close');
+      if (mode === 'button') await doc.getElementById('result-close').onclick();
+      else if (mode === 'escape') {
+        const cancel = new dom.window.Event('cancel', { cancelable: true });
+        dialog.dispatchEvent(cancel);
+        assert.equal(cancel.defaultPrevented, true);
+      } else {
+        dialog.dispatchEvent(
+          new dom.window.MouseEvent('pointerdown', { clientX: 200, clientY: 200 }),
+        );
+        dialog.dispatchEvent(new dom.window.MouseEvent('click', { clientX: 20, clientY: 20 }));
+        assert.deepEqual(removed, []);
+        dialog.dispatchEvent(
+          new dom.window.MouseEvent('pointerdown', { clientX: 20, clientY: 20 }),
+        );
+        dialog.dispatchEvent(new dom.window.MouseEvent('click', { clientX: 20, clientY: 20 }));
+      }
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.deepEqual(removed, [77]);
+      assert.equal(dialog.open, false);
+    } finally {
+      mounted?.dispose();
+      dom.window.close();
+    }
+  }
+});
+
+test('failed result-tab close keeps the modal readable and supports explicit retry', async () => {
+  const html = await readFile(
+    new URL('../../native-extension/copilot-result.html', import.meta.url),
+    'utf8',
+  );
+  const { mountResultDocument } = await import('../../native-extension/copilot-result.mjs');
+  const dom = new JSDOM(html, { url: 'https://example.test/result?id=one' }),
+    doc = dom.window.document,
+    dialog = dialogFixture(doc);
+  let fail = true;
+  const api = {
+    i18n: { getUILanguage: () => 'en-US' },
+    runtime: {
+      onMessage: { addListener() {}, removeListener() {} },
+      sendMessage: async () => ({
+        result: { id: 'one', title: 'Details', status: 'completed', result: 'Preserved result' },
+      }),
+    },
+  };
+  let mounted;
+  try {
+    mounted = await mountResultDocument(doc, api, {
+      closePage: async () => {
+        if (fail) throw Error('PRIVATE_ERROR');
+      },
+    });
+    await mounted.close();
+    assert.equal(dialog.open, true);
+    assert.equal(dialog.dataset.closing, undefined);
+    assert.match(doc.getElementById('notice').textContent, /Could not close/);
+    assert.equal(doc.getElementById('result').textContent, 'Preserved result');
+    assert.doesNotMatch(doc.body.textContent, /PRIVATE/);
+    fail = false;
+    await mounted.close();
+    assert.equal(dialog.open, false);
+  } finally {
+    mounted?.dispose();
+    dom.window.close();
+  }
+});
+
+test('modal Tab and Shift+Tab cycle visible enabled controls without reaching the underlying page', async () => {
+  const html = await readFile(
+    new URL('../../native-extension/copilot-result.html', import.meta.url),
+    'utf8',
+  );
+  const { mountResultDocument } = await import('../../native-extension/copilot-result.mjs');
+  const dom = new JSDOM(html, { url: 'https://example.test/result?id=one' }),
+    doc = dom.window.document,
+    dialog = dialogFixture(doc);
+  const api = {
+    i18n: { getUILanguage: () => 'zh-CN' },
+    runtime: {
+      onMessage: { addListener() {}, removeListener() {} },
+      sendMessage: async () => ({
+        result: { id: 'one', title: '详情', status: 'completed', result: '数据' },
+      }),
+    },
+  };
+  let mounted;
+  try {
+    mounted = await mountResultDocument(doc, api);
+    const first = doc.getElementById('result-close'),
+      last = doc.getElementById('result-data-pane');
+    for (const node of [
+      first,
+      doc.getElementById('result-data-tab'),
+      doc.getElementById('result-task-log'),
+      last,
+    ])
+      node.getClientRects = () => [{}];
+    last.focus();
+    const forward = new dom.window.KeyboardEvent('keydown', {
+      key: 'Tab',
+      bubbles: true,
+      cancelable: true,
+    });
+    last.dispatchEvent(forward);
+    assert.equal(forward.defaultPrevented, true);
+    assert.equal(doc.activeElement, first);
+    const backward = new dom.window.KeyboardEvent('keydown', {
+      key: 'Tab',
+      shiftKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    first.dispatchEvent(backward);
+    assert.equal(backward.defaultPrevented, true);
+    assert.equal(doc.activeElement, last);
+  } finally {
+    mounted?.dispose();
+    dom.window.close();
+  }
+});
+
+test('document preview builds safe chapter navigation without changing results or source verification', async () => {
+  const html = await readFile(
+    new URL('../../native-extension/copilot-result.html', import.meta.url),
+    'utf8',
+  );
+  const { mountResultDocument } = await import('../../native-extension/copilot-result.mjs');
+  const dom = new JSDOM(html, { url: 'https://example.test/result?id=one' }),
+    doc = dom.window.document;
+  dialogFixture(doc);
+  const row = {
+    id: 'one',
+    title: '阅读来源',
+    status: 'completed',
+    action: 'assist.task',
+    standard_task: true,
+    params: { task: '详细任务上下文' },
+    result: {
+      ...common,
+      sections: [
+        {
+          title: '主题与结论',
+          text: '原始结果第一段',
+          sources: [{ id: 'source', quote: '逐字引用' }],
+        },
+        { title: '<img onerror=alert(1)>', text: '原始结果第二段', sources: [] },
+      ],
+    },
+  };
+  const original = structuredClone(row),
+    calls = [];
+  const api = {
+    i18n: { getUILanguage: () => 'zh-CN' },
+    runtime: {
+      onMessage: { addListener() {}, removeListener() {} },
+      sendMessage: async (message) => {
+        calls.push(message);
+        return { result: row };
+      },
+    },
+  };
+  let mounted;
+  try {
+    mounted = await mountResultDocument(doc, api);
+    await new Promise((resolve) => setImmediate(resolve));
+    const buttons = [...doc.querySelectorAll('#result-outline-items button')];
+    assert.deepEqual(
+      buttons.map((button) => button.textContent),
+      ['结果概览', '主题与结论', '<img onerror=alert(1)>'],
+    );
+    assert.equal(doc.getElementById('result-outline').hidden, false);
+    assert.equal(doc.getElementById('result-layout').dataset.mode, 'document');
+    assert.equal(doc.querySelector('#result-outline img'), null);
+    buttons[1].click();
+    assert.equal(buttons[1].getAttribute('aria-current'), 'location');
+    assert.equal(doc.activeElement.textContent, '主题与结论');
+    assert.match(doc.querySelector('.result-verification').textContent, /尚无来源核对记录/);
+    assert.match(doc.querySelector('.source-quote').textContent, /逐字引用/);
+    assert.equal(doc.querySelector('.result-window-header #result-context'), null);
+    assert.equal(
+      doc.querySelector('.result-context-details #result-context').textContent,
+      '详细任务上下文',
+    );
+    const information = doc.querySelector('.result-context-details');
+    information.open = true;
+    doc
+      .getElementById('result')
+      .dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    assert.equal(information.open, false);
+    information.open = true;
+    await mounted.selectTab(0);
+    assert.equal(information.open, false);
+    assert.equal(calls.length, 1);
+    assert.deepEqual(row, original);
+  } finally {
+    mounted?.dispose();
+    dom.window.close();
+  }
+});
+
+test('data results keep the wide layout and chapter navigation updates only for current content', async () => {
+  const html = await readFile(
+    new URL('../../native-extension/copilot-result.html', import.meta.url),
+    'utf8',
+  );
+  const { mountResultDocument } = await import('../../native-extension/copilot-result.mjs');
+  const dom = new JSDOM(html, { url: 'https://example.test/result?id=one' }),
+    doc = dom.window.document;
+  dialogFixture(doc);
+  let result = {
+    ...common,
+    sections: [
+      { title: 'First', text: 'Source', sources: [] },
+      { title: 'Second', text: 'Source', sources: [] },
+    ],
+  };
+  const api = {
+    i18n: { getUILanguage: () => 'en-US' },
+    runtime: {
+      onMessage: { addListener() {}, removeListener() {} },
+      sendMessage: async () => ({
+        result: {
+          id: 'one',
+          title: 'Results',
+          status: 'completed',
+          action: 'assist.task',
+          standard_task: true,
+          params: {},
+          result,
+        },
+      }),
+    },
+  };
+  let mounted;
+  try {
+    mounted = await mountResultDocument(doc, api);
+    assert.equal(doc.getElementById('result-outline-label').textContent, 'On this page');
+    assert.equal(doc.querySelector('#result-outline-items button').textContent, 'Overview');
+    result = [{ value: 0 }, { value: 0 }];
+    await mounted.reload();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(doc.getElementById('result-layout').dataset.mode, 'data');
+    assert.equal(doc.getElementById('result-outline').hidden, true);
+    assert.equal(doc.getElementById('result-outline-items').childElementCount, 0);
+    assert.equal(doc.getElementById('result-format').textContent, 'Table preview');
+    assert.equal(doc.querySelectorAll('#result tbody tr').length, 2);
+    assert.deepEqual(
+      [...doc.querySelectorAll('#result tbody td')].map((node) => node.textContent),
+      ['0', '0'],
+    );
+  } finally {
+    mounted?.dispose();
+    dom.window.close();
+  }
+});
+
+test('responsive outline keeps DOM and focus order consistent with mobile and desktop layouts', async () => {
+  const html = await readFile(
+    new URL('../../native-extension/copilot-result.html', import.meta.url),
+    'utf8',
+  );
+  const { mountResultDocument } = await import('../../native-extension/copilot-result.mjs');
+  const dom = new JSDOM(html, { url: 'https://example.test/result?id=one' }),
+    doc = dom.window.document;
+  dialogFixture(doc);
+  let change,
+    removed = false;
+  const media = {
+    matches: false,
+    addEventListener: (name, handler) => {
+      change = handler;
+    },
+    removeEventListener: () => {
+      removed = true;
+    },
+  };
+  dom.window.matchMedia = (query) => (query.includes('min-width') ? media : { matches: true });
+  const api = {
+    i18n: { getUILanguage: () => 'zh-CN' },
+    runtime: {
+      onMessage: { addListener() {}, removeListener() {} },
+      sendMessage: async () => ({
+        result: { id: 'one', status: 'completed', result: '## 第一节\n文字\n## 第二节\n文字' },
+      }),
+    },
+  };
+  let mounted;
+  try {
+    mounted = await mountResultDocument(doc, api);
+    assert.equal(doc.getElementById('result-layout').firstElementChild.id, 'result-outline');
+    assert.equal(doc.getElementById('result-outline').open, false);
+    media.matches = true;
+    change();
+    assert.equal(doc.getElementById('result-layout').firstElementChild.id, 'result');
+    assert.equal(doc.getElementById('result-outline').open, true);
+    mounted.dispose();
+    assert.equal(removed, true);
+  } finally {
+    mounted?.dispose();
+    dom.window.close();
+  }
+});
+
+test('result task usage shows actual channel counts, distinguishes estimates and never invents missing usage', async () => {
+  const html = await readFile(
+    new URL('../../native-extension/copilot-result.html', import.meta.url),
+    'utf8',
+  );
+  const { mountResultDocument } = await import('../../native-extension/copilot-result.mjs');
+  for (const sample of [
+    {
+      tokens: 2599,
+      usage: { input: 2281, cache_read: 0, output: 318 },
+      model: 'openai-codex:gpt-6-luna',
+    },
+    { tokens: 3000, estimated_tokens: 400 },
+    {},
+  ]) {
+    const dom = new JSDOM(html, { url: 'https://example.test/result?id=one' }),
+      doc = dom.window.document;
+    dialogFixture(doc);
+    const api = {
+      i18n: { getUILanguage: () => 'zh-CN' },
+      runtime: {
+        onMessage: { addListener() {}, removeListener() {} },
+        sendMessage: async () => ({
+          result: { id: 'one', title: '任务', status: 'completed', result: '数据', ...sample },
+        }),
+      },
+    };
+    let mounted;
+    try {
+      mounted = await mountResultDocument(doc, api);
+      const field = doc.getElementById('result-tokens');
+      if (!('tokens' in sample)) {
+        assert.equal(field.hidden, true);
+        continue;
+      }
+      assert.equal(field.hidden, false);
+      if (sample.estimated_tokens) {
+        assert.match(field.textContent, /含估算/);
+        assert.match(field.title, /包含估算/);
+      } else {
+        assert.equal(field.textContent, '2,599 tokens');
+        assert.match(field.title, /输入 2,281/);
+        assert.match(field.title, /缓存读取 0/);
+        assert.match(field.title, /输出 318/);
+        assert.match(field.title, /实际用量/);
+      }
+    } finally {
+      mounted?.dispose();
+      dom.window.close();
+    }
   }
 });

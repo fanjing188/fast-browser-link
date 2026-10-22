@@ -16,7 +16,17 @@ class HermesRegistryTests(unittest.TestCase):
         self.assertTrue(
             (Path(source) / "hermes_cli/plugins.py").is_file(), "需要真实 Hermes 测试源码"
         )
-        for mode in ("no-override", "override", "vault", "legacy"):
+        for mode in (
+            "no-override",
+            "override",
+            "vault",
+            "legacy",
+            "unified-off",
+            "unified-sync",
+            "unified-async",
+            "unified-mixed",
+            "unified-failure",
+        ):
             with self.subTest(mode=mode):
                 result = subprocess.run(
                     [
@@ -33,12 +43,23 @@ class HermesRegistryTests(unittest.TestCase):
                 report = json.loads(result.stdout.splitlines()[-1])
                 self.assertTrue(report["unload_restored"])
                 self.assertGreater(report["original_tools"], report["browser_tools"])
-                if mode == "vault" and not report["vault_supported"]:
+                if (mode == "vault" and not report["vault_supported"]) or mode == "unified-async":
                     self.assertTrue(report["vault_opt_in_refused"])
                     self.assertEqual(report["changed"], [])
                     self.assertEqual(report["unbound_calls"], 0)
-                elif mode in ("override", "vault"):
+                elif mode in (
+                    "override",
+                    "vault",
+                    "unified-off",
+                    "unified-sync",
+                    "unified-async",
+                    "unified-mixed",
+                ):
                     self.assertEqual(report["unbound_calls"], report["browser_tools"])
+                    if mode == "unified-off":
+                        self.assertNotIn("browser_vault", report["changed"])
+                    elif mode.startswith("unified"):
+                        self.assertIn("browser_vault", report["changed"])
                 else:
                     self.assertEqual(report["changed"], [])
 

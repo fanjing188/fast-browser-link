@@ -100,3 +100,65 @@ body:has(#work-scroll) #work-view{height:100dvh;min-height:0}
 #work-scroll:has(#logs-view:not([hidden]))>main{display:none}
 .task-log-view{height:100dvh}
 @media(max-width:350px){.setting:not(.setting-row){flex-wrap:wrap}.setting .shared-dropdown,.setting .shared-stepper,.setting input:not([type=checkbox]){width:100%}.task-heading .meta{max-width:100%;flex-wrap:wrap}.task[data-group=pending] .task-heading{grid-template-columns:minmax(0,1fr)}.task-heading .meta{justify-content:start}}
+
+/* 中文注释：通用任务保留为次级对话框，表单在窄侧栏内自然换行。 */
+.task-workbench { width: min(640px, calc(100vw - 24px)); max-height: calc(100dvh - 28px); overflow: auto; padding: 18px; }
+.task-workbench > details, .workbench-materials, .workbench-form { border-top: 1px solid var(--border, #e5e5e5); padding-top: 12px; margin-top: 12px; }
+.workbench-toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0; }
+.task-workbench input:not([type=checkbox]), .task-workbench textarea, .task-workbench select { width: 100%; min-width: 0; box-sizing: border-box; margin-top: 5px; }
+.task-workbench input[type=file] { font-size: 12px; }
+.workbench-material { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 5px 8px; padding: 8px 0; }
+.workbench-material label { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 7px; }
+.workbench-material strong { overflow-wrap: anywhere; font-size: 13px; }
+.workbench-material .small { grid-column: 2; }
+.workbench-material .workbench-source { grid-column: 1 / -1; overflow-wrap: anywhere; }
+.workbench-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 10px; margin-top: 10px; }
+.workbench-fields label { font-size: 12px; display: flex; flex-direction: column; gap: 4px; }
+.workbench-fields label:has(input[type=checkbox]) { flex-direction: row; align-items: center; }
+.task-workbench output[role=status] { display: block; margin-top: 10px; overflow-wrap: anywhere; }
+.source-quote { border-left: 2px solid var(--border, #ddd); padding: 7px 10px; margin: 6px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.study-question { border-top: 1px solid var(--border, #ddd); margin-top: 12px; padding-top: 10px; }
+.study-question textarea { width: 100%; box-sizing: border-box; }
+
+.task-workbench input:not([type=checkbox]), .task-workbench textarea, .task-workbench select { font: inherit; color: var(--ink); border: 1px solid var(--line); border-radius: var(--rc); padding: 6px 8px; background: var(--paper); }
+.workbench-material > button { align-self: start; }
+.task-workbench .primary { margin-top: 10px; }
+
+.task-workbench .rule-preview { white-space: pre-wrap; line-height: 1.7; }
+
+/* 中文注释：功能插件是独立视图，样式不混入本机能力编辑器。 */
+.plugins-view .secondary-content{display:grid;gap:12px;max-width:760px;margin-inline:auto}.plugins-body{display:grid;gap:12px;padding-top:10px}.plugin-card{border:1px solid var(--line);border-radius:var(--r);padding:12px;min-width:0;background:var(--paper)}.plugin-card-heading{display:flex;align-items:start;justify-content:space-between;gap:8px}.plugin-card-heading h3{min-width:0;overflow-wrap:anywhere}.plugin-card-heading .st{flex-shrink:0;font-size:11px}.plugin-card>p{margin-top:7px}.plugin-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}.plugin-details{margin-top:10px;font-size:12px;overflow-wrap:anywhere}.plugin-details p{margin-top:7px}.plugin-reason{font-size:12px;color:var(--ink-2);overflow-wrap:anywhere}.plugin-scope{font-size:12px;color:var(--ink-2);overflow-wrap:anywhere}.plugin-local-install input{box-sizing:border-box;width:100%;min-width:0;margin:10px 0;padding:8px;border:1px solid var(--line);border-radius:var(--rc);font:inherit;color:var(--ink);background:var(--paper)}#plugins-notice{display:block;white-space:pre-wrap;font-size:12px;line-height:1.6}#plugins-notice:empty{display:none}.plugins-view #functional-plugins{border:0;padding:0}.plugins-view summary{cursor:pointer}.plugins-view .plugin-local-install{padding:10px 0;border-top:1px solid var(--line)}
+
+#open-plugins[data-health]::before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;margin-inline-end:5px;background:var(--warn)}#open-plugins[data-health=ok]::before{background:var(--ok)}
+
+.plugin-reason.plugin-error{color:var(--bad)}.plugin-reason.plugin-warning{color:var(--warn)}
+
+#open-plugins[data-health=error]::before{background:var(--bad)}
+
+/* 中文注释：设置类别独立滚动，操作入口保持在视口内。 */
+#settings-view{display:flex;flex-direction:column;overflow:hidden;padding-bottom:0}
+#settings-view>.view-heading{flex:none}
+#settings-view>.secondary-content{display:flex;flex:1;flex-direction:column;min-height:0;padding-bottom:0}
+.settings-navigation{display:flex;align-items:center;gap:6px;flex:none;min-width:0;padding:10px 0;border-bottom:1px solid var(--line-2)}
+.settings-tabs{display:flex;gap:4px;flex:1;min-width:0;overflow-x:auto;scrollbar-width:thin;overscroll-behavior-x:contain}
+.settings-menu-toggle{flex:none;min-height:36px;max-width:50%;font-size:12px;white-space:normal}
+.settings-navigation[data-expanded=true]{flex-wrap:wrap}
+.settings-navigation[data-expanded=true] .settings-menu-toggle{order:0;margin-left:auto}
+.settings-navigation[data-expanded=true] .settings-tabs{order:1;flex-basis:100%;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));overflow:visible}
+.settings-navigation[data-expanded=true] .settings-tabs button{white-space:normal;text-align:start}
+.settings-tabs button{flex:none;white-space:nowrap;border-color:transparent;background:transparent;color:var(--ink-2);min-height:36px;padding:6px 10px;transition:background 140ms ease-out,color 140ms ease-out}
+.settings-tabs button:hover{background:var(--hover);color:var(--ink)}
+.settings-tabs button[aria-selected=true]{background:var(--brand-soft);color:var(--brand);border-color:var(--brand)}
+.settings-tabs button:focus-visible,#settings-category:focus-visible{outline:2px solid var(--brand);outline-offset:-2px}
+#copilot-settings-form{display:flex;flex:1;flex-direction:column;min-height:0}
+#settings-category{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;padding:0 2px 16px;scrollbar-gutter:stable}
+#settings-category>.settings-group{border:0;border-radius:0;padding:12px 2px;margin:0 0 8px}
+#settings-category>.settings-group+ .settings-group{border-top:1px solid var(--line)}
+#settings-category>.settings-group>legend,#settings-category>.settings-group>summary{font-size:13px;color:var(--ink);font-weight:600}
+.settings-footer{flex:none;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;padding:12px 2px;border-top:1px solid var(--line-2);background:var(--paper)}
+.settings-footer output{font-size:12px;color:var(--ink-2)}
+.settings-footer output.failure{color:var(--bad)}
+.settings-footer>div{display:flex;gap:6px;margin-left:auto}
+.settings-footer button{min-height:34px}
+@media(max-width:360px){.settings-tabs button{padding-inline:8px}.settings-footer output{flex-basis:100%}#settings-category .setting{align-items:flex-start;flex-wrap:wrap}#settings-category .setting>span{flex:1;min-width:90px}#settings-category .setting input:not([type=checkbox]),#settings-category .setting select{min-width:100px}}
+@media(prefers-reduced-motion:reduce){.settings-tabs button{transition:none}}

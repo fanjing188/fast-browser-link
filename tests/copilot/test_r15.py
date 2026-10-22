@@ -343,7 +343,10 @@ class R15(unittest.TestCase):
                 "tools": [
                     {
                         "name": "keyword_expand",
-                        "inputSchema": {"properties": {"keyword": {"type": "string"}}},
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {"keyword": {"type": "string"}},
+                        },
                     }
                 ]
             }
@@ -413,7 +416,8 @@ class R15(unittest.TestCase):
         self.assertTrue(changes(self.ctx))
         self.skill("new-skill")
         self.assertTrue(any("new-skill" in row for row in changes(self.ctx)))
-        with self.assertRaisesRegex(ValueError, "source changed"):
+        # 中文注释：深度检查已撤销变更的 MCP 候选，旧 ID 不能再次确认。
+        with self.assertRaisesRegex(ValueError, "unknown discovery candidate"):
             confirm(self.ctx, selected)
 
     def test_layout_login_cost_and_default_selection(self):
@@ -656,12 +660,14 @@ class R15(unittest.TestCase):
         self.assertTrue(any(method == "shared.close" for method, _ in calls))
 
     def test_http_mcp_schema_handshake_never_calls_tool_or_follows_redirect(self):
+        from email.message import Message
         from fbl_discovery import mcp_http
 
         calls = []
 
         class Response:
-            headers = {}
+            headers = Message()
+            headers["Content-Type"] = "application/json"
 
             def __enter__(inner):
                 return inner

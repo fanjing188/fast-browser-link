@@ -103,6 +103,62 @@ test('table refresh creates a stable local suggestion without opening export con
     f.close();
   }
 });
+test('detected table replaces automatic detection card while collection and prepared cards stay available', async () => {
+  const f = fixture();
+  try {
+    await f.panel.refresh();
+    const native = (tool, extra = {}) => ({
+      id: `native-${tool}`,
+      action: 'native.tool',
+      task_type: `native.${tool}`,
+      title: tool,
+      params: { tool },
+      status: 'pending',
+      local_task: true,
+      risk: 'zero',
+      ...extra,
+    });
+    const rows = [
+      native('tables', { recommendation_rank: 0 }),
+      native('collect', { recommendation_rank: 1 }),
+      ...Array.from({ length: 8 }, (_, index) => ({
+        id: `task-${index}`,
+        action: 'assist.task',
+        task_type: `task.${index}`,
+        title: `Task ${index}`,
+        status: 'pending',
+        recommendation_rank: index + 2,
+      })),
+      native('tables', { id: 'prepared-table', explicit: true }),
+    ];
+    const merged = f.panel.mergeSuggestions(rows);
+    renderDashboard(
+      f.doc,
+      { enabled: true, ready: true, suggestions: merged },
+      { command: async () => ({}) },
+    );
+    const cards = [...f.doc.querySelectorAll('#pending article')];
+    assert.equal(
+      cards.some((card) => card.dataset.id === 'native-tables'),
+      false,
+    );
+    assert.equal(cards.filter((card) => /^local-table-/.test(card.dataset.id)).length, 1);
+    assert.ok(cards.some((card) => card.dataset.id === 'native-collect'));
+    assert.ok(
+      cards.some((card) => card.dataset.id === 'task-7'),
+      'a duplicate detection card does not evict a server recommendation',
+    );
+    assert.ok(cards.some((card) => card.dataset.id === 'prepared-table'));
+    assert.equal(f.doc.getElementById('suggestions-count').textContent, '10');
+    assert.equal(
+      cards.length,
+      11,
+      'explicit prepared task is retained beyond the ten automatic cards',
+    );
+  } finally {
+    f.close();
+  }
+});
 for (const action of ['feedback', 'ignore'])
   test(`local ${action} dismisses its suggestion without host feedback or execution`, async () => {
     const f = fixture();
@@ -251,7 +307,7 @@ test('saved receipts become local result cards with native identity and open onl
     f.close();
   }
 });
-test('merged local and model suggestions render at most ten with a local table first and correct counts', async () => {
+test('merged suggestions retain ten recommendations with a local table first and correct counts', async () => {
   const f = fixture();
   try {
     await f.panel.refresh();
@@ -282,6 +338,8 @@ test('merged local and model suggestions render at most ten with a local table f
     assert.deepEqual(state, original, 'render composition leaves the model state unchanged');
     const cards = [...f.doc.querySelectorAll('#pending article:not([hidden])')];
     assert.equal(cards.length, 10);
+    assert.equal(f.doc.querySelectorAll('#pending > article').length, 10);
+    assert.equal(f.doc.querySelector('#more-suggestions'), null);
     assert.equal(cards[0].dataset.id, pending(f.panel).id);
     assert.equal(f.doc.getElementById('suggestions-count').textContent, '10');
     assert.equal(f.dialog().open, false);

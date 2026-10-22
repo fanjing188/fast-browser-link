@@ -85,7 +85,7 @@ for (const locale of ['zh', 'en'])
       dom.window.close();
     }
   });
-test('pending polish preserves similarity ordering, ten suggestion limit and running/result type icons', () => {
+test('pending polish preserves similarity ordering, ten unified recommendations and running/result icons', () => {
   const dom = new JSDOM(html),
     doc = dom.window.document;
   try {
@@ -112,6 +112,8 @@ test('pending polish preserves similarity ordering, ten suggestion limit and run
     );
     const pending = [...doc.querySelectorAll('#pending article:not([hidden])')];
     assert.equal(pending.length, 10);
+    assert.equal(doc.querySelectorAll('#pending > article').length, 10);
+    assert.equal(doc.querySelector('#more-suggestions'), null);
     assert.equal(pending[0].dataset.id, 'current');
     assert.equal(doc.getElementById('suggestions-count').textContent, '10');
     assert.ok(pending.every((card) => !card.querySelector('.task-heading svg')));
@@ -144,7 +146,7 @@ test('system dark theme targets the shadow host inside the host selector', async
   assert.doesNotMatch(brand, /:host:not\(/);
 });
 
-test('sidebar scrolling rules do not clip the independent result document', async () => {
+test('sidebar and result dialog keep independent reachable scroll containers', async () => {
   for (const file of ['copilot-panel.html', 'copilot-result.html']) {
     const dom = new JSDOM(
       await readFile(new URL(`../../native-extension/${file}`, import.meta.url), 'utf8'),
@@ -164,7 +166,18 @@ test('sidebar scrolling rules do not clip the independent result document', asyn
       doc.head.append(style);
       const body = dom.window.getComputedStyle(doc.body);
       if (result) {
-        assert.notEqual(body.overflow, 'hidden');
+        // 中文注释：详情使用原生模态框，正文滚动而非背景页面滚动。
+        assert.equal(body.overflow, 'hidden');
+        assert.equal(doc.getElementById('work-scroll'), null);
+        assert.equal(
+          dom.window.getComputedStyle(doc.getElementById('result-data-pane')).overflow,
+          'auto',
+        );
+        assert.equal(
+          dom.window.getComputedStyle(doc.getElementById('result-log-pane')).overflow,
+          'auto',
+        );
+        assert.equal(dom.window.getComputedStyle(doc.getElementById('work-view')).minHeight, '0px');
         assert.notEqual(
           dom.window.getComputedStyle(doc.getElementById('work-view')).height,
           '100dvh',
@@ -195,7 +208,10 @@ test('quiet operations keeps long titles readable and task actions below the cop
       {
         enabled: true,
         ready: true,
-        suggestions: [task('long', { title: 'A long task title '.repeat(12) })],
+        suggestions: [
+          task('long', { title: 'A long task title '.repeat(12) }),
+          task('local', { action: 'native.tool', params: { tool: 'tables' } }),
+        ],
       },
       { command: async () => ({}) },
     );
@@ -205,7 +221,11 @@ test('quiet operations keeps long titles readable and task actions below the cop
     assert.equal(computed('.task > .actions button').minHeight, '44px');
     assert.equal(computed('.task-context .object').whiteSpace, 'normal');
     assert.ok(doc.querySelector('#work-scroll #pending'));
-    assert.ok(doc.querySelector('#work-scroll #local-tools'));
+    const localAction = doc.querySelector(
+      '#work-scroll #pending article[data-id=local] [data-action=execute]',
+    );
+    assert.ok(localAction);
+    assert.equal(localAction.textContent, '识别表格');
   } finally {
     dom.window.close();
   }

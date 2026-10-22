@@ -239,21 +239,17 @@ class CodexTests(unittest.TestCase):
         try:
             app.request("instance", "settings", {"enabled": True})
             wait(lambda: app.view("instance")["ready"])
-            app._replace(
-                "instance",
-                {
-                    "scene": "general",
-                    "suggestions": [
-                        {
-                            "title": "Fixture task",
-                            "why": "Fixture",
-                            "action": "general.task",
-                            "params": {"task": "Summarize supplied evidence"},
-                        }
-                    ],
-                },
+            with patch.dict(app._state("instance"), ready=False):
+                app.request(
+                    "instance",
+                    "quick_task",
+                    {"action": "general.task", "params": {"task": "Summarize supplied evidence"}},
+                )
+            row = next(
+                row
+                for row in app._state("instance")["suggestions"].values()
+                if row["action"] == "general.task"
             )
-            row = next(iter(app._state("instance")["suggestions"].values()))
             app.request("instance", "execute", {"id": row["id"]})
             wait(lambda: row["status"] in {"completed", "failed"})
             self.assertEqual(row["status"], "completed", row.get("reason"))

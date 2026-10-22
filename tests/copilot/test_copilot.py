@@ -116,20 +116,11 @@ class CopilotTest(unittest.TestCase):
         wait_for(lambda: not self.state["dirty"] and not self.state["running"])
 
     def general(self, task):
-        self.module._replace(
-            "browser",
-            {
-                "scene": "general",
-                "suggestions": [
-                    {
-                        "title": "测试执行",
-                        "why": "fixture",
-                        "action": "general.task",
-                        "params": {"task": task},
-                    }
-                ],
-            },
-        )
+        # 中文注释：执行夹具经真实用户入口准备，不借模型输出制造自由任务。
+        with patch.dict(self.state, ready=False):
+            self.module.request(
+                "browser", "quick_task", {"action": "general.task", "params": {"task": task}}
+            )
         return next(
             row
             for row in self.state["suggestions"].values()
@@ -141,9 +132,30 @@ class CopilotTest(unittest.TestCase):
         self.assertTrue(self.module.runtime.tools_verified)
         self.assertNotIn("workspace", self.module.view("browser"))
         self.infer("first")
-        first = next(iter(self.state["suggestions"].values()))
+        first = self.state["suggestions"][
+            suggestion_id("seo.keyword_check", {"keyword": "sample keyword"})
+        ]
         self.infer("second")
-        self.assertEqual(len(self.state["suggestions"]), 2)
+        self.assertEqual(
+            len(
+                [
+                    row
+                    for row in self.state["suggestions"].values()
+                    if not row.get("capture_required")
+                ]
+            ),
+            2,
+        )
+        self.assertEqual(
+            len(
+                [
+                    row
+                    for row in self.state["suggestions"].values()
+                    if row.get("standard_task") and row.get("capture_required")
+                ]
+            ),
+            3,
+        )
         first = self.state["suggestions"][first["id"]]
         self.module.request("browser", "execute", {"id": first["id"]})
         wait_for(lambda: first["status"] == "completed")
@@ -169,10 +181,48 @@ class CopilotTest(unittest.TestCase):
         self.assertNotIn("trace", brief)
         self.assertNotIn("suggestions", brief)
         self.infer("third")
-        self.assertEqual(len(self.state["suggestions"]), 2)
+        self.assertEqual(
+            len(
+                [
+                    row
+                    for row in self.state["suggestions"].values()
+                    if not row.get("capture_required")
+                ]
+            ),
+            2,
+        )
+        self.assertEqual(
+            len(
+                [
+                    row
+                    for row in self.state["suggestions"].values()
+                    if row.get("standard_task") and row.get("capture_required")
+                ]
+            ),
+            3,
+        )
         self.now[0] += 30
         self.infer("third")
-        self.assertEqual(len(self.state["suggestions"]), 1)
+        self.assertEqual(
+            len(
+                [
+                    row
+                    for row in self.state["suggestions"].values()
+                    if not row.get("capture_required")
+                ]
+            ),
+            1,
+        )
+        self.assertEqual(
+            len(
+                [
+                    row
+                    for row in self.state["suggestions"].values()
+                    if row.get("standard_task") and row.get("capture_required")
+                ]
+            ),
+            3,
+        )
         requests = [
             json.loads(line)
             for line in (self.directory / "acp-requests.jsonl").read_text().splitlines()
@@ -210,7 +260,9 @@ class CopilotTest(unittest.TestCase):
             )
         self.assertTrue(stream_metrics({"tokens": {"total": 77}})["estimated"])
         self.infer("first")
-        row = next(iter(self.state["suggestions"].values()))
+        row = next(
+            row for row in self.state["suggestions"].values() if not row.get("capture_required")
+        )
         self.module.request("browser", "execute", {"id": row["id"]})
         wait_for(lambda: row["status"] == "completed")
         with patch("copilot.subprocess.run") as opened:
@@ -257,7 +309,9 @@ class CopilotTest(unittest.TestCase):
 
     def test_configure_persist_next_turn_model_and_execution_usage(self):
         self.infer("first")
-        row = next(iter(self.state["suggestions"].values()))
+        row = next(
+            row for row in self.state["suggestions"].values() if not row.get("capture_required")
+        )
         selected = "openai-codex:gpt-6.1-sol"
         execution = "openai-codex:gpt-5.6-luna"
         saved = self.module.request(
@@ -401,7 +455,9 @@ class CopilotTest(unittest.TestCase):
         self.infer("first")
         old = self.module.runtime.session
         self.assertEqual(self.state["tokens"], 22)
-        row = next(iter(self.state["suggestions"].values()))
+        row = next(
+            row for row in self.state["suggestions"].values() if not row.get("capture_required")
+        )
         row.update(status="completed", result={"summary": "FULL_RESULT_NOT_FOR_INFERENCE"})
         self.state["context_tokens"] = 40000
         self.infer("second")
@@ -505,7 +561,9 @@ class CopilotTest(unittest.TestCase):
 
     def test_configuration_keeps_running_execution_snapshot_and_process(self):
         self.infer("before-config")
-        row = next(iter(self.state["suggestions"].values()))
+        row = next(
+            row for row in self.state["suggestions"].values() if not row.get("capture_required")
+        )
         entered = threading.Event()
         release = threading.Event()
         captured = []
@@ -541,7 +599,9 @@ class CopilotTest(unittest.TestCase):
         count = len(self.state["input_metrics"])
         self.infer("large-usage")
         self.assertGreater(len(self.state["input_metrics"]), count)
-        row = next(iter(self.state["suggestions"].values()))
+        row = next(
+            row for row in self.state["suggestions"].values() if not row.get("capture_required")
+        )
         self.module.request("browser", "execute", {"id": row["id"]})
         wait_for(lambda: row["status"] == "completed")
         view = self.module.view("browser")
@@ -553,7 +613,9 @@ class CopilotTest(unittest.TestCase):
 
     def test_cache_and_save_pool_never_spawn_execution(self):
         self.infer("first")
-        row = next(iter(self.state["suggestions"].values()))
+        row = next(
+            row for row in self.state["suggestions"].values() if not row.get("capture_required")
+        )
         result = {"summary": "cached", "keywords": [{"keyword": "sample keyword"}]}
         private_write(
             self.module._cache_path(row), json.dumps({"at": time.time(), "result": result})
@@ -610,7 +672,13 @@ class CopilotTest(unittest.TestCase):
                 ],
             },
         )
-        rows = list(self.state["suggestions"].values())
+        rows = [
+            self.state["suggestions"][
+                suggestion_id("seo.keyword_check", {"keyword": "word " + str(i)})
+            ]
+            for i in range(3)
+        ]
+        self.assertEqual(len(rows), 3)
         for row in rows:
             self.module.request("browser", "execute", {"id": row["id"]})
         deadline = time.monotonic() + 4
@@ -657,7 +725,9 @@ class CopilotTest(unittest.TestCase):
 
     def test_ignore_atomic_invalid_output_and_bad_output_billing(self):
         self.infer("first")
-        row = next(iter(self.state["suggestions"].values()))
+        row = next(
+            row for row in self.state["suggestions"].values() if not row.get("capture_required")
+        )
         self.module.request("browser", "ignore", {"id": row["id"]})
         self.infer("second")
         self.assertNotIn(row["id"], self.state["suggestions"])
@@ -666,25 +736,34 @@ class CopilotTest(unittest.TestCase):
             self.module._replace("browser", {"scene": "general", "suggestions": {}})
         self.assertEqual(before, self.state["suggestions"])
         billed = self.state["tokens"]
-        with patch.object(
-            self.module.runtime,
-            "prompt",
-            return_value=(
-                "broken JSON",
-                {
-                    "tokens": 2,
-                    "source": "fixture",
-                    "input_bytes": 1,
-                    "estimated_input_tokens": 1,
-                    "seconds": 0,
-                },
-            ),
-        ):
-            self.observe("bad")
-            wait_for(lambda: self.state["inference_failures"] == 1)
-            self.assertIsNone(self.state["diagnostic"])
-        self.assertEqual(self.state["tokens"], billed + 4)
-        self.assertEqual(before, self.state["suggestions"])
+        entered, release = threading.Event(), threading.Event()
+
+        def invalid_output(*args, **kwargs):
+            entered.set()
+            if not release.wait(5):
+                raise AssertionError("fixture model release timed out")
+            return "broken JSON", {
+                "tokens": 2,
+                "source": "fixture",
+                "input_bytes": 1,
+                "estimated_input_tokens": 1,
+                "seconds": 0,
+            }
+
+        try:
+            with patch.object(self.module.runtime, "prompt", side_effect=invalid_output):
+                self.observe("bad")
+                self.assertTrue(entered.wait(2))
+                # 中文注释：合法的新页面观察可更新推荐派生状态；原子性从模型返回前的完整状态验证。
+                with self.module.lock:
+                    before_bad_output = copy.deepcopy(self.state["suggestions"])
+                release.set()
+                wait_for(lambda: self.state["inference_failures"] == 1)
+                self.assertIsNone(self.state["diagnostic"])
+            self.assertEqual(self.state["tokens"], billed + 4)
+            self.assertEqual(before_bad_output, self.state["suggestions"])
+        finally:
+            release.set()
         self.assertEqual(
             suggestion_id("x", {"keyword": " Ｔｅｓｔ  WORD "}),
             suggestion_id("x", {"keyword": "test word"}),

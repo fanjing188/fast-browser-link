@@ -301,7 +301,7 @@ class CapabilitiesTest(unittest.TestCase):
                 "priority": 2,
             }
             registry = self.registry_for({"keyword.expand": [first, fallback]})
-            registry.health[first["id"]] = {"status": "available"}
+            registry.health[first["id"]] = {"status": "available", "checked_at": time.time()}
             calls = []
             registry.browser = lambda *args: (
                 calls.append(condition)

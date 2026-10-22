@@ -150,6 +150,11 @@ test('预检拒绝已有草稿、损坏模板及版本漂移，避免部分更�
 
 test('文档、下载标签、锁根字段和握手漂移报告具体文件与行', async () =>
   fixture(async (work) => {
+    // 中文注释：依赖恰好同版本且排在根字段之前时，也必须修改项目版本，而非碰巧找到的依赖。
+    const cloudFile = path.join(work, 'cloud-link/site/package.json');
+    const cloud = JSON.parse(await readFile(cloudFile, 'utf8'));
+    cloud.dependencies['version-fixture'] = current;
+    await writeFile(cloudFile, `${JSON.stringify(cloud, null, 2)}\n`);
     for (const file of [
       ...JSON_VERSION_FILES,
       ...TEXT_VERSION_FILES.filter((file) => file !== 'scripts/migrate-to-fast-browser-link.py'),
@@ -158,8 +163,14 @@ test('文档、下载标签、锁根字段和握手漂移报告具体文件与�
     ]) {
       const target = path.join(work, file),
         original = await readFile(target, 'utf8');
-      const offset = original.indexOf(current);
+      let offset = original.indexOf(current);
+      if (JSON_VERSION_FILES.includes(file)) {
+        const field = /^ {2}"version"\s*:\s*"/m.exec(original);
+        assert.ok(field, file);
+        offset = field.index + field[0].length;
+      }
       assert.ok(offset >= 0, file);
+      assert.equal(original.slice(offset, offset + current.length), current, file);
       await writeFile(
         target,
         original.slice(0, offset) + next + original.slice(offset + current.length),

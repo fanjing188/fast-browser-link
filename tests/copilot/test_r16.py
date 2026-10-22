@@ -480,15 +480,15 @@ class R16(unittest.TestCase):
         self.assertIn(str(self.root / "fenced"), captured[0][2])
 
     def test_external_action_requires_backend_issued_second_receipt(self):
-        row = {
-            "id": "external",
-            "action": "general.task",
-            "params": {"task": "synthetic external operation"},
-            "title": "Synthetic",
-            "status": "pending",
-            "scene": "general",
-        }
-        self.state["suggestions"][row["id"]] = row
+        with patch.dict(self.state, ready=False):
+            self.app.request(
+                "fixture",
+                "quick_task",
+                {"action": "general.task", "params": {"task": "synthetic external operation"}},
+            )
+        row = next(
+            row for row in self.state["suggestions"].values() if row["action"] == "general.task"
+        )
         original = self.app.templates.get
 
         def template(action):
@@ -502,16 +502,16 @@ class R16(unittest.TestCase):
             patch.object(self.app.templates, "get", side_effect=template),
             patch.object(self.app, "_execute") as execute,
         ):
-            first = self.app.request("fixture", "execute", {"id": "external"})
+            first = self.app.request("fixture", "execute", {"id": row["id"]})
             self.assertTrue(first["secondary_required"])
             execute.assert_not_called()
             rejected = self.app.request(
-                "fixture", "execute", {"id": "external", "confirmation": "forged"}
+                "fixture", "execute", {"id": row["id"], "confirmation": "forged"}
             )
             self.assertTrue(rejected["secondary_required"])
             execute.assert_not_called()
             self.app.request(
-                "fixture", "execute", {"id": "external", "confirmation": first["token"]}
+                "fixture", "execute", {"id": row["id"], "confirmation": first["token"]}
             )
             wait(lambda: execute.called)
         self.assertTrue(row["secondary_confirmed"])

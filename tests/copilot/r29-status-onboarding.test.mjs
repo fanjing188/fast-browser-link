@@ -69,7 +69,11 @@ function fixture() {
     },
   };
 }
-async function mountMain(initial = state, available = catalog(false)) {
+async function mountMain(
+  initial = state,
+  available = catalog(false),
+  local = () => ({ capture: null, jobs: [] }),
+) {
   const f = fixture(),
     calls = [],
     listeners = [];
@@ -82,7 +86,8 @@ async function mountMain(initial = state, available = catalog(false)) {
       onMessage: { addListener: (listener) => listeners.push(listener) },
       sendMessage: async (message) => {
         calls.push(message);
-        if (message.type === 'copilot.local') return { result: { capture: null, jobs: [] } };
+        if (message.type === 'copilot.local') return { result: local(message) };
+        if (message.command === 'basket_state') return { result: current.basket };
         if (message.type === 'copilot.connections') return { result: { cloud: null } };
         if (message.command === 'agent_catalog') return { result: available };
         if (message.command === 'directory_defaults')
@@ -220,6 +225,7 @@ test('first sidebar detection is read-only and enabling an unconfigured Agent op
 test('sidebar connection labels follow state.agent.name without treating connection metadata as active collaboration', async () => {
   const f = await mountMain(state, catalog(true, 'Synthetic'));
   try {
+    f.doc.getElementById('settings-tab-about').click();
     const label = f.doc.getElementById('hermes-status').parentElement.textContent;
     assert.match(label, /Synthetic/);
     assert.doesNotMatch(label, /本机 Hermes/);
@@ -450,10 +456,21 @@ test('popup keeps its direct open gesture but an onboarding receipt never turns 
   }
 });
 
-test('unconfigured sidebar exposes usable local tools and hides proactive workflow cards', async () => {
+const nativeCards = ['tables', 'collect', 'annotate', 'basket'].map((tool) => ({
+  id: `native-${tool}`,
+  status: 'pending',
+  action: 'native.tool',
+  task_type: `native.${tool}`,
+  title: tool,
+  risk: 'zero',
+  local_task: true,
+  params: { tool },
+}));
+test('unconfigured sidebar puts local tools in suggestions and keeps Agent configuration in settings', async () => {
   const f = await mountMain({
     ...state,
     suggestions: [
+      ...nativeCards,
       {
         id: 'proactive',
         status: 'pending',
@@ -465,14 +482,29 @@ test('unconfigured sidebar exposes usable local tools and hides proactive workfl
   });
   try {
     assert.equal(f.doc.getElementById('agent-setup-dialog').open, false);
-    assert.equal(f.doc.getElementById('local-tools').hidden, false);
-    assert.doesNotMatch(f.doc.getElementById('pending').textContent, /PROACTIVE_SENTINEL/);
-    for (const id of ['local-tables', 'local-collect', 'local-annotations', 'local-basket']) {
-      const button = f.doc.getElementById(id);
+    assert.equal(f.doc.getElementById('local-tools'), null);
+    assert.equal(f.doc.getElementById('local-agent'), null);
+    assert.equal(
+      f.doc.getElementById('agent-settings-open'),
+      null,
+      'inactive settings controls are unmounted',
+    );
+    f.doc.getElementById('settings-tab-execution').click();
+    assert.ok(f.doc.getElementById('agent-settings-open'));
+    assert.doesNotMatch(f.doc.getElementById('pending').textContent, /PROACTIVE_SENTINEL|耗额度/);
+    for (const [tool, label] of [
+      ['tables', '识别表格'],
+      ['collect', '配置采集'],
+      ['annotate', '开启或停止标注'],
+      ['basket', '打开工作篮'],
+    ]) {
+      const button = f.doc.querySelector(
+        `article[data-id="native-${tool}"] [data-action="execute"]`,
+      );
+      assert.equal(button.textContent, label);
       assert.equal(button.disabled, false);
       await button.onclick();
     }
-    assert.equal(f.doc.getElementById('work-basket').hidden, false);
     assert.equal(f.doc.getElementById('work-basket').open, true);
     assert.equal(
       f.calls.filter((call) => call.type === 'copilot.local' && call.command === 'recognize_tables')
@@ -484,10 +516,70 @@ test('unconfigured sidebar exposes usable local tools and hides proactive workfl
     );
     assert.equal(
       f.calls.some((call) =>
-        ['agent_setup_start', 'execute', 'settings', 'configure', 'models'].includes(call.command),
+        [
+          'agent_setup_start',
+          'execute',
+          'settings',
+          'configure',
+          'models',
+          'workbench_plan',
+        ].includes(call.command),
       ),
       false,
     );
+  } finally {
+    f.close();
+  }
+});
+
+test('table and collection suggestions open confirmation without exporting or collecting pages', async () => {
+  const capture = {
+    url: 'https://example.test/report',
+    tables: [
+      {
+        id: '0',
+        name: 'Report table',
+        headers: ['Keyword', 'Volume'],
+        rows: [['sample', 10]],
+        pagination: { totalPages: 3 },
+        incomplete: true,
+      },
+    ],
+  };
+  const f = await mountMain({ ...state, suggestions: nativeCards }, catalog(false), (message) => ({
+    capture: message.command === 'recognize_tables' ? capture : null,
+    jobs: [],
+  }));
+  try {
+    for (const tool of ['tables', 'collect']) {
+      await f.doc
+        .querySelector(`article[data-id="native-${tool}"] [data-action="execute"]`)
+        .onclick();
+      assert.equal(f.doc.getElementById('table-export-dialog').open, true);
+      assert.match(f.doc.getElementById('table-tools').textContent, /Report table/);
+      f.doc.getElementById('table-export-dialog').close();
+    }
+    const calls = f.calls.filter((call) => call.type === 'copilot.local');
+    assert.equal(calls.filter((call) => call.command === 'recognize_tables').length, 2);
+    assert.equal(
+      calls.some((call) => !['recognize_tables', 'table_state'].includes(call.command)),
+      false,
+    );
+  } finally {
+    f.close();
+  }
+});
+
+test('invalid native card mapping is rejected before any page or model action', async () => {
+  const f = await mountMain({
+    ...state,
+    suggestions: [{ ...nativeCards[0], task_type: 'native.annotate' }],
+  });
+  try {
+    const count = f.calls.length;
+    await f.doc.querySelector('article[data-id="native-tables"] [data-action="execute"]').onclick();
+    assert.match(f.doc.getElementById('notice').textContent, /已变化/);
+    assert.equal(f.calls.length, count);
   } finally {
     f.close();
   }
@@ -561,4 +653,107 @@ test('manual annotations stay page-scoped and never enable Assist or accept proa
     null,
   );
   assert.deepEqual(calls, ['annotation_lookup']);
+});
+
+function pageContextService() {
+  let tab = { id: 17, windowId: 1, url: 'https://example.test/report?q=one', incognito: false },
+    focused = true;
+  const calls = [],
+    pageActions = [],
+    api = {
+      runtime: {
+        id: 'fixture',
+        getURL: (path) => `chrome-extension://fixture/${path}`,
+        sendMessage: async (message) => pageActions.push(message),
+      },
+      tabs: {
+        query: async () => [tab],
+        sendMessage: async (...args) => pageActions.push(args),
+      },
+      windows: { get: async () => ({ focused }) },
+      storage: { local: { get: async () => ({}) } },
+    },
+    background = new CopilotBackground(
+      api,
+      async (name, params) => {
+        calls.push([name, params]);
+        return name === 'state' ? { enabled: false, suggestions: [] } : { accepted: true };
+      },
+      (id) => id === 99,
+    );
+  return {
+    background,
+    calls,
+    pageActions,
+    setTab(next) {
+      tab = next;
+    },
+    setFocused(next) {
+      focused = next;
+    },
+    read() {
+      return send(
+        background,
+        { type: 'copilot.command', command: 'state' },
+        sender('copilot-panel.html'),
+      );
+    },
+  };
+}
+
+test('sidebar state synchronizes only focused URL metadata before listing tools while Assist is off', async () => {
+  const f = pageContextService();
+  assert.equal(f.background.enabled, false);
+  assert.ok((await f.read()).result);
+  assert.deepEqual(f.calls, [
+    ['page_context', { url: 'https://example.test/report?q=one', incognito: false, tab_id: 17 }],
+    ['state', {}],
+  ]);
+  assert.deepEqual(f.pageActions, [], 'no capture, content injection, observe or model action');
+});
+
+test('sidebar state clears previous page metadata on restricted or owned work pages', async () => {
+  const f = pageContextService();
+  await f.read();
+  for (const tab of [
+    { id: 17, windowId: 1, url: 'edge://extensions' },
+    { id: 99, windowId: 1, url: 'https://example.test/private-work' },
+    { id: 17, windowId: 1, url: 'file:///tmp/report.html' },
+  ]) {
+    f.setTab(tab);
+    f.calls.length = 0;
+    assert.ok((await f.read()).result);
+    assert.deepEqual(f.calls, [
+      ['page_context', { url: '', incognito: false }],
+      ['state', {}],
+    ]);
+  }
+  assert.deepEqual(f.pageActions, []);
+});
+
+test('open sidebar refreshes metadata on active navigation without letting background or unfocused events clear it', async () => {
+  const f = pageContextService();
+  f.background.panelPorts.add({});
+  f.setTab({ id: 17, windowId: 1, url: 'edge://extensions' });
+  f.background.tabEvent(17, '切换标签页', { url: 'edge://extensions' });
+  await f.background.queue;
+  assert.deepEqual(f.calls, [['page_context', { url: '', incognito: false }]]);
+  f.calls.length = 0;
+  f.background.tabEvent(88, '导航到新页面', { url: 'edge://extensions' });
+  await f.background.queue;
+  assert.deepEqual(f.calls, []);
+  f.setFocused(false);
+  f.background.tabEvent(17, '页面加载完成', { url: 'edge://extensions' });
+  await f.background.queue;
+  assert.deepEqual(f.calls, []);
+  await f.read();
+  assert.deepEqual(
+    f.calls,
+    [['state', {}]],
+    'reading from an unfocused browser preserves the last real page',
+  );
+  assert.equal(
+    f.calls.some(([name]) => ['observe', 'settings', 'execute'].includes(name)),
+    false,
+  );
 });

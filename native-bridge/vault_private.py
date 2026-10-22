@@ -223,9 +223,11 @@ class VaultPrivateService:
                 or task["modeGeneration"] != scope["modeGeneration"]
                 or task["allowedOrigins"] != scope["allowedOrigins"]
                 or task["state"] != "ready"
+                or ("tabIds" in task and scope["tabId"] not in task["tabIds"])
                 or (
                     scope["tabId"] not in task.get("agentTabIds", [])
                     and scope["tabId"] not in task.get("adoptedPopupTabIds", [])
+                    and scope["tabId"] not in task.get("attachedTabIds", [])
                 )
                 or daemon.tab_leases.get((scope["instanceId"], scope["tabId"])) != task["id"]
             ):

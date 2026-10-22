@@ -340,7 +340,10 @@ export class AgentPanel {
       catalogError = !!this.catalogError;
     for (const id of ['agent-default-select', 'agent-setup-select']) {
       const select = doc.getElementById(id),
-        value = id === 'agent-default-select' ? this.catalog?.default_agent : this.selected;
+        value =
+          id === 'agent-default-select'
+            ? (select.dataset.settingsDraft ?? this.catalog?.default_agent)
+            : this.selected;
       select.replaceChildren();
       for (const item of this.catalog?.agents || []) {
         const option = doc.createElement('option');

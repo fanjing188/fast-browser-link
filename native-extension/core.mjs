@@ -181,10 +181,10 @@ export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
  const blocked='TARGET_NOT_ACTIONABLE',badSelect='INVALID_SELECT_OPTIONS';
  const createPageTextRedactor=${serializedFunction(createPageTextRedactor)};
  const createPageSemantics=${serializedFunction(createPageSemantics).replace(/^\s*\/\/[^\n]*\n/gm,'')};
- const createPageParser=${serializedFunction(createPageParser).replace(/^\s*\/\/[^\n]*\n/gm,'')};
+ const createPageParser=context=>globalThis.__fastSemanticLibrary.parser(context);
  const same=(a,b)=>a&&b&&a.taskId===b.taskId&&a.documentId===b.documentId&&a.leaseId===b.leaseId;
  // 中文注释：扩展重载后旧隔离世界还可能存在；实现版本变化必须撤销旧引用并重新创建语义实例。
- const make=()=>({version:10,binding:p.binding,semantics:createPageSemantics({document,...p.binding,classifyField:classifySensitiveField,
+ const make=()=>({version:11,binding:p.binding,semantics:createPageSemantics({document,...p.binding,classifyField:classifySensitiveField,
   shadowRootOf:node=>node.shadowRoot||globalThis.__fastClosedShadowRoots?.get(node)||null})});
  const classifySensitiveField=${serializedFunction(classifySensitiveField)};
  const sensitive=e=>classifySensitiveField(e)!==null;
@@ -216,7 +216,6 @@ export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
   return {x:box.left+(frame.clientLeft+point.x)*scaleX,y:box.top+(frame.clientTop+point.y)*scaleY};
  };
  const actionable=(e,preferredPoint=null)=>{
-  if(p.recoveryRound>=2)return;
   if(!e?.isConnected)throw Error(blocked);
   const first=e.getBoundingClientRect();let point=preferredPoint||{x:first.left+first.width/2,y:first.top+first.height/2};
   let current=e;
@@ -225,7 +224,9 @@ export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
    if(semantics.interaction(current).disabled)throw Error('TARGET_DISABLED');
    if(current.closest('[inert],[aria-hidden="true"]'))throw Error('TARGET_HIDDEN');
    const style=view.getComputedStyle(current),r=current.getBoundingClientRect();
-   if(style.display==='none'||style.visibility!=='visible'||Number(style.opacity)===0||!current.getClientRects().length||r.width<=0||r.height<=0)throw Error('TARGET_ZERO_SIZE');
+   // 中文注释：display:contents 宿主没有自身盒子，仍检查子目标尺寸和每层命中；恢复轮次不能跳过遮挡或敏感保护。
+   const boxlessHost=current!==e&&style.display==='contents';
+   if(style.display==='none'||style.visibility!=='visible'||Number(style.opacity)===0||!boxlessHost&&(!current.getClientRects().length||r.width<=0||r.height<=0))throw Error('TARGET_ZERO_SIZE');
    if(point.x<0||point.y<0||point.x>=view.innerWidth||point.y>=view.innerHeight)throw Error('TARGET_OUT_OF_VIEWPORT');
    const hit=(root.host?root:doc).elementFromPoint(point.x,point.y);
    // 中文注释：隐藏页合成点击容许空命中。
@@ -276,7 +277,7 @@ export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
   return result;
  };
  let state=globalThis.__fastNativeSemanticsV2;
- const validState=()=>state?.version===10&&typeof state.semantics?.interactionVisibility==='function';
+ const validState=()=>state?.version===11&&typeof state.semantics?.interactionVisibility==='function';
  if(op==='semantic_snapshot'||op==='page.parse'||op==='recovery_scan'){
   if(!validState()||!same(state.binding,p.binding)){try{state?.semantics.revoke();}catch{}state=make();globalThis.__fastNativeSemanticsV2=state;}
   if(op==='recovery_scan'){
@@ -286,7 +287,7 @@ export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
     for(const item of snap.items){
      let node;try{node=semantics.resolve({...snap.binding,snapshotId:snap.snapshotId,ref:item.ref});}catch{continue;}
      const r=node.getBoundingClientRect(),{visible,inViewport,occluded}=semantics.interactionVisibility(node);
-     rows.push({...item,binding:snap.binding,snapshotId:snap.snapshotId,
+     rows.push({...item,identityKey:semantics.recoveryHint({...snap.binding,snapshotId:snap.snapshotId,ref:item.ref}).identityKey,binding:snap.binding,snapshotId:snap.snapshotId,
       selectorMatch:!!p.selector&&node.matches(p.selector),visible,inViewport,occluded,
       rect:{x:r.left,y:r.top,width:r.width,height:r.height}});
     }
@@ -358,10 +359,14 @@ export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
  const applySelect=op==='apply_native_ref_select_option';
  const planSelect=op==='plan_ref_select_option';
  const ariaIds=()=>(attr('aria-controls')||attr('aria-owns')||'').trim().split(/\\s+/).filter(Boolean);
- const ariaList=ids=>{
+ const ariaList=(ids,allowMissing=false)=>{
+  // 中文注释：展开和异步挂载不能把已计划的选择换绑到另一列表；定位、派发与回读沿用同一根和声明。
+  if(pending?.selection&&(node.getRootNode()!==pending.selection.root||interaction().role!==pending.selection.role||JSON.stringify(ids)!==JSON.stringify(pending.selection.ids)))throw Error('STALE_REF');
   if(interaction().role==='combobox'&&ids.length!==1)throw Error('CUSTOM_SELECT_UNSUPPORTED');
-  const list=interaction().role==='listbox'?node:node.getRootNode().getElementById?.(ids[0])||doc.getElementById(ids[0]);
-  if(!list||semantics.interaction(list).role!=='listbox')throw Error('CUSTOM_SELECT_UNSUPPORTED');
+  // 中文注释：延迟 portal 只能沿同树声明 ID 等待，不回退到另一 Shadow/frame 中的同名列表。
+  const list=interaction().role==='listbox'?node:node.getRootNode().getElementById?.(ids[0]);
+  if(!list){if(allowMissing)return null;throw Error('SELECT_OPTION_MISSING');}
+  if(semantics.interaction(list).role!=='listbox')throw Error('CUSTOM_SELECT_UNSUPPORTED');
   return list;
  };
  const normalizeOption=value=>String(value||'').normalize('NFC').replace(/\\s+/g,' ').trim();
@@ -370,6 +375,7 @@ export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
   return matches[0];
  };
  const ariaOption=(list,allowMissing=false)=>{
+  if(!list&&allowMissing)return null;
   const matches=[...list.querySelectorAll('[role]')].filter(option=>semantics.interaction(option).role==='option'&&(p.by==='label'?normalizeOption(option.getAttribute('aria-label')||option.textContent||'')===normalizeOption(p.values[0]):(option.getAttribute('value')??option.getAttribute('data-value'))===p.values[0]));
   if(!matches.length&&allowMissing)return null;
   const option=uniqueOption(matches);
@@ -543,7 +549,7 @@ export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
 
     // 中文注释：浏览器原生下拉弹层不能可靠按网页坐标操作；与 selectOption 相同，设置 selected 后派发两个冒泡事件。
     for(const option of options)option.selected=wanted.has(option);
-    node.dispatchEvent(new Event('input',{bubbles:true}));
+    node.dispatchEvent(new Event('input',{bubbles:true,composed:true}));
     node.dispatchEvent(new Event('change',{bubbles:true}));
     const selectedOptions=[...node.selectedOptions].map(option=>({value:option.value,label:option.label.trim(),index:option.index}));
     const verified=node.isConnected&&node.options.length===options.length&&options.every((option,index)=>node.options[index]===option&&option.selected===wanted.has(option));
@@ -554,13 +560,13 @@ export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
   if(applySelect)throw Error(badSelect);
   // 中文注释：自定义 listbox/combobox 仍只支持单选，并由宿主派发可信指针点击。
   if(p.by==='index'||p.values.length!==1)throw Error(badSelect);
-  const list=ariaList(ariaIds());
   const needsOpen=interaction().role==='combobox'&&attr('aria-expanded')!=='true';
+  const list=ariaList(ariaIds(),needsOpen&&(planSelect||syntheticSelect&&p.openOnly));
   if(syntheticSelect&&p.openOnly){node.click();return;}
-  // 中文注释：只对已有明确关联列表的关闭组合框延后缺失检查；歧义、禁用仍在展开前拒绝。
+  // 中文注释：只对有唯一明确关联 ID 的关闭组合框延后缺失检查；歧义、禁用仍在展开前拒绝。
   const option=ariaOption(list,planSelect&&needsOpen);
   const selected=option?.getAttribute('aria-selected')==='true';
-  if(planSelect){state.pendingTarget={snapshotId:p.snapshotId,ref:p.ref,node};return {kind:'aria',needsChange:!selected,needsOpen};}
+  if(planSelect){state.pendingTarget={snapshotId:p.snapshotId,ref:p.ref,node,selection:{root:node.getRootNode(),role:interaction().role,ids:ariaIds()}};return {kind:'aria',needsChange:!selected,needsOpen};}
   if(syntheticSelect){
 
    option.scrollIntoView({behavior:'instant',block:'nearest',inline:'nearest'});
@@ -582,7 +588,8 @@ export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
    const proto=node.tagName==='INPUT'?HTMLInputElement.prototype:HTMLTextAreaElement.prototype;
    Object.getOwnPropertyDescriptor(proto,'value').set.call(node,p.text);
   }
-  node.dispatchEvent(new Event('input',{bubbles:true}));node.dispatchEvent(new Event('change',{bubbles:true}));
+  // 中文注释：input 按原生事件穿过 Shadow 边界，供外部委托监听更新应用；change 不跨根。
+  node.dispatchEvent(new Event('input',{bubbles:true,composed:true}));node.dispatchEvent(new Event('change',{bubbles:true}));
   const readBack=node.value;
   return {filled:readBack===p.text,verified:readBack===p.text,kind:'dom-synthetic',...(readBack===p.text?{}:{outcomeUnknown:true})};
  }
@@ -2463,7 +2470,7 @@ export class Executor {
   let world=executionContextId?{executionContextId}:await createWorld();guard();
   const key=()=>JSON.stringify([target.tabId,target.sessionId,world.executionContextId]);
   const install=async()=>{const installed=await this.api.debugger.sendCommand(target,'Runtime.callFunctionOn',{executionContextId:world.executionContextId,functionDeclaration:`function(){globalThis.__fastSemanticLibrary={version:1,call:(${semanticWorldDeclaration})};return true;}`,returnByValue:true});guard();if(installed.exceptionDetails||installed.result?.value!==true)throw Object.assign(Error('SEMANTIC_LIBRARY_UNAVAILABLE'),{preDispatch:true});this.semanticWorlds.add(key());};
-  const invoke=()=>this.api.debugger.sendCommand(target,'Runtime.callFunctionOn',{executionContextId:world.executionContextId,functionDeclaration:op==='page.observe'?`function(op,p){const library=globalThis.__fastSemanticLibrary;if(library?.version!==1)return {hermesSemanticMissing:true};const state=globalThis.__fastNativeSemanticsV2;if(!state||state.version!==10||typeof state.semantics?.interactionVisibility!=='function'||JSON.stringify(state.binding)!==JSON.stringify(p.binding))library.call('semantic_snapshot',{binding:p.binding,options:{root:'head',mode:'content',budget:512}});return (${observePage.toString()})(globalThis.__fastNativeSemanticsV2.semantics.parsingContext(),p.options);}`:'function(op,p){const library=globalThis.__fastSemanticLibrary;return library?.version===1?library.call(op,p):{hermesSemanticMissing:true};}',arguments:[{value:op},{value:payload}],returnByValue:true,awaitPromise:true});
+  const invoke=()=>this.api.debugger.sendCommand(target,'Runtime.callFunctionOn',{executionContextId:world.executionContextId,functionDeclaration:op==='page.observe'?`function(op,p){const library=globalThis.__fastSemanticLibrary;if(library?.version!==1)return {hermesSemanticMissing:true};const state=globalThis.__fastNativeSemanticsV2;if(!state||state.version!==11||typeof state.semantics?.interactionVisibility!=='function'||JSON.stringify(state.binding)!==JSON.stringify(p.binding))library.call('semantic_snapshot',{binding:p.binding,options:{root:'head',mode:'content',budget:512}});return (${observePage.toString()})(globalThis.__fastNativeSemanticsV2.semantics.parsingContext(),p.options);}`:'function(op,p){const library=globalThis.__fastSemanticLibrary;if(library?.version!==1)return {hermesSemanticMissing:true};if(op==="page.parse"&&!library.parser)return {hermesParserMissing:true};return library.call(op,p);}',arguments:[{value:op},{value:payload}],returnByValue:true,awaitPromise:true});
   let result;
   try{if(!this.semanticWorlds.has(key()))await install();result=await invoke();}
   catch(error){
@@ -2476,6 +2483,12 @@ export class Executor {
   guard();
   if(result.result?.value?.hermesSemanticMissing===true){await install();result=await invoke();}
   if(result.result?.value?.hermesSemanticMissing===true)throw Object.assign(Error('SEMANTIC_LIBRARY_UNAVAILABLE'),{preDispatch:true});
+  // 中文注释：结构解析器是冷路径；首次解析才装入同一隔离库，普通读取和动作不传输这段源码，后续解析保留原游标实例。
+  if(op==='page.parse'&&result.result?.value?.hermesParserMissing===true){
+   const parser=await this.api.debugger.sendCommand(target,'Runtime.callFunctionOn',{executionContextId:world.executionContextId,functionDeclaration:compactSemanticSource(`function(){const library=globalThis.__fastSemanticLibrary;if(library?.version!==1)return false;library.parser=(${serializedFunction(createPageParser).replace(/^\s*\/\/[^\n]*\n/gm,'')});return true;}`),returnByValue:true});guard();
+   if(parser.exceptionDetails||parser.result?.value!==true)throw Error('SEMANTIC_LIBRARY_UNAVAILABLE');
+   result=await invoke();
+  }
   guard();
   if(result.exceptionDetails){
    const error=Error(result.exceptionDetails.exception?.description||result.exceptionDetails.text||'semantic action failed');
@@ -2635,7 +2648,7 @@ export class Executor {
   if(!RECOVERY_ACTIONS.has(p.action)&&!queryRead)return remember(await execute(p));
   const saved=t.recoveryRefs?.get(p.ref);
   if(saved&&(saved.tabId!==p.tabId||canonical(saved.binding)!==canonical(p.binding)))throw Object.assign(Error('BINDING_MISMATCH'),{preDispatch:true});
-  const hint=saved?.tabId===p.tabId?saved:{ref:p.ref,name:p.options?.query,role:p.options?.roles?.[0]};
+  const hint={...(saved?.tabId===p.tabId?saved:{ref:p.ref,name:p.options?.query,role:p.options?.roles?.[0]}),binding:p.binding,frameToken:p.frameToken};
   const guard=()=>{this.check(t,p);if(this.leases.get(p.tabId)!==t.id)throw Error('tab lease denied');};
   const scan=async()=>{
    guard();const target={tabId:p.tabId},tree=await this.checkedFrameTree(target,t,guard,false);

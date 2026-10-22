@@ -6,7 +6,13 @@ import {
   selectedText,
   selectionTasks,
   SelectionPopup,
+  visibleRangeText,
 } from '../../native-extension/copilot-selection.mjs';
+import {
+  captureMaterial,
+  pageSnapshot,
+  describeEvent,
+} from '../../native-extension/copilot-observation.mjs';
 import { CopilotBackground } from '../../native-extension/copilot-background.mjs';
 import {
   readTrends,
@@ -371,6 +377,49 @@ test('selecting table keywords is not blocked by unrelated checkbox cells', () =
     assert.ok(value);
     assert.doesNotMatch(value.text, /PRIVATE/);
   } finally {
+    dom.window.close();
+  }
+});
+test('every selection consumer shares hidden-descendant filtering and exact range boundaries', async () => {
+  const dom = new JSDOM(
+      '<p id="safe">public <span style="display:none"><em>HIDDEN_SECRET</em></span><span style="opacity:0"><em>OPACITY_SECRET</em></span>keyword</p><div style="visibility:hidden"><span id="hidden">ANCESTOR_SECRET</span></div><p id="partial">prefix chosen suffix</p>',
+      { url: 'https://example.test/' },
+    ),
+    doc = dom.window.document,
+    calls = [];
+  const popup = new SelectionPopup(doc, {
+    request: async (name, params) => {
+      calls.push([name, params]);
+      return {};
+    },
+  });
+  try {
+    select(doc, doc.querySelector('#safe'));
+    assert.equal(selectedText(doc).text, 'public keyword');
+    assert.equal(
+      captureMaterial(doc, dom.window.location.href, 'selection').text,
+      'public keyword',
+    );
+    assert.equal(describeEvent({ type: 'selectionchange' }, doc), '选中 public keyword');
+    assert.doesNotMatch(JSON.stringify(pageSnapshot(doc, dom.window.location.href)), /SECRET/);
+    await popup.show();
+    assert.equal(calls.find(([name]) => name === 'selection_info')[1].text, 'public keyword');
+    popup.close();
+    select(doc, doc.querySelector('#hidden'));
+    assert.equal(selectedText(doc), null);
+    const range = doc.createRange(),
+      text = doc.querySelector('#partial').firstChild;
+    range.setStart(text, 7);
+    range.setEnd(text, 13);
+    doc.getSelection().removeAllRanges();
+    doc.getSelection().addRange(range);
+    assert.equal(visibleRangeText(doc, range), 'chosen');
+    assert.equal(selectedText(doc).text, 'chosen');
+    text.textContent = 'x'.repeat(100001);
+    range.selectNodeContents(doc.querySelector('#partial'));
+    assert.equal(selectedText(doc), null);
+  } finally {
+    popup.destroy();
     dom.window.close();
   }
 });

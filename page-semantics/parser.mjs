@@ -9,7 +9,8 @@ export function createPageParser(context) {
  const parent=node=>node.parentElement||node.getRootNode()?.host||node.ownerDocument.defaultView?.frameElement||null;
  const nearest=(node,predicate)=>{for(let n=parent(node);n;n=parent(n))if(predicate(n))return n;return null;};
  const matches=(node,selector)=>{try{return node.matches(selector);}catch{fail();}};
- const tableSelector='table,[role="table"],[role="grid"],[role="treegrid"]';
+ // 中文注释：结构节点复用有效角色解释，未知/后备 token 不能漏表，也不能把 generic grid 当表。
+ const isTable=node=>node.localName==='table'||['table','grid','treegrid'].includes(context.role(node));
  function parse(options={}) {
   if(!options||typeof options!=='object'||Array.isArray(options))fail();
   const allowed=['root','sections','composed','budget','cursor','maxScan','schema','frameToken'];
@@ -62,7 +63,7 @@ export function createPageParser(context) {
   }
   // 中文注释：块只取最内层正文单元，避免父子容器全文重复。
   const blockSelector='h1,h2,h3,h4,h5,h6,p,li,blockquote,pre,figcaption,div,span,a[href],img';
-  const blockNodes=new Set(nodes.filter(n=>matches(n,blockSelector)&&!nearest(n,a=>matches(a,tableSelector+',form'))));
+  const blockNodes=new Set(nodes.filter(n=>matches(n,blockSelector)&&!nearest(n,a=>isTable(a)||matches(a,'form'))));
   for(const node of selected.includes('blocks')?blockNodes:[]){
    const ownText=n=>[...n.childNodes].some(child=>child.nodeType===3&&child.textContent.trim());
    // 中文注释：段落、列表项与标题中的 inline 文字先整体脱敏，不能把秘密标签和值拆成独立块。
@@ -81,8 +82,8 @@ export function createPageParser(context) {
     ...(matches(node,'a[href]')?{href:cleanURL(node.href)}:{}),...(value.truncated?{truncated:true}:{})});
   }
   // 中文注释：每一行作为一个可分页片段，保留跨度来源，不把合并单元格复制为业务记录。
-  for(const table of selected.includes('tables')?nodes.filter(n=>matches(n,tableSelector)):[]){
-   const rows=nodes.filter(n=>matches(n,'tr,[role="row"]')&&nearest(n,a=>matches(a,tableSelector))===table);
+  for(const table of selected.includes('tables')?nodes.filter(isTable):[]){
+   const rows=nodes.filter(n=>context.role(n)==='row'&&nearest(n,isTable)===table);
    const occupied=new Map(),headers=[],rowHeaders=[];
    // 中文注释：声明总量与实际加载范围分别返回，ARIA 索引不改写为 DOM 顺序。
    const declaredRows=Number(table.getAttribute('aria-rowcount')),declaredColumns=Number(table.getAttribute('aria-colcount'));
@@ -102,12 +103,12 @@ export function createPageParser(context) {
      const rowSpan=rawRow===0?Math.min(100,rows.slice(r).filter(n=>n.parentElement===row.parentElement).length):Number.isInteger(rawRow)?Math.min(100,Math.max(1,rawRow)):1;
      const colSpan=Number.isInteger(rawCol)?Math.min(40,Math.max(1,rawCol)):1;
      if(column+colSpan>100){warnings.add('column_limit');break;}
-     const value=safe(cell),header=cell.localName==='th'||['columnheader','rowheader'].includes(cell.getAttribute('role'));
-     const scope=cell.getAttribute('scope'),headerRole=header?(scope==='row'||scope==='rowgroup'||cell.getAttribute('role')==='rowheader'||!scope&&column===0&&children.some(n=>n.localName==='td')?'row':'column'):null;
+     const value=safe(cell),header=cell.localName==='th'||['columnheader','rowheader'].includes(context.role(cell));
+     const scope=cell.getAttribute('scope'),headerRole=header?(scope==='row'||scope==='rowgroup'||context.role(cell)==='rowheader'||!scope&&column===0&&children.some(n=>n.localName==='td')?'row':'column'):null;
      const explicit=(cell.getAttribute('headers')||'').split(/\s+/).filter(Boolean).slice(0,40);
      const explicitNodes=explicit.map(id=>cell.getRootNode().getElementById?.(id));
-     if(explicitNodes.some(n=>!n||!visible(n,false)||nearest(n,a=>matches(a,tableSelector))!==table))warnings.add('unresolved_header');
-     const related=explicit.length?explicitNodes.filter(n=>n&&visible(n,false)&&nearest(n,a=>matches(a,tableSelector))===table).map(n=>source(n).sourceRef)
+     if(explicitNodes.some(n=>!n||!visible(n,false)||nearest(n,isTable)!==table))warnings.add('unresolved_header');
+     const related=explicit.length?explicitNodes.filter(n=>n&&visible(n,false)&&nearest(n,isTable)===table).map(n=>source(n).sourceRef)
       // 中文注释：数据单元和列表头的半开区间相交即关联，不能只检查数据起始列。
       :[...headers.filter(h=>h.column<column+colSpan&&h.column+h.colSpan>column),...rowHeaders.filter(h=>h.row<=rowIndex&&h.row+h.rowSpan>rowIndex)].map(h=>h.sourceRef);
      const entry={...evidence(cell),text:value.text,row:rowIndex,column,rowSpan,colSpan,header,headerRole,headerRefs:related};

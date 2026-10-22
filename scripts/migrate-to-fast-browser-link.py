@@ -260,6 +260,7 @@ def migrate(package, home, browser_root, *, apply=False):
             "2.1.0",
             "2.2.0",
             "2.2.1",
+            "2.3.0",
         }
         or ORIGIN != f"chrome-extension://{identity}/"
     ):

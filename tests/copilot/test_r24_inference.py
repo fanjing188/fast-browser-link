@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "native-bridge"))
-from copilot import Copilot, private_write, inference_prompt
+from copilot import Copilot, private_write, inference_prompt, suggestion_id
 from copilot_setup import setup
 from copilot_diagnostics import redact_page
 
@@ -40,6 +40,246 @@ class R24Inference(unittest.TestCase):
     def tearDown(self):
         self.app.close()
         self.temp.cleanup()
+
+    def test_model_cannot_create_unmapped_free_tasks_or_spoof_explicit_authorization(self):
+        for action in ("general.task", "unknown.task"):
+            with self.subTest(action=action):
+                self.app._replace(
+                    "fixture",
+                    {
+                        "scene": "general",
+                        "suggestions": [
+                            {
+                                "id": "invented",
+                                "title": "模型自由任务",
+                                "why": "猜测",
+                                "action": action,
+                                "params": {"task": "PRIVATE_TASK"},
+                                "explicit": True,
+                            }
+                        ],
+                    },
+                )
+                self.assertFalse(
+                    any(row["action"] == action for row in self.state["suggestions"].values())
+                )
+                logs = self.app.journal.view("fixture")["entries"]
+                self.assertTrue(
+                    any(
+                        row["details"].get("error_type") == "unmapped_task"
+                        and row["details"].get("action") == action
+                        for row in logs
+                    )
+                )
+                self.assertNotIn("PRIVATE_TASK", json.dumps(logs))
+        for language in ("zh", "en"):
+            self.app.templates.language = language
+            prompt = inference_prompt({}, self.app.templates)
+            self.assertNotIn('"action": "general.task"', prompt)
+
+    def test_model_unlisted_workflow_is_diagnosed_without_borrowing_registered_contract(self):
+        with patch.object(
+            self.app.packages,
+            "catalog",
+            return_value=[{"scene": "general", "flow": "registered", "objects": ["sample"]}],
+        ):
+            self.app._replace(
+                "fixture",
+                {
+                    "scene": "general",
+                    "suggestions": [
+                        {
+                            "title": "未知流程",
+                            "why": "模型猜测",
+                            "action": "workflow.run",
+                            "params": {"flow": "unregistered", "object": "sample"},
+                        }
+                    ],
+                },
+            )
+        self.assertFalse(
+            any(row["action"] == "workflow.run" for row in self.state["suggestions"].values())
+        )
+        self.assertTrue(
+            any(
+                row["details"].get("error_type") == "unmapped_task"
+                for row in self.app.journal.view("fixture")["entries"]
+            )
+        )
+
+    def test_legacy_unmapped_pending_is_read_only_and_retained_across_refreshes(self):
+        self.state.update(enabled=True, ready=True)
+        self.app.config["auto_zero"] = True
+        for action in ("general.task", "unknown.task", "workflow.run"):
+            key = "legacy-" + action
+            arguments = (
+                {"flow": "unregistered", "object": "旧对象"}
+                if action == "workflow.run"
+                else {"task": "旧任务原文"}
+            )
+            row = {
+                "id": key,
+                "action": action,
+                "params": arguments,
+                "title": "旧任务",
+                "why": "迁移前建议",
+                "status": "pending",
+                "page_url": "https://old.example.test/",
+                "first_seen": -100,
+            }
+            original = copy.deepcopy(row)
+            self.state["suggestions"][key] = row
+            with self.assertRaisesRegex(ValueError, "unmapped_task"):
+                self.app.request("fixture", "execute", {"id": key})
+            with patch.object(self.app, "request") as request:
+                self.app._automatic_suggestions("fixture")
+                request.assert_not_called()
+            for _ in range(3):
+                self.app._replace("fixture", {"scene": "general", "suggestions": []})
+            self.assertEqual(self.state["suggestions"][key], {**original, "status": "readonly"})
+            displayed = next(r for r in self.app.view("fixture")["suggestions"] if r["id"] == key)
+            self.assertTrue(displayed["legacy_unmapped"])
+            self.assertEqual(displayed["params"], arguments)
+
+    def test_legacy_read_only_content_is_not_discarded_by_active_card_limit(self):
+        for i in range(12):
+            key = "legacy-" + str(i)
+            self.state["suggestions"][key] = {
+                "id": key,
+                "action": "general.task",
+                "params": {"task": str(i)},
+                "title": "旧建议",
+                "why": "保留原文",
+                "status": "pending",
+            }
+        for _ in range(2):
+            rows = self.app.view("fixture")["suggestions"]
+            self.assertEqual(sum(bool(row.get("legacy_unmapped")) for row in rows), 12)
+            self.app.workbench.refresh("fixture")
+            self.assertTrue(all("legacy-" + str(i) in self.state["suggestions"] for i in range(12)))
+            self.app._replace("fixture", {"scene": "general", "suggestions": []})
+
+    def test_explicit_free_task_and_started_contracts_survive_model_refresh_unchanged(self):
+        self.state.update(enabled=True, ready=False)
+        self.app.request(
+            "fixture",
+            "quick_task",
+            {"action": "general.task", "params": {"task": "用户主动输入的任务"}},
+        )
+        row = next(
+            row for row in self.state["suggestions"].values() if row["action"] == "general.task"
+        )
+        self.assertTrue(row["explicit"])
+        self.assertTrue(row["single_judgment"])
+        for status in (
+            "pending",
+            "queued",
+            "executing",
+            "stopping",
+            "completed",
+            "failed",
+            "stopped",
+        ):
+            row["status"] = status
+            if status != "pending":
+                row.pop("explicit", None)
+                row["result"] = {"verdict": "原合同结果"}
+            before = copy.deepcopy(row)
+            self.app._replace(
+                "fixture",
+                {
+                    "scene": "general",
+                    "suggestions": [
+                        {
+                            "id": row["id"],
+                            "title": "模型改写",
+                            "why": "模型推测",
+                            "action": "general.task",
+                            "params": dict(row["params"]),
+                            "explicit": True,
+                        }
+                    ],
+                },
+            )
+            self.assertEqual(self.state["suggestions"][row["id"]], before)
+            self.assertFalse(self.app._display_row(row).get("legacy_unmapped"))
+
+    def test_read_only_legacy_task_cannot_be_reinterpreted_by_later_template_registration(self):
+        self.state["suggestions"]["old"] = {
+            "id": "old",
+            "action": "unknown.task",
+            "params": {"task": "旧任务"},
+            "title": "旧建议",
+            "why": "原文",
+            "status": "pending",
+        }
+        self.app.view("fixture")
+        with patch.object(self.app.templates, "optional", return_value={"name": "New template"}):
+            row = self.state["suggestions"]["old"]
+            self.assertTrue(self.app._display_row(row).get("legacy_unmapped"))
+            with self.assertRaisesRegex(ValueError, "unmapped_task"):
+                self.app.request("fixture", "execute", {"id": "old"})
+
+    def test_catalog_refresh_cannot_reactivate_read_only_workflow_after_installation(self):
+        arguments = {"flow": "later-installed", "object": "sample"}
+        key = suggestion_id("workflow.run", arguments)
+        original = {
+            "id": key,
+            "action": "workflow.run",
+            "params": arguments,
+            "title": "旧标题不可改写",
+            "why": "旧原因不可改写",
+            "status": "pending",
+        }
+        self.state["suggestions"][key] = copy.deepcopy(original)
+        self.app.view("fixture")
+        self.assertEqual(self.state["suggestions"][key]["status"], "readonly")
+        self.app.packages.flows[arguments["flow"]] = {"steps": []}
+        proposal = {
+            "params": arguments,
+            "title": "新安装流程",
+            "why": "新目录原因",
+            "available": True,
+            "missing_capabilities": [],
+            "scene": "general",
+        }
+        with (
+            patch.object(self.app.registry, "recommendations", return_value=[proposal]),
+            patch.object(self.app.packages, "catalog", return_value=[]),
+        ):
+            self.app._refresh_tool_suggestions("fixture")
+        self.assertEqual(self.state["suggestions"][key], {**original, "status": "readonly"})
+        with patch("copilot.threading.Thread.start") as start:
+            with self.assertRaisesRegex(ValueError, "unmapped_task"):
+                self.app.request("fixture", "execute", {"id": key})
+            start.assert_not_called()
+
+    def test_first_mutating_request_preserves_unmigrated_legacy_text_before_cleanup(self):
+        for method, params in (
+            ("workbench_add", {"kind": "text", "text": "首次添加的合成材料"}),
+            ("page_context", {"url": "https://new.example.test/", "incognito": False}),
+            ("work_update", {"reset": True}),
+        ):
+            with self.subTest(method=method):
+                original = {
+                    f"legacy-{i}": {
+                        "id": f"legacy-{i}",
+                        "action": "general.task",
+                        "params": {"task": f"旧任务原文{i}"},
+                        "title": "旧建议",
+                        "why": "不可删除",
+                        "status": "pending",
+                    }
+                    for i in range(12)
+                }
+                self.state["suggestions"] = copy.deepcopy(original)
+                self.app.request("fixture", method, params)
+                self.assertTrue(original.keys() <= self.state["suggestions"].keys())
+                for key, row in original.items():
+                    retained = self.state["suggestions"][key]
+                    self.assertEqual(retained["status"], "readonly")
+                    for field in ("params", "title", "why"):
+                        self.assertEqual(retained[field], row[field])
 
     def old_suggestion(self):
         return {
@@ -182,7 +422,22 @@ class R24Inference(unittest.TestCase):
 
     def test_empty_model_output_without_explicit_object_never_guesses_a_fallback(self):
         self.app._replace("fixture", {"scene": "general", "suggestions": []})
-        self.assertEqual(self.state["suggestions"], {})
+        rows = list(self.state["suggestions"].values())
+        self.assertEqual(
+            {row["params"].get("task") for row in rows},
+            {"page.summary", "table.clean", "links.organize"},
+        )
+        self.assertTrue(
+            all(
+                row["action"] == "assist.task"
+                and row.get("standard_task")
+                and row.get("capture_required")
+                and row["recommendation_state"] == "needs_parameters"
+                and row["missing_parameters"] == ["materials"]
+                and row["params"]["materials"] == []
+                for row in rows
+            )
+        )
         self.assertFalse(
             any(
                 row["event"] == "inference_fallback"
@@ -201,8 +456,8 @@ class R24Inference(unittest.TestCase):
                             {
                                 "title": title,
                                 "why": "fixture",
-                                "action": "general.task",
-                                "params": {"task": title},
+                                "action": "local.lookup",
+                                "params": {"value": title},
                             }
                         ],
                     },
@@ -210,7 +465,7 @@ class R24Inference(unittest.TestCase):
                 row = next(
                     row
                     for row in self.state["suggestions"].values()
-                    if row["params"]["task"] == title
+                    if row["params"].get("value") == title
                 )
                 self.assertEqual(row["title"], title if len(title) <= 32 else "x" * 31 + "…")
         prompt = inference_prompt({}, self.app.templates)

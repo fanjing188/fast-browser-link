@@ -12,12 +12,10 @@ export const RECOVERY_ACTIONS = new Set([
 const REASONS = new Set([
   'target not found',
   'target unavailable',
-  'TARGET_NOT_UNIQUE',
   'TARGET_NOT_ACTIONABLE',
   'STALE_REF',
   'STALE_SNAPSHOT',
   'REF_TARGET_MISSING',
-  'REF_TARGET_AMBIGUOUS',
   'TARGET_OCCLUDED',
   'TARGET_UNSTABLE',
   'TARGET_CHANGED',
@@ -25,11 +23,6 @@ const REASONS = new Set([
   'TARGET_OUT_OF_VIEWPORT',
   'TARGET_HIDDEN',
   'TARGET_ZERO_SIZE',
-  'BINDING_MISMATCH',
-  'DOCUMENT_REPLACED',
-  'DOCUMENT_CHANGED',
-  'document changed',
-  'FRAME_TOKEN_STALE',
   'SYNTHETIC_CLICK_UNAVAILABLE',
 ]);
 export const recoveryReason = (error) =>
@@ -41,41 +34,55 @@ export function rankTargets(items, hint = {}) {
   const name = String(hint.name || '')
     .trim()
     .toLocaleLowerCase();
-  return items
-    .map((item) => {
-      const text = String(item.name || '')
-        .trim()
-        .toLocaleLowerCase();
-      let method,
-        score = 0;
-      if (hint.ref && item.ref === hint.ref) {
-        method = 'ref';
-        score = 1000;
-      } else if (name && text === name && item.role === hint.role) {
-        method = 'role+name';
-        score = 800;
-      } else if (name && text.includes(name)) {
-        method = 'text';
-        score = 600;
-      } else if (!name && hint.role && item.role === hint.role) {
-        method = 'role';
-        score = 500;
-      } else if (item.selectorMatch) {
-        method = 'selector';
-        score = 400;
-      } else if (hint.rect && item.rect && hint.role === item.role) {
-        const distance = Math.hypot(hint.rect.x - item.rect.x, hint.rect.y - item.rect.y);
-        if (distance < 80) {
-          method = 'geometry';
-          score = 200 - distance;
+  return (
+    items
+      // 中文注释：恢复引用必须仍属于原文档、frame/Shadow 边界和业务记录；丢失身份时宁可重新读取，不猜相似按钮。
+      .filter(
+        (item) =>
+          !hint.ref ||
+          (Boolean(hint.identityKey) &&
+            item.identityKey === hint.identityKey &&
+            ['taskId', 'documentId', 'leaseId'].every(
+              (key) => item.binding?.[key] === hint.binding?.[key],
+            ) &&
+            (item.frameToken ?? null) === (hint.frameToken ?? null) &&
+            JSON.stringify(item.targetPath || []) === JSON.stringify(hint.targetPath || [])),
+      )
+      .map((item) => {
+        const text = String(item.name || '')
+          .trim()
+          .toLocaleLowerCase();
+        let method,
+          score = 0;
+        if (hint.ref && item.ref === hint.ref) {
+          method = 'ref';
+          score = 1000;
+        } else if (name && text === name && item.role === hint.role) {
+          method = 'role+name';
+          score = 800;
+        } else if (name && text.includes(name)) {
+          method = 'text';
+          score = 600;
+        } else if (!name && hint.role && item.role === hint.role) {
+          method = 'role';
+          score = 500;
+        } else if (item.selectorMatch) {
+          method = 'selector';
+          score = 400;
+        } else if (hint.rect && item.rect && hint.role === item.role) {
+          const distance = Math.hypot(hint.rect.x - item.rect.x, hint.rect.y - item.rect.y);
+          if (distance < 80) {
+            method = 'geometry';
+            score = 200 - distance;
+          }
         }
-      }
-      if (!method || item.disabled || item.visible === false) return null;
-      score += (item.inViewport ? 30 : 0) + (item.occluded === false ? 20 : 0);
-      return { ...item, method, score };
-    })
-    .filter(Boolean)
-    .sort((a, b) => b.score - a.score);
+        if (!method || item.disabled || item.visible === false) return null;
+        score += (item.inViewport ? 30 : 0) + (item.occluded === false ? 20 : 0);
+        return { ...item, method, score };
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.score - a.score)
+  );
 }
 export async function recoverTarget({
   action,
@@ -131,7 +138,8 @@ export async function recoverTarget({
       continue;
     }
     const ranked = rankTargets(lastScan, hint);
-    chosen = ranked[0] || null;
+    // 中文注释：位置、遮挡和评分不能消除业务歧义；写动作仅在一个身份匹配候选时重试。
+    chosen = RECOVERY_ACTIONS.has(action) && ranked.length !== 1 ? null : ranked[0] || null;
     recovery.strategies.push({
       round: recovery.rounds,
       scanned: lastScan.length,

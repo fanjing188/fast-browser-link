@@ -405,9 +405,16 @@ class MCPSessionPagination(unittest.TestCase):
         fault=None,
         sse_chunks=None,
     ):
+        import socket
+
         requests, sessions = [], {}
 
         class Handler(BaseHTTPRequestHandler):
+            def setup(self):
+                super().setup()
+                # 中文注释：小块 SSE 由夹具显式分块，不让 Nagle/延迟 ACK 额外消耗共享截止。
+                self.connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+
             def log_message(self, *_):
                 pass
 
@@ -881,6 +888,24 @@ class MCPSessionPagination(unittest.TestCase):
             result = mcp_tool_list(server, timeout=0.25)
             self.assertEqual([tool["name"] for tool in result["tools"]], ["one", "two"])
             self.assertEqual([r["method"] for r in requests].count("initialize"), 1)
+
+    def test_http_fixture_disables_nagle_on_accepted_socket(self):
+        import socket
+        from urllib.parse import urlsplit
+
+        observed = []
+        original = socket.socket.setsockopt
+
+        def record(connection, level, option, value, *args):
+            if (level, option, value) == (socket.IPPROTO_TCP, socket.TCP_NODELAY, 1):
+                observed.append(connection.getsockname()[1])
+            return original(connection, level, option, value, *args)
+
+        with patch.object(socket.socket, "setsockopt", record):
+            with self.http_fixture() as (server, _):
+                result = mcp_tool_list(server)
+                self.assertEqual(len(result["tools"]), 2)
+                self.assertIn(urlsplit(server["url"]).port, observed)
 
     def test_sse_id_first_and_split_id_after_heartbeat_keep_stream_mode(self):
         for chunks in (

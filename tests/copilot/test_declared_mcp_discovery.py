@@ -405,9 +405,22 @@ class MCPSessionPagination(unittest.TestCase):
         fault=None,
         sse_chunks=None,
     ):
+        from http.client import HTTPResponse
         import socket
 
         requests, sessions = [], {}
+        progress, consumed = {}, threading.Condition()
+        original_read = HTTPResponse.read1
+
+        def read_chunk(response, *args):
+            chunk = original_read(response, *args)
+            token = response.getheader("X-Fixture-Stream")
+            if token is not None:
+                with consumed:
+                    if token in progress:
+                        progress[token] += len(chunk)
+                        consumed.notify_all()
+            return chunk
 
         class Handler(BaseHTTPRequestHandler):
             def setup(self):
@@ -516,13 +529,26 @@ class MCPSessionPagination(unittest.TestCase):
                 )
                 if not stream:
                     self.send_header("Content-Length", str(len(data)))
+                if sse_chunks:
+                    with consumed:
+                        token = f"{self.server.server_port}:{len(progress)}"
+                        progress[token] = 0
+                    self.send_header("X-Fixture-Stream", token)
                 self.end_headers()
                 try:
-                    for chunk in sse_chunks(data) if sse_chunks else [data]:
+                    chunks = list(sse_chunks(data)) if sse_chunks else [data]
+                    sent = 0
+                    for index, chunk in enumerate(chunks):
                         self.wfile.write(chunk)
                         self.wfile.flush()
-                        if sse_chunks:
-                            threading.Event().wait(0.01)
+                        sent += len(chunk)
+                        if sse_chunks and index < len(chunks) - 1:
+                            # 中文注释：按真实 read1 消费推进分块，避免微小定时等待的调度抖动。
+                            with consumed:
+                                if not consumed.wait_for(
+                                    lambda: progress[token] >= sent, timeout=1
+                                ):
+                                    return
                     if stream:
                         threading.Event().wait(0.4)
                 except (BrokenPipeError, ConnectionResetError):
@@ -532,7 +558,8 @@ class MCPSessionPagination(unittest.TestCase):
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
-            yield {"url": "http://127.0.0.1:" + str(server.server_port) + "/mcp"}, requests
+            with patch.object(HTTPResponse, "read1", read_chunk):
+                yield {"url": "http://127.0.0.1:" + str(server.server_port) + "/mcp"}, requests
         finally:
             server.shutdown()
             server.server_close()
@@ -906,6 +933,29 @@ class MCPSessionPagination(unittest.TestCase):
                 result = mcp_tool_list(server)
                 self.assertEqual(len(result["tools"]), 2)
                 self.assertIn(urlsplit(server["url"]).port, observed)
+
+    def test_sse_fixture_keeps_distinct_reads_without_timed_chunk_delays(self):
+        from http.client import HTTPResponse
+
+        sleeps, reads = [], []
+        original_wait, original_read = threading.Event.wait, HTTPResponse.read1
+
+        def wait(event, delay=None):
+            sleeps.append(delay)
+            return original_wait(event, delay)
+
+        def read(response, *args):
+            chunk = original_read(response, *args)
+            reads.append(chunk)
+            return chunk
+
+        chunks = lambda data: [b": heartbeat\r\n\r\n", b"id: eve", b"nt-1\r\n" + data]
+        with patch.object(threading.Event, "wait", wait), patch.object(HTTPResponse, "read1", read):
+            with self.http_fixture(stream=True, sse_chunks=chunks) as (server, _):
+                result = mcp_tool_list(server, timeout=0.35)
+                self.assertEqual([tool["name"] for tool in result["tools"]], ["one", "two"])
+        self.assertNotIn(0.01, sleeps)
+        self.assertEqual(reads.count(b"id: eve"), 3)
 
     def test_sse_id_first_and_split_id_after_heartbeat_keep_stream_mode(self):
         for chunks in (

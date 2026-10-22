@@ -15,6 +15,7 @@ function executionError(error, message) {
       'browser.popup_prepare',
       'browser.read_origin',
       'browser.cleanup_status',
+      'browser.select_existing_tab',
     ].includes(message.method) ||
     [
       'browser.cdp_targets',
@@ -50,7 +51,10 @@ function executionError(error, message) {
   let code = 'execution_denied',
     text = 'Browser operation could not be completed.';
   // 中文注释：并发资源冲突只拒绝当前请求，保留是否已创建页面的派发事实。
-  if (reason === 'TASK_BUSY') {
+  if (reason === 'ATTACH_AMBIGUOUS' || reason === 'ATTACH_UNAVAILABLE') {
+    code = reason === 'ATTACH_AMBIGUOUS' ? 'attachment_ambiguous' : 'attachment_unavailable';
+    text = '已有页面没有唯一匹配或已变化；请将目标页切到前台后显式接管，不会新建或导航页面。';
+  } else if (reason === 'TASK_BUSY') {
     code = 'task_busy';
     text = '任务标签正被其他操作使用，请先核对本次结果。';
   } else if (reason === 'POPUP_STALE') {
@@ -513,14 +517,14 @@ export class BrowserConsent {
             {
               taskId: task.id,
               generation: task.generation,
-              tabIds: [],
+              tabIds: task.attachment ? [task.attachment.tabId] : [],
               allowedOrigins: task.allowedOrigins,
-              workspaceOnly: true,
+              workspaceOnly: !task.attachment,
             },
             valid,
           );
           if (!valid()) throw Error('browser consent revoked');
-          // 中文注释：完整访问仍需宿主确认当前任务代次，连接不能授权浏览器里原有的个人标签页。
+          // 中文注释：只有显式接管任务可绑定宿主从浏览器核实的原页；普通任务仍为空范围。
           const updated = await bridge.request('extension.mode', {
             taskId: task.id,
             generation: approved.generation,
@@ -996,7 +1000,13 @@ export class Bridge {
       await this.approvalBarrier;
       if (this.closed) throw Error('native disconnected');
       let result;
-      if (m.method === 'browser.popup_prepare') result = await this.executor.preparePopup(m.params);
+      if (m.method === 'browser.select_existing_tab') {
+        if ((await this.onConsentStatus()) !== 'enabled' || this.closed)
+          throw Error('ATTACH_UNAVAILABLE');
+        result = await this.executor.selectExistingTab(m.params);
+        if (this.closed) throw Error('ATTACH_UNAVAILABLE');
+      } else if (m.method === 'browser.popup_prepare')
+        result = await this.executor.preparePopup(m.params);
       else if (m.method === 'browser.status') result = await this.executor.status(m.params);
       else if (m.method === 'browser.assess') result = await this.executor.assess(m.params);
       else if (m.method === 'browser.read_origin')

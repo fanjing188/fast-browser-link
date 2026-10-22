@@ -246,8 +246,8 @@ class Initialization(unittest.TestCase):
                     {
                         "title": title,
                         "why": "fixture",
-                        "action": "general.task",
-                        "params": {"task": "one"},
+                        "action": "local.lookup",
+                        "params": {"value": "one"},
                     }
                 ],
             },
@@ -261,13 +261,15 @@ class Initialization(unittest.TestCase):
                     {
                         "title": "x" * 40,
                         "why": "fixture",
-                        "action": "general.task",
-                        "params": {"task": "two"},
+                        "action": "local.lookup",
+                        "params": {"value": "two"},
                     }
                 ],
             },
         )
-        row = next(row for row in state["suggestions"].values() if row["params"]["task"] == "two")
+        row = next(
+            row for row in state["suggestions"].values() if row["params"].get("value") == "two"
+        )
         self.assertEqual(row["title"], "x" * 31 + "…")
         self.assertIn("标题最多32字", inference_prompt({}, app.templates))
         app.templates.language = "en"

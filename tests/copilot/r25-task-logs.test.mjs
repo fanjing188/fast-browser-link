@@ -144,6 +144,89 @@ test('live updates replace folded rows, respect pause and retain terminal task a
   }
 });
 
+test('partial completion retains gaps and actual usage in logs, search and safe exports', async () => {
+  const f = fixture(async () => ({
+    revision: 1,
+    entries: [
+      entry(1, 'one', 'execute_complete', {
+        completion_status: 'partial',
+        missing: 2,
+        tokens: 2599,
+        estimated: false,
+        duration_ms: 11671,
+        result: 'PRIVATE_RESULT',
+        url: 'https://private.invalid/SECRET',
+      }),
+    ],
+  }));
+  try {
+    await f.panel.open({ id: 'one', status: 'completed', completion_status: 'partial' });
+    assert.equal(f.panel.step.textContent, '部分完成');
+    const card = f.panel.list.querySelector('article');
+    assert.equal(card.dataset.level, 'warning');
+    assert.equal(card.querySelector('strong').textContent, '部分完成');
+    assert.match(card.textContent, /缺 2 项/);
+    assert.match(card.textContent, /2599 tokens · 实际/);
+    for (const query of ['部分完成', '缺 2 项', '2599', '实际']) {
+      f.panel.search.value = query;
+      f.panel.search.oninput();
+      assert.equal(f.panel.list.querySelectorAll('article').length, 1);
+      assert.ok(f.panel.list.querySelector('mark'));
+      const exported = JSON.parse(f.panel.exportText());
+      assert.equal(exported.level, 'warning');
+      assert.match(exported.message, /部分完成.*缺 2 项.*2599 tokens · 实际/);
+      assert.doesNotMatch(f.panel.exportText(), /PRIVATE|SECRET|private\.invalid/);
+    }
+  } finally {
+    f.close();
+  }
+});
+
+test('usage projection distinguishes estimated, actual and unknown sources without exposing invalid values', async () => {
+  const f = fixture(undefined, { language: 'en' });
+  try {
+    assert.equal(
+      f.panel.description({ details: { tokens: 0, estimated: false } })[0],
+      '0 tokens · Actual',
+    );
+    assert.equal(
+      f.panel.description({ details: { tokens: 10, estimated: true } })[0],
+      '10 tokens · Estimated',
+    );
+    assert.equal(
+      f.panel.description({ details: { tokens: 10 } })[0],
+      '10 tokens · Source not recorded',
+    );
+    for (const invalid of [
+      'PRIVATE_VALUE',
+      -1,
+      1.5,
+      Infinity,
+      NaN,
+      true,
+      {},
+      Number.MAX_SAFE_INTEGER + 1,
+    ])
+      assert.deepEqual(f.panel.description({ details: { tokens: invalid, missing: invalid } }), []);
+    assert.equal(
+      f.panel.level({ event: 'execute_complete', details: { completion_status: 'completed' } }),
+      'info',
+    );
+    assert.equal(
+      f.panel.level({
+        event: 'execute_complete',
+        error: true,
+        details: { completion_status: 'partial' },
+      }),
+      'error',
+    );
+    await f.panel.open({ id: 'one', status: 'completed', completion_status: 'partial' });
+    assert.equal(f.panel.step.textContent, 'Partially completed');
+  } finally {
+    f.close();
+  }
+});
+
 test('all executions include other tasks, reset and stale load cannot resurrect cleared logs', async () => {
   let resolve;
   const f = fixture(
@@ -185,7 +268,7 @@ test('out-of-order initial read merges history without overwriting fresher folde
     resolve({ revision: 9, entries: [entry(1), entry(2)] });
     await opening;
     assert.equal(f.panel.entries.length, 2);
-    assert.match(f.panel.list.lastChild.textContent, /9 条/);
+    assert.match(f.panel.list.querySelector('[data-log-id="2"]').textContent, /9 条/);
   } finally {
     f.close();
   }
@@ -325,6 +408,101 @@ test('failure notice stays useful, reopen loads again and abandoned requests can
     f.panel.append({ error: 'event_log_write_failed' });
     assert.match(f.panel.notice.textContent, /Logs unavailable/);
     assert.doesNotMatch(f.panel.root.textContent, /PRIVATE/);
+  } finally {
+    f.close();
+  }
+});
+
+test('embedded logs load lazily, highlight safe matches, order by time and export only matching task projection', async () => {
+  const dom = new JSDOM('<div id="work-view"></div><section id="embedded"></section>'),
+    doc = dom.window.document;
+  let copied = '',
+    downloaded = '';
+  const panel = new TaskLogPanel(
+    doc,
+    async () => ({
+      revision: 1,
+      entries: [
+        {
+          ...entry(1, 'one', 'execute_failed', { step_name: '读取失败', argv: ['PRIVATE_ARGV'] }),
+          time: 20,
+        },
+        { ...entry(2, 'one', 'execute_start', { step_name: '读取页面' }), time: 10 },
+        entry(3, 'two', 'execute_failed'),
+      ],
+    }),
+    {
+      container: doc.getElementById('embedded'),
+      clipboard: {
+        writeText: async (value) => {
+          copied = value;
+        },
+      },
+      download: async (value) => {
+        downloaded = value;
+      },
+    },
+  );
+  try {
+    assert.equal(panel.active, false);
+    await panel.open({ id: 'one', status: 'completed' });
+    assert.equal(!!doc.getElementById('work-view').inert, false);
+    assert.deepEqual(
+      [...panel.list.querySelectorAll('article')].map((node) => node.dataset.logId),
+      ['2', '1'],
+    );
+    assert.equal(
+      panel.list.querySelector('[data-level=error] .task-log-level').textContent,
+      '错误',
+    );
+    panel.search.value = '失败';
+    panel.search.dispatchEvent(new dom.window.Event('input'));
+    assert.equal(panel.list.querySelectorAll('article').length, 1);
+    assert.ok(panel.list.querySelector('mark'));
+    await [...panel.root.querySelectorAll('button')]
+      .find((button) => button.textContent === '复制日志')
+      .onclick();
+    await [...panel.root.querySelectorAll('button')]
+      .find((button) => button.textContent === '下载日志')
+      .onclick();
+    assert.equal(copied, downloaded);
+    assert.equal(JSON.parse(copied).id, 1);
+    assert.doesNotMatch(copied, /PRIVATE|argv|task_id/);
+    panel.search.value = '<img onerror=alert(1)>';
+    panel.search.dispatchEvent(new dom.window.Event('input'));
+    assert.match(panel.list.textContent, /没有匹配/);
+    assert.equal(panel.list.querySelector('img'), null);
+  } finally {
+    panel.dispose();
+    dom.window.close();
+  }
+});
+
+test('log loading, empty and failed states offer an explicit retry without discarding task scope', async () => {
+  let resolve,
+    fail = true;
+  const f = fixture(
+    () =>
+      new Promise((done, reject) => {
+        resolve = () => (fail ? reject(Error('PRIVATE')) : done({ revision: 2, entries: [] }));
+      }),
+  );
+  try {
+    const first = f.panel.open({ id: 'one', status: 'completed' });
+    assert.equal(f.panel.root.getAttribute('aria-busy'), 'true');
+    assert.match(f.panel.list.textContent, /正在读取/);
+    resolve();
+    await first;
+    assert.equal(f.panel.root.getAttribute('aria-busy'), 'false');
+    assert.equal(f.panel.retry.hidden, false);
+    assert.doesNotMatch(f.panel.root.textContent, /PRIVATE/);
+    fail = false;
+    const retry = f.panel.retry.onclick();
+    resolve();
+    await retry;
+    assert.equal(f.panel.retry.hidden, true);
+    assert.match(f.panel.list.textContent, /暂无执行日志/);
+    assert.equal(f.panel.taskId, 'one');
   } finally {
     f.close();
   }

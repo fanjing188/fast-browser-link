@@ -33,6 +33,28 @@ function fixture(html) {
     },
   };
 }
+test('ARIA 多角色表格按首个有效角色解析，包装和嵌套表格不混列', () => {
+  const f = fixture(
+    '<div role="future grid generic"><div role="future row generic"><div><span role="future columnheader generic">名称</span><span role="columnheader generic">数量</span></div></div><div role="row generic"><div role="gridcell generic">苹果</div><div role="gridcell generic">2<div role="grid generic"><div role="row generic"><span role="gridcell generic">嵌套</span></div></div></div></div></div><div role="generic grid"><div role="generic row"><span role="generic gridcell">不是表格</span></div></div>',
+  );
+  try {
+    const snapshot = f.semantics.snapshot({ mode: 'table', budget: 6000 });
+    assert.equal(snapshot.items.length, 3);
+    assert.deepEqual(snapshot.items[0].cells, ['名称', '数量']);
+    assert.equal(snapshot.items[1].cells.length, 2);
+    const parsed = f.parser.parse({ sections: ['tables'], budget: 6000 });
+    assert.equal(parsed.tables.length, 3);
+    assert.deepEqual(
+      parsed.tables[0].cells.map((cell) => cell.headerRole),
+      ['column', 'column'],
+    );
+    assert.equal(parsed.tables[1].cells[0].headerRefs[0], parsed.tables[0].cells[0].sourceRef);
+    assert.equal(parsed.tables[1].cells.length, 2);
+  } finally {
+    f.close();
+  }
+});
+
 test('large hidden subtrees do not exhaust snapshot or parser scans before visible content', () => {
   const f = fixture(
     '<div hidden>' +

@@ -130,6 +130,80 @@ CHROME = {
 
 
 class OpenToolTests(unittest.TestCase):
+    def test_attach_current_page_with_real_vault_coordinator(self):
+        from vault_adapter.integration import VaultBindingRegistry
+
+        self.make([EDGE])
+        revoked = []
+        port = type("Port", (), {"revoke_binding": lambda _, *args: revoked.append(args)})()
+        vault = VaultBindingRegistry(self.runtime, port)
+        self.bridge.bridges += (vault,)
+        original = self.runtime.call
+
+        def call(method, params):
+            if method == "shared.create" and "existingTab" in params:
+                original(method, {**params, "allowedOrigins": ["https://shop.example"]})
+                task = self.runtime.tasks["task-1"]
+                task.update(
+                    tabIds=[17],
+                    attachedTabIds=[17],
+                    workTabs=[],
+                    generation=3,
+                    modeGeneration=2,
+                    activeMode="full",
+                )
+                self.runtime.tabs[task["id"]] = [
+                    {"id": 17, "url": "https://shop.example/draft", "title": "草稿"}
+                ]
+                return dict(task)
+            return original(method, params)
+
+        self.runtime.call = call
+        result = self.open({"existing_tab": True, "summary": False})
+        self.assertTrue(result.get("attached"), result)
+        self.assertEqual(result["tab_id"], 17)
+        self.assertEqual(vault.resolve_vault_binding("session-a")["tab_id"], 17)
+        task = self.runtime.tasks[result["task_id"]]
+        self.assertEqual(task["workTabs"], [])
+        self.assertNotIn("agentTabIds", task)
+        self.assertFalse(
+            any(
+                method == "shared.run" and params["action"] in {"new_tab", "navigate"}
+                for method, params in self.runtime.calls
+            )
+        )
+        task["tabIds"] = []
+        self.assertIsNone(vault.resolve_vault_binding("session-a"))
+        self.assertTrue(vault.claims("session-a"))
+
+    def test_attach_current_page_binds_without_opening_or_navigating(self):
+        self.make([EDGE])
+        original = self.runtime.call
+
+        def call(method, params):
+            if method == "shared.create" and "existingTab" in params:
+                self.assertEqual(params["existingTab"], {})
+                task = original(method, {**params, "allowedOrigins": ["https://shop.example"]})
+                self.runtime.tasks[task["id"]]["attachedTabIds"] = [17]
+                self.runtime.tabs[task["id"]] = [
+                    {"id": 17, "url": "https://shop.example/draft", "title": "草稿"}
+                ]
+                return {**task, "attachedTabIds": [17]}
+            return original(method, params)
+
+        self.runtime.call = call
+        result = self.open({"existing_tab": True, "summary": False})
+        self.assertEqual(result["tab_id"], 17)
+        self.assertTrue(result["attached"])
+        self.assertEqual(result["url"], "https://shop.example/draft")
+        self.assertEqual(self.bridge._bindings["session-a"][1], result["task_id"])
+        self.assertFalse(
+            any(
+                method == "shared.run" and params["action"] in {"new_tab", "navigate"}
+                for method, params in self.runtime.calls
+            )
+        )
+
     def test_summary_refusal_keeps_fixed_cause_without_reopening_or_prompting_for_consent(self):
         self.make([EDGE])
         original = self.runtime.call

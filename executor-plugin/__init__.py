@@ -65,7 +65,7 @@ _PROMPT = (
 )
 
 
-def _register_guidance(ctx, *, vault_enabled=False) -> None:
+def _register_guidance(ctx, *, vault_enabled=False, vault_list_tool="browser_vault_list") -> None:
     """Skills plus a two-sentence pointer; plugin skills are not listed in the
     prompt by Hermes, so the pointer is how the model finds them."""
     register_skill = getattr(ctx, "register_skill", None)
@@ -77,7 +77,13 @@ def _register_guidance(ctx, *, vault_enabled=False) -> None:
     register_section = getattr(ctx, "register_system_prompt_section", None)
     if callable(register_section):
         # 中文注释：只有官方 Vault 工具真实启用后才提示模型使用私有填写路径。
-        prompt = _PROMPT.replace(_SENSITIVE_DEFAULT, _SENSITIVE_VAULT) if vault_enabled else _PROMPT
+        prompt = (
+            _PROMPT.replace(
+                _SENSITIVE_DEFAULT, _SENSITIVE_VAULT.replace("browser_vault_list", vault_list_tool)
+            )
+            if vault_enabled
+            else _PROMPT
+        )
         register_section("fast-browser-link.guide", prompt)
 
 
@@ -100,6 +106,24 @@ def register(ctx) -> None:
     native = _load_native_tools()
     native_runtime = native.runtime_module()
     profile = native_runtime.get_native_profile_runtime(home, _PLUGIN_ROOT)
+    try:
+        _register_runtime(ctx, home, native, native_runtime, profile)
+    except BaseException:
+        # 中文注释：SDK 负责回滚已注册工具；尚未交给卸载钩子的运行时由此处释放。
+        native_runtime.release_native_profile_runtime(home, profile)
+        raise
+
+
+def _register_runtime(ctx, home, native, native_runtime, profile):
+    vault_bindings = None
+
+    def cleanup_runtime():
+        # 中文注释：卸载时先撤销私有 nonce，再关闭通道；异常也不能遗留运行时。
+        try:
+            if vault_bindings is not None:
+                vault_bindings.close()
+        finally:
+            native_runtime.release_native_profile_runtime(home, profile)
 
     host_bridge_module = native_runtime.load_module(
         _PLUGIN_ROOT / "script_lane" / "host_bridge.py", "hermes_browser_script_host_bridge_"
@@ -137,6 +161,7 @@ def register(ctx) -> None:
     )
     bridges = [script_bridge]
     vault_enabled = False
+    vault_list_tool = "browser_vault_list"
     if ctx.has_capability("tools.override"):
         single_bridge, overridden = integration.register_official_overrides(
             ctx,
@@ -187,6 +212,8 @@ def register(ctx) -> None:
             )
             bridges.append(vault_bindings)
             vault_enabled = True
+            if "browser_vault" in names:
+                vault_list_tool = "browser_vault action=list"
             logger.info(
                 "fast-browser-link: official Vault tools routed for bound sessions: %s",
                 ", ".join(names),
@@ -202,11 +229,11 @@ def register(ctx) -> None:
         _PLUGIN_ROOT / "reference.py", "hermes_browser_reference_"
     )
     reference.register(ctx, profile, home, lease_error=native_runtime.OwnerLeaseError)
-    _register_guidance(ctx, vault_enabled=vault_enabled)
+    _register_guidance(ctx, vault_enabled=vault_enabled, vault_list_tool=vault_list_tool)
     native.register_native_context(
         ctx,
         profile,
-        cleanup=lambda: native_runtime.release_native_profile_runtime(home, profile),
+        cleanup=cleanup_runtime,
         host_bridge=host_bridge,
     )
 

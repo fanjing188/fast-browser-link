@@ -594,10 +594,10 @@ class GateNegativeControls(unittest.TestCase):
     def test_baseline_and_supplemental_step_counts_are_separate(self):
         # 中文注释：逐文件运行全部已审阅 Node 清单；唯一名称及固定命令形态防止合并或漏跑。
         steps = gate.matrix(Path("/scratch/source"), "/scratch/python")
-        self.assertEqual(len(steps), 181)
+        self.assertEqual(len(steps), 193)
         node_steps = [(name, command) for name, command, kind in steps if kind == "tap"]
-        self.assertEqual(len(node_steps), 105)
-        self.assertEqual(len({name for name, _command in node_steps}), 105)
+        self.assertEqual(len(node_steps), 108)
+        self.assertEqual(len({name for name, _command in node_steps}), 108)
         self.assertEqual([command[-1] for _name, command in node_steps], list(gate.NODE_TESTS))
         self.assertTrue(all(len(command) == 5 for _name, command in node_steps))
         self.assertEqual(

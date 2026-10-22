@@ -161,6 +161,131 @@ class PluginLifecycle(unittest.TestCase):
         self.assertEqual(sentinel.read_text(), "user")
 
 
+class PluginHealth(unittest.TestCase):
+    setUpClass = fixtures.R15.__dict__["setUpClass"]
+    tearDownClass = fixtures.R15.__dict__["tearDownClass"]
+    setUp = fixtures.R15.setUp
+    tearDown = fixtures.R15.tearDown
+    install = fixtures.R15.install
+
+    def plugin(self):
+        self.install()
+        source = self.user / "health-source"
+        source.mkdir()
+        marker = self.user / "must-not-run"
+        (source / "check.py").write_text(
+            "from pathlib import Path; Path(" + repr(str(marker)) + ").touch()"
+        )
+        (source / "package.json").write_text(
+            json.dumps(
+                {
+                    "id": "health-fixture",
+                    "version": 1,
+                    "capabilities": {
+                        "keyword.expand": [
+                            {
+                                "id": "health-local",
+                                "type": "command",
+                                "argv": [sys.executable, "./check.py"],
+                            }
+                        ]
+                    },
+                }
+            )
+        )
+        target = Path(install_pack(self.ctx, str(source))["path"])
+        return target, marker
+
+    def health(self, **kwargs):
+        return next(
+            row
+            for row in pack_state(self.ctx, **kwargs)["plugins"]
+            if row["id"] == "health-fixture"
+        )
+
+    def test_local_health_never_executes_plugin_and_detects_missing_dependency_early(self):
+        target, marker = self.plugin()
+        with patch(
+            "subprocess.run", side_effect=AssertionError("health must not execute commands")
+        ):
+            row = self.health()
+        self.assertEqual(row["health"]["status"], "ready")
+        self.assertEqual(row["health"]["scope"], "local_readonly")
+        self.assertFalse(row["health"]["execution_verified"])
+        self.assertFalse(marker.exists())
+        (target / "check.py").unlink()
+        row = self.health()
+        self.assertEqual(row["health"]["status"], "error")
+        self.assertIn("missing_script", [check["reason"] for check in row["health"]["checks"]])
+
+    def test_another_provider_cannot_mask_this_plugins_broken_binding(self):
+        self.plugin()
+        row = self.health(
+            capabilities={
+                "keyword.expand": {
+                    "status": "available",
+                    "bindings": [
+                        {"id": "another-provider", "status": "available"},
+                        {"id": "health-local", "status": "missing_command"},
+                    ],
+                }
+            }
+        )
+        self.assertEqual(row["health"]["status"], "error")
+        self.assertEqual(row["needs_setup"], ["keyword.expand"])
+
+    def test_invalid_nested_declaration_and_rejected_registration_are_not_loaded(self):
+        target, _ = self.plugin()
+        row = self.health(loaded_packages=Packages([], include_builtin=False))
+        self.assertFalse(row["loaded"])
+        self.assertEqual(row["health"]["reason"], "package_not_loaded")
+        value = json.loads((target / "package.json").read_text())
+        value["templates"] = {"general.task": "broken.json"}
+        (target / "broken.json").write_text("{}")
+        (target / "package.json").write_text(json.dumps(value))
+        self.assertIn(
+            "invalid_template", [check["reason"] for check in self.health()["health"]["checks"]]
+        )
+        value.pop("templates")
+        value["files"] = ["missing-data.json"]
+        (target / "package.json").write_text(json.dumps(value))
+        self.assertEqual(self.health()["health"]["status"], "error")
+        value.pop("files")
+        value["flows"] = {"bad": {"name": "bad", "steps": []}}
+        (target / "package.json").write_text(json.dumps(value))
+        row = self.health()
+        self.assertFalse(row["loaded"])
+        self.assertEqual(row["health"]["status"], "error")
+
+    def test_expired_metadata_is_distinct_and_readonly_check_works_while_assist_enabled(self):
+        from types import SimpleNamespace
+
+        target, marker = self.plugin()
+        capabilities = {
+            "keyword.expand": {
+                "status": "missing",
+                "bindings": [{"id": "health-local", "status": "needs_metadata_refresh"}],
+            }
+        }
+        self.assertEqual(self.health(capabilities=capabilities)["health"]["status"], "needs_update")
+        app = SimpleNamespace(
+            active="fixture",
+            states={"fixture": {"enabled": True}},
+            registry=SimpleNamespace(inspect=lambda _: capabilities, jobs={}),
+            packages=Packages([target], include_builtin=False),
+            tool_health_running=False,
+            _tool_context=lambda _: {},
+        )
+        before = (self.ctx.copilot / "config.json").read_bytes()
+        with patch.object(fbl_panel, "context", return_value=self.ctx):
+            result = fbl_panel.request(app, "fbl_pack_check", {"name": "health-fixture"})
+            self.assertTrue(result["busy"])
+            with self.assertRaisesRegex(ValueError, "not installed"):
+                fbl_panel.request(app, "fbl_pack_check", {"name": "missing"})
+        self.assertEqual((self.ctx.copilot / "config.json").read_bytes(), before)
+        self.assertFalse(marker.exists())
+
+
 class URLPlanner(unittest.TestCase):
     def test_health_rechecks_technical_page_failure_but_preserves_quota_stop(self):
         with tempfile.TemporaryDirectory() as temp:

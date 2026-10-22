@@ -45,7 +45,7 @@ function overlay() {
     },
   };
 }
-test('R20b first inference with zero suggestions survives notification handling and state readback', async () => {
+test('R20b empty model inference preserves host configuration cards and state readback', async () => {
   const messages = python('--inference-fixture'),
     pending = [],
     errors = [],
@@ -95,7 +95,28 @@ test('R20b first inference with zero suggestions survives notification handling 
     await Promise.all(pending);
     assert.deepEqual(errors, []);
     assert.equal(copilot.enabled, true);
-    assert.equal(copilot.rows.size, 0);
+    assert.equal(copilot.rows.size, 6);
+    const rows = [...copilot.rows.values()];
+    assert.ok(rows.every((row) => row.capture_required === true && row.status === 'pending'));
+    assert.deepEqual(
+      rows
+        .filter((row) => row.action === 'native.tool')
+        .map((row) => row.params.tool)
+        .sort(),
+      ['annotate', 'collect', 'tables'],
+    );
+    assert.deepEqual(
+      rows
+        .filter((row) => row.standard_task === true)
+        .map((row) => row.params.task)
+        .sort(),
+      ['page.extract', 'page.question', 'page.summary'],
+    );
+    assert.ok(
+      rows
+        .filter((row) => row.standard_task === true)
+        .every((row) => row.params.materials.length === 0),
+    );
     assert.equal(bridge.closed, false);
     assert.ok(
       broadcasts.some(

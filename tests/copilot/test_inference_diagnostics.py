@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "native-bridge"))
-from copilot import Copilot, private_write
+from copilot import Copilot, private_write, suggestion_id
 from copilot_setup import setup
 from copilot_acp import ACP, ACPError, ACPDisconnected, ACPTimeout
 from copilot_diagnostics import ModelOutputInvalid, StderrLog, failure, redact
@@ -128,12 +128,13 @@ class DiagnosticsTests(unittest.TestCase):
 
     def test_oversized_extra_fields_and_missing_ids_are_normalized_without_error(self):
         self.start()
+        self.app.config["auto_zero"] = False
         rows = [
             {
                 "title": "标题" * 30,
                 "why": "理由" * 30,
-                "action": "general.task",
-                "params": {"task": str(i), "unknown": "drop"},
+                "action": "local.lookup",
+                "params": {"value": str(i), "unknown": "drop"},
                 "unknown": "drop",
             }
             for i in range(10)
@@ -141,7 +142,13 @@ class DiagnosticsTests(unittest.TestCase):
         self.app._replace("fixture", {"scene": "general", "suggestions": rows, "extra": "drop"})
         result = self.app.view("fixture")["suggestions"]
         self.assertEqual(len(result), 10)
-        for row in result:
+        expected = {suggestion_id("local.lookup", {"value": str(i)}) for i in range(10)}
+        business = {row["id"]: row for row in result if row["id"] in expected}
+        self.assertIn(suggestion_id("local.lookup", {"value": "0"}), business)
+        self.assertTrue(
+            all(row.get("capture_required") for row in result if row["id"] not in expected)
+        )
+        for row in business.values():
             self.assertEqual(len(row["title"]), 32)
             self.assertEqual(len(row["why"]), 30)
             self.assertTrue(row["title"].endswith("…"))
@@ -165,8 +172,8 @@ class DiagnosticsTests(unittest.TestCase):
                     {
                         "title": "existing",
                         "why": "keep",
-                        "action": "general.task",
-                        "params": {"task": "sample"},
+                        "action": "local.lookup",
+                        "params": {"value": "sample"},
                     }
                 ],
             },
@@ -290,8 +297,11 @@ class DiagnosticsTests(unittest.TestCase):
         wait(
             lambda: self.app._state("fixture")["inference_restarts"] == 1
             and self.app.view("fixture")["ready"]
-            and self.logs("inference_return")
-            and self.app.view("fixture")["suggestions"]
+            and any("added" in row["details"] for row in self.logs("inference_return"))
+            and any(
+                row["action"] == "seo.keyword_check"
+                for row in self.app.view("fixture")["suggestions"]
+            )
         )
         failed = self.logs("inference_failed")
         self.assertEqual(len(failed), 1)

@@ -37,6 +37,62 @@ function setup(options = {}) {
 }
 const token = (page, item) => ({ ...page.binding, snapshotId: page.snapshotId, ref: item.ref });
 
+test('旧记录引用不能接替到另一记录或被复用成另一业务对象的节点', () => {
+  for (const change of ['remove', 'recycle', 'replace-same']) {
+    const f = setup();
+    try {
+      f.document.body.innerHTML =
+        '<article><h2>订单 A</h2><button>删除</button></article><article><h2>订单 B</h2><button>删除</button></article>';
+      const page = f.semantics.snapshot(),
+        old = token(page, page.items[0]);
+      const article = f.document.querySelector('article');
+      if (change === 'remove') article.remove();
+      if (change === 'recycle') article.querySelector('h2').textContent = '订单 C';
+      if (change === 'replace-same')
+        article.querySelector('button').outerHTML = '<button>删除</button>';
+      if (change === 'replace-same')
+        assert.equal(f.semantics.resolve(old), article.querySelector('button'));
+      else assert.throws(() => f.semantics.resolve(old), /REF_TARGET_MISSING|STALE_REF/);
+    } finally {
+      f.close();
+    }
+  }
+});
+
+test('业务身份变化不能被完整描述快速路径绕过，包括深包装和长标题相同前缀', () => {
+  for (const change of ['deep-id', 'long-heading', 'capped-heading']) {
+    const f = setup();
+    try {
+      const prefix = '相同前缀'.repeat(change === 'capped-heading' ? 5000 : 200);
+      f.document.body.innerHTML = `<article id="order-a"><h2>${prefix}订单 A</h2>${'<div>'.repeat(5)}<button>删除</button>${'</div>'.repeat(5)}</article>`;
+      const page = f.semantics.snapshot(),
+        old = token(page, page.items[0]);
+      if (change === 'deep-id') f.document.querySelector('article').id = 'order-b';
+      else f.document.querySelector('h2').textContent = prefix + '订单 B';
+      assert.throws(() => f.semantics.resolve(old), /REF_TARGET_MISSING|STALE_REF/);
+    } finally {
+      f.close();
+    }
+  }
+});
+
+test('动态续页保留不同业务记录中的同名控件', () => {
+  const f = setup({ maxItems: 1 });
+  try {
+    f.document.body.innerHTML =
+      '<article><h2>订单 A</h2><button>删除</button></article><article><h2>订单 B</h2><button>删除</button></article>';
+    const first = f.semantics.snapshot();
+    assert.ok(first.nextCursor);
+    f.document.body.setAttribute('data-progress', '1');
+    const next = f.semantics.snapshot({ cursor: first.nextCursor });
+    assert.equal(next.items.length, 1);
+    assert.equal(next.items[0].context.at(-1).name, '订单 B');
+    assert.notEqual(next.items[0].ref, first.items[0].ref);
+  } finally {
+    f.close();
+  }
+});
+
 // 中文注释：旧引用的唯一性只在原文档及原 Shadow 树内成立，不能接替到其他作用域。
 test('引用重定位隔离两个同源 iframe，保留原 frame 内唯一替换并拒绝歧义', () => {
   const f = setup();

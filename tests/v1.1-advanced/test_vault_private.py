@@ -2,12 +2,14 @@
 
 import json
 import hashlib
+import types
 from pathlib import Path
 import sys
 import tempfile
 import threading
 import time
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "native-bridge"))
@@ -17,6 +19,10 @@ from vault_client import call  # noqa: E402
 from vault_private import VaultPrivateService  # noqa: E402
 from vault_adapter.adapter import VaultAdapter  # noqa: E402
 from vault_adapter.integration import NativeVaultPrivatePort  # noqa: E402
+from vault_adapter.integration import create_vault_integration, register_vault_overrides  # noqa: E402
+from single_tool_adapter.integration import HostBindingCoordinator  # noqa: E402
+from native_runtime import NativeOwnerAuthority, OwnerLeaseError, OWNER_LEASE_ARG  # noqa: E402
+import open_tool  # noqa: E402
 from tests.support import temporary_bridge_home  # noqa: E402
 from client import socket_address  # noqa: E402
 
@@ -243,6 +249,21 @@ class VaultPrivateTests(unittest.TestCase):
         )
         self.assertNotIn("SyntheticSecret!", json.dumps(self.daemon.calls))
 
+    def test_unified_adapter_uses_the_real_private_socket(self):
+        result = json.loads(
+            self.adapter().invoke(
+                "browser_vault", {"action": "fill", "handle": "login"}, session_id="session"
+            )
+        )
+        self.assertTrue(result["success"], result)
+        self.assertEqual(result["filled_fields"], 1)
+        self.assertEqual(
+            [name for name, _ in self.daemon.calls], ["browser.vault_inspect", "browser.vault_fill"]
+        )
+        self.assertNotIn(
+            "SyntheticSecret!", json.dumps([result, self.daemon.calls, self.daemon.tasks])
+        )
+
     def test_write_transport_failure_is_unknown_scrubbed_and_never_replayed(self):
         # 中文注释：扩展已收到秘密但回执超时或断线时，公开工具只返回未知，私有 nonce 已消耗。
         original = self.daemon._extension_call
@@ -314,6 +335,253 @@ class VaultPrivateTests(unittest.TestCase):
                     [method for method, _ in self.daemon.calls if method == "browser.vault_fill"],
                     [],
                 )
+
+
+class VaultAttachedPrivateTests(unittest.TestCase):
+    def setUp(self):
+        # 中文注释：真实私有准入与一次性 nonce；只替换扩展和持久化，不启动 socket/浏览器。
+        directory = self.enterContext(tempfile.TemporaryDirectory())
+        self.daemon = FakeDaemon(Path(directory))
+        self.service = VaultPrivateService(self.daemon)
+        self.scope = {
+            "sessionId": "session",
+            "owner": "owner",
+            "taskId": "task",
+            "instanceId": "browser",
+            "generation": 3,
+            "modeGeneration": 2,
+            "tabId": 7,
+            "allowedOrigins": ["https://example.test"],
+        }
+
+    def test_private_scope_requires_live_tab_ids_when_present(self):
+        task = self.daemon.tasks["task"]
+        for kind in ("agentTabIds", "adoptedPopupTabIds", "attachedTabIds"):
+            with self.subTest(kind=kind):
+                task.update(agentTabIds=[], adoptedPopupTabIds=[], attachedTabIds=[], tabIds=[])
+                task[kind] = [7]
+                with self.assertRaisesRegex(ValueError, "Vault task changed"):
+                    self.service._dispatch("inspect", {"scope": self.scope})
+        self.assertEqual(self.daemon.calls, [])
+
+    def test_open_coordinator_vault_private_chain_and_expired_authority_never_fallback(self):
+        daemon, service = self.daemon, self.service
+        task = daemon.tasks["task"]
+        task.update(agentTabIds=[], workTabs=[], attachedTabIds=[7], tabIds=[7])
+        authority = NativeOwnerAuthority(self.daemon.home / "synthetic-authority")
+        public_calls, resolved, official_calls = [], [], []
+
+        class Profile:
+            def call(self, method, params):
+                public_calls.append((method, params))
+                if method == "browser.list":
+                    return [
+                        {
+                            "instanceId": "browser",
+                            "connected": "browser" in daemon.extensions,
+                            "consentStatus": "enabled",
+                        }
+                    ]
+                if method == "shared.create":
+                    self_test.assertEqual(params["existingTab"], {})
+                    task["owner"] = params["owner"]
+                    return dict(task)
+                if method == "shared.get":
+                    return dict(task)
+                if method == "shared.run" and params["action"] == "tabs":
+                    return [{"id": 7, "url": "https://example.test/login"}]
+                raise AssertionError("unexpected public RPC")
+
+            def vault_private_call(self, operation, params):
+                return service._dispatch(operation, params)
+
+        self_test = self
+        profile = Profile()
+        profile.authority = authority
+        source = types.SimpleNamespace(
+            get_meta=lambda _: {"kind": "login", "origin": "https://example.test"},
+            resolve=lambda *_: resolved.append(threading.get_ident())
+            or {"password": "SyntheticSecret!"},
+            register_secret=lambda _: None,
+        )
+        registry, adapter = create_vault_integration(profile, source=source)
+        coordinator = HostBindingCoordinator(registry)
+        authority.lease_tools((open_tool.TOOL_NAME,))
+        opening = open_tool.make_handler(profile, coordinator, lease_error=OwnerLeaseError)
+        args = {"existing_tab": True, "summary": False}
+        lease = authority.pre_tool_call(
+            open_tool.TOOL_NAME, args, session_id="session", tool_call_id="open"
+        )["args"]
+        opened = json.loads(opening({**args, **lease}, session_id="session"))
+        self.assertTrue(opened.get("attached"), opened)
+        self.assertEqual(opened["tab_id"], 7)
+
+        tools, cleanups = {}, []
+        context = types.SimpleNamespace(
+            has_capability=lambda _: True,
+            on_unload=cleanups.append,
+            register_tool=lambda **kwargs: tools.update({kwargs["name"]: kwargs}),
+        )
+        entry = types.SimpleNamespace(
+            is_async=False,
+            handler=lambda *_args, **_kwargs: official_calls.append(True),
+            toolset="browser",
+            schema={"parameters": {"type": "object", "properties": {}}},
+            check_fn=None,
+            requires_env=[],
+            description="synthetic official",
+            emoji="",
+        )
+        modules = {
+            name: types.ModuleType(name)
+            for name in (
+                "tools",
+                "tools.registry",
+                "tools.browser_vault_tool",
+            )
+        }
+        modules["tools.registry"].registry = types.SimpleNamespace(
+            get_entry=lambda name: entry if name == "browser_vault" else None
+        )
+        with patch.dict(sys.modules, modules):
+            register_vault_overrides(
+                context,
+                profile,
+                registry,
+                adapter,
+                lease_arg=OWNER_LEASE_ARG,
+                lease_error=OwnerLeaseError,
+            )
+        handler = tools["browser_vault"]["handler"]
+        args = {"action": "fill", "handle": "login"}
+
+        def invoke(call_id, *, session="session", lease=True):
+            values = dict(args)
+            if lease:
+                values.update(
+                    authority.pre_tool_call(
+                        "browser_vault",
+                        args,
+                        session_id=session,
+                        tool_call_id=call_id,
+                    )["args"]
+                )
+            return values, json.loads(handler(values, session_id=session))
+
+        values, filled = invoke("fill")
+        self.assertTrue(filled["success"], filled)
+        self.assertEqual(resolved, [threading.get_ident()])
+        self.assertEqual(
+            json.loads(handler(values, session_id="session"))["error_type"], "binding_denied"
+        )
+        self.assertEqual(invoke("missing", lease=False)[1]["error_type"], "binding_denied")
+        wrong_session = authority.pre_tool_call(
+            "browser_vault", args, session_id="other", tool_call_id="other"
+        )["args"]
+        self.assertEqual(
+            json.loads(handler({**args, **wrong_session}, session_id="session"))["error_type"],
+            "binding_denied",
+        )
+        for name, change in (
+            ("generation", lambda: task.update(generation=4)),
+            ("script", lambda: task.update(scriptedTabs=[7])),
+            ("lease", lambda: daemon.tab_leases.clear()),
+            ("tabIds", lambda: task.update(tabIds=[])),
+            ("attachment", lambda: task.update(attachedTabIds=[])),
+            ("disconnected", lambda: daemon.extensions.clear()),
+            ("revoked", lambda: task.update(state="cancelled")),
+        ):
+            with self.subTest(name=name):
+                task.update(
+                    generation=3, scriptedTabs=[], tabIds=[7], attachedTabIds=[7], state="ready"
+                )
+                daemon.tab_leases[("browser", 7)] = "task"
+                daemon.extensions["browser"] = {"instanceId": "browser"}
+                change()
+                result = invoke(name)[1]
+                self.assertFalse(result["success"], result)
+        self.assertEqual(official_calls, [])
+        self.assertEqual(resolved, [threading.get_ident()])
+        self.assertEqual(task["agentTabIds"], [])
+        self.assertEqual(task["workTabs"], [])
+        self.assertEqual(
+            [name for name, _ in daemon.calls], ["browser.vault_inspect", "browser.vault_fill"]
+        )
+        self.assertNotIn(
+            "SyntheticSecret!", json.dumps([opened, filled, public_calls, daemon.calls])
+        )
+
+    def test_attached_private_inspection_cannot_outlive_scope_or_lease(self):
+        task = self.daemon.tasks["task"]
+        for name, change in (
+            ("lease", lambda: self.daemon.tab_leases.clear()),
+            ("foreign_lease", lambda: self.daemon.tab_leases.update({("browser", 7): "other"})),
+            ("generation", lambda: task.update(generation=4)),
+            ("mode", lambda: task.update(modeGeneration=3)),
+            ("owner", lambda: task.update(owner="other")),
+            ("tabIds", lambda: task.update(tabIds=[])),
+            ("attachment", lambda: task.update(attachedTabIds=[])),
+            ("script", lambda: task.update(scriptedTabs=[7])),
+            ("connection", lambda: self.daemon.extensions.clear()),
+            ("revoked", lambda: task.update(state="cancelled")),
+        ):
+            with self.subTest(name=name):
+                task.update(
+                    agentTabIds=[],
+                    tabIds=[7],
+                    attachedTabIds=[7],
+                    state="ready",
+                    generation=3,
+                    modeGeneration=2,
+                    owner="owner",
+                    scriptedTabs=[],
+                )
+                self.daemon.tab_leases[("browser", 7)] = "task"
+                self.daemon.extensions["browser"] = {"instanceId": "browser"}
+                inspected = self.service._dispatch("inspect", {"scope": self.scope})
+                before = len(self.daemon.calls)
+                change()
+                with self.assertRaises(ValueError):
+                    self.service._dispatch(
+                        "fill",
+                        {
+                            "scope": self.scope,
+                            "nonce": inspected["nonce"],
+                            "documentGeneration": 4,
+                            "expectedOrigin": "https://example.test",
+                            "kind": "login",
+                            "fills": [
+                                {
+                                    "index": 0,
+                                    "token": "current-password",
+                                    "value": "SyntheticSecret!",
+                                }
+                            ],
+                        },
+                    )
+                self.assertEqual(len(self.daemon.calls), before)
+                self.assertNotIn("credentialTabs", task)
+
+    def test_attached_page_private_fill_uses_live_lease_and_single_use_nonce(self):
+        task = self.daemon.tasks["task"]
+        task.update(agentTabIds=[], attachedTabIds=[7], tabIds=[7])
+        inspected = self.service._dispatch("inspect", {"scope": self.scope})
+        self.assertEqual(inspected["origin"], "https://example.test")
+        fill = {
+            "scope": self.scope,
+            "nonce": inspected["nonce"],
+            "documentGeneration": 4,
+            "expectedOrigin": "https://example.test",
+            "kind": "login",
+            "fills": [{"index": 0, "token": "current-password", "value": "SyntheticSecret!"}],
+        }
+        replay = {**fill, "fills": [dict(row) for row in fill["fills"]]}
+        self.assertEqual(self.service._dispatch("fill", fill), {"filled": 1})
+        with self.assertRaisesRegex(ValueError, "inspection expired"):
+            self.service._dispatch("fill", replay)
+        self.assertEqual(task["agentTabIds"], [])
+        self.assertEqual(task["credentialTabs"], [7])
+        self.assertNotIn("SyntheticSecret!", json.dumps([task, self.daemon.calls]))
 
 
 if __name__ == "__main__":

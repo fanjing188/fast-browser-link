@@ -90,6 +90,27 @@ function installedCaller(f) {
   };
 }
 
+test('结构解析器按需装入隔离库，普通读取不承担解析器传输，续读复用同一解析实例', async () => {
+  const f = setup();
+  try {
+    f.document.body.innerHTML = '<main><p>结构化正文</p></main>';
+    const api = installedCaller(f);
+    await api.call('semantic_snapshot', { binding: f.binding, options: { mode: 'content' } });
+    assert.ok(Buffer.byteLength(api.commands[0].functionDeclaration) < 65000);
+    const parsed = await api.call('page.parse', {
+      binding: f.binding,
+      options: { sections: ['blocks'] },
+    });
+    assert.equal(parsed.blocks[0].text, '结构化正文');
+    const count = api.commands.length;
+    await api.call('page.parse', { binding: f.binding, options: { sections: ['blocks'] } });
+    assert.equal(api.commands.length, count + 1);
+    assert.ok(Buffer.byteLength(api.commands.at(-1).functionDeclaration) < 1000);
+  } finally {
+    f.close();
+  }
+});
+
 // 中文注释：只模拟浏览器传输和指针派发，计划、等待、选项检查及回读均通过真实 Executor 执行。
 async function selectionExecutor(f, { hidden = false } = {}) {
   f.dom.reconfigure({ url: 'https://example.com/' });
@@ -160,21 +181,29 @@ function delayedSelect(
     association = 'aria-controls',
     options = '<div role="option" data-value="b">Beta</div>',
     delay = 100,
+    lazyList = false,
   } = {},
 ) {
   f.document.body.innerHTML = `<button id="combo" role="combobox" aria-label="地区" ${association}="options" aria-expanded="false">地区</button><div id="options" role="listbox" hidden></div><div role="listbox"><div id="outside" role="option" data-value="b">Beta</div></div>`;
   const combo = f.document.querySelector('#combo'),
-    list = f.document.querySelector('#options'),
     counts = { open: 0, option: 0, outside: 0 };
+  let list = f.document.querySelector('#options');
+  if (lazyList) list.remove();
   f.setHit(combo);
   f.document.elementFromPoint = (x) => (x < 150 ? combo : list.querySelector('[role="option"]'));
   f.document.querySelector('#outside').onclick = () => counts.outside++;
   combo.onclick = () => {
     counts.open++;
     combo.setAttribute('aria-expanded', 'true');
-    list.hidden = false;
+    if (!lazyList) list.hidden = false;
     if (options !== null)
       f.window.setTimeout(() => {
+        if (lazyList) {
+          list = f.document.createElement('div');
+          list.id = 'options';
+          list.setAttribute('role', 'listbox');
+          f.document.body.append(list);
+        }
         list.innerHTML = options;
         for (const option of list.querySelectorAll('[role="option"]')) {
           option.getBoundingClientRect = () => ({
@@ -215,11 +244,66 @@ test('完整选择入口等待展开后 100ms 的 data-value 选项，前后台�
     }
 });
 
-test('展开后有界等待超时仍报缺失，关联范围外的同值项从未点击，已展开不重放', async () => {
+test('完整选择支持点击后才挂载的 portal 列表，前后台均只展开和选择一次', async () => {
   for (const hidden of [false, true]) {
     const f = setup();
     try {
-      const counts = delayedSelect(f, { options: null }),
+      const counts = delayedSelect(f, { lazyList: true }),
+        run = await selectionExecutor(f, { hidden });
+      const result = await run();
+      assert.equal(result.verified, true);
+      assert.deepEqual(counts, { open: 1, option: 1, outside: 0 });
+    } finally {
+      f.close();
+    }
+  }
+});
+
+test('延迟列表在展开时换绑关联必须拒绝，其他列表选项不点击也不重放', async () => {
+  for (const hidden of [false, true])
+    for (const association of ['aria-controls', 'aria-owns']) {
+      const f = setup();
+      try {
+        const counts = delayedSelect(f, { lazyList: true, association });
+        const combo = f.document.querySelector('#combo'),
+          foreign = f.document.querySelector('#outside');
+        foreign.parentElement.id = 'other';
+        foreign.getBoundingClientRect = () => ({
+          left: 220,
+          top: 20,
+          right: 320,
+          bottom: 50,
+          width: 100,
+          height: 30,
+        });
+        foreign.onclick = () => {
+          counts.outside++;
+          foreign.setAttribute('aria-selected', 'true');
+        };
+        f.document.elementFromPoint = (x) => (x < 150 ? combo : foreign);
+        combo.addEventListener('click', () => combo.setAttribute(association, 'other'));
+        const run = await selectionExecutor(f, { hidden });
+        await assert.rejects(
+          run(),
+          (error) => error.message.includes('STALE_REF') && error.preDispatch === false,
+        );
+        assert.deepEqual(counts, { open: 1, option: 0, outside: 0 });
+      } finally {
+        f.close();
+      }
+    }
+});
+
+test('展开后有界等待超时仍报缺失，关联范围外的同值项从未点击，已展开不重放', async () => {
+  for (const [hidden, lazyList] of [
+    [false, false],
+    [true, false],
+    [false, true],
+    [true, true],
+  ]) {
+    const f = setup();
+    try {
+      const counts = delayedSelect(f, { options: null, lazyList }),
         run = await selectionExecutor(f, { hidden }),
         start = Date.now();
       await assert.rejects(
@@ -286,12 +370,8 @@ test('ARIA value 属性优先于 data-value，无值属性不回退名称，标�
   }
 });
 
-test('未关联、多个关联或非 listbox 容器均在任何展开前拒绝', async () => {
-  for (const association of [
-    'aria-controls="missing"',
-    'aria-controls="options other"',
-    'aria-controls="options"',
-  ]) {
+test('未关联、多个关联或已存在的非 listbox 容器均在任何展开前拒绝', async () => {
+  for (const association of ['', 'aria-controls="options other"', 'aria-controls="options"']) {
     const f = setup();
     try {
       f.document.body.innerHTML = `<button id="combo" role="combobox" aria-label="地区" ${association} aria-expanded="false">地区</button><div id="options"><div role="option" data-value="b">Beta</div></div>`;
@@ -645,6 +725,79 @@ test('实际安装的同源 frame 指针保留缩放、边框换算及无效变�
     frame.style.transform = 'matrix(1,0,0,1,0,0)';
     Object.defineProperty(frame, 'offsetWidth', { value: 0 });
     await assert.rejects(api.call('pointer_target', token), /TARGET_NOT_ACTIONABLE/);
+  } finally {
+    f.close();
+  }
+});
+
+test('Shadow 普通输入及原生选择的 input 事件穿过宿主，change 保留原生边界', () => {
+  const f = setup();
+  try {
+    f.document.body.innerHTML = '<div id="host"></div>';
+    const host = f.document.querySelector('#host'),
+      shadow = host.attachShadow({ mode: 'open' });
+    shadow.innerHTML =
+      '<input aria-label="影子输入"><select aria-label="影子选择"><option value="a">A</option><option value="b">B</option></select>';
+    const events = [];
+    f.document.addEventListener('input', (event) =>
+      events.push([event.type, event.composed, event.target.id]),
+    );
+    f.document.addEventListener('change', () => assert.fail('原生 change 不跨 Shadow 根'));
+    for (const [name, op, payload] of [
+      ['影子输入', 'ref_fill', { text: '测试值' }],
+      ['影子选择', 'apply_native_ref_select_option', { by: 'value', values: ['b'] }],
+    ]) {
+      const target = shadow.querySelector(name === '影子输入' ? 'input' : 'select');
+      shadow.elementFromPoint = () => target;
+      f.setHit(host);
+      const page = f.call('semantic_snapshot', {
+        binding: f.binding,
+        options: { composed: true, query: name },
+      });
+      const result = f.call(op, {
+        binding: f.binding,
+        snapshotId: page.snapshotId,
+        ref: page.items[0].ref,
+        ...payload,
+      });
+      assert.equal(result.verified, true);
+    }
+    assert.deepEqual(events, [
+      ['input', true, 'host'],
+      ['input', true, 'host'],
+    ]);
+  } finally {
+    f.close();
+  }
+});
+
+test('display contents Shadow 宿主无盒不阻止子按钮，但恢复轮次仍拒绝网页遮挡', () => {
+  const f = setup();
+  try {
+    f.document.body.innerHTML = '<div id="host" style="display:contents"></div><aside>遮挡</aside>';
+    const host = f.document.querySelector('#host'),
+      shadow = host.attachShadow({ mode: 'open' });
+    host.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      right: 0,
+      bottom: 0,
+      width: 0,
+      height: 0,
+    });
+    host.getClientRects = () => [];
+    shadow.innerHTML = '<button>影子操作</button>';
+    const button = shadow.querySelector('button');
+    shadow.elementFromPoint = () => button;
+    f.setHit(host);
+    const page = f.call('semantic_snapshot', {
+      binding: f.binding,
+      options: { composed: true, query: '影子操作' },
+    });
+    const token = { binding: f.binding, snapshotId: page.snapshotId, ref: page.items[0].ref };
+    assert.equal(f.call('confirm_ref', token).confirmed, true);
+    f.setHit(f.document.querySelector('aside'));
+    assert.throws(() => f.call('confirm_ref', { ...token, recoveryRound: 2 }), /TARGET_OCCLUDED/);
   } finally {
     f.close();
   }

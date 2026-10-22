@@ -2,6 +2,7 @@
 
 import copy
 import json
+import hashlib
 from pathlib import Path
 from copilot_results import UNIFIED
 import re
@@ -81,7 +82,9 @@ def read_package(directory):
 
 
 class Packages:
-    def __init__(self, directories=(), include_builtin=True):
+    def __init__(self, directories=(), include_builtin=True, *, strict=True):
+        self.package_records = []
+        self.load_errors = []
         self.bindings = {}
         self.flows = {}
         self.experience = ""
@@ -106,264 +109,300 @@ class Packages:
         seen = set()
         builtin = Path(__file__).parent / "copilot-packages/generic"
         for directory in ([builtin] if include_builtin else []) + list(directories):
-            root, value = read_package(directory)
-            if value["id"] in seen:
-                raise ValueError("duplicate extension package")
-            seen.add(value["id"])
-            scene, objects = declarations(value)
-            self.scenes[value["id"]] = scene
-            self.objects[value["id"]] = objects
-            column_fields = set(UNIFIED["properties"])
-            for schema in value.get("schemas", {}).values():
-                if not isinstance(schema, dict) or set(schema) != {"input", "output"}:
-                    raise ValueError("invalid capability schema")
-                for contract in schema.values():
-                    bounded_schema(contract)
-                column_fields.update(
-                    schema["output"]
-                    .get("properties", {})
-                    .get("records", {})
-                    .get("items", {})
-                    .get("properties", {})
-                )
-            for name, command in value.get("fetchers", {}).items():
-                if (
-                    not re.fullmatch(r"[a-z][a-z0-9_]{0,63}", name)
-                    or not isinstance(command, list)
-                    or not command
-                    or any(not isinstance(arg, str) or not arg for arg in command)
-                ):
-                    raise ValueError("invalid extension fetcher")
-                self.fetchers[name] = [
-                    str(root / arg[2:]) if arg.startswith("./") else arg for arg in command
-                ]
-            pool = value.get("pool", {})
-            if not isinstance(pool, dict) or set(pool) - {"command", "lookup_command"}:
-                raise ValueError("invalid extension pool")
-            for name, command in pool.items():
-                if (
-                    not isinstance(command, list)
-                    or not command
-                    or any(not isinstance(arg, str) or not arg for arg in command)
-                ):
-                    raise ValueError("invalid pool command")
-                self.pool[name] = [
-                    str(root / arg[2:]) if arg.startswith("./") else arg for arg in command
-                ]
-            if not isinstance(value.get("rules", {}), dict):
-                raise ValueError("invalid extension rules")
-            self.rules.update(value.get("rules", {}))
-            tools = value.get("tools", [])
-            if not isinstance(tools, list) or len(tools) > 30:
-                raise ValueError("invalid extension tools")
-            for tool in tools:
-                if (
-                    not isinstance(tool, dict)
-                    or set(tool)
-                    - {
-                        "id",
-                        "hosts",
-                        "name",
-                        "links",
-                        "pages",
-                        "probe",
-                        "cost",
-                        "batch_limit",
-                        "serial_group",
-                        "disable_on",
-                    }
-                    or not isinstance(tool.get("id"), str)
-                    or not isinstance(tool.get("hosts"), list)
-                    or any(not isinstance(host, str) for host in tool["hosts"])
-                ):
-                    raise ValueError("invalid tool profile")
-                for page in tool.get("pages", []):
+            checkpoint = copy.deepcopy(self.__dict__)
+            seen_before = set(seen)
+            try:
+                root, value = read_package(directory)
+                if value["id"] in seen:
+                    raise ValueError("duplicate extension package")
+                seen.add(value["id"])
+                scene, objects = declarations(value)
+                self.scenes[value["id"]] = scene
+                self.objects[value["id"]] = objects
+                column_fields = set(UNIFIED["properties"])
+                for schema in value.get("schemas", {}).values():
+                    if not isinstance(schema, dict) or set(schema) != {"input", "output"}:
+                        raise ValueError("invalid capability schema")
+                    for contract in schema.values():
+                        bounded_schema(contract)
+                    column_fields.update(
+                        schema["output"]
+                        .get("properties", {})
+                        .get("records", {})
+                        .get("items", {})
+                        .get("properties", {})
+                    )
+                for name, command in value.get("fetchers", {}).items():
                     if (
-                        not isinstance(page, dict)
-                        or not isinstance(page.get("id"), str)
-                        or not isinstance(page.get("paths"), list)
+                        not re.fullmatch(r"[a-z][a-z0-9_]{0,63}", name)
+                        or not isinstance(command, list)
+                        or not command
+                        or any(not isinstance(arg, str) or not arg for arg in command)
+                    ):
+                        raise ValueError("invalid extension fetcher")
+                    self.fetchers[name] = [
+                        str(root / arg[2:]) if arg.startswith("./") else arg for arg in command
+                    ]
+                pool = value.get("pool", {})
+                if not isinstance(pool, dict) or set(pool) - {"command", "lookup_command"}:
+                    raise ValueError("invalid extension pool")
+                for name, command in pool.items():
+                    if (
+                        not isinstance(command, list)
+                        or not command
+                        or any(not isinstance(arg, str) or not arg for arg in command)
+                    ):
+                        raise ValueError("invalid pool command")
+                    self.pool[name] = [
+                        str(root / arg[2:]) if arg.startswith("./") else arg for arg in command
+                    ]
+                if not isinstance(value.get("rules", {}), dict):
+                    raise ValueError("invalid extension rules")
+                self.rules.update(value.get("rules", {}))
+                tools = value.get("tools", [])
+                if not isinstance(tools, list) or len(tools) > 30:
+                    raise ValueError("invalid extension tools")
+                for tool in tools:
+                    if (
+                        not isinstance(tool, dict)
+                        or set(tool)
+                        - {
+                            "id",
+                            "hosts",
+                            "name",
+                            "links",
+                            "pages",
+                            "probe",
+                            "cost",
+                            "batch_limit",
+                            "serial_group",
+                            "disable_on",
+                        }
+                        or not isinstance(tool.get("id"), str)
+                        or not isinstance(tool.get("hosts"), list)
+                        or any(not isinstance(host, str) for host in tool["hosts"])
+                    ):
+                        raise ValueError("invalid tool profile")
+                    for page in tool.get("pages", []):
+                        if (
+                            not isinstance(page, dict)
+                            or not isinstance(page.get("id"), str)
+                            or not isinstance(page.get("paths"), list)
+                            or any(
+                                not isinstance(pattern, str) or len(pattern) > 400
+                                for pattern in page["paths"]
+                            )
+                        ):
+                            raise ValueError("invalid tool page")
+                        if not isinstance(page.get("table_selectors", []), list) or any(
+                            not isinstance(item, str) or len(item) > 400
+                            for item in page.get("table_selectors", [])
+                        ):
+                            raise ValueError("invalid table selector")
+                        for field, aliases in page.get("columns", {}).items():
+                            if (
+                                field not in column_fields
+                                or not isinstance(aliases, list)
+                                or not aliases
+                                or any(not isinstance(alias, str) for alias in aliases)
+                            ):
+                                raise ValueError("invalid column mapping")
+                        for pattern in page["paths"]:
+                            re.compile(pattern)
+                    for value_ in tool.get("links", {}).values():
+                        if (
+                            not isinstance(value_, str)
+                            or urlsplit(value_).scheme not in {"http", "https"}
+                            or urlsplit(value_).hostname not in tool["hosts"]
+                            or urlsplit(value_).username
+                            or urlsplit(value_).password
+                        ):
+                            raise ValueError("invalid tool link")
+                    if any(set(existing["hosts"]) & set(tool["hosts"]) for existing in self.tools):
+                        raise ValueError("duplicate tool host")
+                    if any(existing["id"] == tool["id"] for existing in self.tools):
+                        raise ValueError("duplicate tool id")
+                    self.tools.append(copy.deepcopy(tool))
+                    self.tool_packages[tool["id"]] = value["id"]
+                for action, relative in value.get("templates", {}).items():
+                    if not re.fullmatch(
+                        rf"(?:seo|general|browser|local|{re.escape(value['id'])})\.[a-z][a-z0-9_]*",
+                        action,
+                    ) or not isinstance(relative, str):
+                        raise ValueError("invalid package template")
+                    file = (root / relative).resolve()
+                    if (
+                        not file.is_relative_to(root)
+                        or not file.is_file()
+                        or file.stat().st_size > 131072
+                    ):
+                        raise ValueError("unsafe package template")
+                    self.templates[action] = json.loads(file.read_text())
+                for action, prompts in value.get("prompts", {}).items():
+                    if (
+                        not isinstance(prompts, dict)
+                        or set(prompts) - {"en", "zh"}
                         or any(
-                            not isinstance(pattern, str) or len(pattern) > 400
-                            for pattern in page["paths"]
+                            not isinstance(text, str) or len(text) > 12000
+                            for text in prompts.values()
                         )
                     ):
-                        raise ValueError("invalid tool page")
-                    if not isinstance(page.get("table_selectors", []), list) or any(
-                        not isinstance(item, str) or len(item) > 400
-                        for item in page.get("table_selectors", [])
+                        raise ValueError("invalid package prompts")
+                    self.prompts[action] = dict(prompts)
+                for action, flow in value.get("workflows", {}).items():
+                    if (
+                        action != "seo.ranking_sites"
+                        or not isinstance(flow, dict)
+                        or set(flow) != {"seed_fetcher", "site_fetcher", "max_sites"}
+                        or type(flow["max_sites"]) is not int
+                        or not 1 <= flow["max_sites"] <= 3
+                        or not all(
+                            isinstance(flow[name], str) for name in ("seed_fetcher", "site_fetcher")
+                        )
                     ):
-                        raise ValueError("invalid table selector")
-                    for field, aliases in page.get("columns", {}).items():
+                        raise ValueError("invalid workflow")
+                    self.workflows[action] = dict(flow)
+
+                from copilot_capabilities import CAPABILITIES
+
+                schemas = value.get("schemas", {})
+                for capability, schema in schemas.items():
+                    if not re.fullmatch(r"[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*", capability) or set(
+                        schema
+                    ) != {"input", "output"}:
+                        raise ValueError("invalid capability schema")
+                    existing = CAPABILITIES.get(capability) or self.schemas.get(capability)
+                    if existing is not None and existing != schema:
+                        raise ValueError("conflicting capability schema")
+                    self.schemas[capability] = copy.deepcopy(schema)
+                for capability, bindings in value.get("capabilities", {}).items():
+                    if (
+                        capability not in CAPABILITIES
+                        and capability not in self.schemas
+                        or not isinstance(bindings, list)
+                    ):
+                        raise ValueError("unknown capability")
+                    for binding in bindings:
+                        validate_binding(binding)
                         if (
-                            field not in column_fields
-                            or not isinstance(aliases, list)
-                            or not aliases
-                            or any(not isinstance(alias, str) for alias in aliases)
+                            capability
+                            in {"keyword.judge", "keyword.filter", "pool.lookup", "pool.save"}
+                            and binding["type"] != "command"
                         ):
-                            raise ValueError("invalid column mapping")
-                    for pattern in page["paths"]:
-                        re.compile(pattern)
-                for value_ in tool.get("links", {}).values():
+                            raise ValueError("capability must be local command")
+                        if any(
+                            existing["id"] == binding["id"]
+                            for entries in self.bindings.values()
+                            for existing in entries
+                        ):
+                            raise ValueError("duplicate binding id")
+                        clean = copy.deepcopy(binding)
+                        clean["_root"] = str(root)
+                        clean["_package"] = value["id"]
+                        clean["_schema"] = copy.deepcopy(
+                            (self.schemas.get(capability) or CAPABILITIES[capability])["output"]
+                        )
+                        for name in ("argv", "plan_argv"):
+                            if name in clean:
+                                clean[name] = [
+                                    str(root / arg[2:]) if arg.startswith("./") else arg
+                                    for arg in clean[name]
+                                ]
+                        self.bindings.setdefault(capability, []).append(clean)
+                for identity, flow in value.get("flows", {}).items():
                     if (
-                        not isinstance(value_, str)
-                        or urlsplit(value_).scheme not in {"http", "https"}
-                        or urlsplit(value_).hostname not in tool["hosts"]
-                        or urlsplit(value_).username
-                        or urlsplit(value_).password
+                        not re.fullmatch(r"[a-z][a-z0-9_.-]{0,63}", identity)
+                        or not isinstance(flow, dict)
+                        or not flow.get("name")
+                        or not isinstance(flow.get("steps"), list)
+                        or not 1 <= len(flow["steps"]) <= 30
                     ):
-                        raise ValueError("invalid tool link")
-                if any(set(existing["hosts"]) & set(tool["hosts"]) for existing in self.tools):
-                    raise ValueError("duplicate tool host")
-                if any(existing["id"] == tool["id"] for existing in self.tools):
-                    raise ValueError("duplicate tool id")
-                self.tools.append(copy.deepcopy(tool))
-                self.tool_packages[tool["id"]] = value["id"]
-            for action, relative in value.get("templates", {}).items():
-                if not re.fullmatch(
-                    rf"(?:seo|general|browser|local|{re.escape(value['id'])})\.[a-z][a-z0-9_]*",
-                    action,
-                ) or not isinstance(relative, str):
-                    raise ValueError("invalid package template")
-                file = (root / relative).resolve()
-                if (
-                    not file.is_relative_to(root)
-                    or not file.is_file()
-                    or file.stat().st_size > 131072
-                ):
-                    raise ValueError("unsafe package template")
-                self.templates[action] = json.loads(file.read_text())
-            for action, prompts in value.get("prompts", {}).items():
-                if (
-                    not isinstance(prompts, dict)
-                    or set(prompts) - {"en", "zh"}
-                    or any(
-                        not isinstance(text, str) or len(text) > 12000 for text in prompts.values()
+                        raise ValueError("invalid workflow plan")
+                    seen_steps = set()
+                    models = 0
+                    for step in flow["steps"]:
+                        if (
+                            not isinstance(step, dict)
+                            or not re.fullmatch(r"[a-z][a-z0-9_]{0,40}", step.get("id", ""))
+                            or step["id"] in seen_steps
+                        ):
+                            raise ValueError("invalid step id")
+                        seen_steps.add(step["id"])
+                        models += bool(step.get("model"))
+                        if (
+                            step.get("capability")
+                            and step["capability"] not in CAPABILITIES
+                            and step["capability"] not in self.schemas
+                        ):
+                            raise ValueError("unknown step capability")
+                    if models > 1:
+                        raise ValueError("workflow has more than one model turn")
+                    validate_flow(flow, objects, {**CAPABILITIES, **self.schemas})
+                    from copilot_follow import validate_follow
+
+                    validate_follow(flow, {**self.flows, **value.get("flows", {})})
+                    from copilot_risk import declared
+
+                    declared(flow)
+                    for step in flow["steps"]:
+                        declared(step)
+                    self.flows[identity] = copy.deepcopy(flow)
+                    self.flow_packages[identity] = value["id"]
+                experience = value.get("experience", "")
+                if value.get("experience_file"):
+                    file = (root / value["experience_file"]).resolve()
+                    if not file.is_relative_to(root):
+                        raise ValueError("unsafe experience path")
+                    experience = file.read_text()
+                if not isinstance(experience, str) or len(experience) > 800:
+                    raise ValueError("experience exceeds 800 characters")
+                if experience:
+                    self.experience = experience
+                    self.experiences.append(
+                        {"pack": value["id"], "text": experience, "tools": copy.deepcopy(tools)}
                     )
-                ):
-                    raise ValueError("invalid package prompts")
-                self.prompts[action] = dict(prompts)
-            for action, flow in value.get("workflows", {}).items():
-                if (
-                    action != "seo.ranking_sites"
-                    or not isinstance(flow, dict)
-                    or set(flow) != {"seed_fetcher", "site_fetcher", "max_sites"}
-                    or type(flow["max_sites"]) is not int
-                    or not 1 <= flow["max_sites"] <= 3
-                    or not all(
-                        isinstance(flow[name], str) for name in ("seed_fetcher", "site_fetcher")
-                    )
-                ):
-                    raise ValueError("invalid workflow")
-                self.workflows[action] = dict(flow)
 
-            from copilot_capabilities import CAPABILITIES
-
-            schemas = value.get("schemas", {})
-            for capability, schema in schemas.items():
-                if not re.fullmatch(r"[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*", capability) or set(
-                    schema
-                ) != {"input", "output"}:
-                    raise ValueError("invalid capability schema")
-                existing = CAPABILITIES.get(capability) or self.schemas.get(capability)
-                if existing is not None and existing != schema:
-                    raise ValueError("conflicting capability schema")
-                self.schemas[capability] = copy.deepcopy(schema)
-            for capability, bindings in value.get("capabilities", {}).items():
-                if (
-                    capability not in CAPABILITIES
-                    and capability not in self.schemas
-                    or not isinstance(bindings, list)
-                ):
-                    raise ValueError("unknown capability")
-                for binding in bindings:
-                    validate_binding(binding)
-                    if (
-                        capability
-                        in {"keyword.judge", "keyword.filter", "pool.lookup", "pool.save"}
-                        and binding["type"] != "command"
-                    ):
-                        raise ValueError("capability must be local command")
-                    if any(
-                        existing["id"] == binding["id"]
-                        for entries in self.bindings.values()
-                        for existing in entries
-                    ):
-                        raise ValueError("duplicate binding id")
-                    clean = copy.deepcopy(binding)
-                    clean["_root"] = str(root)
-                    clean["_package"] = value["id"]
-                    clean["_schema"] = copy.deepcopy(
-                        (self.schemas.get(capability) or CAPABILITIES[capability])["output"]
-                    )
-                    for name in ("argv", "plan_argv"):
-                        if name in clean:
-                            clean[name] = [
-                                str(root / arg[2:]) if arg.startswith("./") else arg
-                                for arg in clean[name]
-                            ]
-                    self.bindings.setdefault(capability, []).append(clean)
-            for identity, flow in value.get("flows", {}).items():
-                if (
-                    not re.fullmatch(r"[a-z][a-z0-9_.-]{0,63}", identity)
-                    or not isinstance(flow, dict)
-                    or not flow.get("name")
-                    or not isinstance(flow.get("steps"), list)
-                    or not 1 <= len(flow["steps"]) <= 30
-                ):
-                    raise ValueError("invalid workflow plan")
-                seen_steps = set()
-                models = 0
-                for step in flow["steps"]:
-                    if (
-                        not isinstance(step, dict)
-                        or not re.fullmatch(r"[a-z][a-z0-9_]{0,40}", step.get("id", ""))
-                        or step["id"] in seen_steps
-                    ):
-                        raise ValueError("invalid step id")
-                    seen_steps.add(step["id"])
-                    models += bool(step.get("model"))
-                    if (
-                        step.get("capability")
-                        and step["capability"] not in CAPABILITIES
-                        and step["capability"] not in self.schemas
-                    ):
-                        raise ValueError("unknown step capability")
-                if models > 1:
-                    raise ValueError("workflow has more than one model turn")
-                validate_flow(flow, objects, {**CAPABILITIES, **self.schemas})
-                from copilot_follow import validate_follow
-
-                validate_follow(flow, {**self.flows, **value.get("flows", {})})
-                from copilot_risk import declared
-
-                declared(flow)
-                for step in flow["steps"]:
-                    declared(step)
-                self.flows[identity] = copy.deepcopy(flow)
-                self.flow_packages[identity] = value["id"]
-            experience = value.get("experience", "")
-            if value.get("experience_file"):
-                file = (root / value["experience_file"]).resolve()
-                if not file.is_relative_to(root):
-                    raise ValueError("unsafe experience path")
-                experience = file.read_text()
-            if not isinstance(experience, str) or len(experience) > 800:
-                raise ValueError("experience exceeds 800 characters")
-            if experience:
-                self.experience = experience
-                self.experiences.append(
-                    {"pack": value["id"], "text": experience, "tools": copy.deepcopy(tools)}
+                for tool in self.tools:
+                    groups = {
+                        binding.get("serial_group", "")
+                        for bindings in self.bindings.values()
+                        for binding in bindings
+                        if binding["type"] == "browser" and binding.get("tool") == tool["id"]
+                    }
+                    if len(groups) > 1:
+                        raise ValueError("one tool must share one serial group")
+                self.package_records.append(
+                    {
+                        "id": value["id"],
+                        "release": value.get("release", "unversioned"),
+                        "source_id": hashlib.sha256(
+                            str(Path(directory).expanduser().absolute()).encode()
+                        ).hexdigest()[:24],
+                        "declaration_digest": hashlib.sha256(
+                            json.dumps(value, sort_keys=True, ensure_ascii=False).encode()
+                        ).hexdigest()[:24],
+                        "state": "registered",
+                        "coverage": "complete",
+                    }
                 )
-
-        for tool in self.tools:
-            groups = {
-                binding.get("serial_group", "")
-                for bindings in self.bindings.values()
-                for binding in bindings
-                if binding["type"] == "browser" and binding.get("tool") == tool["id"]
-            }
-            if len(groups) > 1:
-                raise ValueError("one tool must share one serial group")
+            except (ValueError, OSError, TypeError, KeyError, re.error):
+                if strict:
+                    raise
+                self.__dict__.clear()
+                self.__dict__.update(checkpoint)
+                seen = seen_before
+                source = hashlib.sha256(
+                    str(Path(directory).expanduser().absolute()).encode()
+                ).hexdigest()[:24]
+                self.load_errors.append({"source_id": source, "code": "package_load_failed"})
+                self.package_records.append(
+                    {
+                        "id": source,
+                        "source_id": source,
+                        "state": "load_failed",
+                        "coverage": "failed",
+                    }
+                )
 
     def matching_flows(self, context):
         from copilot_capabilities import recognize
@@ -418,6 +457,7 @@ class Packages:
     def catalog(self, context, selection=""):
         return [
             {
+                **self.task_descriptor(identity),
                 "action": "workflow.run",
                 "flow": identity,
                 "name": flow.get("name", identity),
@@ -431,6 +471,12 @@ class Packages:
             }
             for identity, flow in self.matching_flows(context).items()
         ]
+
+    def task_descriptor(self, identity):
+        """旧包保持专用页面范围；通用声明没有执行对象适配时只作为待适配目录。"""
+        from copilot_recommendations import descriptor
+
+        return descriptor(self, identity)
 
     def result_contract(self, identity):
         from copilot_capabilities import CAPABILITIES

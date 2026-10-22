@@ -8,6 +8,7 @@ export const actionNames = {
   'seo.serp_breakdown': '拆解搜索结果',
   'seo.save_pool': '存词池',
   'general.task': '通用任务',
+  'assist.task': '协作任务',
   'seo.trends': '查热度趋势',
   'seo.ranking_sites': '谁在排',
   'seo.domain_rating': '查域名评分',
@@ -36,6 +37,8 @@ const safeLink = (value) => {
 };
 export function normalized(row) {
   const value = row.result || {};
+  if (row.standard_task || row.action === 'assist.task')
+    return { ...value, verdict: value.verdict || value.summary || row.title };
   if (value.verdict) return value;
   const words = value.keywords || [],
     result = {
@@ -102,15 +105,29 @@ function el(doc, tag, text, cls) {
   if (['verdict', 'result-text'].includes(cls)) node.dataset.userContent = 'true';
   return node;
 }
-function trendSeries(doc, series, full) {
-  const wrap = el(doc, 'figure', undefined, full ? 'trend-chart' : ''),
-    caption = el(doc, 'figcaption', `${series.keyword} · ${series.region} · ${series.period}`);
+export function trendSeries(doc, series, full, { autoScale = false } = {}) {
+  const en = doc.documentElement.lang.startsWith('en'),
+    wrap = el(doc, 'figure', undefined, full ? 'trend-chart' : ''),
+    caption = el(
+      doc,
+      'figcaption',
+      [series.keyword, series.region, series.period]
+        .filter((value) => value != null && value !== '')
+        .join(' · ') || (en ? 'Series' : '数据系列'),
+    );
   caption.dataset.userContent = 'true';
   wrap.append(caption);
   const points = series.points || [];
   if (!points.length) return wrap;
   const svg = doc.createElementNS('http://www.w3.org/2000/svg', 'svg'),
-    en = doc.documentElement.lang.startsWith('en');
+    minimum = autoScale ? points.reduce((value, point) => Math.min(value, point.value), 0) : 0,
+    observedMaximum = autoScale
+      ? points.reduce((value, point) => Math.max(value, point.value), 0)
+      : 100,
+    maximum = observedMaximum === minimum ? minimum + 1 : observedMaximum,
+    divisor = Number.isFinite(maximum - minimum) ? 1 : 2;
+  const fraction = (value) =>
+    (value / divisor - minimum / divisor) / (maximum / divisor - minimum / divisor);
   const shape = (name, attributes = {}, text) => {
     const node = doc.createElementNS(svg.namespaceURI, name);
     for (const [key, value] of Object.entries(attributes)) node.setAttribute(key, String(value));
@@ -121,15 +138,22 @@ function trendSeries(doc, series, full) {
   svg.setAttribute('role', full ? 'group' : 'img');
   svg.setAttribute(
     'aria-label',
-    `${caption.textContent} · ${points[0].date} → ${points.at(-1).date} · 0–100`,
+    `${caption.textContent} · ${points[0].date} → ${points.at(-1).date} · ${minimum}–${maximum}`,
   );
   const x = (index) =>
       full
         ? 52 + (index / Math.max(1, points.length - 1)) * 564
         : 8 + (index / Math.max(1, points.length - 1)) * 264,
-    y = (value) => (full ? 184 - value * 1.6 : 64 - value * 0.56);
+    y = (value) =>
+      autoScale
+        ? full
+          ? 184 - fraction(value) * 160
+          : 64 - fraction(value) * 56
+        : full
+          ? 184 - value * 1.6
+          : 64 - value * 0.56;
   if (full) {
-    for (const value of [0, 50, 100])
+    for (const value of autoScale ? [minimum, minimum / 2 + maximum / 2, maximum] : [0, 50, 100])
       svg.append(
         shape('line', { x1: 52, x2: 616, y1: y(value), y2: y(value), class: 'trend-grid' }),
         shape(
@@ -172,7 +196,9 @@ function trendSeries(doc, series, full) {
       'output',
       en
         ? 'Focus or hover a point to read its date and value.'
-        : '聚焦或悬停数据点，查看日期与热度。',
+        : autoScale
+          ? '聚焦或悬停数据点，查看日期与数值。'
+          : '聚焦或悬停数据点，查看日期与热度。',
       'trend-point-reading',
     );
     reading.setAttribute('aria-live', 'polite');
@@ -199,7 +225,9 @@ function trendSeries(doc, series, full) {
       thead = el(doc, 'thead'),
       body = el(doc, 'tbody');
     table.append(el(doc, 'caption', en ? 'Observed trend points' : '趋势观测数据'));
-    for (const label of en ? ['Date', 'Interest'] : ['日期', '热度']) {
+    for (const label of en
+      ? ['Date', autoScale ? 'Value' : 'Interest']
+      : ['日期', autoScale ? '数值' : '热度']) {
       const th = el(doc, 'th', label);
       th.scope = 'col';
       head.append(th);
@@ -303,9 +331,27 @@ export function renderResult(
     button.onclick = async () => {
       button.disabled = true;
       try {
-        await command(name, { id: row.id, ...(typeof params === 'function' ? params() : params) });
+        const receipt = await command(name, {
+          id: row.id,
+          ...(typeof params === 'function' ? params() : params),
+        });
+        if (name === 'workbench_open_artifact') {
+          if (receipt?.error || receipt?.opened === false) throw Error('artifact_open_failed');
+          doc.getElementById('notice').textContent = doc.documentElement.lang.startsWith('en')
+            ? 'Requested the system to open the file.'
+            : '已请求系统打开文件。';
+        }
+        if (name === 'workbench_from_result')
+          doc.getElementById('notice').textContent = doc.documentElement.lang.startsWith('en')
+            ? 'Added as material. Continue in the task workbench.'
+            : '已加入材料，可在侧栏通用任务中继续处理。';
       } catch {
-        doc.getElementById('notice').textContent = '操作未完成，请检查本地连接和数据源后重试。';
+        doc.getElementById('notice').textContent =
+          name === 'workbench_open_artifact'
+            ? doc.documentElement.lang.startsWith('en')
+              ? 'The file could not be opened. Check that the artifact still exists and retry.'
+              : '文件未能打开，请确认产物仍存在并重试。'
+            : '操作未完成，请检查本地连接和数据源后重试。';
       } finally {
         button.disabled = false;
       }
@@ -747,8 +793,9 @@ export function renderResult(
         };
         content.append(more);
       }
-      for (const file of result.artifacts || [])
-        content.append(el(doc, 'p', file.label + ' · ' + file.path, 'small'));
+      if (row.action !== 'assist.task')
+        for (const file of result.artifacts || [])
+          content.append(el(doc, 'p', file.label + ' · ' + file.path, 'small'));
     } else if (row.action === 'seo.trends') {
       content.append(
         el(
@@ -863,8 +910,126 @@ export function renderResult(
           content.append(a);
         }
       }
-      for (const file of result.artifacts || [])
-        content.append(el(doc, 'p', file.label + ' · ' + file.path, 'small'));
+      if (row.action !== 'assist.task')
+        for (const file of result.artifacts || [])
+          content.append(el(doc, 'p', file.label + ' · ' + file.path, 'small'));
+    }
+    if (row.action === 'assist.task' || row.standard_task) {
+      const en = doc.documentElement.lang.startsWith('en');
+      const verification = el(
+        doc,
+        'p',
+        row.local_task
+          ? en
+            ? 'Local processing; verify captured scope, supplied inputs and recognized content.'
+            : '本机处理结果；请核对采集范围、输入条件和识别内容。'
+          : row.verification?.kind === 'source_checked'
+            ? en
+              ? 'Source excerpts checked. Model interpretation has not been independently verified.'
+              : '已核对来源摘录；模型解释的准确性尚未独立验证。'
+            : en
+              ? 'Model interpretation; source verification is not recorded.'
+              : '模型解释；尚无来源核对记录。',
+        'small',
+      );
+      content.prepend(verification);
+      if (row.result_view && result.bullets?.length) content.append(points(result.bullets));
+      for (const section of result.sections || []) {
+        const block = el(doc, 'section');
+        block.dataset.userContent = 'true';
+        block.append(el(doc, 'h3', section.title), el(doc, 'p', section.text, 'result-text'));
+        for (const source of section.sources || []) {
+          const citation = el(doc, 'details');
+          citation.append(
+            el(doc, 'summary', (en ? 'Source ' : '来源 ') + source.id),
+            el(doc, 'blockquote', source.quote, 'source-quote'),
+          );
+          block.append(citation);
+        }
+        content.append(block);
+      }
+      for (const question of result.questions || []) {
+        const block = el(doc, 'section', undefined, 'study-question');
+        const title = el(doc, 'h3', question.question);
+        title.dataset.userContent = 'true';
+        const answer = el(doc, 'textarea');
+        answer.rows = 3;
+        answer.maxLength = 3000;
+        answer.setAttribute('aria-label', en ? 'Your answer' : '你的答案');
+        const reference = el(doc, 'details');
+        const referenceText = el(doc, 'p', question.answer, 'result-text');
+        referenceText.dataset.userContent = 'true';
+        reference.append(
+          el(doc, 'summary', en ? 'Show reference answer' : '查看参考答案'),
+          referenceText,
+        );
+        if (question.source_id)
+          reference.append(
+            el(doc, 'p', (en ? 'Source: ' : '来源：') + question.source_id, 'small'),
+          );
+        if (question.source_quote) {
+          const quote = el(doc, 'blockquote', question.source_quote, 'source-quote');
+          quote.dataset.userContent = 'true';
+          reference.append(quote);
+        }
+        const rating = el(doc, 'select');
+        rating.setAttribute('aria-label', en ? 'Self assessment' : '自评理解情况');
+        for (const [value, label] of [
+          ['', en ? 'Self assessment (optional)' : '自评（可选）'],
+          ['understood', en ? 'I understand' : '已理解'],
+          ['review', en ? 'Review again' : '需要复习'],
+        ]) {
+          const option = el(doc, 'option', label);
+          option.value = value;
+          rating.append(option);
+        }
+        const saveLabel = el(doc, 'label', en ? 'Save this study record' : '保存本次学习记录'),
+          save = el(doc, 'input');
+        save.type = 'checkbox';
+        saveLabel.prepend(save);
+        const feedback = el(doc, 'output');
+        feedback.setAttribute('role', 'status');
+        const submit = el(doc, 'button', en ? 'Record answer' : '记录作答');
+        submit.type = 'button';
+        submit.onclick = async () => {
+          submit.disabled = true;
+          try {
+            const result = await command('workbench_answer', {
+              id: row.id,
+              question_id: question.id,
+              answer: answer.value,
+              ...(rating.value ? { self_rating: rating.value } : {}),
+              save: save.checked,
+            });
+            reference.open = true;
+            feedback.textContent =
+              result.feedback?.explanation ||
+              (en
+                ? 'Answer recorded; compare with the reference and self assess.'
+                : '已记录作答，请对照参考答案自评。');
+          } catch (error) {
+            feedback.textContent =
+              error.message || (en ? 'Answer could not be saved.' : '作答未保存，请重试。');
+          } finally {
+            submit.disabled = false;
+          }
+        };
+        block.append(title, answer, reference, rating, saveLabel, submit, feedback);
+        content.append(block);
+      }
+      if (row.action === 'assist.task') {
+        for (const [index, file] of (result.artifacts || []).entries()) {
+          const item = el(doc, 'div', undefined, 'artifact-item');
+          const label = el(doc, 'p', `${file.label} · ${file.path}`, 'small');
+          label.dataset.userContent = 'true';
+          const open = action(en ? 'Open file' : '打开文件', 'workbench_open_artifact', { index });
+          open.setAttribute('aria-label', `${en ? 'Open file' : '打开文件'}：${file.label}`);
+          item.append(label, open);
+          content.append(item);
+        }
+      } else if (row.result_view)
+        for (const file of result.artifacts || [])
+          content.append(el(doc, 'p', file.label + ' · ' + file.path, 'small'));
     }
     if (!row.result_view) {
       content.append(batches);
@@ -873,6 +1038,13 @@ export function renderResult(
   }
   draw();
   const actions = el(doc, 'div', undefined, 'actions');
+  if (row.standard_task || row.action === 'assist.task')
+    actions.append(
+      action(
+        doc.documentElement.lang.startsWith('en') ? 'Continue with result' : '用结果继续处理',
+        'workbench_from_result',
+      ),
+    );
   if (allWords.length) {
     const copyAll = el(doc, 'button', '复制全部');
     copyAll.dataset.action = 'copy';

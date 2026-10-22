@@ -126,8 +126,12 @@ export class VaultController {
     if (p.instanceId !== t.instanceId || p.modeGeneration !== t.policy.modeGeneration)
       throw denied('VAULT_SCOPE_CHANGED');
     if (executor.leases.get(p.tabId) !== t.id) throw denied('tab lease denied');
-    if (!t.agentTabs.has(p.tabId) && !t.adoptedPopupTabs?.has(p.tabId))
-      throw denied('tab lease denied');
+    // 中文注释：原页只有操作资格，不加入 agentTabs；异步边界继续核实同一接管页与实时租约。
+    const eligible = () =>
+      t.agentTabs.has(p.tabId) ||
+      t.adoptedPopupTabs?.has(p.tabId) ||
+      (t.attachment?.tabId === p.tabId && t.tabIds.has(p.tabId));
+    if (!eligible()) throw denied('tab lease denied');
     // 中文注释：私有宿主通道已经核实本次智能审批或全部访问；扩展继续校验任务代次与同页互斥。
     // 中文注释：页面执行过任意 JS/CDP 时禁止凭据填写，互斥由扩展与宿主双侧校验。
     if (t.scriptedTabs?.has(p.tabId)) throw denied('CREDENTIAL_MODE_CONFLICT');
@@ -135,6 +139,8 @@ export class VaultController {
       executor.check(t, p);
       if (
         executor.leases.get(p.tabId) !== t.id ||
+        p.instanceId !== t.instanceId ||
+        !eligible() ||
         t.policy.modeGeneration !== p.modeGeneration ||
         t.scriptedTabs?.has(p.tabId)
       )
@@ -154,6 +160,7 @@ export class VaultController {
     return { t, guard, target, overlay };
   }
   async call(target, overlay, fn, args, guard) {
+    guard();
     const result = await this.executor.api.debugger.sendCommand(target, 'Runtime.callFunctionOn', {
       executionContextId: overlay.contextId,
       functionDeclaration: fn.toString(),

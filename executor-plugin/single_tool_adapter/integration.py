@@ -152,6 +152,7 @@ class HostBindingCoordinator:
                     row.get("tabId") for row in task.get("workTabs", []) if isinstance(row, dict)
                 ]
                 owned += task.get("adoptedPopupTabIds", [])
+                owned += task.get("attachedTabIds", [])
                 if tab_id in owned and tab_id in task.get("tabIds", []):
                     matches.append(task_id)
             if len(matches) != 1:

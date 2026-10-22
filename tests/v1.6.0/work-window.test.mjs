@@ -93,6 +93,30 @@ function fixture() {
   };
   return { api, tabs, windows, calls };
 }
+test('显式接管在用户原窗口建立保护基线，不新建首页或取得原页删除权', async () => {
+  const f = fixture();
+  const tab = { id: 7, windowId: 3, groupId: -1, url: 'https://example.test/draft' };
+  f.tabs.set(tab.id, tab);
+  f.windows.set(3, { id: 3, type: 'normal', incognito: false });
+  const workspaces = new NativeWorkspaces(f.api, 'browser');
+  const cap = await workspaces.install(
+    {
+      id: 'attached',
+      instanceId: 'browser',
+      approvalScope: 'scope',
+      generation: 1,
+      workWindowMode: 'separate',
+      attachment: { tabId: tab.id, url: tab.url },
+    },
+    [tab],
+  );
+  assert.equal(workspaces.authority.resolve(cap).windowId, 3);
+  assert.deepEqual(f.calls, []);
+  await workspaces.cleanup(cap);
+  assert.equal(f.tabs.get(7), tab);
+  assert.deepEqual(f.calls, []);
+});
+
 test('并发任务只创建一个独立窗口，不聚焦、不最小化，关闭后重建', async () => {
   const f = fixture(),
     w = new WorkWindow(f.api);

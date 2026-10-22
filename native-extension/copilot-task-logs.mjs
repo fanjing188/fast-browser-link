@@ -17,6 +17,8 @@ const statuses = {
   stopped: ['已停止', 'Stopped'],
 };
 const activeStatuses = new Set(['queued', 'executing', 'stopping']);
+const partial = (value) => value?.completion_status === 'partial';
+const integer = (value) => (Number.isSafeInteger(value) && value >= 0 ? value : null);
 function element(doc, tag, text, className) {
   const el = doc.createElement(tag);
   if (text !== undefined) el.textContent = text;
@@ -45,9 +47,16 @@ function stepDescription(value) {
 }
 
 export class TaskLogPanel {
-  constructor(doc, command, { language = 'zh' } = {}) {
+  constructor(
+    doc,
+    command,
+    { language = 'zh', container, clipboard = doc.defaultView.navigator?.clipboard, download } = {},
+  ) {
     this.doc = doc;
     this.command = command;
+    this.embedded = !!container;
+    this.clipboard = clipboard;
+    this.download = download;
     this.en = !language.startsWith('zh');
     this.entries = [];
     this.revision = 0;
@@ -57,7 +66,12 @@ export class TaskLogPanel {
     this.disposed = false;
     this.loadId = 0;
     this.state = { suggestions: [] };
-    this.root = element(doc, 'section', undefined, 'secondary-view task-log-view');
+    this.root = element(
+      doc,
+      'section',
+      undefined,
+      container ? 'embedded-task-logs' : 'secondary-view task-log-view',
+    );
     this.root.id = 'task-log-view';
     this.root.dataset.active = 'false';
     this.root.inert = true;
@@ -84,10 +98,56 @@ export class TaskLogPanel {
       if (this.follow) this.latest();
     };
     this.total = element(doc, 'span', undefined, 'small');
-    tools.append(this.total, this.pause);
+    this.search = element(doc, 'input');
+    this.search.type = 'search';
+    this.search.placeholder = this.t('搜索本次日志', 'Search these logs');
+    this.search.setAttribute('aria-label', this.search.placeholder);
+    this.search.oninput = () => this.render();
+    const copy = element(doc, 'button', this.t('复制日志', 'Copy logs'));
+    const save = element(doc, 'button', this.t('下载日志', 'Download logs'));
+    this.exportButtons = [copy, save];
+    for (const [button, run] of [
+      [copy, () => this.clipboard.writeText(this.exportText())],
+      [save, () => this.download(this.exportText())],
+    ]) {
+      button.type = 'button';
+      button.disabled = button === copy ? !this.clipboard?.writeText : !this.download;
+      button.onclick = async () => {
+        if (button.disabled) return;
+        this.exporting = true;
+        button.disabled = true;
+        try {
+          await run();
+          this.notice.textContent = this.t('日志已导出', 'Logs exported');
+        } catch {
+          this.notice.textContent = this.t(
+            '日志导出失败，请重试。',
+            'Log export failed. Try again.',
+          );
+        } finally {
+          this.exporting = false;
+          this.render();
+        }
+      };
+    }
+    const first = element(doc, 'button', this.t('回到开头', 'First entry'));
+    first.type = 'button';
+    first.onclick = () => {
+      this.follow = false;
+      this.viewport.scrollTop = 0;
+      this.renderControls();
+    };
+    const latest = element(doc, 'button', this.t('定位最新', 'Latest entry'));
+    latest.type = 'button';
+    latest.onclick = () => this.latest();
+    tools.append(this.search, this.total, first, latest, this.pause, copy, save);
     this.notice = element(doc, 'p', undefined, 'small task-log-notice');
     this.notice.setAttribute('role', 'status');
     this.notice.setAttribute('aria-live', 'polite');
+    this.retry = element(doc, 'button', this.t('重新读取日志', 'Reload logs'));
+    this.retry.type = 'button';
+    this.retry.hidden = true;
+    this.retry.onclick = () => this.open(this.row);
     this.viewport = element(doc, 'div', undefined, 'task-log-viewport');
     this.viewport.tabIndex = 0;
     this.viewport.setAttribute('role', 'region');
@@ -105,10 +165,11 @@ export class TaskLogPanel {
       this.lastScroll = this.viewport.scrollTop;
     };
     this.viewport.addEventListener('scroll', this.onScroll);
-    this.root.append(heading, this.summary, tools, this.notice, this.viewport);
-    doc.body.append(this.root);
+    if (!container) this.root.append(heading, this.summary);
+    this.root.append(tools, this.notice, this.retry, this.viewport);
+    (container || doc.body).append(this.root);
     this.onKey = (event) => {
-      if (this.active && event.key === 'Escape') {
+      if (!this.embedded && this.active && event.key === 'Escape') {
         event.preventDefault();
         event.stopImmediatePropagation();
         this.close();
@@ -126,7 +187,7 @@ export class TaskLogPanel {
       this.returnFocus = this.doc.activeElement;
       this.returnCardId = this.returnFocus?.closest('article[data-id]')?.dataset.id;
       this.returnAction = this.returnFocus?.dataset.action;
-      this.work = this.doc.getElementById('work-view');
+      this.work = this.embedded ? null : this.doc.getElementById('work-view');
       this.workWasInert = !!this.work?.inert;
       if (this.work) {
         this.work.inert = true;
@@ -142,8 +203,11 @@ export class TaskLogPanel {
     this.root.removeAttribute('inert');
     this.root.setAttribute('aria-hidden', 'false');
     this.notice.textContent = '';
+    this.loading = true;
+    this.retry.hidden = true;
+    this.root.setAttribute('aria-busy', 'true');
     this.render();
-    this.back.focus();
+    if (!this.embedded) this.back.focus();
     this.startTimer();
     const loadId = ++this.loadId;
     try {
@@ -156,9 +220,14 @@ export class TaskLogPanel {
         this.revision = revision;
       } else this.merge(value.entries);
       if (value.error) this.unavailable();
-      this.render();
     } catch {
       if (this.active && loadId === this.loadId) this.unavailable();
+    } finally {
+      if (this.active && !this.disposed && loadId === this.loadId) {
+        this.loading = false;
+        this.root.setAttribute('aria-busy', 'false');
+        this.render();
+      }
     }
   }
   update(state) {
@@ -206,9 +275,10 @@ export class TaskLogPanel {
     if (this.active) this.render();
   }
   unavailable() {
+    this.retry.hidden = false;
     this.notice.textContent = this.t(
-      '日志暂不可用，恢复连接后可重新打开。',
-      'Logs unavailable. Reopen after reconnecting.',
+      '日志暂不可用，请检查连接并重试。',
+      'Logs unavailable. Check the connection and retry.',
     );
   }
   renderControls() {
@@ -226,7 +296,10 @@ export class TaskLogPanel {
     this.summary.hidden = this.taskId === null;
     if (this.taskId === null) return;
     const row = this.row || {},
-      status = statuses[row.status] || ['任务', 'Task'];
+      status =
+        row.status === 'completed' && partial(row)
+          ? ['部分完成', 'Partially completed']
+          : statuses[row.status] || ['任务', 'Task'];
     this.taskTitle.textContent = row.title || this.t('当前任务', 'Current task');
     let step = '';
     if (activeStatuses.has(row.status)) {
@@ -285,19 +358,36 @@ export class TaskLogPanel {
   render() {
     this.renderSummary();
     this.renderControls();
-    const rows = this.entries.filter(
-      (row) => this.taskId === null || row.details?.task_id === this.taskId,
-    );
+    const rows = this.visibleEntries();
+    this.exportButtons.forEach((button, index) => {
+      button.disabled =
+        this.exporting ||
+        this.loading ||
+        !rows.length ||
+        (index === 0 ? !this.clipboard?.writeText : !this.download);
+    });
     this.total.textContent = this.t(`${rows.length} 条记录`, `${rows.length} entries`);
     const scroll = this.viewport.scrollTop;
     this.list.replaceChildren();
     if (!rows.length)
       this.list.append(
-        element(this.doc, 'p', this.t('暂无执行日志', 'No execution logs yet'), 'empty'),
+        element(
+          this.doc,
+          'p',
+          this.loading
+            ? this.t('正在读取执行日志…', 'Loading execution logs…')
+            : !this.retry.hidden
+              ? this.t('日志加载失败，请重试。', 'Log loading failed. Try again.')
+              : this.search.value
+                ? this.t('没有匹配的日志', 'No matching logs')
+                : this.t('暂无执行日志', 'No execution logs yet'),
+          'empty',
+        ),
       );
     for (const row of rows) {
       const card = element(this.doc, 'article', undefined, 'task-log-card');
       card.dataset.error = String(!!row.error);
+      card.dataset.level = this.level(row);
       card.dataset.logId = String(row.id);
       const header = element(this.doc, 'div', undefined, 'task-log-card-heading'),
         stamp = element(this.doc, 'time');
@@ -308,28 +398,115 @@ export class TaskLogPanel {
           : new Date(time * 1000).toLocaleTimeString(this.en ? 'en-GB' : 'zh-CN', {
               hour12: false,
             });
-      const [zh, en] = events.get(row.event);
-      header.append(element(this.doc, 'strong', this.t(zh, en)), stamp);
+      const [zh, en] = this.eventLabel(row);
+      const title = element(this.doc, 'strong', this.t(zh, en));
+      const level = element(
+        this.doc,
+        'span',
+        this.t(
+          ...{ info: ['信息', 'Info'], warning: ['警告', 'Warning'], error: ['错误', 'Error'] }[
+            this.level(row)
+          ],
+        ),
+        'task-log-level',
+      );
+      header.append(title, level, stamp);
       card.append(header);
-      const detail = row.details || {},
-        parts = [];
-      const step = count(detail.step_index),
-        duration = count(detail.duration_ms),
-        records = count(detail.count);
-      if (step !== null) parts.push(this.t(`第 ${step} 步`, `Step ${step}`));
-      for (const safe of [
-        stepDescription(detail.step_name),
-        identifier(detail.capability),
-        identifier(detail.provider),
-      ])
-        if (safe && !parts.includes(safe)) parts.push(safe);
-      if (records !== null) parts.push(this.t(`${records} 条`, `${records} rows`));
-      if (duration !== null) parts.push(`${(duration / 1000).toFixed(1)}s`);
+      const parts = this.description(row);
       if (parts.length) card.append(element(this.doc, 'p', parts.join(' · '), 'small'));
+      for (const node of [title, card.querySelector('p')].filter(Boolean)) this.highlight(node);
       this.list.append(card);
     }
     if (this.follow) this.latest();
     else this.viewport.scrollTop = scroll;
+  }
+  level(row) {
+    return row.error || row.event === 'execute_failed'
+      ? 'error'
+      : row.event === 'execute_stop' || (row.event === 'execute_complete' && partial(row.details))
+        ? 'warning'
+        : 'info';
+  }
+  eventLabel(row) {
+    return row.event === 'execute_complete' && partial(row.details)
+      ? ['部分完成', 'Partially completed']
+      : events.get(row.event);
+  }
+  description(row) {
+    const detail = row.details || {},
+      parts = [];
+    const step = count(detail.step_index),
+      duration = count(detail.duration_ms),
+      records = count(detail.count);
+    if (step !== null) parts.push(this.t(`第 ${step} 步`, `Step ${step}`));
+    for (const safe of [
+      stepDescription(detail.step_name),
+      identifier(detail.capability),
+      identifier(detail.provider),
+    ])
+      if (safe && !parts.includes(safe)) parts.push(safe);
+    if (records !== null) parts.push(this.t(`${records} 条`, `${records} rows`));
+    if (duration !== null) parts.push(`${(duration / 1000).toFixed(1)}s`);
+    const missing = integer(detail.missing),
+      tokens = integer(detail.tokens);
+    if (missing !== null && missing > 0) parts.push(this.t(`缺 ${missing} 项`, `${missing} gaps`));
+    if (tokens !== null)
+      parts.push(
+        `${tokens} tokens · ${
+          detail.estimated === true
+            ? this.t('估算', 'Estimated')
+            : detail.estimated === false
+              ? this.t('实际', 'Actual')
+              : this.t('来源未记录', 'Source not recorded')
+        }`,
+      );
+    return parts;
+  }
+  visibleEntries() {
+    const query = this.search.value.trim().toLocaleLowerCase();
+    return this.entries
+      .filter(
+        (row) =>
+          (this.taskId === null || row.details?.task_id === this.taskId) &&
+          (!query ||
+            [...this.eventLabel(row), ...this.description(row)]
+              .join(' ')
+              .toLocaleLowerCase()
+              .includes(query)),
+      )
+      .sort((a, b) => (count(a.time) || 0) - (count(b.time) || 0) || a.id - b.id);
+  }
+  highlight(node) {
+    const query = this.search.value.trim();
+    if (!query) return;
+    const text = node.textContent,
+      folded = text.toLocaleLowerCase(),
+      needle = query.toLocaleLowerCase();
+    node.replaceChildren();
+    let start = 0,
+      at;
+    while ((at = folded.indexOf(needle, start)) !== -1) {
+      node.append(
+        this.doc.createTextNode(text.slice(start, at)),
+        element(this.doc, 'mark', text.slice(at, at + query.length)),
+      );
+      start = at + query.length;
+    }
+    node.append(this.doc.createTextNode(text.slice(start)));
+  }
+  exportText() {
+    // 中文注释：复制与下载沿用屏幕上的安全投影，不输出日志中的参数、结果正文或任意异常。
+    return this.visibleEntries()
+      .map((row) =>
+        JSON.stringify({
+          id: row.id,
+          time: count(row.time),
+          event: row.event,
+          level: this.level(row),
+          message: [this.t(...this.eventLabel(row)), ...this.description(row)].join(' · '),
+        }),
+      )
+      .join('\n');
   }
   latest() {
     this.viewport.scrollTop = Math.max(0, this.viewport.scrollHeight - this.viewport.clientHeight);

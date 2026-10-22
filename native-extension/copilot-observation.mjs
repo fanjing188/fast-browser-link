@@ -41,7 +41,7 @@ function sensitiveField(field) {
     metadata,
   );
 }
-function visibleSignal(node) {
+function visibleSignal(node, requireLayout = true) {
   if (
     privateAccountNode(node) ||
     node.closest('[hidden],[aria-hidden="true"],[data-fast-automation-overlay]')
@@ -56,10 +56,11 @@ function visibleSignal(node) {
     )
       return false;
   }
+  if (!requireLayout) return true;
   const box = node.getBoundingClientRect();
   return box.width > 0 && box.height > 0;
 }
-export function safeText(node, limit = 220) {
+export function safeText(node, limit = 220, coverage) {
   if (!node || node.closest?.(controls) || privateAccountNode(node)) return '';
   // 中文注释：行文字只读可见文本节点；不能通过祖先 textContent 把文本域和编辑区的值带出去。
   const walk = node.ownerDocument.createTreeWalker(node, 4);
@@ -77,16 +78,12 @@ export function safeText(node, limit = 220) {
       )
     )
       continue;
-    const style = parent.ownerDocument.defaultView.getComputedStyle(parent);
-    if (
-      style.display === 'none' ||
-      style.visibility === 'hidden' ||
-      style.visibility === 'collapse'
-    )
-      continue;
+    if (!visibleSignal(parent, false)) continue;
     text += ' ' + current.textContent;
   }
-  return redactPageText(text).slice(0, limit);
+  const sanitized = redactPageText(text);
+  if (coverage && (current || sanitized.length > limit)) coverage.partial = true;
+  return sanitized.slice(0, limit);
 }
 export function describeEvent(event, doc) {
   if (['selectionchange', 'copy'].includes(event.type)) {
@@ -337,4 +334,103 @@ export function pageIdentity(page) {
       ),
     ].sort(),
   ]);
+}
+
+// 中文注释：显式采集与后台摘要共用隐私过滤；正文快照不保留任何可执行引用。
+export function captureMaterial(doc, url, mode = 'page') {
+  if (!ordinaryPage(url, doc.contentType)) throw Error('此页不支持内容读取');
+  if (mode === 'canvas') {
+    const canvases = [...doc.querySelectorAll('canvas')]
+      .filter((canvas) => {
+        if (
+          !visibleSignal(canvas) ||
+          canvas.closest(
+            `${controls},[data-private],[data-sensitive],[data-account],[data-profile]`,
+          )
+        )
+          return false;
+        const box = canvas.getBoundingClientRect();
+        return (
+          box.bottom > 0 &&
+          box.right > 0 &&
+          box.top < doc.defaultView.innerHeight &&
+          box.left < doc.defaultView.innerWidth
+        );
+      })
+      .slice(0, 3);
+    if (!canvases.length) throw Error('当前视图没有可读取的 Canvas 图表');
+    const materials = canvases.map((canvas, index) => {
+      if (!canvas.width || !canvas.height || canvas.width > 4096 || canvas.height > 4096)
+        throw Error('Canvas 图尺寸过大或为空，请导入较小的 PNG 图片');
+      let value;
+      try {
+        value = canvas.toDataURL('image/png');
+      } catch {
+        throw Error('Canvas 受跨源保护，无法读取；请导入有权使用的 PNG 图片');
+      }
+      if (!/^data:image\/png;base64,[A-Za-z0-9+/]+=*$/.test(value))
+        throw Error('Canvas 未返回有效 PNG 图片');
+      const image = value.slice('data:image/png;base64,'.length),
+        bytes = (image.length * 3) / 4 - (image.endsWith('==') ? 2 : image.endsWith('=') ? 1 : 0);
+      if (bytes > 150000) throw Error('Canvas 图片超过150KiB，请导入较小的 PNG 图片');
+      return {
+        kind: 'image',
+        title: `${redactPageText(doc.title).slice(0, 90)} · Canvas ${index + 1}`,
+        image,
+        source: safeURL(url),
+        partial: true,
+      };
+    });
+    return { materials };
+  }
+  if (mode === 'selection') {
+    const selection = selectedText(doc);
+    if (!selection?.text) throw Error('请先选择非输入区域的文字');
+    return {
+      kind: 'text_selection',
+      title: redactPageText(doc.title).slice(0, 120),
+      text: clipBytes(selection.text, 90000),
+      source: safeURL(url),
+      partial: true,
+    };
+  }
+  const roots = [...doc.querySelectorAll('main,article,[role="main"]')];
+  const root = roots[0] || doc.body;
+  const parts = [],
+    seen = new Set(),
+    coverage = { partial: false };
+  let bytes = 0,
+    partial = false,
+    scanned = 0;
+  for (const node of root.querySelectorAll(
+    'h1,h2,h3,h4,p,li,blockquote,pre,dt,dd,td,th,label,[role="alert"]',
+  )) {
+    if (++scanned > 5000) {
+      partial = true;
+      break;
+    }
+    if (!visibleSignal(node)) continue;
+    const value = safeText(node, 6000, coverage).trim();
+    if (!value || seen.has(value)) continue;
+    seen.add(value);
+    bytes += new TextEncoder().encode(value).length + 1;
+    if (bytes > 90000) {
+      partial = true;
+      break;
+    }
+    parts.push(value);
+  }
+  if (!parts.length) {
+    const fallback = safeText(root, 20000).trim();
+    if (fallback) parts.push(fallback);
+    partial = true;
+  }
+  if (!parts.length) throw Error('页面暂无可读取的正文');
+  return {
+    kind: 'page',
+    title: redactPageText(doc.title).slice(0, 120),
+    text: parts.join('\n'),
+    source: safeURL(url),
+    partial: partial || coverage.partial || roots.length > 1,
+  };
 }

@@ -1,4 +1,4 @@
-"""Hermes 五个 Vault 工具的模型不可见值适配层。
+"""Hermes 统一与旧版 Vault 工具的模型不可见值适配层。
 
 This module is deliberately not registered as a tool. The trusted host supplies
 (1) the Vault source, (2) a native-task binding resolver, and (3) a distinct
@@ -11,8 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import json
-import re
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Iterable, Mapping, Optional, Sequence, Tuple
 from urllib.parse import urlsplit
 
 
@@ -88,6 +87,15 @@ class VaultAdapter:
 
     def invoke(self, tool: str, args: Any, *, session_id: str = "") -> str:
         try:
+            unified = tool == "browser_vault"
+            if unified:
+                if not isinstance(args, dict) or not isinstance(args.get("action"), str):
+                    raise _Refused("invalid_arguments")
+                tool = "browser_vault_" + args["action"]
+                if tool not in TOOLS:
+                    raise _Refused("invalid_arguments")
+                # 中文注释：只转换动作名；字段仍走原来的逐动作白名单和私有传输。
+                args = {key: value for key, value in args.items() if key != "action"}
             if tool not in TOOLS:
                 raise _Refused("unsupported_tool")
             if not isinstance(args, dict):
@@ -95,6 +103,10 @@ class VaultAdapter:
             self._validate_args(tool, args)
             if tool == "browser_vault_list":
                 out = self._list()
+                if unified:
+                    for row in out.get("locked", []):
+                        if row.get("unlock") == "browser_vault_unlock":
+                            row["unlock"] = "browser_vault action=unlock"
             elif tool == "browser_vault_unlock":
                 out = self._unlock(args["backend"])
             elif tool == "browser_vault_fill":
@@ -208,7 +220,12 @@ class VaultAdapter:
         errors = raw.get("errors")
         if isinstance(errors, list):
             out["errors"] = [
-                {"backend": row.get("backend", "unknown"), "error": "backend unavailable"}
+                {
+                    "backend": row["backend"]
+                    if isinstance(row.get("backend"), str) and _safe_metadata(row["backend"])
+                    else "unknown",
+                    "error": "backend unavailable",
+                }
                 for row in errors
                 if isinstance(row, dict)
             ]
@@ -282,6 +299,7 @@ class VaultAdapter:
                     isinstance(row, dict) and row.get("tabId") == tab_id for row in task["workTabs"]
                 )
                 and tab_id not in task.get("adoptedPopupTabIds", [])
+                and tab_id not in task.get("attachedTabIds", [])
             )
             or not isinstance(task.get("allowedOrigins"), list)
         ):

@@ -338,6 +338,7 @@ _RESULT_TASK = {
     "allowedOrigins": [None],
     "tabIds": [None],
     "adoptedPopupTabIds": [None],
+    "attachedTabIds": [None],
     "workTabs": [_scalar_fields("tabId windowId groupId state")],
     "pendingInteraction": _scalar_fields("kind count"),
     "popupClosed": _scalar_fields("returnedTo"),

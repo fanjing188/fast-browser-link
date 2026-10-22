@@ -193,6 +193,8 @@ def rpc(work: Path, session: str, suffix: str, args: dict):
     manager = plugins.PluginManager()
     manager._hooks.setdefault("pre_tool_call", []).append(profile.authority.pre_tool_call)
     name = "fast_browser_" + suffix
+    if suffix == "open":
+        profile.authority.lease_tools((name,))
     try:
         with patch.object(plugins, "_delivery_manager", return_value=manager):
             result = _invoke(plugins, tools, profile, name, args, session)
@@ -209,6 +211,23 @@ def _invoke(plugins, tools, profile, name: str, args: dict, session: str):
     )
     if block:
         raise RuntimeError(str(block))
+    if name == "fast_browser_open":
+        # 中文注释：真实 open 必须完成脚本当前页绑定，不用合成接管回执替代执行链。
+        runtime = tools.runtime_module()
+        root = profile.plugin_root
+        module = load(root / "open_tool.py", "existing_tab_open_" + uuid.uuid4().hex)
+        bridge_module = load(
+            root / "script_lane/host_bridge.py", "existing_tab_bridge_" + uuid.uuid4().hex
+        )
+        bridge = bridge_module.HostBridge(profile, root)
+        try:
+            return json.loads(
+                module.make_handler(profile, bridge, lease_error=runtime.OwnerLeaseError)(
+                    bounded, session_id=session
+                )
+            )
+        finally:
+            bridge.close()
     return json.loads(tools.make_tool_handler(name, profile)(bounded, session_id=session))
 
 

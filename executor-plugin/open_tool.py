@@ -25,11 +25,14 @@ SCHEMA = {
         "等待授权、绑定会话并打开工作标签页。同源默认复用当前工作页；new_task=true 才新建任务。"
         "回执默认含可直接用于 ref 动作的摘要，read_intent=content 读正文，interactive 读控件；loading 时 summary_missing.reason=page_loading，按 read_hint 在原页有界等待后读取。多步页面操作用一次 fast_browser_script，"
         "单步用 fast_browser_run；同一页不要混用 browser_exec。"
+        "existing_tab=true 直接接管已打开的页面，不刷新、不导航；省略 url 选择浏览器当前页，"
+        "提供 url 则精确匹配已有页（多页匹配会拒绝）。任务结束保留用户原页。"
     ),
     "parameters": {
         "type": "object",
         "properties": {
             "url": {"type": "string", "minLength": 1, "maxLength": 4096},
+            "existing_tab": {"type": "boolean", "description": "显式接管已有标签页；默认 false。"},
             "title": {"type": "string", "minLength": 1, "maxLength": 256},
             "instance_id": {"type": "string", "minLength": 1, "maxLength": 256},
             "incognito": {
@@ -53,7 +56,7 @@ SCHEMA = {
                 "description": "摘要的目标 CSS 区域。",
             },
         },
-        "required": ["url"],
+        "required": [],
         "additionalProperties": False,
     },
 }
@@ -210,7 +213,8 @@ def make_handler(runtime, host_bridge, *, lease_error, clock=time.monotonic, sle
         except lease_error:
             return _error("缺少可信会话身份，已拒绝。", "session_identity_required")
         # 中文注释：schema 新字段也在宿主校验，错误仅返回字段名。
-        if "url" not in args:
+        attaching = args.get("existing_tab") is True
+        if "url" not in args and not attaching:
             return _error("缺少必填字段。", "missing_fields", fields=["url"])
         invalid = []
         for key, spec in SCHEMA["parameters"]["properties"].items():
@@ -231,8 +235,12 @@ def make_handler(runtime, host_bridge, *, lease_error, clock=time.monotonic, sle
             return _error("参数不符合契约。", "invalid_fields", fields=sorted(invalid))
         url = args.get("url")
         origin = _origin(url) if isinstance(url, str) else None
-        if origin is None:
+        if origin is None and (not attaching or "url" in args):
             return _error("仅支持 http/https 网址，且不能包含账号密码。", "invalid_url")
+        if attaching and args.get("new_task") is True:
+            return _error(
+                "接管已有页不能同时要求另建工作页。", "invalid_fields", fields=["new_task"]
+            )
         owner = lease.owner
         try:
             rows = runtime.call("browser.list", {})
@@ -272,7 +280,7 @@ def make_handler(runtime, host_bridge, *, lease_error, clock=time.monotonic, sle
             bound = host_bridge._bindings.get(session_id) if session_id else None
             task = None
             created_task = False
-            if bound and bound[0] == owner and args.get("new_task") is not True:
+            if not attaching and bound and bound[0] == owner and args.get("new_task") is not True:
                 current = runtime.call("shared.get", {"owner": owner, "taskId": bound[1]})
                 if (
                     isinstance(current, dict)
@@ -282,7 +290,7 @@ def make_handler(runtime, host_bridge, *, lease_error, clock=time.monotonic, sle
                     and origin in (current.get("allowedOrigins") or [])
                 ):
                     task = current
-            if task is None and args.get("new_task") is not True:
+            if not attaching and task is None and args.get("new_task") is not True:
                 # 等待授权的任务尚未绑定会话；重试时从当前 owner 的任务中复用它。
                 existing = runtime.call("shared.list", {"owner": owner})
                 matches = [
@@ -303,10 +311,12 @@ def make_handler(runtime, host_bridge, *, lease_error, clock=time.monotonic, sle
                     "shared.create",
                     {
                         "owner": owner,
-                        "title": args.get("title") or f"浏览 {origin}",
+                        "title": args.get("title")
+                        or ("接管已有页面" if attaching else f"浏览 {origin}"),
                         "instanceId": instance_id,
-                        "allowedOrigins": [origin],
+                        "allowedOrigins": [origin] if origin else [],
                         "incognito": args.get("incognito", False),
+                        **({"existingTab": {"url": url} if url else {}} if attaching else {}),
                     },
                 )
                 task = created
@@ -350,7 +360,29 @@ def make_handler(runtime, host_bridge, *, lease_error, clock=time.monotonic, sle
 
             opened = None
             reused = False
-            if not created_task:
+            if attaching:
+                # 中文注释：只绑定宿主核实的接管页，不能退回开页或导航而丢失草稿状态。
+                tabs = runtime.call(
+                    "shared.run",
+                    {
+                        "owner": owner,
+                        "taskId": task["id"],
+                        "requestId": lease.tool_call_id + "-tabs",
+                        "action": "tabs",
+                    },
+                )
+                matches = [row for row in tabs if row.get("id") in task.get("attachedTabIds", [])]
+                if len(matches) != 1:
+                    return _error(
+                        "接管页资格已变化；请检查原任务，不要另开页面。",
+                        "attachment_unavailable",
+                        task_id=task["id"],
+                    )
+                url = matches[0]["url"]
+                origin = _origin(url)
+                opened = {"tabId": matches[0]["id"], "url": url}
+                reused = True
+            elif not created_task:
                 # 中文注释：只选择本任务工作页；当前绑定页优先，旧页仍须经守护进程导航校验。
                 owned = {
                     row.get("tabId") for row in task.get("workTabs", []) if isinstance(row, dict)
@@ -498,6 +530,7 @@ def make_handler(runtime, host_bridge, *, lease_error, clock=time.monotonic, sle
             "instance_id": instance_id,
             "incognito": task.get("incognito", False),
             "sessionBinding": "ready",
+            **({"attached": True} if attaching else {}),
         }
         # 中文注释：会话拥有的任务工作页一起计数；复用既有页面不会增加计数。
         result["open_tabs"] = opened.get("open_tabs", task.get("open_tabs", 0))

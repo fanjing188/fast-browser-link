@@ -108,6 +108,11 @@ export function renderGenericTable(doc, content, row, { command, clipboard } = {
       `显示 ${visible.length} 条 · 已选 ${state.selected.size} 条`,
       `${visible.length} shown · ${state.selected.size} selected`,
     );
+    if (row.preview_truncated)
+      count.textContent += t(
+        ` · 预览 ${records.length} / 总 ${row.result_total_records} 条；完整文件见产物`,
+        ` · Preview ${records.length} / ${row.result_total_records} total; see artifacts for complete files`,
+      );
   };
   for (const column of spec.columns) {
     const th = node('th'),
@@ -153,37 +158,48 @@ export function renderGenericTable(doc, content, row, { command, clipboard } = {
     };
     toolbar.append(value);
   };
-  button(t('复制表格', 'Copy table'), async () => {
-    await clipboard.writeText(
-      [
-        spec.columns.map(label).join('\t'),
-        ...indices().map((index) =>
-          spec.columns
-            .map(({ field }) =>
-              genericCell(fieldValue(records[index], field), language)
-                .replaceAll('\t', ' ')
-                .replaceAll('\n', ' '),
-            )
-            .join('\t'),
-        ),
-      ].join('\n'),
-    );
-    notice.textContent = t('已复制', 'Copied');
-  });
+  button(
+    row.preview_truncated ? t('复制预览', 'Copy preview') : t('复制表格', 'Copy table'),
+    async () => {
+      await clipboard.writeText(
+        [
+          spec.columns.map(label).join('\t'),
+          ...indices().map((index) =>
+            spec.columns
+              .map(({ field }) =>
+                genericCell(fieldValue(records[index], field), language)
+                  .replaceAll('\t', ' ')
+                  .replaceAll('\n', ' '),
+              )
+              .join('\t'),
+          ),
+        ].join('\n'),
+      );
+      notice.textContent = t('已复制', 'Copied');
+    },
+  );
   const exportTable = async () => {
     const result = await command('export_results', { id: row.id, rows: indices() });
     if (result.error) throw Error(result.error);
     return result;
   };
-  button(t('导出 CSV', 'Export CSV'), async () => {
-    await exportTable();
-    notice.textContent = t('已导出', 'Exported');
-  });
-  button(t('加入工作篮', 'Add to basket'), async () => {
-    const exported = await exportTable();
-    await command('basket_add', { items: [{ type: 'table', value: exported.id }] });
-    notice.textContent = t('已加入工作篮', 'Added to basket');
-  });
+  button(
+    row.preview_truncated ? t('导出预览 CSV', 'Export preview CSV') : t('导出 CSV', 'Export CSV'),
+    async () => {
+      await exportTable();
+      notice.textContent = t('已导出', 'Exported');
+    },
+  );
+  button(
+    row.preview_truncated
+      ? t('预览加入工作篮', 'Add preview to basket')
+      : t('加入工作篮', 'Add to basket'),
+    async () => {
+      const exported = await exportTable();
+      await command('basket_add', { items: [{ type: 'table', value: exported.id }] });
+      notice.textContent = t('已加入工作篮', 'Added to basket');
+    },
+  );
   search.oninput = () => {
     state.query = search.value;
     drawRows();

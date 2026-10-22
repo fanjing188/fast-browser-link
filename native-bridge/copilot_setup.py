@@ -60,9 +60,17 @@ def setup(directory, source=None, overrides=None):
                 pending.unlink()
             records[target.name] = {"version": "sha256:" + digest[:12], "sha256": digest}
         else:
+            if pending.exists() and hashlib.sha256(pending.read_bytes()).hexdigest() not in {
+                previous.get("pending_sha256"),
+                digest,
+            }:
+                # 中文注释：候选文件也可能被用户编辑；保留未知内容，不能借模板升级覆盖它。
+                records[target.name] = {**previous, "pending_conflict": True}
+                continue
             private_write(pending, content)
             records[target.name] = {
                 **previous,
+                "pending_conflict": False,
                 "pending_version": "sha256:" + digest[:12],
                 "pending_sha256": digest,
             }

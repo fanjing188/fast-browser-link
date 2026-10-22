@@ -257,12 +257,13 @@ test('升级实现版本后重新创建实例并撤销旧引用', async () => {
         17,
       );
     const first = await call(),
+      version = f.w.__fastNativeSemanticsV2.version,
       old = f.w.__fastNativeSemanticsV2.semantics;
     f.w.__fastNativeSemanticsV2.version = 4;
     const next = await call();
     assert.notEqual(next.items[0].ref, first.items[0].ref);
     assert.throws(() => old.snapshot(), /LEASE_REVOKED/);
-    assert.equal(f.w.__fastNativeSemanticsV2.version, 10);
+    assert.equal(f.w.__fastNativeSemanticsV2.version, version);
     assert.ok(next.items[0].actions.includes('click'));
   } finally {
     f.close();

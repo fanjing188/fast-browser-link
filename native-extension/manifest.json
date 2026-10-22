@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "incognito": "spanning",
   "name": "Fast-browser-link",
-  "version": "2.2.1",
+  "version": "2.3.0",
   "permissions": [
     "nativeMessaging",
     "debugger",

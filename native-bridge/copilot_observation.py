@@ -209,6 +209,7 @@ class ObservationSupport:
             key: row
             for key, row in state["suggestions"].items()
             if row.get("work_id", state["work_id"]) == state["work_id"]
+            and not row.get("capture_required")
         }
         statuses = {key: row["status"] for key, row in rows.items()}
         status_changes = {
@@ -245,6 +246,19 @@ class ObservationSupport:
             or state["work_revision"]
         ):
             payload["work_context"] = copy.deepcopy(work)
+        candidates = [
+            {
+                "id": row["id"],
+                "task": row.get("task_type", row["action"]),
+                "why": row.get("why", ""),
+                "subject": row.get("subject_kind", "business_object"),
+                "state": row.get("recommendation_state", "ready"),
+            }
+            for row in rows.values()
+            if row["status"] == "pending"
+        ][:20]
+        if candidates != state.get("sent_candidates", []):
+            payload["candidates"] = candidates
         payload["result_updates"] = [
             item for item in state["result_updates"] if item not in state["sent_results"]
         ]
@@ -258,4 +272,9 @@ class ObservationSupport:
                 payload["page_delta"] = delta
         from copilot_diagnostics import redact_page
 
-        return redact_page(payload), statuses
+        redacted = redact_page(payload)
+        if "candidates" in payload:
+            # 中文注释：候选身份由宿主生成，不能被正文的数字脱敏规则改写；其余描述仍脱敏。
+            for original, projected in zip(payload["candidates"], redacted["candidates"]):
+                projected["id"] = original["id"]
+        return redacted, statuses

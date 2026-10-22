@@ -327,9 +327,18 @@ class Stopped(ValueError):
 
 class Registry:
     def __init__(
-        self, packages, directory, write, validate, browser=None, hermes=None, work_memory=None
+        self,
+        packages,
+        directory,
+        write,
+        validate,
+        browser=None,
+        hermes=None,
+        work_memory=None,
+        clock=None,
     ):
         self.packages = packages
+        self.clock = clock or time.time
         self.schemas = {**CAPABILITIES, **packages.schemas}
         self.directory = Path(directory)
         self.write = write
@@ -387,7 +396,8 @@ class Registry:
             ),
         )
 
-    def structural(self, binding, context=None, recheck_page=False):
+    def structural(self, binding, context=None, recheck_page=False, *, now=None):
+        now = self.clock() if now is None else now
         entry = self.memory["disabled"].get(binding.get("serial_group") or binding["id"], {})
         if self.disabled(binding) and not (
             recheck_page and entry.get("reason") == "scope_or_page_unavailable"
@@ -396,7 +406,17 @@ class Registry:
         if binding.get("browser") and binding["browser"] != (context or {}).get("browser"):
             return "wrong_browser"
         if binding["type"] == "mcp":
-            return "available" if Path(binding["config_path"]).is_file() else "missing_command"
+            if not Path(binding["config_path"]).is_file():
+                return "missing_command"
+            from copilot_recommendations import HEALTH_TTL, metadata_current
+
+            if not metadata_current(self.directory, binding, now):
+                return "needs_metadata_refresh"
+            return (
+                "available"
+                if metadata_current(self.directory, binding, now, ttl=HEALTH_TTL)
+                else "needs_mcp_check"
+            )
         if binding["type"] == "command":
             status = command_status(binding["argv"])
             if status != "available":
@@ -425,7 +445,19 @@ class Registry:
             binding.get("link")
         ):
             return "needs_route_confirmation"
-        return self.health.get(binding["id"], {}).get("status", "needs_browser_check")
+        from copilot_recommendations import HEALTH_TTL, binding_revision, health_scope
+
+        health = self.health.get(binding["id"], {})
+        checked = health.get("checked_at", 0)
+        if not isinstance(checked, (int, float)) or not 0 <= now - checked <= HEALTH_TTL:
+            return "needs_browser_check"
+        if health.get("implementation_revision") and health[
+            "implementation_revision"
+        ] != binding_revision(binding):
+            return "needs_browser_check"
+        if health.get("scope") and health["scope"] != health_scope(context):
+            return "needs_browser_check"
+        return health.get("status", "needs_browser_check")
 
     def inspect(self, context=None):
         return {
@@ -531,6 +563,7 @@ class Registry:
             for object_value, reason in matches.items():
                 rows.append(
                     {
+                        **self.packages.task_descriptor(identity),
                         "id": identity,
                         "action": "workflow.run",
                         "scene": self.packages.scenes.get(
@@ -544,6 +577,17 @@ class Registry:
                         "params": {"flow": identity, "object": object_value},
                         "missing_capabilities": missing,
                         "available": not missing,
+                        "recommendation_state": "blocked" if missing else "ready",
+                        "reason_codes": [
+                            "verified_followup"
+                            if reason.startswith(("接续流程：", "Next after: "))
+                            else "page_trigger",
+                            "capability_missing" if missing else "capability_ready",
+                        ],
+                        "subject_kind": "business_object",
+                        "from_result": reason.startswith(("接续流程：", "Next after: ")),
+                        "result_verified": reason.startswith(("接续流程：", "Next after: ")),
+                        "evidence_at": self.clock(),
                         "score": ranking,
                         "tool": current["tool"],
                         "page": current["page"],
@@ -1026,10 +1070,15 @@ class Registry:
                         "blocked"
                     ) in binding.get("disable_on", ["login", "captcha", "quota", "rate_limit"]):
                         self.disable(binding, result["blocked"])
+                    from copilot_recommendations import binding_revision, health_scope
+
                     self.health[binding["id"]] = {
+                        "implementation_revision": binding_revision(binding),
+                        "scope": health_scope(context),
+                        "checked_at": self.clock(),
                         "status": "available"
                         if result.get("ready") is True
-                        else result.get("blocked", "needs_login_or_readable_report")
+                        else result.get("blocked", "needs_login_or_readable_report"),
                     }
                 except (ValueError, OSError, KeyError, TypeError):
                     self.health[binding["id"]] = {"status": "probe_unavailable"}

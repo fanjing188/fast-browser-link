@@ -7,6 +7,7 @@ this module never uses the normal bridge RPC or page-script APIs.
 
 from __future__ import annotations
 
+
 import importlib.util
 import importlib
 import inspect
@@ -201,7 +202,7 @@ class NativeVaultPrivatePort:
 
 
 class VaultBindingRegistry:
-    """Only a current daemon workTab may become the host Vault target."""
+    """Only a current daemon-authorized tab may become the host Vault target."""
 
     def __init__(self, runtime, private_port):
         self.runtime = runtime
@@ -230,11 +231,19 @@ class VaultBindingRegistry:
             raise ValueError("Vault owner mismatch")
         task = _valid_task(self.runtime, owner, task_id)
         rows = task["workTabs"]
-        eligible = [row["tabId"] for row in rows] + task.get("adoptedPopupTabIds", [])
+        eligible = [
+            tab
+            for tab in (
+                [row["tabId"] for row in rows]
+                + task.get("adoptedPopupTabIds", [])
+                + task.get("attachedTabIds", [])
+            )
+            if tab in task["tabIds"]
+        ]
         if tab_id is not None and (
             type(tab_id) is not int or tab_id not in task["tabIds"] or tab_id not in eligible
         ):
-            raise ValueError("Vault target is not a daemon workTab")
+            raise ValueError("Vault target is not a daemon-authorized tab")
         with self._guard:
             # 中文注释：只共享任务/页选择元信息；切页时撤销旧私有 nonce，不复用凭据检查。
             previous = self._task_bindings.get(session_id, {}).get(task_id)
@@ -304,6 +313,7 @@ class VaultBindingRegistry:
             or (
                 not any(row["tabId"] == tab_id for row in work_tabs)
                 and tab_id not in task.get("adoptedPopupTabIds", [])
+                and tab_id not in task.get("attachedTabIds", [])
             )
         ):
             return None
@@ -373,7 +383,19 @@ def register_vault_overrides(ctx, profile_runtime, bindings, adapter, *, lease_a
     from tools.registry import registry
 
     importlib.import_module("tools.browser_vault_tool")
-    profile_runtime.authority.lease_tools(VAULT_TOOL_NAMES, passthrough=True)
+    unified = registry.get_entry("browser_vault")
+    names = (("browser_vault",) if unified is not None else ()) + VAULT_TOOL_NAMES
+    originals = {name: registry.get_entry(name) for name in names}
+    if unified is not None:
+        originals = {name: entry for name, entry in originals.items() if entry is not None}
+    # 中文注释：先核完整合同再覆盖，缺失旧工具不能留下半注册状态。
+    if any(entry is None for entry in originals.values()):
+        raise RuntimeError("official Vault tool unavailable")
+    if any(entry.is_async for entry in originals.values()):
+        # 中文注释：当前官方新旧合同均同步；遮盖提示与解锁归属依赖原线程，未知异步合同先安全拒绝。
+        raise RuntimeError("async Vault contract unsupported")
+    ctx.on_unload(bindings.close)
+    profile_runtime.authority.lease_tools(tuple(originals), passthrough=True)
     registered = []
 
     def accepted(handler, values):
@@ -382,13 +404,13 @@ def register_vault_overrides(ctx, profile_runtime, bindings, adapter, *, lease_a
             return values
         return {key: value for key, value in values.items() if key in parameters}
 
-    for name in VAULT_TOOL_NAMES:
-        original = registry.get_entry(name)
-        if original is None or original.is_async:
-            raise RuntimeError("official Vault tool unavailable")
+    for name, original in originals.items():
+        assert original is not None
         # 中文注释：保留原工具的分类、可用性与参数，只补充已绑定任务的可选请求编号。
         schema = json.loads(json.dumps(original.schema))
-        request_id = VAULT_TOOL_SCHEMAS[name]["parameters"]["properties"].get("request_id")
+        request_id = VAULT_TOOL_SCHEMAS["browser_vault_fill" if name == "browser_vault" else name][
+            "parameters"
+        ]["properties"].get("request_id")
         if request_id is not None:
             schema.setdefault("parameters", {}).setdefault("properties", {})["request_id"] = (
                 request_id
@@ -430,6 +452,7 @@ def register_vault_overrides(ctx, profile_runtime, bindings, adapter, *, lease_a
             toolset=original.toolset,
             schema=schema,
             handler=handler,
+            is_async=original.is_async,
             check_fn=check_fn,
             requires_env=list(original.requires_env or []),
             description=original.description,
@@ -437,5 +460,4 @@ def register_vault_overrides(ctx, profile_runtime, bindings, adapter, *, lease_a
             override=True,
         )
         registered.append(name)
-    ctx.on_unload(bindings.close)
     return tuple(registered)

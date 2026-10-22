@@ -125,6 +125,22 @@ class FakeRuntime:
 
 
 class SingleToolAdapterTests(unittest.TestCase):
+    def test_attached_user_page_can_execute_but_is_not_task_created(self):
+        runtime = FakeRuntime()
+        runtime.task.update(agentTabIds=[], workTabs=[], attachedTabIds=[12])
+        adapter = SingleToolAdapter(runtime)
+        adapter.bind("session-a", "task-native", tab_id=12)
+        snap = json.loads(
+            adapter.dispatch(
+                "browser_snapshot", {}, session_id="session-a", tool_call_id="attach-read"
+            )
+        )
+        self.assertIn("Save", snap["snapshot"])
+        self.assertEqual(adapter._agent_tabs(runtime.task), [])
+        runtime.task["tabIds"] = []
+        with self.assertRaises(Exception):
+            adapter.bind("session-a", "task-native", tab_id=12)
+
     def test_complex_ui_snapshot_and_relocation_survive_official_adapter(self):
         # 中文注释：原生语义回执经官方工具适配后保留 canvas 数量、推断标记和重定位。
         runtime = FakeRuntime()

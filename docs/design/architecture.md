@@ -77,6 +77,8 @@ For wire-level details see [protocol.md](protocol.md).
 
 ## Task-group cleanup
 
+显式原页接管通过 `fast_browser_open(existing_tab=true)` → `shared.create(existingTab)` → `browser.select_existing_tab` 选择当前页或唯一精确 URL。模型不能指定原页编号。宿主保存私有 `attachment` 与连接代次，只向可信扩展传递安装证据；公开 `attachedTabIds` 只用于现有会话/脚本执行入口的操作资格，仍须与 `tabIds` 相交。扩展安装租约前后核实同一 URL/上下文，工作区在原窗口记录保护基线，不建立新首页，也不把原页加入 `agentTabIds` / `workTabs`。旧任务不自动恢复该选择，必须重新显式接管。
+
 Workspace ownership is persisted in `chrome.storage.local`, so extension reloads retain cleanup evidence. The top-level `runtime.onStartup` listener revokes old baselines synchronously and persists that revocation behind a startup barrier; journal initialization checks the startup epoch before accepting a read. Browser-restart records never authorize closing reused tab IDs. Removal also checks group/window identity and the recorded group title, and preserves baseline/protected tabs and tabs moved by the user.
 
 Release fences execution before cleanup and remains bounded. If an in-flight tab lock exceeds the deadline, one cleanup is queued after the outstanding locks settle. Unknown ownership never authorizes deletion. For terminal tasks, the daemon can request non-destructive ungrouping using its recorded `workTabs` and task title, including after extension hello; every page is revalidated under its tab lock. Such results remain `unknown` (`ungrouped_unverified` when pages were ungrouped). `needs_sync` keeps its group for recovery. Chrome does not provide atomic compare-and-remove/ungroup; the final API dispatch race remains.

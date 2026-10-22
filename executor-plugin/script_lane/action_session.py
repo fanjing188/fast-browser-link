@@ -169,7 +169,7 @@ class ActionSession:
             time.sleep(min(0.25, remaining))
 
     def use_tab(self, tab_id):
-        """中文注释：只接受本任务创建且仍被租用的工作页，不使用浏览器活动页。"""
+        """中文注释：只接受本任务创建或显式接管且仍有租约的页，不跟随浏览器活动页。"""
         if self._unknown or self._pending is not None:
             raise PendingAction("reconcile or resolve pending action before changing tabs")
         task = self._runtime.call("shared.get", {"owner": self._owner, "taskId": self._task_id})
@@ -178,6 +178,7 @@ class ActionSession:
             task = self._runtime.call("shared.get", {"owner": self._owner, "taskId": self._task_id})
         owned = [row.get("tabId") for row in task.get("workTabs", []) if isinstance(row, dict)]
         owned += task.get("adoptedPopupTabIds", [])
+        owned += task.get("attachedTabIds", [])
         if (
             type(tab_id) is not int
             or tab_id not in owned

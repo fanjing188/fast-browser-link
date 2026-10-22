@@ -115,7 +115,7 @@ def tool_schema():
                 "operation": {"type": "string", "enum": list(METHODS)},
                 "params": {
                     "type": "object",
-                    "description": "Native 参数；script: taskId, code(Python), timeout(1..3600 秒), 可选 tabId/resume_checkpoint。helpers: new_tab, use_tab, read_page, click_element, fill_element, semantic_snapshot, evaluate, wait_pending, reconcile；变量不延续，文件延续，检查 execution_complete。site_search: query/limit；site_run: taskId, site, name, args, timeout_s。create 可用 incognito=true，需无痕权限；禁止指定 owner。",
+                    "description": "Native 参数；script: taskId, code(Python), timeout(1..3600 秒), 可选 tabId/resume_checkpoint。helpers: new_tab, use_tab, read_page, click_element, fill_element, semantic_snapshot, evaluate, wait_pending, reconcile；变量不延续，文件延续，检查 execution_complete。site_search: query/limit；site_run: taskId, site, name, args, timeout_s。create 可用 incognito=true，需无痕权限；existingTab={} 显式接管当前页，existingTab={url:完整网址} 接管唯一精确匹配页，无需 allowedOrigins；ready 后读取 attachedTabIds，直接 run/script，不调用 new_tab，结束保留原页；禁止指定 owner 或原页 tabId。",
                 },
             },
             "required": ["operation"],

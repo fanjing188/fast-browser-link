@@ -934,6 +934,17 @@ export class Executor {
   this.approvalQueue=next.catch(()=>{});
   return next;
  }
+ async selectExistingTab(p){
+  if(!p||Object.keys(p).some(key=>!['url','incognito'].includes(key))||typeof p.incognito!=='boolean'||(p.url!==undefined&&(typeof p.url!=='string'||!p.url||p.url.length>4096)))throw Error('ATTACH_UNAVAILABLE');
+  // 中文注释：只接收当前页或精确 URL，模型不能用任意标签编号声明操作权。
+  const tabs=await this.api.tabs.query(p.url===undefined?{active:true,lastFocusedWindow:true}:{});
+  const candidates=tabs.filter(tab=>!!tab.incognito===p.incognito&&(p.url===undefined||tab.url===p.url));
+  if(candidates.length>1)throw Error('ATTACH_AMBIGUOUS');
+  const tab=candidates[0];
+  let parsed;try{parsed=new URL(tab?.url);}catch{throw Error('ATTACH_UNAVAILABLE');}
+  if(!Number.isInteger(tab.id)||!['http:','https:'].includes(parsed.protocol)||parsed.username||parsed.password||(tab.pendingUrl&&tab.pendingUrl!==tab.url))throw Error('ATTACH_UNAVAILABLE');
+  return {tabId:tab.id,url:tab.url,incognito:!!tab.incognito};
+ }
  async installApproval(task,stillValid) {
   if(!stillValid())throw Error('approval disconnected');
   if(!task||typeof task.id!=='string'||!Number.isInteger(task.generation))throw Error('invalid task');
@@ -951,6 +962,7 @@ export class Executor {
    const tabs=await Promise.all(ids.map(id=>this.api.tabs.get(id)));
    if(!stillValid())throw Error('approval disconnected');
    for(const tab of tabs){if(!!tab.incognito!==!!task.incognito)throw Error('browser context mismatch');this.allowed(task,tab.url);}
+   if(task.attachment&&(ids.length!==1||ids[0]!==task.attachment.tabId||tabs[0].url!==task.attachment.url||(tabs[0].pendingUrl&&tabs[0].pendingUrl!==tabs[0].url)))throw Error('ATTACH_UNAVAILABLE');
    const current=this.tasks.get(task.id);
    if(current&&current!==existing&&(!current.revoked||current.releasing))throw Error('task already active or releasing');
    for(const id of ids)if(this.leases.has(id)&&this.leases.get(id)!==task.id)throw Error('tab claimed');
@@ -970,6 +982,8 @@ export class Executor {
     t.workspaceCapability=await this.workspaces.install(t,t.workspaceTabs);
     if(!stillValid())throw Error('approval disconnected');
    }
+   // 中文注释：保存保护基线期间也可能导航；发布租约前重新核实同一原页，绝不刷新它。
+   if(task.attachment){const tab=await this.api.tabs.get(ids[0]);if(!stillValid()||tab.url!==task.attachment.url||!!tab.incognito!==!!task.incognito||(tab.pendingUrl&&tab.pendingUrl!==tab.url))throw Error('ATTACH_UNAVAILABLE');}
    this.tasks.set(task.id,t);for(const id of ids)this.leases.set(id,t.id);
    queueMicrotask(()=>{for(const id of ids)void this.restoreOverlay(t,id);});
    return t;

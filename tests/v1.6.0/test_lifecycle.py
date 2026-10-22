@@ -63,6 +63,188 @@ class LifecycleTests(unittest.TestCase):
         task.update(state="needs_sync", lastActivityAt=1, createdAt=1, workTabs=[])
         return task
 
+    def test_attach_resolves_browser_selected_page_without_cleanup_ownership(self):
+        calls = []
+
+        def browser(_extension, method, params, **_):
+            calls.append((method, params))
+            if method == "browser.execute":
+                return []
+            return {"tabId": 17, "url": "https://example.test/draft", "incognito": False}
+
+        self.daemon._extension_call = browser
+        result = self.daemon._create_task(
+            {
+                "owner": "fixture-owner",
+                "title": "接管",
+                "instanceId": "fixture",
+                "existingTab": {},
+            }
+        )
+        self.assertEqual(calls, [("browser.select_existing_tab", {"incognito": False})])
+        self.assertEqual(result["allowedOrigins"], ["https://example.test"])
+        self.assertNotIn("attachment", result)
+        task = self.daemon.tasks[result["id"]]
+        approved = self.daemon._dispatch_extension(
+            "fixture",
+            "extension.approve",
+            {
+                "taskId": task["id"],
+                "generation": 1,
+                "tabIds": [17],
+                "allowedOrigins": task["allowedOrigins"],
+                "workspaceOnly": False,
+            },
+        )
+        self.assertEqual(approved["attachedTabIds"], [17])
+        self.assertEqual(approved["state"], "authorizing")
+        with self.assertRaises(ProtocolError) as caught:
+            self.daemon._run_task(
+                {
+                    "owner": "fixture-owner",
+                    "taskId": task["id"],
+                    "requestId": "before-install",
+                    "action": "tabs",
+                }
+            )
+        self.assertEqual(caught.exception.code, "task_preparing")
+        self.assertEqual(len(calls), 1)
+        ready = self.daemon._dispatch_extension(
+            "fixture",
+            "extension.mode",
+            {
+                "taskId": task["id"],
+                "generation": 1,
+                "modeGeneration": 1,
+                "mode": "full",
+            },
+        )
+        self.assertEqual((ready["state"], ready["activeMode"]), ("ready", "full"))
+        self.assertEqual(
+            self.daemon._run_task(
+                {
+                    "owner": "fixture-owner",
+                    "taskId": task["id"],
+                    "requestId": "after-install",
+                    "action": "tabs",
+                }
+            ),
+            [],
+        )
+        self.assertEqual(task["agentTabIds"], [])
+        self.assertEqual(task["workTabs"], [])
+        self.assertEqual(self.daemon.tab_leases[("fixture", 17)], task["id"])
+
+    def test_attachment_reuses_pending_and_installing_task_after_fresh_selection(self):
+        self.daemon._extension_call = lambda *_a, **_k: {
+            "tabId": 17,
+            "url": "https://example.test/draft",
+            "incognito": False,
+        }
+        params = {
+            "owner": "fixture-owner",
+            "title": "接管",
+            "instanceId": "fixture",
+            "existingTab": {},
+        }
+        first = self.daemon._create_task(params)
+        retry = self.daemon._create_task(params)
+        self.assertEqual(retry["id"], first["id"])
+        self.assertEqual(len(self.daemon.tasks), 1)
+        approved = self.daemon._dispatch_extension(
+            "fixture",
+            "extension.approve",
+            {
+                "taskId": first["id"],
+                "generation": 1,
+                "tabIds": [17],
+                "allowedOrigins": first["allowedOrigins"],
+            },
+        )
+        self.assertEqual(approved["state"], "authorizing")
+        self.assertEqual(self.daemon._create_task(params)["id"], first["id"])
+        self.assertEqual(len(self.daemon.tasks), 1)
+
+    def test_attachment_pending_does_not_cross_owner_or_connection(self):
+        self.daemon._extension_call = lambda *_a, **_k: {
+            "tabId": 17,
+            "url": "https://example.test/draft",
+            "incognito": False,
+        }
+        params = {
+            "owner": "fixture-owner",
+            "title": "接管",
+            "instanceId": "fixture",
+            "existingTab": {},
+        }
+        first = self.daemon._create_task(params)
+        other = self.daemon._create_task({**params, "owner": "other-owner"})
+        self.assertNotEqual(first["id"], other["id"])
+        self.daemon.extensions["fixture"]["connectionGeneration"] = "new-connection"
+        fresh = self.daemon._create_task(params)
+        self.assertNotIn(fresh["id"], {first["id"], other["id"]})
+
+    def test_attachment_approval_requires_exact_tab_generation_and_connection(self):
+        self.daemon._extension_call = lambda *_a, **_k: {
+            "tabId": 17,
+            "url": "https://example.test/draft",
+            "incognito": False,
+        }
+        created = self.daemon._create_task(
+            {
+                "owner": "fixture-owner",
+                "title": "接管",
+                "instanceId": "fixture",
+                "existingTab": {},
+            }
+        )
+        request = {
+            "taskId": created["id"],
+            "generation": 1,
+            "tabIds": [17],
+            "allowedOrigins": created["allowedOrigins"],
+            "workspaceOnly": False,
+        }
+        for changed in ({"tabIds": [18]}, {"generation": True}, {"workspaceOnly": True}):
+            with self.subTest(changed=changed), self.assertRaises(ProtocolError):
+                self.daemon._dispatch_extension(
+                    "fixture", "extension.approve", {**request, **changed}
+                )
+            self.assertEqual(self.daemon.tab_leases, {})
+        self.daemon.extensions["fixture"]["connectionGeneration"] = "new-connection"
+        with self.assertRaises(ProtocolError):
+            self.daemon._dispatch_extension("fixture", "extension.approve", request)
+        self.assertEqual(self.daemon.tab_leases, {})
+
+    def test_attachment_rejects_model_tab_ids_and_does_not_resume_stale_selection(self):
+        for selector in ({"tabId": 17}, {"url": "file:///etc/passwd"}):
+            with self.subTest(selector=selector), self.assertRaises(ProtocolError):
+                self.daemon._create_task(
+                    {
+                        "owner": "fixture-owner",
+                        "title": "接管",
+                        "instanceId": "fixture",
+                        "existingTab": selector,
+                    }
+                )
+        self.daemon._extension_call = lambda *_a, **_k: {
+            "tabId": 17,
+            "url": "https://example.test/draft",
+            "incognito": False,
+        }
+        created = self.daemon._create_task(
+            {
+                "owner": "fixture-owner",
+                "title": "接管",
+                "instanceId": "fixture",
+                "existingTab": {},
+            }
+        )
+        self.daemon.tasks[created["id"]]["state"] = "needs_sync"
+        with self.assertRaises(ProtocolError) as caught:
+            self.daemon._resume_task({"owner": "fixture-owner", "taskId": created["id"]})
+        self.assertEqual(caught.exception.code, "reattach_required")
+
     def test_default_timeout_and_work_window_configuration(self):
         with patch.dict(os.environ, {}, clear=True):
             daemon = BridgeDaemon(Path(self.temp.name))

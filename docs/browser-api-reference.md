@@ -1342,7 +1342,7 @@ health/browsers 使用运行时已解析的 bridge_home；doctor/reference 跟�
 
 ```json
 {
-  "description": "一步开始浏览器工作：按显式 instance_id、主要链接、环境默认值或唯一实例选择浏览器，为该网址的网站建立或复用本会话任务，等待授权、绑定会话并打开工作标签页。同源默认复用当前工作页；new_task=true 才新建任务。回执默认含可直接用于 ref 动作的摘要，read_intent=content 读正文，interactive 读控件；loading 时 summary_missing.reason=page_loading，按 read_hint 在原页有界等待后读取。多步页面操作用一次 fast_browser_script，单步用 fast_browser_run；同一页不要混用 browser_exec。",
+  "description": "一步开始浏览器工作：按显式 instance_id、主要链接、环境默认值或唯一实例选择浏览器，为该网址的网站建立或复用本会话任务，等待授权、绑定会话并打开工作标签页。同源默认复用当前工作页；new_task=true 才新建任务。回执默认含可直接用于 ref 动作的摘要，read_intent=content 读正文，interactive 读控件；loading 时 summary_missing.reason=page_loading，按 read_hint 在原页有界等待后读取。多步页面操作用一次 fast_browser_script，单步用 fast_browser_run；同一页不要混用 browser_exec。existing_tab=true 直接接管已打开的页面，不刷新、不导航；省略 url 选择浏览器当前页，提供 url 则精确匹配已有页（多页匹配会拒绝）。任务结束保留用户原页。",
   "parameters": {
     "type": "object",
     "properties": {
@@ -1350,6 +1350,10 @@ health/browsers 使用运行时已解析的 bridge_home；doctor/reference 跟�
         "type": "string",
         "minLength": 1,
         "maxLength": 4096
+      },
+      "existing_tab": {
+        "type": "boolean",
+        "description": "显式接管已有标签页；默认 false。"
       },
       "title": {
         "type": "string",
@@ -1388,9 +1392,7 @@ health/browsers 使用运行时已解析的 bridge_home；doctor/reference 跟�
         "description": "摘要的目标 CSS 区域。"
       }
     },
-    "required": [
-      "url"
-    ],
+    "required": [],
     "additionalProperties": false
   }
 }

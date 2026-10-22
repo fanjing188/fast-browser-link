@@ -19,6 +19,7 @@ Fast-browser-link 让 AI Agent 使用你已经登录的浏览器：读取页面�
 ## 功能一览
 
 - **浏览器工具：** 通过 Skills、CLI 或 MCP 读取和导航页面、填写普通字段、上传下载文件、导出表格及采集多页数据。
+- **已有页面接管（本地候选）：** Hermes 使用 `fast_browser_open(existing_tab=true)`，独立 CLI/MCP 在 `create` 中传 `existingTab={}` 接管当前页；提供 `url` 可精确匹配已打开的页面，不刷新、不另开工作页，结束任务保留原标签页与标签组。
 - **Assist：** 可选 Hermes 或 Codex 集成，提供建议和后台任务。无需配置 Agent，也能先用表格导出、多页采集、页面标注和工作篮。[第一次使用](docs/assist.zh-CN.md)。
 - **功能包：** 描述你的对象、数据来源和重复流程。[编写功能包](docs/packs-guide.zh-CN.md)。
 

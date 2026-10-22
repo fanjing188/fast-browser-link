@@ -1,5 +1,18 @@
 # Testing
 
+## Existing-page attachment
+
+`existing_tab=true` 的离线回归位于现有 `test_open_tool.py`、`test_lifecycle.py`、`browser-consent.test.mjs`、`work-window.test.mjs` 与单工具/脚本适配测试。只接受当前页或唯一精确 URL，不接受模型指定任意 tabId；覆盖租约冲突、URL 变化、连接代次、原页操作与删除权分离。
+
+真实 Chrome/Edge 验收只使用本地合成表单、临时 profile 和显式 scratch，不接触个人安装：
+
+```sh
+HERMES_SOURCE="$PWD/.ci/hermes" HERMES_PYTHON="$PWD/.ci/hermes/.venv/bin/python" node tests/native-v2/real-existing-tab.mjs
+HERMES_SOURCE="$PWD/.ci/hermes" HERMES_PYTHON="$PWD/.ci/hermes/.venv/bin/python" node tests/native-v2/real-existing-tab.mjs --edge
+```
+
+先将 `TMPDIR` 指向私有 scratch。验收原页草稿/文档不变、不增加标签、同会话复用、跨会话拒绝、脚本可信点击与读页、关闭后保留原页/窗口/分组并恢复输入、重复 URL 拒绝。1440/375 截图与 `result.json` 写入 `$TMPDIR/existing-tab-{chrome,edge}/`。该 runner 为手动非离线门禁，不加入默认测试清单；本地夹具通过不证明真实账号业务已验。
+
 ## Login surfaces and OAuth popup acceptance
 
 离线回归覆盖账号/密码/验证码用途、模态与固定浮层归属、Shadow DOM 和 iframe 边界、popup 发现与精确审批、操作权和删除权分离、公共结果脱敏及 Vault/script 绑定。

@@ -1473,7 +1473,7 @@ class SingleToolAdapter:
     @classmethod
     def _controlled_tabs(cls, task):
         # 中文注释：接管与回源只增加当前租约页操作资格，_agent_tabs 仍单独决定工作页归属。
-        adopted = task.get("adoptedPopupTabIds", [])
+        adopted = task.get("adoptedPopupTabIds", []) + task.get("attachedTabIds", [])
         returned = list(task.get("popupReturns", {}).values())
         return cls._agent_tabs(task) + [
             tab for tab in adopted + returned if type(tab) is int and tab in task.get("tabIds", [])

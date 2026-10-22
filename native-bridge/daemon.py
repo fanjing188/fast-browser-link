@@ -1889,10 +1889,42 @@ class BridgeDaemon:
         owner = self._required_string(params, "owner")
         title = self._required_string(params, "title")
         instance_id = self._required_string(params, "instanceId")
-        origins = self._validate_origins(params.get("allowedOrigins"))
         incognito = params.get("incognito", False)
         if type(incognito) is not bool:
             raise ProtocolError("invalid_params", "incognito must be a boolean")
+        attachment = None
+        attachment_extension = None
+        if "existingTab" in params:
+            selector = params["existingTab"]
+            if silent or not isinstance(selector, dict) or set(selector) - {"url"}:
+                raise ProtocolError("invalid_params", "existingTab only accepts an optional URL")
+            if "url" in selector:
+                self._validate_action_url(selector["url"], [])
+            with self.state_lock:
+                attachment_extension = self.extensions.get(instance_id)
+            if attachment_extension is None:
+                raise ProtocolError("instance_unavailable", "browser instance is not connected")
+            attachment = self._extension_call(
+                attachment_extension,
+                "browser.select_existing_tab",
+                {**selector, "incognito": incognito},
+                timeout=5.0,
+            )
+            if (
+                not isinstance(attachment, dict)
+                or set(attachment) != {"tabId", "url", "incognito"}
+                or type(attachment.get("tabId")) is not int
+                or attachment["tabId"] < 0
+                or type(attachment.get("incognito")) is not bool
+                or attachment["incognito"] != incognito
+                or ("url" in selector and attachment.get("url") != selector["url"])
+            ):
+                raise ProtocolError("attachment_unavailable", "browser page selection is invalid")
+            self._validate_action_url(attachment["url"], [])
+            parsed = urlsplit(attachment["url"])
+            origins = self._validate_origins([f"{parsed.scheme}://{parsed.netloc}"])
+        else:
+            origins = self._validate_origins(params.get("allowedOrigins"))
         if incognito:
             with self.state_lock:
                 checked_extension = self.extensions.get(instance_id)
@@ -1916,6 +1948,36 @@ class BridgeDaemon:
                 raise ProtocolError("instance_unavailable", "browser instance is not connected")
             if incognito and extension is not checked_extension:
                 raise ProtocolError("instance_unavailable", "browser connection changed")
+            if attachment is not None:
+                if extension is not attachment_extension:
+                    raise ProtocolError("instance_unavailable", "browser connection changed")
+                holder = self.tab_leases.get((instance_id, attachment["tabId"]))
+                if holder is not None:
+                    current = self.tasks.get(holder)
+                    if (
+                        current
+                        and current["owner"] == owner
+                        and current.get("attachedTabIds") == [attachment["tabId"]]
+                        and current.get("attachmentConnection")
+                        == extension.get("connectionGeneration")
+                        and current["state"] in {"ready", "paused", "authorizing"}
+                    ):
+                        return self._public_task(current)
+                    raise ProtocolError(
+                        "lease_conflict", "tab is already controlled by another task"
+                    )
+                # 中文注释：授权尚未安装时没有租约；同会话等待/重试仍复用重新核实的同一选择。
+                for current in self.tasks.values():
+                    if (
+                        current["owner"] == owner
+                        and current["instanceId"] == instance_id
+                        and current.get("incognito", False) == incognito
+                        and current.get("attachment") == attachment
+                        and current.get("attachmentConnection")
+                        == extension.get("connectionGeneration")
+                        and current["state"] in {"pending_approval", "authorizing"}
+                    ):
+                        return self._public_task(current)
             now = time.time()
             task_id = secrets.token_urlsafe(18)
             task = {
@@ -1952,6 +2014,14 @@ class BridgeDaemon:
                 "updatedAt": now,
                 "incognito": incognito,
                 "isolation": "incognito-profile" if incognito else "shared-profile",
+                **(
+                    {
+                        "attachment": attachment,
+                        "attachmentConnection": extension.get("connectionGeneration"),
+                    }
+                    if attachment is not None
+                    else {}
+                ),
             }
             self.tasks[task_id] = task
             if silent and self.copilot and params.get("copilotResourceToken"):
@@ -3507,6 +3577,12 @@ class BridgeDaemon:
 
     def _resume_task(self, params: Dict[str, Any]) -> Dict[str, Any]:
         task = self._owned_task(params)
+        # 中文注释：旧连接的标签编号可能已复用；恢复必须重新显式选择当前浏览器页面。
+        if task.get("attachment"):
+            raise ProtocolError(
+                "reattach_required",
+                "use fast_browser_open existing_tab=true to select the page again",
+            )
         lock = self.task_locks[task["id"]]
         with lock:
             with self.state_lock:
@@ -4605,6 +4681,8 @@ class BridgeDaemon:
                 "operationTimeline",
                 "idleRecoveryState",
                 "autoClosePending",
+                "attachment",
+                "attachmentConnection",
             }
         }
         # 中文注释：计数仅含本会话仍持有租约的工作页，已关闭页面不计入。
@@ -5211,7 +5289,10 @@ class BridgeDaemon:
                         if task["instanceId"] == instance_id
                     ]
                 return [
-                    self._public_task(task)
+                    {
+                        **self._public_task(task),
+                        **({"attachment": task["attachment"]} if task.get("attachment") else {}),
+                    }
                     for task in self.tasks.values()
                     if task["instanceId"] == instance_id and task["state"] != "closed"
                 ]
@@ -5246,6 +5327,15 @@ class BridgeDaemon:
                     raise ProtocolError("not_found", "task not found for this browser instance")
                 if task["state"] != "pending_approval":
                     raise ProtocolError("invalid_state", "task is not pending approval")
+                if task.get("attachment") and (
+                    workspace_only
+                    or tab_ids != [task["attachment"]["tabId"]]
+                    or type(params.get("generation")) is not int
+                    or params.get("generation") != task["generation"]
+                    or task.get("attachmentConnection")
+                    != self.extensions[instance_id].get("connectionGeneration")
+                ):
+                    raise ProtocolError("approval_stale", "selected page approval changed")
                 if workspace_only and (
                     type(params.get("generation")) is not int
                     or params["generation"] != task["generation"]
@@ -5264,10 +5354,17 @@ class BridgeDaemon:
                 for tab_id in tab_ids:
                     self.tab_leases[(instance_id, tab_id)] = task_id
                 task["tabIds"] = tab_ids
-                task["state"] = "authorizing" if workspace_only else "ready"
+                if task.get("attachment"):
+                    task["attachedTabIds"] = list(tab_ids)
+                # 中文注释：原页也须等待扩展完成本地安装与 full 回执，不能提前发布可执行状态。
+                task["state"] = (
+                    "authorizing" if workspace_only or task.get("attachment") else "ready"
+                )
                 task["updatedAt"] = time.time()
                 self._persist_tasks()
                 result = self._public_task(task)
+                if task.get("attachment"):
+                    result["attachment"] = task["attachment"]
             return result
         if method in {"extension.reject", "extension.stop"}:
             task_id = self._required_string(params, "taskId")

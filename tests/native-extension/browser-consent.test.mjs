@@ -7,6 +7,40 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as module from '../../native-extension/bridge.mjs';
 
+test('explicit attach selects only the current page or a unique exact URL without navigation', async () => {
+  const { Executor } = await import('../../native-extension/core.mjs');
+  const rows = [
+    { id: 17, url: 'https://example.test/draft', active: true, incognito: false },
+    { id: 18, url: 'https://example.test/other', active: false, incognito: false },
+  ];
+  const queries = [];
+  const executor = new Executor({
+    tabs: {
+      query: async (query) => {
+        queries.push(query);
+        return query.active ? rows.filter((t) => t.active) : rows;
+      },
+    },
+  });
+  assert.deepEqual(await executor.selectExistingTab({ incognito: false }), {
+    tabId: 17,
+    url: rows[0].url,
+    incognito: false,
+  });
+  assert.deepEqual(queries[0], { active: true, lastFocusedWindow: true });
+  assert.equal(
+    (await executor.selectExistingTab({ url: rows[1].url, incognito: false })).tabId,
+    18,
+  );
+  rows.push({ ...rows[1], id: 19 });
+  await assert.rejects(
+    executor.selectExistingTab({ url: rows[1].url, incognito: false }),
+    /ATTACH_AMBIGUOUS/,
+  );
+  rows[0].url = 'chrome://settings/';
+  await assert.rejects(executor.selectExistingTab({ incognito: false }), /ATTACH_UNAVAILABLE/);
+});
+
 test('connection consent ignores obsolete smart preferences without a second grant', async () => {
   for (const data of [
     {},
@@ -21,6 +55,79 @@ test('connection consent ignores obsolete smart preferences without a second gra
     assert.equal(await consent.readStatus(), 'enabled');
     assert.equal(consent.enabled, true);
   }
+});
+
+test('explicit attachment installs full control but never gains deletion ownership', async () => {
+  const { Executor } = await import('../../native-extension/core.mjs');
+  const page = { id: 17, url: 'https://example.test/draft', incognito: false };
+  const executor = new Executor({
+    tabs: {
+      get: async () => ({ ...page }),
+      remove: async () => assert.fail('user page must survive'),
+    },
+    debugger: { detach: async () => {} },
+  });
+  executor.restoreOverlay = async () => {};
+  const task = {
+    id: 'attached',
+    instanceId: 'browser',
+    approvalScope: 'scope',
+    generation: 1,
+    modeGeneration: 1,
+    state: 'pending_approval',
+    allowedOrigins: ['https://example.test'],
+    tabIds: [],
+    attachment: { tabId: 17, url: page.url, incognito: false },
+  };
+  let bridge;
+  const sent = [];
+  bridge = new module.Bridge(
+    {
+      onMessage: { addListener() {} },
+      postMessage(m) {
+        sent.push(m);
+        queueMicrotask(() =>
+          bridge.receive({
+            id: m.id,
+            result:
+              m.method === 'extension.tasks'
+                ? [task]
+                : m.method === 'extension.approve'
+                  ? { ...task, tabIds: [17], attachedTabIds: [17], state: 'ready' }
+                  : { ...task, tabIds: [17], activeMode: 'full', modeGeneration: 2 },
+          }),
+        );
+      },
+    },
+    executor,
+  );
+  await new module.BrowserConsent({}, executor).synchronize(bridge);
+  assert.deepEqual(sent.find((m) => m.method === 'extension.approve').params.tabIds, [17]);
+  assert.equal(executor.leases.get(17), task.id);
+  assert.equal(executor.tasks.get(task.id).agentTabs.size, 0);
+  assert.equal(executor.tasks.get(task.id).policy.activeMode, 'full');
+  await executor.release({ taskId: task.id, generation: 1, closeAgentTabs: true });
+  assert.equal(executor.leases.has(17), false);
+});
+
+test('attachment rejects changed URL and foreign leases before publishing control', async () => {
+  const { Executor } = await import('../../native-extension/core.mjs');
+  const executor = new Executor({
+    tabs: { get: async () => ({ id: 17, url: 'https://example.test/new' }) },
+  });
+  const task = {
+    id: 'attached',
+    instanceId: 'browser',
+    generation: 1,
+    tabIds: [17],
+    allowedOrigins: ['https://example.test'],
+    attachment: { tabId: 17, url: 'https://example.test/draft' },
+  };
+  await assert.rejects(executor.approve(task), /ATTACH_UNAVAILABLE/);
+  assert.equal(executor.leases.size, 0);
+  executor.leases.set(17, 'other-task');
+  await assert.rejects(executor.approve(task), /tab claimed/);
+  assert.equal(executor.leases.get(17), 'other-task');
 });
 
 test('connection consent no longer exposes a smart-mode switch', () => {
@@ -228,6 +335,7 @@ test('trusted popup rejects removed mode controls without changing tasks', async
         onRemoved: { addListener() {} },
         onUpdated: { addListener() {} },
       },
+      windows: { onFocusChanged: { addListener() {} } },
       alarms: { create() {}, onAlarm: { addListener() {} } },
       debugger: { onDetach: { addListener() {} } },
     };

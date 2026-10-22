@@ -259,6 +259,7 @@ class HostBridge:
                 in (
                     [row.get("tabId") for row in task.get("workTabs", []) if isinstance(row, dict)]
                     + task.get("adoptedPopupTabIds", [])
+                    + task.get("attachedTabIds", [])
                 )
             ):
                 matches.append((actions, revoked))

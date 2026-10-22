@@ -10,6 +10,7 @@ description: 使用用户已登录的 Chrome 或 Edge 执行普通或无痕网�
 1. `python3 <技能目录>/scripts/browser.py browsers` 返回浏览器实例。多个实例时使用用户指定的浏览器；无实例时请用户打开扩展并启用连接。
 2. 为本次任务选择唯一会话文件，如 `/tmp/fast-browser-<随机任务编号>.session`。后续每次调用都带 `--session <同一文件>`，不要跨 agent 或任务共享文件。
 3. `python3 <技能目录>/scripts/browser.py --session <文件> create '{"title":"任务说明","instanceId":"上一步实例","allowedOrigins":["https://example.com"]}'`。
+   用户明确要求操作已打开的页面时，create 改传 `"existingTab": {}` 接管当前页，或 `"existingTab": {"url":"完整网址"}` 精确匹配已有页，无需 `allowedOrigins`。ready 后保存 `attachedTabIds` 中的页编号并直接 run/script，跳过第 5 步开页；script 传 `tabId` 或先 `use_tab`。不刷新、不另开首页，结束只释放控制权，保留原页/窗口/分组。多页匹配不猜选，请用户将目标页切到前台后接管当前页；断线恢复后重新显式选择，不能 resume 旧编号。
    如需无痕任务，在 create 参数中增加 `"incognito": true`；须先在扩展详情允许无痕/InPrivate 访问。普通与无痕任务分开复用窗口；同一浏览器的多个无痕任务共享无痕会话。
 4. 保存返回的 `id`。用 `get '{"taskId":"id"}'` 确认 `state=ready`。未就绪时保留原任务，不重复创建。
 5. `run '{"taskId":"id","action":"new_tab","url":"https://example.com"}'` 创建工作页；保存返回的标签 ID。

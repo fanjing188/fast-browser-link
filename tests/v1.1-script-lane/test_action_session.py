@@ -41,6 +41,21 @@ class RecordingRuntime:
 
 
 class ActionSessionTest(unittest.TestCase):
+    def test_attached_user_page_can_be_selected_without_creation_ownership(self):
+        task = {
+            "state": "ready",
+            "generation": 2,
+            "tabIds": [7],
+            "workTabs": [],
+            "attachedTabIds": [7],
+        }
+        runtime = RecordingRuntime([task, {"text": "draft"}])
+        session = adapter.ActionSession(runtime, owner="trusted-owner", task_id="task-1")
+        session.install_scope("instance-1", 2)
+        self.assertEqual(session.use_tab(7), 7)
+        self.assertEqual(session.run("snapshot", {}), {"text": "draft"})
+        self.assertEqual(runtime.calls[-1][1]["tabId"], 7)
+
     def test_failed_reconciliation_keeps_unknown_write_fenced(self):
         denied = type(
             "Denied", (Exception,), {"code": "permission_denied", "data": {"outcomeUnknown": False}}

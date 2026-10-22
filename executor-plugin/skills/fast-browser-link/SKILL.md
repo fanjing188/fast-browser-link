@@ -19,7 +19,8 @@ Takeover pauses the task. Cookie mirror on Hermes Desktop needs source-extension
 
 ## Standard flow
 
-1. **Start**: `fast_browser_open(url=...)`. It picks the browser, creates or reuses a task for that site, waits for authorization, binds this session and opens a work tab. It returns `task_id` and `tab_id`. Start with open, not `fast_browser_browsers`; list instances only after ambiguity or for diagnostics.
+1. **Start**: `fast_browser_open(url=...)` 自动选浏览器、建或复用同站任务、等待授权并绑定/打开工作页，返回 `task_id`、`tab_id`。先 open；仅歧义或诊断时列浏览器。
+   - **原页接管**：仅用户明确要求时传 `existing_tab=true`，无 `url` 选当前页，有则唯一精确匹配；不刷新/导航/建页。歧义请用户切目标页到前台再接管，不猜 tabId。结束保留原页和分组；断线后重新显式选页，不 resume 旧编号。
    - `browser_choice_required`: several browsers are connected and no unique default is configured. Pass `instance_id`. Set `FAST_BROWSER_DEFAULT=edge` (or `chrome` or an instance ID) in the Hermes process environment to choose automatically.
    - `awaiting_authorization`: check browser connection authorization in the extension and task preparation; confirm with `fast_browser_get(task_id)` that the task is `ready`, then call `fast_browser_open` again.
    - `no_browser`: ask the user to enable the Hermes extension in the browser and check that the Hermes "Browser connections" (浏览器连接) page shows it as connected.

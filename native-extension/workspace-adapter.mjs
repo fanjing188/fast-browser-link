@@ -59,15 +59,16 @@ export class NativeWorkspaces {
   async install(task, tabs) {
     await this.ready;
     if (task.instanceId !== this.authority.instance) throw Error('WORKSPACE_INSTANCE_MISMATCH');
-    // 中文注释：原授权页不移动；新建任务组默认始终进入独立工作窗口。
+    // 中文注释：显式接管只保护原窗口，不创建首页；普通新任务仍使用独立工作窗口。
     const owner = JSON.stringify([task.instanceId, task.approvalScope, task.id, task.generation]);
     const workWindow = task.incognito ? this.incognitoWindow : this.workWindow;
-    const preferred =
-      !task.incognito && task.workWindowMode === 'current'
+    const preferred = task.attachment
+      ? tabs[0]
+      : !task.incognito && task.workWindowMode === 'current'
         ? tabs[0] || (await this.api.windows.getCurrent())
         : null;
     const windowId =
-      preferred && !preferred.incognito
+      preferred && !!preferred.incognito === !!task.incognito
         ? (preferred.windowId ?? preferred.id)
         : await workWindow.ensure(owner);
     workWindow.retain(owner, windowId);

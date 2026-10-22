@@ -68,3 +68,4 @@ tests/v1.1-verification/fast-browser-full-*.json
 
 # Local briefs, reports and browser evidence are not public source.
 /docs/growth/
+.worktrees/

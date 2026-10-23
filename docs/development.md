@@ -1,5 +1,7 @@
 # Development
 
+Current integration status and remaining work: [项目工作梳理](maintenance-status.zh-CN.md).
+
 ## Prerequisites
 
 - Node.js 22.12+ and Python 3.11+ for the self-contained tests

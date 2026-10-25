@@ -295,7 +295,14 @@ try {
   assert.equal(new Set(instanceIds).size, 2, 'distinct connected instances required');
   const daemon = await helperCall('inspect', work);
   assert.equal(daemon.pluginPath, staged.plugin);
-  assert.ok(daemon.daemonPath.includes('/host-bin/daemon.py'));
+  assert.ok(
+    ['assist_adapter.py', 'daemon.py']
+      .map((entry) =>
+        path.join(staged.hermesHome, 'plugin-data/fast-browser-link-native/host-bin', entry),
+      )
+      .includes(daemon.daemonPath),
+    daemon.daemonPath,
+  );
 
   await settledValues(
     states.map(async (s, i) => {

@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+import subprocess
 
 # 中文注释：先在真实平台加载 urllib.request；用例把 sys.platform 模拟为 darwin 时，Linux 上不存在 _scproxy。
 import urllib.request  # noqa: F401
@@ -27,6 +28,63 @@ installer = load("agent_install", "scripts/install-agent.py")
 
 
 class AgentTests(unittest.TestCase):
+    def test_agent_entry_loads_its_own_sdk_despite_another_candidate(self):
+        code = """
+import importlib.util, pathlib, sys, types
+sys.modules['browser_sdk'] = types.ModuleType('other_candidate_sdk')
+entry = pathlib.Path(sys.argv[1])
+spec = importlib.util.spec_from_file_location('candidate_agent', entry)
+agent = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(agent)
+assert pathlib.Path(sys.modules[agent.Browser.__module__].__file__).resolve() == entry.parents[1] / 'native-bridge/browser_sdk.py'
+assert hasattr(agent.bridge, 'BridgeClient')
+"""
+        result = subprocess.run(
+            [sys.executable, "-I", "-B", "-c", code, str(ROOT / "agent-link/fast_browser_link.py")],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_python_sdk_imports_without_agent_or_hermes_and_shares_client(self):
+        # 中文注释：工作插件直接使用底座SDK，不加载Agent的CLI/MCP或Hermes注册入口。
+        code = """
+import sys
+sys.path.insert(0, sys.argv[1])
+import types
+sys.modules['client'] = types.ModuleType('unrelated_application_client')
+from browser_sdk import Browser, METHODS, session_owner
+assert 'hermes_constants' not in sys.modules
+assert not any(name.startswith('copilot') for name in sys.modules)
+class Client:
+    def __init__(self): self.calls = []
+    def call(self, method, params):
+        self.calls.append((method, params))
+        return {'id': 'task', 'state': 'ready'}
+client = Client()
+browser = Browser(client=client)
+browser.call('create', {'instanceId': 'edge', 'existingTab': {'url': 'https://example.com/form'}})
+assert client.calls[0][0] == 'shared.create'
+assert client.calls[0][1]['owner'] == browser.owner
+assert 'existingTab' in client.calls[0][1]
+from browser_sdk import bridge
+assert hasattr(bridge, 'BridgeClient')
+import tempfile
+sys.modules['fbl_scripts'] = types.ModuleType('unrelated_script_module')
+with tempfile.TemporaryDirectory() as home:
+    browser = Browser(home=home, client=client)
+    assert browser.call('site_search', {})['tools'] == []
+    browser.lane.close()
+"""
+        result = subprocess.run(
+            [sys.executable, "-I", "-B", "-c", code, str(ROOT / "native-bridge")],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_owners_are_isolated_and_cannot_be_forged(self):
         client = Mock()
         first, second = agent.Browser(client=client), agent.Browser(client=client)
@@ -73,6 +131,15 @@ class AgentTests(unittest.TestCase):
             agent.Browser(client=client).call("run", {"taskId": "t", "action": "click"})
         self.assertEqual(client.call.call_count, 1)
         self.assertTrue(client.call.call_args.args[1]["requestId"])
+
+    def test_operation_status_reads_the_original_request_without_replay(self):
+        client = Mock()
+        browser = agent.Browser(client=client)
+        params = {"taskId": "task", "requestId": "original-request"}
+        browser.call("operation_status", params)
+        client.call.assert_called_once_with(
+            "shared.operation_status", {**params, "owner": browser.owner}
+        )
 
     def test_mcp_handshake_tools_and_errors(self):
         client = Mock()

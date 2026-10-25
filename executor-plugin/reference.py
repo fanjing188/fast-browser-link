@@ -41,9 +41,12 @@ def load(path):
     return module
 
 
+CORE = load(ROOT / "native_tools.py").core_root()
+
+
 def helper_catalog():
     # 中文注释：从 HELPERS 真正导出的名字生成签名，不把私有函数误列为能力。
-    tree = ast.parse((ROOT / "script_lane/child.py").read_text())
+    tree = ast.parse((CORE / "script_lane/child.py").read_text())
     exported = next(
         node
         for node in tree.body
@@ -66,10 +69,10 @@ def helper_catalog():
 def render():
     tools = {
         **load(ROOT / "native_tools.py").TOOL_SCHEMAS,
-        "fast_browser_script": load(ROOT / "script_lane/tool.py").SCHEMA,
+        "fast_browser_script": load(CORE / "script_lane/tool.py").SCHEMA,
         "fast_browser_open": load(ROOT / "open_tool.py").SCHEMA,
         "fast_browser_use_tab": load(ROOT / "open_tool.py").USE_TAB_SCHEMA,
-        **load(ROOT / "site_tools/tools.py").SCHEMAS,
+        **load(CORE / "site_tools/tools.py").SCHEMAS,
         **SCHEMAS,
     }
     # 中文注释：生命周期约定与工具 schema 一起生成，API 参考检查也覆盖默认计时和移交语义。

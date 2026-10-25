@@ -38,8 +38,8 @@ Offline: `npm test` / `npm run verify`. Real-browser runners live in `tests/nati
 
 页面内容原样返回，定位失败自动恢复；覆盖率和密码值规则见[页面读取与定位恢复](../docs/design/content-shield.md)。
 
-浏览器弹窗右上角从当前 manifest 显示版本，提供本地连接授权、独立云端连接授权（确认后普通任务直接执行，无审批模式切换）、当前任务控制。模拟鼠标固定启用，任务执行和等待下一步期间持续显示，目标间以 240ms 的 transform 动画衔接；接管、断连及任务结束时隐藏，截图完成后恢复。
+浏览器弹窗右上角从当前 manifest 显示版本，提供本地连接授权和当前任务控制，不提供云端连接或配对。模拟鼠标固定启用，任务执行和等待下一步期间持续显示，目标间以 240ms 的 transform 动画衔接；接管、断连及任务结束时隐藏，截图完成后恢复。
 
-## 独立云端连接
+## 本机执行
 
-`cloud-link.mjs` 连接 `com.fast.browser_link.cloud`，原本地 host 继续使用既有端口。云端模式按任务绑定，已有个人标签页不授权；连接码、配对与站点配置见 [云端连接](../docs/design/cloud-connection.md)。
+扩展只连接本机 `com.fast.browser_link`，业务产品通过统一 SDK 使用其执行能力。边界和旧安装退役要求见 [浏览器执行底座](../docs/browser-core.md)。

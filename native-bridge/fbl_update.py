@@ -462,6 +462,7 @@ def update(
     from doctor import probe
 
     health = health or probe
+    cloud_locks = ExitStack()
     try:
         with ExitStack() as stack:
             for root in roots:
@@ -471,9 +472,14 @@ def update(
                 idle(ctx, cli, allow_settle=True)
                 was_running[root] = bool(cli.verified_daemon_pid(root, env))
                 markers.append((root, cli.enter_maintenance(root, "fbl update", os.getpid())))
-                if not cli.cloud_never_configured(root, ctx.user):
+                if not cli.cloud_never_configured(root, ctx.user) and not cli.cloud_retired(
+                    root, ctx.user
+                ):
                     cli.assert_cloud_fenced(root)
                     cli.wait_cloud_released(root)
+                cloud_locks.enter_context(
+                    cli.cloud_gate(root, installed=True, user_home=ctx.user, env=env)
+                )
             if pause_hermes and shutil.which("hermes") and not (ctx.hermes / "ESTOP").exists():
                 result = cli.command(
                     ["hermes", "pause", "--reason", "fbl update"],
@@ -712,6 +718,8 @@ def update(
         error.notes = notes
         raise
     finally:
+        # 中文注释：云端实例锁覆盖重启校验及异常回滚，不能随成功段的安装锁提前释放。
+        cloud_locks.close()
         for root, token in markers:
             try:
                 cli.leave_maintenance(root, token)

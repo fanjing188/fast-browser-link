@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-from copilot import Copilot
 
 import argparse
 import base64
@@ -352,7 +351,15 @@ _DAEMON_IDLE_GRACE_SECONDS = 30.0
 
 
 class BridgeDaemon:
-    def __init__(self, home: Path, request_history_limit: int = _DEFAULT_REQUEST_HISTORY_LIMIT):
+    protocol_error = ProtocolError
+
+    def __init__(
+        self,
+        home: Path,
+        request_history_limit: int = _DEFAULT_REQUEST_HISTORY_LIMIT,
+        *,
+        service_factory=None,
+    ):
         if (
             not isinstance(request_history_limit, int)
             or isinstance(request_history_limit, bool)
@@ -383,6 +390,8 @@ class BridgeDaemon:
         self.tasks: Dict[str, Dict[str, Any]] = {}
         self.tab_leases: Dict[tuple[str, int], str] = {}
         self.task_locks: Dict[str, threading.RLock] = {}
+        # 中文注释：专用通道授权只活在当前进程，不从任务快照恢复，也不能由 JSON 传入。
+        self.task_authorities = {}
         self.cleanup_locks: Dict[str, threading.Lock] = {}
         # Ephemeral proof from a read-only browser check; never persist across reconnect.
         self.cleanup_proofs: Dict[str, tuple[int, Any, tuple[int, ...]]] = {}
@@ -406,7 +415,7 @@ class BridgeDaemon:
         self.page_results = OrderedDict()
         self.request_history_limit = request_history_limit
         # 中文注释：Cookie 镜像不使用任务账本、日志或持久化结果缓存。
-        self.copilot = None
+        self.optional_service = None
         self.cookie_mirror = CookieMirrorService(self)
         self.api_client = ApiClient()
         self.api_credentials = {}
@@ -436,6 +445,14 @@ class BridgeDaemon:
         if self.work_window_mode not in {"separate", "current"}:
             raise ValueError("FAST_BROWSER_WORK_WINDOW must be separate or current")
         self.needs_sync_sweep_at = 0.0
+        # 中文注释：仅接受启动器显式装配的可信服务，不从环境或本机目录自动发现产品代码。
+        if service_factory is not None:
+            self.optional_service = service_factory(self)
+
+    @property
+    def copilot(self):
+        # 中文注释：现有 BrowserBroker 读取此属性；兼容只读引用，不在底座保留产品逻辑。
+        return getattr(self.optional_service, "app", None)
 
     @staticmethod
     def _idle_seconds(name, default):
@@ -505,7 +522,7 @@ class BridgeDaemon:
         with self.state_lock:
             candidates = [
                 (
-                    t["id"],
+                    t,
                     t["owner"],
                     t["generation"],
                     t.get("idleCloseAt"),
@@ -514,14 +531,15 @@ class BridgeDaemon:
                 for t in self.tasks.values()
                 if self._idle_due(t, time.time())
             ]
-        for task_id, owner, generation, deadline, activity in candidates:
+        for task, owner, generation, deadline, activity in candidates:
             try:
                 self._release_task(
-                    {"owner": owner, "taskId": task_id},
+                    {"owner": owner, "taskId": task["id"]},
                     "closed",
                     True,
                     handoff_if_pending=True,
                     idle_check=(generation, deadline, activity),
+                    _idle_task=task,
                 )
                 self._flush_tasks()
             except (ProtocolError, OSError):
@@ -1228,8 +1246,8 @@ class BridgeDaemon:
         remove_stale_socket(self.socket_path, "refusing to replace an existing bridge socket")
 
     def stop(self, *_args) -> None:
-        if self.copilot is not None:
-            self.copilot.close()
+        if self.optional_service is not None:
+            self.optional_service.close()
         self.cdp_gateway.close()
         self.stop_event.set()
 
@@ -1689,8 +1707,6 @@ class BridgeDaemon:
         if method == "browser.access_request":
             return self._browser_access_request(params)
         if method == "shared.create":
-            if "copilotTableExport" in params:
-                raise ProtocolError("invalid_params", "internal table flag denied")
             return self._create_task(params)
         if method == "shared.get":
             task = self._owned_task(params)
@@ -1748,7 +1764,7 @@ class BridgeDaemon:
                 return [
                     self._public_task(task)
                     for task in self.tasks.values()
-                    if task["owner"] == owner
+                    if task["owner"] == owner and task.get("executionLane") != "product_fill"
                 ]
         if method == "shared.run":
             return self._run_task(params)
@@ -1874,18 +1890,22 @@ class BridgeDaemon:
                 extension["accessRequest"] = None
             return {"closed": True}
 
-    def _create_task(self, params: Dict[str, Any], *, table_export=False) -> Dict[str, Any]:
-        token = params.get("copilotSilentToken")
-        silent = token is not None
-        if silent and (
-            self.copilot is None
-            or not (
-                self.copilot.valid_silent_token(token)
-                or table_export
-                and token == self.copilot.silent_token
-            )
-        ):
-            raise ProtocolError("copilot_silent_denied", "协作后台会话已失效")
+    def _create_task(self, params: Dict[str, Any], *, _execution_lane="default") -> Dict[str, Any]:
+        context = None
+        silent = False
+        if self.optional_service is not None:
+            params, silent, context = self.optional_service.prepare_task(params)
+        # 中文注释：纯底座不接受未经装配的私有授权字段；静默行为只能由可信服务校验后选择。
+        if set(params) - {
+            "owner",
+            "title",
+            "instanceId",
+            "incognito",
+            "existingTab",
+            "allowedOrigins",
+            "apiUrls",
+        }:
+            raise ProtocolError("invalid_params", "unsupported task parameters")
         owner = self._required_string(params, "owner")
         title = self._required_string(params, "title")
         instance_id = self._required_string(params, "instanceId")
@@ -1894,6 +1914,7 @@ class BridgeDaemon:
             raise ProtocolError("invalid_params", "incognito must be a boolean")
         attachment = None
         attachment_extension = None
+        attachment_generation = None
         if "existingTab" in params:
             selector = params["existingTab"]
             if silent or not isinstance(selector, dict) or set(selector) - {"url"}:
@@ -1902,17 +1923,25 @@ class BridgeDaemon:
                 self._validate_action_url(selector["url"], [])
             with self.state_lock:
                 attachment_extension = self.extensions.get(instance_id)
+                if attachment_extension is not None:
+                    attachment_generation = attachment_extension.get("connectionGeneration")
             if attachment_extension is None:
                 raise ProtocolError("instance_unavailable", "browser instance is not connected")
+            product_fill = _execution_lane == "product_fill"
             attachment = self._extension_call(
                 attachment_extension,
                 "browser.select_existing_tab",
-                {**selector, "incognito": incognito},
+                {
+                    **selector,
+                    "incognito": incognito,
+                    **({"productFill": True} if product_fill else {}),
+                },
                 timeout=5.0,
             )
             if (
                 not isinstance(attachment, dict)
-                or set(attachment) != {"tabId", "url", "incognito"}
+                or set(attachment)
+                != {"tabId", "url", "incognito"} | ({"documentId"} if product_fill else set())
                 or type(attachment.get("tabId")) is not int
                 or attachment["tabId"] < 0
                 or type(attachment.get("incognito")) is not bool
@@ -1920,6 +1949,15 @@ class BridgeDaemon:
                 or ("url" in selector and attachment.get("url") != selector["url"])
             ):
                 raise ProtocolError("attachment_unavailable", "browser page selection is invalid")
+            # 中文注释：产品写入必须绑定真实文档；普通原页接管仍保留原来的三字段合同。
+            if product_fill and (
+                not isinstance(attachment["documentId"], str)
+                or not attachment["documentId"].strip()
+                or len(attachment["documentId"]) > 256
+            ):
+                raise ProtocolError(
+                    "attachment_unavailable", "browser document selection is invalid"
+                )
             self._validate_action_url(attachment["url"], [])
             parsed = urlsplit(attachment["url"])
             origins = self._validate_origins([f"{parsed.scheme}://{parsed.netloc}"])
@@ -1949,7 +1987,10 @@ class BridgeDaemon:
             if incognito and extension is not checked_extension:
                 raise ProtocolError("instance_unavailable", "browser connection changed")
             if attachment is not None:
-                if extension is not attachment_extension:
+                if (
+                    extension is not attachment_extension
+                    or extension.get("connectionGeneration") != attachment_generation
+                ):
                     raise ProtocolError("instance_unavailable", "browser connection changed")
                 holder = self.tab_leases.get((instance_id, attachment["tabId"]))
                 if holder is not None:
@@ -1982,17 +2023,9 @@ class BridgeDaemon:
             task_id = secrets.token_urlsafe(18)
             task = {
                 "id": task_id,
+                "executionLane": _execution_lane,
                 "owner": owner,
-                "title": (
-                    "Fast-browser-link · "
-                    + title.removeprefix("Fast-browser-link ·")
-                    .strip()
-                    .removeprefix("Hermes 协作·")
-                    .removeprefix("协作·")
-                    .strip()
-                )
-                if silent
-                else title,
+                "title": title,
                 "silent": silent,
                 "instanceId": instance_id,
                 "browser": extension["browser"],
@@ -2024,14 +2057,8 @@ class BridgeDaemon:
                 ),
             }
             self.tasks[task_id] = task
-            if silent and self.copilot and params.get("copilotResourceToken"):
-                resource = self.copilot.browser_fetches.get(params.get("copilotResourceToken"))
-                if resource and resource["instance"] == instance_id:
-                    task["copilotRowId"] = resource.get("row_id") or resource.get(
-                        "job_key", ""
-                    ).removeprefix(instance_id + ":")
-            if silent and params.get("copilotResourceToken"):
-                self.copilot.resource_tasks[task_id] = params["copilotResourceToken"]
+            if self.optional_service is not None:
+                self.optional_service.task_created(task, context)
             self.task_locks[task_id] = threading.RLock()
             self.cleanup_locks[task_id] = threading.Lock()
             self.dedupe[task_id] = {}
@@ -2154,7 +2181,24 @@ class BridgeDaemon:
         pending_notifications.append(task["instanceId"])
         return self._pending_view(pending, params["requestId"])
 
-    def _run_task(self, params: Dict[str, Any], _approval=None, _gateway=False) -> Any:
+    def _run_task(
+        self, params: Dict[str, Any], _approval=None, _gateway=False, *, _authority=None
+    ) -> Any:
+        task = self._owned_task(params, _authority=_authority)
+        if (task.get("executionLane") == "product_fill") != (
+            params.get("action") == "product.fill"
+        ):
+            raise ProtocolError("execution_lane_denied", "task execution lane denied")
+        if params.get("action") == "product.fill":
+            with self.state_lock:
+                tab_id = task["attachment"]["tabId"]
+                if task.get("activeMode") != "full":
+                    raise ProtocolError("execution_lane_denied", "task execution lane denied")
+                if (
+                    tab_id not in task["tabIds"]
+                    or self.tab_leases.get((task["instanceId"], tab_id)) != task["id"]
+                ):
+                    raise ProtocolError("foreign_tab", "product page lease changed")
         popup_closed = None
         if params.get("action") in SITE_READ_ACTIONS:
             self._validate_run_params(params["action"], params)
@@ -2179,7 +2223,9 @@ class BridgeDaemon:
         )
         pending_notifications = []
         try:
-            result = self._run_task_impl(params, _approval, pending_notifications, _gateway)
+            result = self._run_task_impl(
+                params, _approval, pending_notifications, _gateway, _authority=_authority
+            )
         except Exception as exc:
             unknown = not isinstance(exc, ProtocolError) or (
                 exc.data.get("outcomeUnknown")
@@ -2238,6 +2284,8 @@ class BridgeDaemon:
             status = "unknown"
         duration_ms = (time.monotonic() - started) * 1000
         target_summary = result.pop("_targetSummary", None) if isinstance(result, dict) else None
+        if params.get("action") == "product.fill":
+            target_summary = None
         self._diagnostic(
             "request_state",
             status,
@@ -2312,9 +2360,15 @@ class BridgeDaemon:
             self._notify_tasks_changed(instance_id)
 
     def _run_task_impl(
-        self, params: Dict[str, Any], _approval, pending_notifications, _gateway=False
+        self,
+        params: Dict[str, Any],
+        _approval,
+        pending_notifications,
+        _gateway=False,
+        *,
+        _authority=None,
     ) -> Any:
-        task = self._owned_task(params)
+        task = self._owned_task(params, _authority=_authority)
         task_id = task["id"]
         control_epoch = task.get("controlEpoch", 0)
         action = self._required_string(params, "action")
@@ -2333,6 +2387,13 @@ class BridgeDaemon:
         wait_deadline = wait["deadlineMs"] if wait else None
         with _task_admission(lock, wait_deadline):
             with self.state_lock:
+                self._owned_task(params, _authority=_authority)
+                if action == "product.fill" and (
+                    task.get("activeMode") != "full"
+                    or params["tabId"] not in task["tabIds"]
+                    or self.tab_leases.get((task["instanceId"], params["tabId"])) != task_id
+                ):
+                    raise ProtocolError("execution_lane_denied", "task execution lane denied")
                 self._expire_approvals_locked()
                 # 中文注释：撤权后连缓存结果也不再返回，旧任务不会因重新开启访问而复活。
                 if task.get("accessRevoked"):
@@ -2921,7 +2982,11 @@ class BridgeDaemon:
                                 # 中文注释：只给回执传播留一秒；浏览器内的绝对截止不延长。
                                 timeout = max(0.1, wait_deadline / 1000 - time.time()) + 1
                             result = self._extension_call(
-                                extension, "browser.execute", command_params, timeout=timeout
+                                extension,
+                                "browser.execute",
+                                command_params,
+                                timeout=timeout,
+                                **({"_authority": _authority} if action == "product.fill" else {}),
                             )
                         if isinstance(result, dict) and "__fastChunked" in result:
                             # 中文注释：工具通道单行上限 1MB；超限结果已执行但不回传正文，改用网关或更小的请求。
@@ -2935,7 +3000,21 @@ class BridgeDaemon:
                                 "resultTooLarge": True,
                                 "size": size if type(size) is int else None,
                             }
+                        if (
+                            action == "product.fill"
+                            and isinstance(result, dict)
+                            and result.get("status") == "unknown"
+                        ):
+                            result = {**result, "outcomeUnknown": True, "retryable": False}
             except ProtocolError as exc:
+                if action == "product.fill":
+                    unknown = exc.data.get("outcomeUnknown") is not False
+                    # 中文注释：产品错误与页面正文不进入缓存、状态或日志，只保存固定码。
+                    exc = ProtocolError(
+                        "product_outcome_unknown" if unknown else "product_execution_denied",
+                        "product request failed",
+                        {"outcomeUnknown": unknown, "retryable": False},
+                    )
                 recovery = exc.data.get("recovery", {})
                 shot = recovery.pop("screenshot", None)
                 if isinstance(shot, dict) and isinstance(shot.get("data"), str):
@@ -2984,7 +3063,12 @@ class BridgeDaemon:
                 if read_only and exc.code in {"extension_timeout", "extension_disconnected"}:
                     exc.data = {"outcomeUnknown": False, "retryable": False}
                 with self.state_lock:
-                    if uncertain_popup_adoption:
+                    if action == "product.fill" and exc.data.get("outcomeUnknown") is True:
+                        self._record_request_locked(task, request_hash, payload_hash, None, None)
+                        if task["state"] == "running" and task["generation"] == generation:
+                            task["state"] = "ready"
+                        self._persist_tasks()
+                    elif uncertain_popup_adoption:
                         # 中文注释：接管可能已发布扩展租约；未知墓碑先落盘，再释放原代资格且保留所有原页。
                         self._record_request_locked(task, request_hash, payload_hash, None, None)
                         if task["generation"] == generation and task["state"] in {
@@ -3040,7 +3124,7 @@ class BridgeDaemon:
                         "浏览器访问已撤销；动作不会重放",
                         {"outcomeUnknown": not read_only, "retryable": False},
                     ) from None
-                raise
+                raise exc
             except Exception as exc:
                 # A dispatched full-mode operation is also uncertain on an unexpected
                 # adapter failure, not just an approval worker operation.
@@ -3631,6 +3715,8 @@ class BridgeDaemon:
         handoff_if_pending: bool = False,
         idle_check=None,
         stale_check=None,
+        _authority=None,
+        _idle_task=None,
     ) -> Dict[str, Any]:
         # 中文注释：显式保留页必须有枚举原因；可信会话结束的 pending_human 仍按原设计自动移交。
         reasons = {"captcha", "login", "verification", "final_submit", "user_requested"}
@@ -3648,7 +3734,18 @@ class BridgeDaemon:
                 "补 handoffReason，或不传 keepTabs 普通关闭",
                 {"outcomeUnknown": False},
             )
-        task = self._owned_task(params)
+        if _idle_task is None:
+            task = self._owned_task(params, _authority=_authority)
+        else:
+            # 中文注释：仅扫描器持有的真实任务对象可内部清理；不授予执行权或放宽公共RPC。
+            with self.state_lock:
+                if (
+                    idle_check is None
+                    or self.tasks.get(self._required_string(params, "taskId")) is not _idle_task
+                    or _idle_task["owner"] != params.get("owner")
+                ):
+                    raise ProtocolError("execution_lane_denied", "idle cleanup denied")
+                task = _idle_task
         with self.state_lock:
             if stale_check is not None:
                 generation, activity, idle_seconds = stale_check
@@ -4067,6 +4164,15 @@ class BridgeDaemon:
 
     @staticmethod
     def _validate_run_params(action: str, params: Dict[str, Any]) -> None:
+        if action == "product.fill":
+            if (
+                set(params) != {"owner", "taskId", "requestId", "action", "tabId", "command"}
+                or type(params.get("tabId")) is not int
+                or params["tabId"] < 0
+                or not isinstance(params.get("command"), dict)
+            ):
+                raise ProtocolError("invalid_params", "invalid product command")
+            return
         if not isinstance(action, str) or action not in V1_ACTIONS:
             raise ProtocolError("invalid_action", "V1 action is not allowed")
         common = {"owner", "taskId", "requestId", "action"}
@@ -4562,8 +4668,41 @@ class BridgeDaemon:
                 raise ProtocolError("invalid_params", "invalid semantic budget")
 
     def _extension_call(
-        self, extension: Dict[str, Any], method: str, params: Dict[str, Any], timeout: float = 15.0
+        self,
+        extension: Dict[str, Any],
+        method: str,
+        params: Dict[str, Any],
+        timeout: float = 15.0,
+        *,
+        _authority=None,
     ) -> Any:
+        with self.state_lock:
+            task_id = params.get("taskId")
+            task = self.tasks.get(task_id) if isinstance(task_id, str) else None
+            if task and task.get("executionLane") == "product_fill":
+                if method == "browser.execute" and params.get("action") == "product.fill":
+                    self._owned_task(
+                        {"owner": task["owner"], "taskId": task["id"]}, _authority=_authority
+                    )
+                    tab_id = params.get("tabId")
+                    if (
+                        task.get("activeMode") != "full"
+                        or task["state"] not in {"ready", "running"}
+                        or type(tab_id) is not int
+                        or task["generation"] != params.get("generation")
+                        or task["modeGeneration"] != params.get("modeGeneration")
+                        or extension is not self.extensions.get(task["instanceId"])
+                        or tab_id != task["attachment"]["tabId"]
+                        or tab_id not in task["tabIds"]
+                        or self.tab_leases.get((task["instanceId"], tab_id)) != task["id"]
+                    ):
+                        raise ProtocolError("execution_lane_denied", "task execution lane denied")
+                elif method not in {
+                    "browser.release",
+                    "browser.cleanup_status",
+                    "browser.cleanup_retry",
+                }:
+                    raise ProtocolError("execution_lane_denied", "task execution lane denied")
         request_id = "srv:" + uuid.uuid4().hex
         pending = {"event": threading.Event(), "response": None}
         with extension["pendingLock"]:
@@ -4617,7 +4756,7 @@ class BridgeDaemon:
             pending["event"].set()
             return True
 
-    def _owned_task(self, params: Dict[str, Any]) -> Dict[str, Any]:
+    def _owned_task(self, params: Dict[str, Any], *, _authority=None) -> Dict[str, Any]:
         owner = self._required_string(params, "owner")
         task_id = self._required_string(params, "taskId")
         with self.state_lock:
@@ -4626,6 +4765,16 @@ class BridgeDaemon:
                 raise ProtocolError("not_found", "task not found")
             if task["owner"] != owner:
                 raise ProtocolError("forbidden", "task belongs to another owner")
+            if task.get("executionLane") == "product_fill":
+                if (
+                    _authority is None
+                    or self.task_authorities.get(task_id) is not _authority
+                    or self.extensions.get(task["instanceId"]) is not _authority["extension"]
+                    or _authority["connectionGeneration"]
+                    != _authority["extension"].get("connectionGeneration")
+                    or _authority["generation"] != task["generation"]
+                ):
+                    raise ProtocolError("execution_lane_denied", "task execution lane denied")
             return task
 
     @staticmethod
@@ -4683,6 +4832,7 @@ class BridgeDaemon:
                 "autoClosePending",
                 "attachment",
                 "attachmentConnection",
+                "executionLane",
             }
         }
         # 中文注释：计数仅含本会话仍持有租约的工作页，已关闭页面不计入。
@@ -4751,17 +4901,15 @@ class BridgeDaemon:
             for frame in _extension_frames(value):
                 if frame.get("method") == "bridge.chunk" and frame["params"]["index"] == 0:
                     self._diagnostic("buffer_state", "recovered", error_code="message_chunked")
-                    if self.copilot is not None:
-                        self.copilot.journal.add(
-                            extension["instanceId"],
-                            "bridge_warning",
-                            snapshot_bytes=frame["params"]["bytes"],
+                    if self.optional_service is not None:
+                        self.optional_service.frame_event(
+                            extension["instanceId"], "message_chunked", frame["params"]["bytes"]
                         )
                 elif frame.get("error", {}).get("code") == "result_too_large":
                     self._diagnostic("buffer_state", "dropped", error_code="message_too_large")
-                    if self.copilot is not None:
-                        self.copilot.journal.add(
-                            extension["instanceId"], "bridge_rejected", error=True
+                    if self.optional_service is not None:
+                        self.optional_service.frame_event(
+                            extension["instanceId"], "message_too_large"
                         )
                 extension["socket"].sendall(_encode_line(frame))
 
@@ -4822,85 +4970,8 @@ class BridgeDaemon:
     def _dispatch_connected_extension(self, extension, method, params):
         instance_id = extension["instanceId"]
         # 中文注释：连接核对与状态修改必须原子完成；暂停先取任务锁，保持任务锁→状态锁的既有顺序。
-        if isinstance(method, str) and method.startswith("extension.copilot."):
-            try:
-                with self.state_lock:
-                    if self.extensions.get(instance_id) is not extension:
-                        raise ProtocolError(
-                            "connection_replaced", "browser connection was replaced"
-                        )
-                    if self.copilot is None:
-
-                        def notify(target, payload):
-                            current = self.extensions.get(target)
-                            if current:
-                                self._send_extension(
-                                    current, {"method": "copilot.changed", "params": payload}
-                                )
-
-                        self.copilot = Copilot(self.data_dir / "copilot", notify)
-                        from copilot_codex_broker import BrowserBroker
-
-                        self.copilot.codex_browser_factory = (
-                            lambda instance, epoch, row, template, limit: BrowserBroker(
-                                self,
-                                instance,
-                                lambda: self.copilot._valid(instance, epoch)
-                                and row.get("status") == "executing",
-                                row.get("page_context")
-                                or self.copilot._state(instance).get("page_context"),
-                                template,
-                                limit,
-                            )
-                        )
-                        self.copilot.resource_status = (
-                            lambda task_id: self.tasks.get(task_id, {}).get("state")
-                            in {"closed", "cancelled"}
-                            and self.tasks.get(task_id, {}).get("cleanupState") == "succeeded"
-                        )
-                if method == "extension.copilot.work_create":
-                    if (
-                        set(params) - {"url", "incognito", "resourceId"}
-                        or not isinstance(params.get("url"), str)
-                        or type(params.get("incognito", False)) is not bool
-                    ):
-                        raise ValueError("invalid table workspace")
-                    parsed = urlsplit(params["url"])
-                    if (
-                        parsed.scheme not in {"http", "https"}
-                        or not parsed.hostname
-                        or parsed.username
-                        or parsed.password
-                    ):
-                        raise ValueError("invalid work URL")
-                    # 中文注释：表格保存由可信侧栏明确点选；只发放新工作页范围，仍走标准授权/租约安装。
-                    if not self.copilot.resource_allowed(
-                        instance_id, params["url"], fetch_id=params.get("resourceId")
-                    ):
-                        raise ValueError("serialized tool requires capability lane")
-                    token = self.copilot.silent_token
-                    result = self._create_task(
-                        {
-                            "owner": "copilot-table-" + secrets.token_hex(12),
-                            "title": "Fast-browser-link · 后台数据",
-                            "instanceId": instance_id,
-                            "allowedOrigins": [f"{parsed.scheme}://{parsed.netloc}"],
-                            "incognito": params.get("incognito", False),
-                            "copilotSilentToken": token,
-                            "copilotResourceToken": params.get("resourceId"),
-                        },
-                        table_export=True,
-                    )
-                    if params.get("resourceId"):
-                        self.copilot.resource_tasks[result["id"]] = params["resourceId"]
-                    return result
-                return self.copilot.request(
-                    instance_id, method.removeprefix("extension.copilot."), params
-                )
-            except (ValueError, OSError, KeyError, TypeError):
-                raise ProtocolError(
-                    "copilot_denied", "Assist request failed; check local configuration"
-                ) from None
+        if self.optional_service is not None and self.optional_service.handles_extension(method):
+            return self.optional_service.dispatch_extension(extension, method, params)
         if isinstance(method, str) and method.startswith("extension.cookie_mirror."):
             # 中文注释：私有通路自行校验连接，不能持有状态锁等待浏览器回复。
             with self.state_lock:
@@ -5247,7 +5318,10 @@ class BridgeDaemon:
                             key, "approval_revoked", "审批方式已改变，原确认已撤销"
                         )
                 self._persist_tasks()
-                return self._public_task(task)
+                return {
+                    **self._public_task(task),
+                    "executionLane": task.get("executionLane", "default"),
+                }
         if method == "extension.reload_status" and params == {}:
             # 中文注释：复用退出门禁，未知操作、未清理任务和在途生命周期均不能触发自动重载。
             with self.state_lock:
@@ -5291,6 +5365,7 @@ class BridgeDaemon:
                 return [
                     {
                         **self._public_task(task),
+                        "executionLane": task.get("executionLane", "default"),
                         **({"attachment": task["attachment"]} if task.get("attachment") else {}),
                     }
                     for task in self.tasks.values()
@@ -5365,6 +5440,7 @@ class BridgeDaemon:
                 result = self._public_task(task)
                 if task.get("attachment"):
                     result["attachment"] = task["attachment"]
+                result["executionLane"] = task.get("executionLane", "default")
             return result
         if method in {"extension.reject", "extension.stop"}:
             task_id = self._required_string(params, "taskId")
@@ -5554,6 +5630,8 @@ class BridgeDaemon:
             if grant.get("revoked") is True:
                 raise GatewayDenied("gateway connection was revoked")
             task = self.tasks.get(grant["taskId"])
+            if task and task.get("executionLane") == "product_fill":
+                raise GatewayDenied("task execution lane denied")
             if (
                 task is None
                 or task["owner"] != grant["owner"]
@@ -5981,6 +6059,37 @@ class BridgeDaemon:
             self._persist_tasks()
             return self._public_task(task)
 
+    def _service_extension_request(self, extension, request):
+        # 中文注释：私有适配器复用 browser.* 往返；必须让唯一 reader 继续接收回执。
+        try:
+            result = self._dispatch_connected_extension(
+                extension, request.get("method"), request.get("params")
+            )
+            self._flush_tasks()
+            response = {"id": request.get("id"), "result": result}
+        except ProtocolError as exc:
+            response = {
+                "id": request.get("id"),
+                "error": {
+                    "code": exc.code,
+                    "message": exc.message,
+                    "data": {
+                        key: value
+                        for key, value in exc.data.items()
+                        if key in {"outcomeUnknown", "retryable", "inFlight"}
+                    },
+                },
+            }
+        except Exception:
+            response = {
+                "id": request.get("id"),
+                "error": {"code": "internal_error", "message": "service request failed"},
+            }
+        try:
+            self._send_extension(extension, response)
+        except OSError:
+            pass
+
     def _serve_extension(self, conn: socket.socket, reader, origin: str) -> None:
         instance_id = None
         try:
@@ -6084,13 +6193,20 @@ class BridgeDaemon:
                     instanceId=instance_id, connectionGeneration=connection_generation
                 )
             self._send_extension(extension, {"id": request.get("id"), "result": hello_result})
-            if self.copilot is not None:
-                self.copilot.bridge_connection(instance_id, True)
+            if self.optional_service is not None:
+                self.optional_service.connection_changed(instance_id, True)
             # 中文注释：hello 后只对最近终态且清理未确认的任务补收组，needs_sync 保留恢复组。
             self._start_lifecycle_worker(self._ungroup_terminal_tasks, instance_id, extension)
             while not self.stop_event.is_set():
                 request = _read_line(reader)
                 if self._accept_extension_response(extension, request):
+                    continue
+                if self.optional_service is not None and self.optional_service.handles_extension(
+                    request.get("method")
+                ):
+                    self._start_lifecycle_worker(
+                        self._service_extension_request, extension, request
+                    )
                     continue
                 request_id = request.get("id")
                 with extension["sendLock"]:
@@ -6148,8 +6264,8 @@ class BridgeDaemon:
                         for task in self.tasks.values():
                             if task["instanceId"] == instance_id:
                                 self.overlay_operations.pop(task["id"], None)
-                        if self.copilot is not None:
-                            self.copilot.bridge_connection(instance_id, False)
+                        if self.optional_service is not None:
+                            self.optional_service.connection_changed(instance_id, False)
                         self.cookie_mirror.disconnected(instance_id)
                         self._diagnostic(
                             "connection_state", "disconnected", error_code="DISCONNECTED"
@@ -6288,11 +6404,11 @@ def _read_line(reader) -> Dict[str, Any]:
     return value
 
 
-def main() -> int:
+def main(*, service_factory=None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--home", required=True)
     args = parser.parse_args()
-    daemon = BridgeDaemon(Path(args.home))
+    daemon = BridgeDaemon(Path(args.home), service_factory=service_factory)
     signal.signal(signal.SIGTERM, daemon.stop)
     signal.signal(signal.SIGINT, daemon.stop)
     return daemon.run()

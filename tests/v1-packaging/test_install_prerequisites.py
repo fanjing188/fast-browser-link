@@ -4,10 +4,12 @@ import hashlib
 import importlib.util
 import json
 from pathlib import Path
+import shutil
 import stat
 import tempfile
 import unittest
 from unittest import mock
+import runpy
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRATCH = Path(tempfile.gettempdir()).resolve()
@@ -40,25 +42,30 @@ class InstallPrerequisitesTests(unittest.TestCase):
             "fast-browser-link/__init__.py": "# 插件入口\n",
             "fast-browser-link/runtime.py": "# 租约与结果投影\n",
             "fast-browser-link/native_tools.py": "# 原生工具\n",
-            # 中文注释：安装事务执行真实注册描述；它只依赖 pathlib，不启动云端服务。
-            "fast-browser-link/cloud_link/registration.py": (
-                ROOT / "cloud-link/registration.py"
-            ).read_text(encoding="utf8"),
             # 中文注释：夹具保留新增维护组件的完整运行闭包。
             "fast-browser-link/maintenance/update.py": "# 更新入口\n",
             "fast-browser-link/maintenance/install-cli.py": "# 安装入口\n",
             "fast-browser-link/maintenance/install-executor.py": "# 安装校验器\n",
             "fast-browser-link/open_tool.py": "# 打开工具\n",
             "fast-browser-link/skills/fast-browser-link/SKILL.md": "# Browser\n",
-            "fast-browser-link/script_lane/host_bridge.py": "# 桥接\n",
-            "fast-browser-link/script_lane/action_session.py": "# 会话\n",
-            "fast-browser-link/script_lane/child.py": "# 子进程\n",
-            "fast-browser-link/script_lane/tool.py": "# 工具\n",
+            "fast-browser-link/native_bridge/script_lane/host_bridge.py": "# 桥接\n",
+            "fast-browser-link/native_bridge/script_lane/action_session.py": "# 会话\n",
+            "fast-browser-link/native_bridge/script_lane/child.py": "# 子进程\n",
+            "fast-browser-link/native_bridge/script_lane/tool.py": "# 工具\n",
+            "fast-browser-link/native_bridge/script_lane/page-request.js": "# 执行闭包\n",
+            "fast-browser-link/native_bridge/script_lane/page_export.py": "# export runtime\n",
+            "fast-browser-link/native_bridge/script_lane/page_export.js": "// export serializer\n",
+            "fast-browser-link/native_bridge/site_tools/tools.py": "# 执行闭包\n",
+            "fast-browser-link/native_bridge/site_tools/store.py": "# 执行闭包\n",
+            "fast-browser-link/native_bridge/browser_sdk.py": "# 执行闭包\n",
+            "fast-browser-link/native_bridge/fbl_scripts.py": "# 执行闭包\n",
             "fast-browser-link/native_bridge/host.py": "# host\n",
             "fast-browser-link/native_bridge/client.py": "# client\n",
             # 中文注释：当前包必须携带独立 Cookie 内存通道，夹具不省略运行模块。
             "fast-browser-link/native_bridge/cookie_mirror.py": "# cookie channel\n",
             "fast-browser-link/native_bridge/daemon.py": "# daemon\n",
+            "fast-browser-link/native_bridge/assist_adapter.py": "# product bootstrap\n",
+            "fast-browser-link/native_bridge/product_adapter.py": "# product runtime\n",
             "fast-browser-link/native_bridge/api_client.py": "# api\n",
             "fast-browser-link/native_bridge/vault_client.py": "# vault client\n",
             "fast-browser-link/native_bridge/vault_private.py": "# vault private\n",
@@ -106,6 +113,125 @@ class InstallPrerequisitesTests(unittest.TestCase):
             self.install()
         self.assertFalse(self.home.exists(), "installer wrote to user home before preflight")
         self.assertFalse(self.hermes.exists(), "installer wrote to Hermes home before preflight")
+
+    def test_stage_requires_canonical_sdk_and_lane_before_target_writes(self):
+        stage_spec = importlib.util.spec_from_file_location(
+            "stage_closure", ROOT / "native-bridge/install.py"
+        )
+        assert stage_spec is not None and stage_spec.loader is not None
+        stage = importlib.util.module_from_spec(stage_spec)
+        stage_spec.loader.exec_module(stage)
+        source = self.root / "source"
+        bridge = source / "native-bridge"
+        bridge.mkdir(parents=True)
+        # 中文注释：只伪装定位文件，不引入另一份执行源码；缺件必须在安装目标写入前拒绝。
+        stage.__file__ = str(bridge / "install.py")
+        projection = bridge / "task_diagnostics.py"
+        projection.write_text("# fixture")
+        with self.assertRaisesRegex(ValueError, "browser_sdk.py.*script_lane/host_bridge.py"):
+            stage.stage(self.home, [ORIGIN])
+        self.assertFalse(self.home.exists())
+        # 中文注释：旧适配器即使残留完整副本，也不能被选作 canonical 回退来源。
+        legacy = source / "executor-plugin/script_lane"
+        legacy.mkdir(parents=True)
+        for name in (
+            "host_bridge.py",
+            "action_session.py",
+            "child.py",
+            "tool.py",
+            "page-request.js",
+        ):
+            (legacy / name).write_text("# legacy")
+        with self.assertRaisesRegex(ValueError, "native-bridge/script_lane/host_bridge.py"):
+            stage.stage(self.home, [ORIGIN])
+        self.assertFalse(self.home.exists())
+
+    def test_stage_requires_product_adapter_before_target_writes(self):
+        stage_spec = importlib.util.spec_from_file_location(
+            "stage_product_closure", ROOT / "native-bridge/install.py"
+        )
+        assert stage_spec is not None and stage_spec.loader is not None
+        stage = importlib.util.module_from_spec(stage_spec)
+        stage_spec.loader.exec_module(stage)
+        source = self.root / "source"
+        bridge = source / "native-bridge"
+        shutil.copytree(
+            ROOT / "native-bridge",
+            bridge,
+            ignore=shutil.ignore_patterns("tests", "__pycache__", "product_adapter.py"),
+        )
+        shutil.copytree(ROOT / "browser-diagnostics", source / "browser-diagnostics")
+        shutil.copyfile(
+            ROOT / "executor-plugin/task_diagnostics.py", bridge / "task_diagnostics.py"
+        )
+        stage.__file__ = str(bridge / "install.py")
+        with self.assertRaisesRegex(ValueError, "product_adapter.py"):
+            stage.stage(self.home, [ORIGIN])
+        self.assertFalse(self.home.exists())
+
+    def test_missing_product_adapter_rejected_before_writes(self):
+        (self.package / "fast-browser-link/native_bridge/product_adapter.py").unlink()
+        self.rehash()
+        self.assert_rejected_without_target_writes("product_adapter.py")
+
+    def test_missing_page_export_module_rejected_before_writes(self):
+        for name in ("page_export.py", "page_export.js"):
+            with self.subTest(name=name):
+                target = self.package / "fast-browser-link/native_bridge/script_lane" / name
+                data = target.read_bytes()
+                target.unlink()
+                self.rehash()
+                self.assert_rejected_without_target_writes(name)
+                target.write_bytes(data)
+                self.rehash()
+
+    def test_stage_requires_page_export_before_target_writes(self):
+        stage_spec = importlib.util.spec_from_file_location(
+            "stage_export_closure", ROOT / "native-bridge/install.py"
+        )
+        assert stage_spec is not None and stage_spec.loader is not None
+        stage = importlib.util.module_from_spec(stage_spec)
+        stage_spec.loader.exec_module(stage)
+        source = self.root / "export-source"
+        bridge = source / "native-bridge"
+        shutil.copytree(
+            ROOT / "native-bridge", bridge, ignore=shutil.ignore_patterns("tests", "__pycache__")
+        )
+        shutil.copytree(ROOT / "browser-diagnostics", source / "browser-diagnostics")
+        shutil.copyfile(
+            ROOT / "executor-plugin/task_diagnostics.py", bridge / "task_diagnostics.py"
+        )
+        stage.__file__ = str(bridge / "install.py")
+        for name in ("page_export.py", "page_export.js"):
+            with self.subTest(name=name):
+                target = bridge / "script_lane" / name
+                data = target.read_bytes()
+                target.unlink()
+                with self.assertRaisesRegex(ValueError, name):
+                    stage.stage(self.home, [ORIGIN])
+                self.assertFalse(self.home.exists())
+                target.write_bytes(data)
+
+    def test_shared_synthetic_package_and_source_include_product_closure(self):
+        fixtures = runpy.run_path(str(ROOT / "tests/fixtures/package_fixtures.py"))
+        package = fixtures["write_installer_package"](self.root / "shared-package")
+        relative = "fast-browser-link/native_bridge/product_adapter.py"
+        sums = json.loads((package / "SHA256SUMS.json").read_text())
+        self.assertIn(relative, sums)
+        self.assertEqual(
+            hashlib.sha256((package / relative).read_bytes()).hexdigest(), sums[relative]
+        )
+        source = fixtures["write_packager_source"](self.root / "shared-source")
+        for name in (
+            "native-bridge/product_adapter.py",
+            "native-extension/product-fill.mjs",
+            "native-extension/product-fill-content.mjs",
+            "native-extension/product-connections.mjs",
+            "native-extension/product-connections-page.mjs",
+            "native-extension/product-connections.html",
+            "native-extension/product-connections.css",
+        ):
+            self.assertTrue((source / name).is_file(), name)
 
     def test_corrupt_payload_rejected_before_writes(self):
         (self.package / "fast-browser-link/native_bridge/host.py").write_text(

@@ -273,13 +273,8 @@ try {
   if (digest(await readFile(entry)) !== digest(await readFile(desktopSource)))
     throw Error('桌面插件副本校验失败');
   const installState = JSON.parse(installStateBytes);
-  installState.cloudFence = {
-    version: 1,
-    hostSha256: packageHashes['fast-browser-link/cloud_link/native_host.py'],
-    installerSha256: packageHashes['fast-browser-link/maintenance/install-cli.py'],
-  };
-  if (!installState.cloudFence.hostSha256 || !installState.cloudFence.installerSha256)
-    throw Error('同步包缺少云端升级保护');
+  delete installState.cloudFence;
+  installState.cloudRetired = { version: 1 };
   await writeFile(`${installStatePath}.dev-${token}`, JSON.stringify(installState) + '\n', {
     mode: 0o600,
   });

@@ -1,6 +1,8 @@
+import importlib.util
 import json
 import os
 from pathlib import Path
+import signal
 import socket
 import stat
 import struct
@@ -11,12 +13,179 @@ import threading
 import time
 import unittest
 from concurrent.futures import ThreadPoolExecutor
+from unittest.mock import patch
 
 BRIDGE_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BRIDGE_DIR))
 
-from client import BridgeClient, BridgeError, ensure_service, socket_address  # noqa: E402
+from client import BridgeClient, BridgeError, _probe, ensure_service, socket_address  # noqa: E402
 from tests.support import stop_fixture_daemon, temporary_bridge_home  # noqa: E402
+
+
+class FixtureProcessIdentityTests(unittest.TestCase):
+    def test_cleanup_stops_direct_core_daemon(self):
+        # 中文注释：默认入口切换后，显式启动的纯核心仍须通过认证探活及精确身份清理。
+        with temporary_bridge_home() as home:
+            process = subprocess.Popen(
+                [sys.executable, str(BRIDGE_DIR / "daemon.py"), "--home", str(home)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+            )
+            assert process.stderr is not None
+            try:
+                deadline = time.monotonic() + 5
+                while not _probe(home) and process.poll() is None and time.monotonic() < deadline:
+                    time.sleep(0.02)
+                self.assertTrue(_probe(home), "direct core daemon did not become ready")
+                stop_fixture_daemon(home)
+                self.assertEqual(process.wait(timeout=3), 0)
+                self.assertFalse(
+                    (home / "plugin-data/fast-browser-link-native/daemon.pid").exists()
+                )
+            finally:
+                if process.poll() is None:
+                    process.terminate()
+                    process.wait(timeout=3)
+                process.stderr.close()
+
+    def test_cleanup_accepts_exact_assist_and_legacy_entries(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp).resolve()
+            data = home / "plugin-data/fast-browser-link-native"
+            data.mkdir(parents=True)
+            pidfile = data / "daemon.pid"
+            for directory in (
+                BRIDGE_DIR,
+                home / "plugins/fast-browser-link/native_bridge",
+                data / "host-bin",
+            ):
+                for entry in ("assist_adapter.py", "daemon.py"):
+                    with self.subTest(directory=directory, entry=entry):
+                        pidfile.write_text("12345")
+                        command = subprocess.CompletedProcess(
+                            [], 0, f"/fixture/python {directory / entry} --home {home}\n"
+                        )
+                        with (
+                            patch("tests.support.subprocess.run", return_value=command),
+                            patch("tests.support._probe", return_value=True),
+                            patch(
+                                "tests.support.os.kill", side_effect=lambda *_: pidfile.unlink()
+                            ) as kill,
+                        ):
+                            stop_fixture_daemon(home)
+                        kill.assert_called_once_with(12345, signal.SIGTERM)
+
+    def test_cleanup_rejects_partial_identity_and_unverified_health(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp).resolve()
+            data = home / "plugin-data/fast-browser-link-native"
+            data.mkdir(parents=True)
+            pidfile = data / "daemon.pid"
+            pidfile.write_text("12345")
+            for entry in ("assist_adapter.py", "daemon.py"):
+                exact = f"/fixture/python {BRIDGE_DIR / entry} --home {home}"
+                for command, healthy in (
+                    (exact + "-other", True),
+                    (exact + " --other", True),
+                    (exact.replace(" --home ", " --not-home "), True),
+                    (exact.replace(entry, entry + ".other"), True),
+                    (exact.replace(str(BRIDGE_DIR), str(home / "foreign")), True),
+                    (exact, False),
+                ):
+                    with (
+                        self.subTest(command=command, healthy=healthy),
+                        patch(
+                            "tests.support.subprocess.run",
+                            return_value=subprocess.CompletedProcess([], 0, command),
+                        ),
+                        patch("tests.support._probe", return_value=healthy),
+                        patch("tests.support.os.kill") as kill,
+                    ):
+                        with self.assertRaisesRegex(RuntimeError, "unverified fixture"):
+                            stop_fixture_daemon(home)
+                        kill.assert_not_called()
+
+    def test_cleanup_rechecks_pid_after_authenticated_probe(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp).resolve()
+            data = home / "plugin-data/fast-browser-link-native"
+            data.mkdir(parents=True)
+            pidfile = data / "daemon.pid"
+            pidfile.write_text("12345")
+
+            def changed_pid(_home):
+                pidfile.write_text("54321")
+                return True
+
+            with (
+                patch(
+                    "tests.support.subprocess.run",
+                    return_value=subprocess.CompletedProcess(
+                        [], 0, f"/fixture/python {BRIDGE_DIR / 'daemon.py'} --home {home}"
+                    ),
+                ),
+                patch("tests.support._probe", side_effect=changed_pid),
+                patch("tests.support.os.kill") as kill,
+            ):
+                with self.assertRaisesRegex(RuntimeError, "PID changed"):
+                    stop_fixture_daemon(home)
+                kill.assert_not_called()
+
+    def test_real_helpers_inspect_and_cleanup_only_complete_fixture_identity(self):
+        root = BRIDGE_DIR.parent
+        for area in ("approval-integration", "native-extension", "native-v2"):
+            spec = importlib.util.spec_from_file_location(
+                "fixture_identity_" + area.replace("-", "_"),
+                root / "tests" / area / "real-helper.py",
+            )
+            assert spec is not None and spec.loader is not None
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            with tempfile.TemporaryDirectory() as temp:
+                work = Path(temp).resolve()
+                value = module.locations(work) if area == "native-extension" else module.paths(work)
+                home = value.get("hermes", value.get("hermes_home"))
+                plugin = value.get("plugin", value.get("installed"))
+                data = home / "plugin-data/fast-browser-link-native"
+                data.mkdir(parents=True)
+                (data / "daemon.pid").write_text("12345")
+                if area == "native-extension":
+                    launcher = data / "com.fast.browser_link"
+                    launcher.write_text(str(plugin / "native_bridge/host.py"))
+                    extension = work / "package/native-extension"
+                    extension.mkdir(parents=True)
+                    (extension / "manifest.json").write_text("{}")
+                inspect = module.inspect_install if area == "native-extension" else module.inspect
+                directories = [plugin / "native_bridge"]
+                if area != "native-extension":
+                    directories.append(data / "host-bin")
+                for entry in ("assist_adapter.py", "daemon.py"):
+                    for directory in directories:
+                        directory.mkdir(parents=True, exist_ok=True)
+                        (directory / entry).write_text("# fixture bridge\n")
+                    for directory in directories:
+                        path = directory / entry
+                        exact = f"/fixture/python {path} --home {home}"
+                        for command, accepted in ((exact, True), (exact + "-other", False)):
+                            with (
+                                self.subTest(area=area, path=path, command=command),
+                                patch.object(
+                                    module.subprocess,
+                                    "run",
+                                    return_value=subprocess.CompletedProcess([], 0, command),
+                                ),
+                                patch.object(module, "stop_fixture_daemon") as stop,
+                            ):
+                                if accepted:
+                                    self.assertEqual(inspect(work)["daemonPath"], str(path))
+                                    self.assertEqual(module.cleanup(work), {})
+                                    stop.assert_called_once()
+                                else:
+                                    with self.assertRaises(RuntimeError):
+                                        inspect(work)
+                                    with self.assertRaises(RuntimeError):
+                                        module.cleanup(work)
+                                    stop.assert_not_called()
 
 
 class BridgeIntegrationTests(unittest.TestCase):
@@ -142,7 +311,12 @@ class BridgeIntegrationTests(unittest.TestCase):
                 ["/bin/ps", "-p", str(pid), "-o", "command="], capture_output=True, text=True
             )
             self.assertEqual(command.returncode, 0)
-            self.assertIn(f"daemon.py --home {self.home}", command.stdout)
+            self.assertTrue(
+                command.stdout.strip().endswith(
+                    f" {BRIDGE_DIR / 'assist_adapter.py'} --home {self.home}"
+                ),
+                command.stdout,
+            )
             process.stdin.close()
             process.wait(timeout=5)
             self.assertEqual(process.returncode, 0)
@@ -228,8 +402,8 @@ class BridgeIntegrationTests(unittest.TestCase):
         process_list = subprocess.run(
             ["ps", "-axo", "pid=,command="], check=True, capture_output=True, text=True
         ).stdout.splitlines()
-        marker = f"daemon.py --home {self.home}"
-        matching = [line for line in process_list if marker in line]
+        marker = f" {BRIDGE_DIR / 'assist_adapter.py'} --home {self.home}"
+        matching = [line for line in process_list if line.strip().endswith(marker)]
         self.assertEqual(len(matching), 1, matching)
         ensure_service(self.home)
         self.assertEqual(int((data_dir / "daemon.pid").read_text()), pid)

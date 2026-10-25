@@ -9,6 +9,7 @@ same daemon calls and approval rules as the individual fast_browser_* tools.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import time
@@ -87,75 +88,18 @@ def _origin(url):
     return f"{parts.scheme}://{parts.netloc.lower()}"
 
 
-def _summary(
-    runtime, owner, task_id, tab_id, request_id, url, *, read_intent="interactive", root=None
-):
-    # 中文注释：一次采集目标区域； binding 和 snapshotId 原样保留，正文和控件不重复读取。
-    options = {"mode": read_intent, "budget": 1400}
-    if root is not None:
-        options["root"] = root
-    page = runtime.call(
-        "shared.run",
-        {
-            "owner": owner,
-            "taskId": task_id,
-            "tabId": tab_id,
-            "requestId": request_id + "-summary",
-            "action": "semantic_snapshot",
-            "options": options,
-        },
+def _summary(*args, **kwargs):
+    # 中文注释：Hermes 开页/单动作与独立脚本使用底座的同一摘要实现。
+    path = Path(__file__).with_name("native_tools.py")
+    spec = importlib.util.spec_from_file_location("browser_summary_adapter", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("browser summary adapter unavailable")
+    adapter = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(adapter)
+    core = adapter.runtime_module().load_module(
+        adapter.core_root() / "script_lane/action_session.py", "browser_page_summary_"
     )
-    if not isinstance(page, dict) or not isinstance(page.get("snapshotId"), str):
-        return None
-    result = {key: page.get(key) for key in ("binding", "snapshotId", "coverage", "nextCursor")}
-    result.update(
-        {
-            "url": url[:300],
-            "title": str(page.get("title", ""))[:160],
-            "headings": [],
-            "items": [],
-            "read_intent": read_intent,
-            "read_options": options,
-        }
-    )
-    categories = set()
-    for row in page.get("items", []):
-        item = {
-            key: row[key]
-            for key in (
-                "ref",
-                "role",
-                "name",
-                "disabled",
-                "checked",
-                "cells",
-                "cellText",
-                "fragment",
-                "truncated",
-            )
-            if key in row
-        }
-        if "fragment" in item:
-            item["fragment"] = {
-                key: item["fragment"][key]
-                for key in ("field", "index", "start", "end", "total", "part")
-                if key in item["fragment"]
-            }
-        # 中文注释：只在语义引擎内按预算分页，不二次裁剪已取条目；游标恰好接在交付片段之后。
-        result["items"].append(item)
-    if page.get("nextCursor") or page.get("coverage", {}).get("complete") is False:
-        categories.add("snapshot_coverage")
-    if len(url) > 300:
-        categories.add("summary_url")
-    if categories:
-        result.update(
-            {
-                "truncated": True,
-                "truncation": sorted(categories),
-                "read_hint": "按 read_options 和 nextCursor 续读；无游标且覆盖不完整时缩小范围，摘要不代表全文。",
-            }
-        )
-    return result
+    return core._summary(*args, **kwargs)
 
 
 def _default_browser(runtime):

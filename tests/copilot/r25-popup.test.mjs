@@ -5,10 +5,8 @@ import { JSDOM } from 'jsdom';
 import { renderStatus } from '../../native-extension/ui-design.mjs';
 
 const root = new URL('../../native-extension/', import.meta.url);
-const [html, popup, cloud] = await Promise.all(
-  ['popup.html', 'popup.mjs', 'cloud-popup.mjs'].map((file) =>
-    readFile(new URL(file, root), 'utf8'),
-  ),
+const [html, popup] = await Promise.all(
+  ['popup.html', 'popup.mjs'].map((file) => readFile(new URL(file, root), 'utf8')),
 );
 const flush = async () => {
   for (let i = 0; i < 5; i++) await new Promise((resolve) => setImmediate(resolve));
@@ -40,7 +38,6 @@ async function mount(initial, language = 'zh-CN') {
     },
   };
   dom.window.renderStatus = renderStatus;
-  dom.window.eval(cloud.replace(/^import\s[^;]*;\n/gm, ''));
   dom.window.eval(popup.replace(/^import\s[^;]*;\n/gm, ''));
   await flush();
   return {
@@ -55,10 +52,10 @@ async function mount(initial, language = 'zh-CN') {
   };
 }
 
-test('popup always has exactly the three requested feature rows in Chinese and English', async () => {
+test('popup retains only local Agent and Assist rows in Chinese and English', async () => {
   for (const [language, labels] of [
-    ['zh-CN', ['本地Agent连接', '云端Agent连接', '协作']],
-    ['en-US', ['Local Agent connection', 'Cloud Agent connection', 'Assist']],
+    ['zh-CN', ['本地Agent连接', '协作']],
+    ['en-US', ['Local Agent connection', 'Assist']],
   ]) {
     const h = await mount(
       { connected: true, copilot: { enabled: false }, cloud: { state: 'unpaired' } },
@@ -66,7 +63,7 @@ test('popup always has exactly the three requested feature rows in Chinese and E
     );
     try {
       const rows = [...h.doc.querySelectorAll('.connections > .connection-row')];
-      assert.equal(rows.length, 3);
+      assert.equal(rows.length, 2);
       assert.deepEqual(
         rows.map((row) => row.querySelector('.row-label').textContent),
         labels,
@@ -80,11 +77,9 @@ test('popup always has exactly the three requested feature rows in Chinese and E
         cloud: { state: 'active', paired: true, online: true },
       });
       assert.ok(rows.every((row) => !row.hidden));
-      assert.equal(h.doc.querySelector('#cloud-connect').disabled, true);
-      assert.equal(h.doc.querySelector('#cloud-expand').disabled, true);
+      assert.equal(h.doc.querySelector('[id^="cloud-"],.cloud-row'), null);
       assert.equal(h.doc.querySelector('#copilot-toggle').disabled, true);
       assert.equal(h.doc.querySelector('#open-copilot').hidden, true);
-      assert.notEqual(h.doc.querySelector('#cloud-status').dataset.state, 'active');
     } finally {
       h.dom.window.close();
     }
@@ -114,21 +109,25 @@ test('board appears only for confirmed enabled collaboration and enabling keeps 
   }
 });
 
-test('compact feature rows retain accessible connection scopes and reject synthetic cloud actions', async () => {
+test('compact feature rows retain local connection scope without cloud controls or requests', async () => {
   const h = await mount({ connected: true, cloud: { state: 'unpaired' } });
+  const dispose = h.dom.window.close.bind(h.dom.window);
   try {
     assert.ok(h.doc.querySelector('#connection-detail').closest('[role=tooltip]'));
     assert.match(h.doc.querySelector('#connection-detail').textContent, /任务页.*密码输入值不回显/);
-    assert.match(h.doc.querySelector('#cloud-access-detail').textContent, /已有个人标签页不授权/);
-    for (const id of ['cloud-connect', 'cloud-regenerate', 'cloud-disconnect', 'cloud-open-web'])
-      h.doc.getElementById(id).click();
+    assert.equal(h.doc.querySelector('[id^="cloud-"],script[src="cloud-popup.mjs"]'), null);
     await flush();
     assert.equal(
       h.calls.some((row) => row.type.startsWith('cloud_')),
       false,
     );
-    assert.equal(h.doc.querySelector('#cloud-dialog').dataset.open, 'false');
+    let closed = 0;
+    h.dom.window.close = () => {
+      closed++;
+    };
+    h.doc.dispatchEvent(new h.dom.window.KeyboardEvent('keydown', { key: 'Escape' }));
+    assert.equal(closed, 1);
   } finally {
-    h.dom.window.close();
+    dispose();
   }
 });

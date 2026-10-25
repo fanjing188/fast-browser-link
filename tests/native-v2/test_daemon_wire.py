@@ -7,6 +7,7 @@ import importlib.util
 from pathlib import Path
 import sys
 import socket
+import subprocess
 import tempfile
 import time
 import unittest
@@ -23,6 +24,51 @@ try:
     spec.loader.exec_module(daemon_module)
 finally:
     sys.path.remove(str(BRIDGE))
+
+
+class ProductIsolationTests(unittest.TestCase):
+    def test_core_import_construction_and_health_never_import_assist(self):
+        # 中文注释：独立进程禁止产品模块导入，避免当前测试进程的模块缓存掩盖反向依赖。
+        probe = """
+import importlib.abc
+from pathlib import Path
+import sys
+import tempfile
+
+class NoAssist(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname.startswith(('copilot', 'assist_adapter')):
+            raise AssertionError('core imported product: ' + fullname)
+
+sys.meta_path.insert(0, NoAssist())
+from daemon import BridgeDaemon, ProtocolError
+with tempfile.TemporaryDirectory() as directory:
+    app = BridgeDaemon(Path(directory))
+    assert app._dispatch_client('health', {}) == {'ok': True, 'protocolVersion': 1}
+    extension = {'instanceId': 'fixture'}
+    app.extensions['fixture'] = extension
+    try:
+        app._dispatch_connected_extension(extension, 'extension.copilot.state', {})
+    except ProtocolError as error:
+        assert error.code == 'unknown_method', error.code
+    else:
+        raise AssertionError('unbound product route must be unsupported')
+    for fields in ({'silent': True}, {'copilotSilentToken': 'forged'}, {'copilotResourceToken': 'forged'}):
+        try:
+            app._create_task({
+                'owner': 'fixture', 'title': 'fixture', 'instanceId': 'fixture',
+                'allowedOrigins': ['https://example.test'], **fields,
+            })
+        except ProtocolError as error:
+            assert error.code == 'invalid_params', error.code
+        else:
+            raise AssertionError('unbound private task fields accepted')
+    app.stop()
+"""
+        result = subprocess.run(
+            [sys.executable, "-c", probe], cwd=BRIDGE, capture_output=True, text=True, timeout=15
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
 
 
 class SafeIdleExitTests(unittest.TestCase):
@@ -425,6 +471,8 @@ class NativeV2DaemonTests(unittest.TestCase):
                 },
             )
         self.assertEqual(caught.exception.code, "request_outcome_unavailable")
+        # 中文注释：读账本也会排队快照；夹具目录退出前结清，避免后台线程写入已删除目录。
+        restored._flush_tasks()
 
     # 中文注释：AX 读取参数先在 daemon 验证，非法请求不能触发扩展或审批。
     def test_accessibility_requires_root_and_nonpaged_interactive_mode(self):

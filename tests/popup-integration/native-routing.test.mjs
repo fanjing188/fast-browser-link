@@ -7,9 +7,9 @@ import {
 } from '../../native-extension/copilot-controls.mjs';
 import { taskTableAdapter } from '../../native-extension/copilot-table-job.mjs';
 import { CopilotBackground } from '../../native-extension/copilot-background.mjs';
-import { CloudLink } from '../support/cloud-link-stub.mjs';
 // 中文注释：VM 夹具显式注入独立 Cookie 模块，保持生产后台模块依赖一致。
 import { CookieMirror } from '../../native-extension/cookie-mirror.mjs';
+import { ProductConnections } from '../../native-extension/product-connections.mjs';
 // Real popup -> real background dispatcher -> real Bridge request envelope.
 // Browser/Executor and daemon replies are in-memory doubles; NO browser or host starts.
 import { test } from 'node:test';
@@ -42,7 +42,9 @@ async function harness(initialStorage = {}, manifestVersion = packageVersion) {
     dispatch,
     executor,
     poll;
-  const nativeCalls = [],
+  const hosts = [],
+    alarms = [],
+    nativeCalls = [],
     popupCalls = [];
   const port = {
     onDisconnect: { addListener() {} },
@@ -167,7 +169,10 @@ async function harness(initialStorage = {}, manifestVersion = packageVersion) {
       getURL: (path) => 'chrome-extension://test/' + path,
       getManifest: () => ({ version: manifestVersion }),
       onMessage: { addListener: (f) => (dispatch = f) },
-      connectNative: () => port,
+      connectNative: (host) => {
+        hosts.push(host);
+        return port;
+      },
       sendMessage: async () => ({}),
     },
     storage: {
@@ -176,7 +181,7 @@ async function harness(initialStorage = {}, manifestVersion = packageVersion) {
     },
     notifications: { onClicked: event },
     windows: { onFocusChanged: event, get: async (id) => ({ id, focused: true }) },
-    alarms: { create() {}, onAlarm: event },
+    alarms: { create() {}, onAlarm: { addListener: (fn) => alarms.push(fn) } },
     tabs: {
       onCreated: event,
       onRemoved: event,
@@ -192,12 +197,12 @@ async function harness(initialStorage = {}, manifestVersion = packageVersion) {
   vm.runInNewContext(background.replace(/^import\s[^;]*;\n/gm, ''), {
     taskTableAdapter,
     CopilotBackground,
-    CloudLink,
     CookieMirror,
     Executor: TestExecutor,
     NativeWorkspaces: TestWorkspaces,
     Bridge,
     BrowserConsent,
+    ProductConnections,
     isUiSender,
     reloadForInstalledBuild: async () => false,
     BUILD_ID: '',
@@ -267,6 +272,8 @@ async function harness(initialStorage = {}, manifestVersion = packageVersion) {
       await flush();
     },
     nativeCalls,
+    hosts,
+    alarms,
     popupCalls,
     dispatch,
     executor,
@@ -294,6 +301,22 @@ test('握手与弹窗状态读取浏览器 manifest，而非源码版本常量',
   assert.equal(h.nativeCalls.find((m) => m.method === 'extension.hello').params.version, version);
   assert.equal((await h.send({ type: 'popup_status' })).result.version, version);
   assert.equal(h.d.querySelector('#version-label').textContent, `v${version}`);
+  h.dom.window.close();
+});
+
+test('产品连接设置通过真实后台路由读取登记，不依赖worker动态导入', async () => {
+  const h = await harness();
+  const receipt = await new Promise((resolve) => {
+    h.dispatch(
+      { type: 'product_connections' },
+      {
+        id: 'test',
+        url: 'chrome-extension://test/product-connections.html',
+      },
+      resolve,
+    );
+  });
+  assert.deepEqual(clone(receipt), { result: [] });
   h.dom.window.close();
 });
 
@@ -424,7 +447,44 @@ test('automatic popup audit rejection stops the exact task and releases overlays
   }
 });
 
-test('侧栏仅有连接摘要只读入口，网页不能读取或借此调用模型/配对', async () => {
+test('Native startup, alarm and explicit reconnect use only the local host', async () => {
+  const h = await harness();
+  try {
+    assert.deepEqual(h.hosts, ['com.fast.browser_link']);
+    assert.equal(h.alarms.length, 1);
+    await h.alarms[0]();
+    await h.flush();
+    assert.equal((await h.send({ type: 'connect' })).result.connected, true);
+    assert.deepEqual(h.hosts, ['com.fast.browser_link']);
+    assert.equal(Object.hasOwn((await h.send({ type: 'popup_status' })).result, 'cloud'), false);
+  } finally {
+    h.dom.window.close();
+  }
+});
+
+test('removed cloud management messages cannot pair, open a page or send Native commands', async () => {
+  const h = await harness();
+  try {
+    const count = h.nativeCalls.length;
+    h.api.tabs.create = async () => assert.fail('removed pairing must not open a page');
+    for (const type of [
+      'cloud_connect',
+      'cloud_disconnect',
+      'cloud_open_web',
+      'cloud_full_access',
+    ]) {
+      const result = await h.send({ type });
+      assert.ok(result.error, type);
+      assert.equal(Object.hasOwn(result, 'result'), false, type);
+    }
+    assert.equal(h.nativeCalls.length, count);
+    assert.deepEqual(h.hosts, ['com.fast.browser_link']);
+  } finally {
+    h.dom.window.close();
+  }
+});
+
+test('退役连接摘要无返回且不触发模型或配对，侧栏和网页均无例外', async () => {
   const h = await harness();
   try {
     const count = h.nativeCalls.length;
@@ -439,7 +499,7 @@ test('侧栏仅有连接摘要只读入口，网页不能读取或借此调用�
       ),
       false,
     );
-    assert.ok(Object.hasOwn(result.result, 'cloud'));
+    assert.equal(result, undefined);
     assert.equal(h.nativeCalls.length, count);
     for (const url of ['https://example.test/', 'chrome-extension://test/unrelated.html']) {
       let called = false;

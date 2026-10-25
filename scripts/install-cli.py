@@ -348,10 +348,41 @@ def cloud_never_configured(home, user_home=None):
         return False
 
 
+def cloud_retired(home, user_home):
+    # 中文注释：退役标记只证明受管入口已解除；旧账本和实例锁仍由 idle_cloud 核实。
+    state = home / "plugin-data/fast-browser-link-native/install-state.json"
+    if user_home is None or not state.exists():
+        return False
+    try:
+        EXECUTOR.reject_target_symlinks([state])
+        info = state.lstat()
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or info.st_uid != os.getuid()
+            or stat.S_IMODE(info.st_mode) & 0o077
+            or json.loads(state.read_text()).get("cloudRetired") != {"version": 1}
+        ):
+            return False
+        return not any(
+            os.path.lexists(path)
+            for path in [
+                home / "plugins/fast-browser-link/cloud_link",
+                home / "plugin-data/fast-browser-link-cloud" / (HOST + ".cloud"),
+                *registrations(user_home, HOST + ".cloud"),
+            ]
+        )
+    except (OSError, ValueError, TypeError):
+        return False
+
+
 @contextmanager
 def cloud_gate(home, *, installed, user_home=None, env=None, maintenance=False):
     if cloud_never_configured(home, user_home):
         yield None
+        return
+    if cloud_retired(home, user_home):
+        with idle_cloud(home):
+            yield None
         return
     if maintenance:
         with paused_cloud_launcher(home, user_home, env) as original, idle_cloud(home):
@@ -979,6 +1010,8 @@ def verified_daemon_pid(home, env):
     candidates = [
         home / "plugins/fast-browser-link/native_bridge/daemon.py",
         data / "host-bin/daemon.py",
+        home / "plugins/fast-browser-link/native_bridge/assist_adapter.py",
+        data / "host-bin/assist_adapter.py",
     ]
     if process.returncode or not any(
         process.stdout.strip().endswith(f" {path} --home {home}") for path in candidates
@@ -1401,7 +1434,8 @@ def apply_package(
                 if path in retained:
                     continue
                 remove(path)
-            EXECUTOR.install(package, user_home, home, [ORIGIN], apply=True)
+            # 中文注释：只复用本次 CLI 私有快照及其已验清单，目标复制后仍逐字节复核。
+            EXECUTOR._install_verified(package, user_home, home, [ORIGIN], manifest, apply=True)
             extension.parent.mkdir(parents=True, exist_ok=True)
             shutil.copytree(package / "native-extension", extension)
             verify_extension_tree(extension, manifest)
@@ -1414,7 +1448,7 @@ def apply_package(
                     {
                         "profiles": profiles,
                         "version": installed_version(home / "plugins/fast-browser-link"),
-                        "cloudFence": cloud_fence_metadata(home),
+                        "cloudRetired": {"version": 1},
                     }
                 )
             )
@@ -1509,6 +1543,13 @@ def development_sync_guard(home, env):
         cloud_gate(home, installed=True, user_home=Path(env["HOME"])),
         idle_bridge(home, env) as bridge_lock,
     ):
+        if not cloud_never_configured(home, Path(env["HOME"])) and not cloud_retired(
+            home, Path(env["HOME"])
+        ):
+            raise InstallError(
+                "旧云端入口必须先经正式事务退役。",
+                "先运行 ./install.sh --upgrade；不支持的旧入口使用 --upgrade --maintenance。",
+            )
         yield (root_lock, data_lock, bridge_lock)
 
 
@@ -1632,7 +1673,6 @@ def _run(args):
                 *registrations(user_home),
                 *registrations(user_home, HOST + ".cloud"),
                 data,
-                home / "plugin-data/fast-browser-link-cloud",
             ]
         print("将停用 / Disable profiles: " + ", ".join(profiles))
         print(
@@ -1709,7 +1749,7 @@ def _run(args):
                             "核对原生宿主注册后重试；升级不会放宽来源。",
                         )
         else:
-            EXECUTOR.install(staged, user_home, home, [ORIGIN], apply=False)
+            EXECUTOR._install_verified(staged, user_home, home, [ORIGIN], manifest, apply=False)
         if args.verbose:
             print_plan(home, profiles, args.upgrade, True)
         with (

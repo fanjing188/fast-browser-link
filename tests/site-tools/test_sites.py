@@ -19,9 +19,9 @@ def load(path, name):
     return module
 
 
-store_module = load("executor-plugin/site_tools/store.py", "site_store_test")
+store_module = load("native-bridge/site_tools/store.py", "site_store_test")
 script_test = load("tests/v1.1-script-lane/test_script_tool.py", "site_script_fixture")
-tools = load("executor-plugin/site_tools/tools.py", "site_tools_test")
+tools = load("native-bridge/site_tools/tools.py", "site_tools_test")
 
 
 def definition():
@@ -174,7 +174,7 @@ class IntegrationTests(unittest.TestCase):
             return result
 
         self.runtime.call = call
-        self.bridge = script_test.host_bridge.HostBridge(self.runtime, ROOT / "executor-plugin")
+        self.bridge = script_test.host_bridge.HostBridge(self.runtime)
         self.addCleanup(self.bridge.close)
         self.handlers = {}
         ctx = types.SimpleNamespace(

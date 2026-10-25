@@ -19,7 +19,7 @@ def load(name, relative):
 
 def run():
     tools = load("replay_tools", "executor-plugin/native_tools.py")
-    child = load("replay_child", "executor-plugin/script_lane/child.py")
+    child = load("replay_child", "native-bridge/script_lane/child.py")
     runtime = types.SimpleNamespace(
         authority=types.SimpleNamespace(
             consume=lambda *a, **k: types.SimpleNamespace(owner="synthetic")

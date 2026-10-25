@@ -69,6 +69,20 @@ function fixture() {
     },
   };
 }
+
+test('侧栏不展示或轮询已退役的云端连接', async () => {
+  const f = await mountMain();
+  try {
+    assert.equal(f.doc.getElementById('sidebar-cloud'), null);
+    assert.equal(
+      f.calls.some((message) => message.type === 'copilot.connections'),
+      false,
+    );
+  } finally {
+    f.close();
+  }
+});
+
 async function mountMain(
   initial = state,
   available = catalog(false),
@@ -394,10 +408,8 @@ test('only the extension panel can call setup, selection and catalog commands', 
 });
 
 test('popup keeps its direct open gesture but an onboarding receipt never turns collaboration on', async () => {
-  const [popupHtml, popupSource, cloudSource] = await Promise.all(
-      ['popup.html', 'popup.mjs', 'cloud-popup.mjs'].map((name) =>
-        readFile(new URL(name, root), 'utf8'),
-      ),
+  const [popupHtml, popupSource] = await Promise.all(
+      ['popup.html', 'popup.mjs'].map((name) => readFile(new URL(name, root), 'utf8')),
     ),
     dom = new JSDOM(popupHtml, {
       url: 'chrome-extension://fixture/popup.html',
@@ -430,7 +442,6 @@ test('popup keeps its direct open gesture but an onboarding receipt never turns 
     },
   };
   try {
-    dom.window.eval(cloudSource.replace(/^import\s[^;]*;\n/gm, ''));
     dom.window.eval(popupSource.replace(/^import\s[^;]*;\n/gm, ''));
     await flush();
     dom.window.document.getElementById('copilot-toggle').click();

@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 const source = readFileSync(
-  new URL('../../executor-plugin/script_lane/page-request.js', import.meta.url),
+  new URL('../../native-bridge/script_lane/page-request.js', import.meta.url),
   'utf8',
 );
 function fixture(response) {

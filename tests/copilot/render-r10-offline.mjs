@@ -5,15 +5,10 @@ import { createOverlayView } from '../../native-extension/overlay-view.mjs';
 const root = new URL('../../', import.meta.url),
   out = new URL('docs/growth/assets/', root),
   source = new URL('native-extension/', root);
-const [html, popup, cloud, popupCSS, brandCSS, logo] = await Promise.all(
-  [
-    'popup.html',
-    'popup.mjs',
-    'cloud-popup.mjs',
-    'popup.css',
-    'brand.css',
-    'brand-logo-small.svg',
-  ].map((name) => readFile(new URL(name, source), 'utf8')),
+const [html, popup, popupCSS, brandCSS, logo] = await Promise.all(
+  ['popup.html', 'popup.mjs', 'popup.css', 'brand.css', 'brand-logo-small.svg'].map((name) =>
+    readFile(new URL(name, source), 'utf8'),
+  ),
 );
 const dark =
   brandCSS
@@ -28,23 +23,10 @@ const base = {
   browserFullConsentStatus: 'enabled',
   tasks: [],
   copilot: { enabled: true, running: 2, unread: 3 },
-  cloud: { state: 'active', paired: true, online: true, site: 'https://pair.example.test' },
 };
 const cases = {
   following: base,
-  unpaired: {
-    ...base,
-    cloud: {
-      state: 'pending_pairing',
-      paired: false,
-      online: false,
-      code: 'DEMO-1234',
-      expiresAt: Date.now() + 300000,
-      site: 'https://pair.example.test',
-    },
-  },
-  reconnecting: { ...base, cloud: { state: 'offline', paired: true } },
-  error: { ...base, cloud: { state: 'revoked' } },
+
   disconnected: { ...base, connected: false },
   first: { connected: false, browserFullConsentStatus: 'disabled' },
   unknown: null,
@@ -82,18 +64,8 @@ async function renderPopup(name, status, theme, language = 'zh-CN') {
       },
     },
   };
-  dom.window.eval(cloud);
   dom.window.eval(popup);
   await flush();
-  if (name === 'unpaired') {
-    const panel = dom.window.document.getElementById('cloud-dialog');
-    panel.dataset.open = 'true';
-    panel.inert = false;
-    panel.removeAttribute('inert');
-    dom.window.document.getElementById('cloud-expand').setAttribute('aria-expanded', 'true');
-    dom.window.document.getElementById('cloud-code').textContent = 'DEMO-1234';
-    dom.window.document.getElementById('cloud-code-expiry').textContent = '4:59';
-  }
   dom.window.document.querySelectorAll('script,link').forEach((el) => el.remove());
   dom.window.document.querySelectorAll('img').forEach((el) => {
     el.src = logoData;

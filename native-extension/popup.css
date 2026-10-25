@@ -12,12 +12,6 @@ body{width:320px;min-width:320px;margin:0;background:var(--paper);color:var(--in
 .info-button{border:0;background:none;color:var(--ink-2);padding:0;width:44px;min-height:44px}
 .tooltip{display:none;position:fixed;z-index:20;left:12px;right:12px;top:56px;background:var(--paper);border:1px solid var(--line);border-radius:var(--r);padding:10px 12px;font-size:12px;box-shadow:var(--shadow);overflow-wrap:anywhere}
 .info:focus-within .tooltip,.info:hover .tooltip{display:grid;gap:8px}
-.row-trigger{display:flex;align-items:center;gap:8px;flex:1;min-width:0;text-align:start;border:0;padding:0;background:none;font-weight:400}
-.row-trigger>.st{margin-left:auto;flex-shrink:0}
-.expander{display:grid;grid-template-rows:0fr;visibility:hidden;transition:grid-template-rows 200ms,visibility 200ms}
-.expander[data-open=true]{grid-template-rows:1fr;visibility:visible}.expand-inner{overflow:hidden}
-.pair-panel{padding:12px 14px}.section-heading,.code-actions,.cloud-manage{display:flex;align-items:center;justify-content:space-between;gap:8px}
-.connection-code{display:block;user-select:all;font:20px var(--mono);margin:8px 0;overflow-wrap:anywhere}
 .small{font-size:12px;color:var(--ink-2)}
 .error-bar{display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--bad-bg);color:var(--bad);font-size:12px;overflow-wrap:anywhere}
 .icon-button{border:0;background:none;padding:4px;min-width:28px}#error-close{margin-left:auto;flex-shrink:0}
@@ -28,7 +22,5 @@ body button{min-height:44px;min-width:44px}
 .page-task .task-copy{flex-basis:100%}
 .page-controls{flex:1}
 .tooltip{max-height:calc(100dvh - 80px);overflow:auto;line-height:1.6}
-.row-trigger{min-width:0;flex-basis:140px;flex-wrap:wrap}
 .row-label{overflow-wrap:anywhere}
 .connection-row .status-component{margin-left:auto}
-.code-actions,.cloud-manage,.section-heading{flex-wrap:wrap}

@@ -2,6 +2,8 @@
 
 Current integration status and remaining work: [项目工作梳理](maintenance-status.zh-CN.md).
 
+Browser-core and work-product boundaries: [浏览器执行底座](browser-core.md). Work products use the local SDK; cloud connection is not part of the new runtime.
+
 ## Prerequisites
 
 - Node.js 22.12+ and Python 3.11+ for the self-contained tests
@@ -20,9 +22,9 @@ The daemon and extension bundle no third-party runtime packages. The plugin uses
 ## Repository layout
 
 ```
-executor-plugin/        Hermes plugin: tools, owner leases, script lane, official-tool and Vault adapters,
+executor-plugin/        Hermes plugin: tools, owner leases, official-tool and Vault adapters,
                         Desktop page (desktop/), HTTP API (dashboard/), skills (skills/)
-native-bridge/          Daemon, Native Messaging host, client, staging installer, uploads/downloads, CDP gateway
+native-bridge/          Daemon, SDK, shared script/site-tool core, Native host, installer and CDP gateway
 native-extension/       MV3 extension: background, executor core, popup, approval panel, overlay, build script
 page-semantics/         Semantic snapshot engine (browser ESM)
 browser-interactions/   Screenshot-bound interactions (browser ESM)

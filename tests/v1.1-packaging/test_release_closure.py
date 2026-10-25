@@ -20,7 +20,7 @@ SCRATCH = Path(tempfile.gettempdir()).resolve()
 ORIGIN = "chrome-extension://hhnljehnkmhhgjjjmnlhilfpcjhobloc/"
 # 中文注释：按已发布标签解析提交，避免仓库历史改写后固定对象失效。
 OLD_RELEASE = "v1.8.5^{commit}"
-# 中文注释：版本闭包校验包含锁文件和云端版本元数据，fixture 不能遗漏这些输入。
+# 中文注释：夹具只复制当前包输入；旧云升级材料从固定 Git 历史读取。
 INPUTS = (
     "fbl.py",
     "skills",
@@ -32,8 +32,6 @@ INPUTS = (
     "executor-plugin",
     "native-bridge",
     "native-extension",
-    # 中文注释：云端 Native 入口与运行时也属于正式包的已提交输入。
-    "cloud-link",
     "browser-workspaces",
     "browser-diagnostics",
     "page-semantics",
@@ -54,8 +52,6 @@ INPUTS = (
     "docs/installation.zh-CN.md",
     "docs/python-scripting.md",
     "LICENSE",
-    "cloud-link/site/package.json",
-    "cloud-link/site/package-lock.json",
 )
 
 
@@ -395,8 +391,71 @@ class ReleaseClosure(unittest.TestCase):
         sums = self.built()
         self.assertFalse(any(name.startswith("docs/upstream-patches/") for name in sums))
         self.assertFalse(any("official_adapter" in name for name in sums))
-        for relative in ("host_bridge.py", "action_session.py", "child.py", "tool.py"):
-            self.assertIn("fast-browser-link/script_lane/" + relative, sums)
+        runtime = self.output / "fast-browser-link/native_bridge"
+        members = (
+            "assist_adapter.py",
+            "product_adapter.py",
+            "browser_sdk.py",
+            "fbl_scripts.py",
+            "script_lane/host_bridge.py",
+            "script_lane/action_session.py",
+            "script_lane/child.py",
+            "script_lane/tool.py",
+            "script_lane/page-request.js",
+            "site_tools/store.py",
+            "site_tools/tools.py",
+        )
+        members += ("script_lane/page_export.py", "script_lane/page_export.js")
+        for relative in members:
+            # 中文注释：导出运行闭包逐字节随包保留，缺件负例由安装预检套件覆盖。
+            self.assertIn("fast-browser-link/native_bridge/" + relative, sums)
+            self.assertEqual(
+                (runtime / relative).read_bytes(),
+                (self.source / "native-bridge" / relative).read_bytes(),
+            )
+        self.assertFalse((self.output / "fast-browser-link/script_lane").exists())
+        self.assertFalse((self.output / "fast-browser-link/site_tools").exists())
+        self.assertFalse(
+            any(
+                "cloud_link" in name
+                or name.endswith("cloud-link.mjs")
+                or name.endswith("cloud-popup.mjs")
+                for name in sums
+            )
+        )
+        # 中文注释：脱离源码树的新进程实际加载 SDK，并走真实脚本子进程，不借 Hermes 依赖。
+        probe = subprocess.run(
+            [
+                sys.executable,
+                "-I",
+                "-B",
+                "-c",
+                """
+import pathlib, sys
+sys.path.insert(0, sys.argv[1])
+import browser_sdk
+class Client:
+    def call(self, method, params):
+        if method == 'browser.list':
+            return [{'instanceId': 'fixture', 'connected': True}]
+        assert method == 'shared.get', method
+        return {'id': 'packaged', 'state': 'ready', 'generation': 1,
+                'instanceId': 'fixture', 'tabIds': [], 'agentTabIds': [], 'allowedOrigins': []}
+    def close(self): pass
+with browser_sdk.Browser(home=pathlib.Path(sys.argv[2]), owner='fixture-owner', client=Client()) as browser:
+    receipt = browser.call('script', {'taskId': 'packaged', 'code': "print('packaged-sdk')"})
+    assert receipt['execution_complete'], receipt
+    assert receipt['stdout'].strip() == 'packaged-sdk', receipt
+assert pathlib.Path(browser_sdk.__file__).parent == pathlib.Path(sys.argv[1])
+""",
+                str(runtime),
+                str(self.root / "sdk-runtime"),
+            ],
+            cwd=self.root,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(probe.returncode, 0, probe.stdout + probe.stderr)
         self.assertIn("docs/python-scripting.md", sums)
         self.assertIn("docs/CHANGELOG.md", sums)
         self.assertIn("README.md", sums)
@@ -417,12 +476,62 @@ class ReleaseClosure(unittest.TestCase):
         self.assertIn("./install.sh", instructions)
         self.assertIn("macOS", instructions)
 
+    def test_product_extension_resources_are_packaged_and_required_before_output(self):
+        names = (
+            "product-fill.mjs",
+            "product-fill-content.mjs",
+            "product-connections.mjs",
+            "product-connections-page.mjs",
+            "product-connections.html",
+            "product-connections.css",
+        )
+        sums = self.built()
+        for name in names:
+            relative = "native-extension/" + name
+            self.assertIn(relative, sums)
+            self.assertEqual(
+                (self.output / relative).read_bytes(),
+                (self.source / relative).read_bytes(),
+            )
+        shutil.rmtree(self.output)
+        for name in names:
+            with self.subTest(name=name):
+                member = self.source / "native-extension" / name
+                data = member.read_bytes()
+                member.unlink()
+                try:
+                    result = self.package()
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("Missing input native-extension/" + name, result.stderr)
+                    self.assertFalse(self.output.exists())
+                finally:
+                    member.write_bytes(data)
+
     def test_missing_script_lane_member_rejected_before_output(self):
-        (self.source / "executor-plugin/script_lane/host_bridge.py").unlink()
-        result = self.package()
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("host_bridge.py", result.stderr)
-        self.assertFalse(self.output.exists())
+        for relative in (
+            "assist_adapter.py",
+            "product_adapter.py",
+            "browser_sdk.py",
+            "fbl_scripts.py",
+            "script_lane/host_bridge.py",
+            "script_lane/action_session.py",
+            "script_lane/child.py",
+            "script_lane/tool.py",
+            "script_lane/page-request.js",
+            "site_tools/tools.py",
+            "site_tools/store.py",
+        ):
+            with self.subTest(relative=relative):
+                member = self.source / "native-bridge" / relative
+                data = member.read_bytes()
+                member.unlink()
+                try:
+                    result = self.package()
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn(relative, result.stderr)
+                    self.assertFalse(self.output.exists())
+                finally:
+                    member.write_bytes(data)
 
     def test_package_describes_one_shared_program_with_isolated_profiles(self):
         self.built()
@@ -479,18 +588,40 @@ class ReleaseClosure(unittest.TestCase):
 
     def test_installer_rejects_missing_script_lane_before_writes(self):
         self.built()
-        adapter = self.output / "fast-browser-link/script_lane/host_bridge.py"
-        adapter.unlink()
         sums_path = self.output / "SHA256SUMS.json"
-        sums = json.loads(sums_path.read_text())
-        del sums["fast-browser-link/script_lane/host_bridge.py"]
-        sums_path.write_text(json.dumps(sums))
+        original = sums_path.read_bytes()
+        sums = json.loads(original)
         installer = load_installer()
         home, hermes = self.root / "home", self.root / "hermes"
-        with self.assertRaisesRegex(ValueError, "host_bridge.py"):
-            installer.install(self.output, home, hermes, [ORIGIN], apply=True)
-        self.assertFalse(home.exists())
-        self.assertFalse(hermes.exists())
+        for relative in (
+            "assist_adapter.py",
+            "product_adapter.py",
+            "browser_sdk.py",
+            "fbl_scripts.py",
+            "script_lane/host_bridge.py",
+            "script_lane/action_session.py",
+            "script_lane/child.py",
+            "script_lane/tool.py",
+            "script_lane/page-request.js",
+            "site_tools/tools.py",
+            "site_tools/store.py",
+        ):
+            with self.subTest(relative=relative):
+                name = "fast-browser-link/native_bridge/" + relative
+                member = self.output / name
+                data = member.read_bytes()
+                member.unlink()
+                sums_path.write_text(
+                    json.dumps({key: value for key, value in sums.items() if key != name})
+                )
+                try:
+                    with self.assertRaisesRegex(ValueError, relative):
+                        installer.install(self.output, home, hermes, [ORIGIN], apply=True)
+                    self.assertFalse(home.exists())
+                    self.assertFalse(hermes.exists())
+                finally:
+                    member.write_bytes(data)
+                    sums_path.write_bytes(original)
 
     def test_unmanifested_empty_package_directory_is_rejected(self):
         self.built()
@@ -505,6 +636,8 @@ class ReleaseClosure(unittest.TestCase):
         home, hermes = self.root / "home", self.root / "hermes"
         result = installer.install(self.output, home, hermes, [ORIGIN], apply=True)
         self.assertEqual(result["status"], "installed_disabled")
+        self.assertFalse((hermes / "plugin-data/fast-browser-link-cloud").exists())
+        self.assertFalse(list(home.rglob("com.fast.browser_link.cloud.json")))
         target = hermes / "plugins/fast-browser-link"
         installer.verify_installed(target, sums)
         for relative, digest in sums.items():

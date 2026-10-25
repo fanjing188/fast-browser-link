@@ -3,23 +3,32 @@
 
 from __future__ import annotations
 import argparse
+import hashlib
 import importlib.util
 import json
-import os
+
 from pathlib import Path
-import secrets
 import sys
-import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
-client_path = next(
+native = next(
     path
-    for path in (ROOT / "native-bridge/client.py", ROOT / "native_bridge/client.py")
-    if path.is_file()
+    for path in (ROOT / "native-bridge", ROOT / "native_bridge")
+    if (path / "browser_sdk.py").is_file()
 )
-spec = importlib.util.spec_from_file_location("fast_bridge_client", client_path.resolve())
-bridge = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(bridge)
+# 中文注释：同进程可有多个安装候选；只加载本入口同树SDK，不复用调用方的同名模块。
+sdk_path = (native / "browser_sdk.py").resolve()
+sdk_name = "fbl_browser_sdk_" + hashlib.sha256(str(sdk_path).encode()).hexdigest()[:16]
+sdk = sys.modules.get(sdk_name)
+if sdk is None:
+    spec = importlib.util.spec_from_file_location(sdk_name, sdk_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("browser SDK is unavailable")
+    sdk = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(sdk)
+    sys.modules[sdk_name] = sdk
+Browser, METHODS, session_owner, bridge = sdk.Browser, sdk.METHODS, sdk.session_owner, sdk.bridge
+
 version_path = next(
     (
         path
@@ -44,65 +53,6 @@ else:
         else None
     )
     VERSION = match.group(1) if match else "unknown"
-
-HOME = Path(os.environ.get("FAST_BROWSER_LINK_HOME", Path.home() / ".fast-browser-link"))
-METHODS = {
-    "health": "health",
-    "browsers": "browser.list",
-    "create": "shared.create",
-    "get": "shared.get",
-    "list": "shared.list",
-    "run": "shared.run",
-    "close": "shared.close",
-    "cancel": "shared.cancel",
-    "resume": "shared.resume",
-    "downloads": "shared.downloads",
-    "download_claim": "shared.download_claim",
-    "download_cancel": "shared.download_cancel",
-    "script": None,
-    "site_search": None,
-    "site_run": None,
-}
-
-
-class Browser:
-    def __init__(self, home=HOME, owner=None, client=None):
-        self.home = Path(home)
-        self.lane = None
-        self.owner = owner or secrets.token_urlsafe(32)
-        self.used = False
-        self.client = client or bridge.BridgeClient(home, timeout=60)
-
-    def call(self, operation, params):
-        if operation not in METHODS or not isinstance(params, dict):
-            raise ValueError("未知操作或参数不是对象")
-        if any(
-            key in params
-            for key in ("owner", "session_id", "__owner_lease", "__browser_link_owner_lease")
-        ):
-            raise ValueError("浏览器身份由调用入口管理")
-        if operation in {"script", "site_search", "site_run"}:
-            if self.lane is None:
-                spec = importlib.util.spec_from_file_location(
-                    "fbl_independent_scripts", client_path.resolve().with_name("fbl_scripts.py")
-                )
-                module = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(module)
-                self.lane = module.ScriptLane(self.client, self.home, self.owner)
-            self.used = True
-            return self.lane.execute(operation, params)
-        args = dict(params)
-        if operation not in ("health", "browsers"):
-            args["owner"] = self.owner
-        if operation == "run":
-            args.setdefault("requestId", uuid.uuid4().hex)
-        self.used = True
-        method = (
-            "shared.handoff"
-            if operation == "close" and args.get("keepTabs") is True
-            else METHODS[operation]
-        )
-        return self.client.call(method, args)
 
 
 def tool_schema():
@@ -191,32 +141,6 @@ def error(exc):
         "error": "invalid_request" if isinstance(exc, ValueError) else "bridge_unavailable",
         "message": str(exc) if isinstance(exc, ValueError) else "请运行安装器并检查扩展连接状态",
     }
-
-
-def session_owner(session):
-    path = Path(session).expanduser()
-    try:
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
-        with os.fdopen(fd, "w") as out:
-            out.write(secrets.token_urlsafe(32))
-    except FileExistsError:
-        pass
-    # 中文注释：复用桥接的私有文件检查，避免从链接或其他用户文件读取身份。
-    fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
-    import stat
-
-    with os.fdopen(fd) as source:
-        info = os.fstat(source.fileno())
-        if (
-            not stat.S_ISREG(info.st_mode)
-            or info.st_uid != os.getuid()
-            or stat.S_IMODE(info.st_mode) != 0o600
-        ):
-            raise ValueError("会话文件必须属于当前用户且权限为 0600")
-        owner = source.read(129)
-    if not owner or len(owner) > 128:
-        raise ValueError("无效会话文件")
-    return owner
 
 
 def main():

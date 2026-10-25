@@ -16,7 +16,6 @@ if (!chinese)
   document.querySelector('.connections').setAttribute('aria-label', 'Connection status');
 for (const [selector, en] of [
   ['#local-row .info-button', 'Local connection information'],
-  ['.cloud-row .info-button', 'Cloud connection information'],
   ['#page-task .info-button', 'Task controls information'],
 ])
   if (!chinese) $(selector).setAttribute('aria-label', en);
@@ -34,6 +33,7 @@ let connected = false,
   revision = 0,
   controlPending = null,
   stoppedReceipt = null,
+  errorSource = null,
   windowId;
 $('#version-label').textContent = `v${chrome.runtime.getManifest().version}`;
 void chrome.windows
@@ -42,22 +42,27 @@ void chrome.windows
     windowId = view.id;
   })
   .catch(() => {});
-function error(message) {
+function error(message, source = 'action') {
+  // 中文注释：连接状态另有独立展示，临时断连不能覆盖尚未解决的操作失败。
+  if (source === 'connection' && errorSource === 'action') return;
+  errorSource = source;
   $('#error').textContent = message;
   $('#error').hidden = false;
   $('#error-bar').hidden = false;
 }
-$('#error-close').addEventListener('click', () => {
+function clearError() {
+  errorSource = null;
   $('#error').hidden = true;
   $('#error-bar').hidden = true;
-});
+}
+$('#error-close').addEventListener('click', clearError);
 async function call(message) {
   const response = await chrome.runtime.sendMessage(message);
   if (!response || response.error || !Object.hasOwn(response, 'result'))
     throw Error(t('状态未确认', 'Status not confirmed'));
   return response.result;
 }
-async function feedback(button, action) {
+async function feedback(button, action, source = 'action') {
   if (button.disabled || button.dataset.feedback === 'loading') return;
   button.disabled = true;
   button.dataset.feedback = 'loading';
@@ -70,7 +75,7 @@ async function feedback(button, action) {
     }, 900);
   } catch (failure) {
     delete button.dataset.feedback;
-    error(failure.message || t('操作失败，请重试', 'Action failed. Try again.'));
+    error(failure.message || t('操作失败，请重试', 'Action failed. Try again.'), source);
   } finally {
     button.disabled = false;
     button.removeAttribute('aria-busy');
@@ -162,13 +167,7 @@ function render() {
   $('#open-copilot').hidden = !known || !connected || copilot?.enabled !== true;
   $('#copilot-toggle').setAttribute('aria-checked', String(copilot?.enabled === true));
   $('#copilot-toggle').disabled = !known || !connected;
-  $('#cloud-dialog').hidden = !connected;
   renderWork();
-  window.dispatchEvent(
-    new CustomEvent('fast-browser-link-status', {
-      detail: known ? { ...statusData?.cloud, localConnected: connected } : null,
-    }),
-  );
 }
 async function refresh() {
   if (busy || refreshing) return;
@@ -180,6 +179,8 @@ async function refresh() {
     known = true;
     statusData = result;
     connected = result.connected === true;
+    // 中文注释：真实连接已恢复才移除连接错误；普通操作失败不能被轮询吞掉。
+    if (connected && errorSource === 'connection') clearError();
     if (uncertainControl) {
       const task = result.tasks?.find((row) => row.id === uncertainControl.taskId);
       if (
@@ -195,7 +196,7 @@ async function refresh() {
     if (token !== revision) return;
     known = false;
     connected = false;
-    error(t('连接状态暂时无法读取。', 'Cannot read connection status.'));
+    error(t('连接状态暂时无法读取。', 'Cannot read connection status.'), 'connection');
   } finally {
     refreshing = false;
   }
@@ -352,22 +353,38 @@ $('#takeover').addEventListener('click', () => {
   void controlTask(task?.state === 'paused' ? 'resume' : 'takeover');
 });
 async function connect(button) {
-  await feedback(button, async () => {
-    if (busy) return;
-    busy = true;
-    ++revision;
-    render();
-    try {
-      const result = await call({ type: 'connect' });
-      if (result.connected !== true)
-        throw Error(result.lastError || t('本地连接未完成', 'Local connection did not complete'));
-    } finally {
-      busy = false;
-      await refresh();
-    }
-  });
+  await feedback(
+    button,
+    async () => {
+      if (busy) return;
+      busy = true;
+      ++revision;
+      render();
+      let failure;
+      try {
+        const result = await call({ type: 'connect' });
+        if (result.connected !== true)
+          throw Error(result.lastError || t('本地连接未完成', 'Local connection did not complete'));
+      } catch (error) {
+        failure = error;
+      } finally {
+        busy = false;
+        await refresh();
+      }
+      // 中文注释：连接启动回执可能早于握手；以随后真实状态为准，不重发连接动作。
+      if (failure && (!known || !connected)) throw failure;
+    },
+    'connection',
+  );
 }
 $('#local-connect').addEventListener('click', () => void connect($('#local-connect')));
+$('#open-products').addEventListener(
+  'click',
+  () =>
+    void feedback($('#open-products'), () =>
+      chrome.tabs.create({ url: chrome.runtime.getURL('product-connections.html') }),
+    ),
+);
 function openCopilot(button) {
   return feedback(button, async () => {
     const result = await call({ type: 'copilot.open', windowId });
@@ -403,9 +420,7 @@ $('#copilot-toggle').addEventListener(
 document.addEventListener('keydown', (event) => {
   if (event.key !== 'Escape') return;
   event.preventDefault();
-  if ($('#cloud-dialog').dataset.open === 'true')
-    window.dispatchEvent(new CustomEvent('fast-collapse-cloud'));
-  else window.close();
+  window.close();
 });
 chrome.runtime.onMessage.addListener((message) => {
   if (message?.type === 'changed' || message?.type === 'copilot.changed') void refresh();

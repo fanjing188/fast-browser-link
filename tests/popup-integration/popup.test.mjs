@@ -6,8 +6,8 @@ import { readFile } from 'node:fs/promises';
 import { JSDOM } from 'jsdom';
 
 const root = new URL('../../native-extension/', import.meta.url);
-const [html, popupModule, cloudScript, controlsModule] = await Promise.all(
-  ['popup.html', 'popup.mjs', 'cloud-popup.mjs', 'copilot-controls.mjs'].map((file) =>
+const [html, popupModule, controlsModule] = await Promise.all(
+  ['popup.html', 'popup.mjs', 'copilot-controls.mjs'].map((file) =>
     readFile(new URL(file, root), 'utf8'),
   ),
 );
@@ -63,9 +63,7 @@ async function mount(initial) {
     },
   };
   dom.window.setInterval = () => 1;
-  // 中文注释：先注册云端订阅再读取首次快照，测试中不等待浏览器定时轮询。
   dom.window.renderStatus = renderStatus;
-  dom.window.eval(cloudScript.replace(/^import\s[^;]*;\n/gm, ''));
   dom.window.readableCopy = readableCopy;
   dom.window.renderChains = renderChains;
   dom.window.eval(script);
@@ -84,6 +82,30 @@ async function mount(initial) {
     },
   };
 }
+
+test('弹窗提供本机产品连接入口，点击只打开自己的设置页', async () => {
+  const h = await mount({ connected: false, tasks: [] });
+  const opened = [];
+  h.dom.window.chrome.runtime.getURL = (file) => `chrome-extension://test/${file}`;
+  h.dom.window.chrome.tabs = { create: async (options) => opened.push(options) };
+  try {
+    const button = h.document.querySelector('#open-products');
+    assert.ok(button);
+    assert.equal(button.disabled, false);
+    assert.equal(button.textContent, '产品连接');
+    button.click();
+    await h.flush();
+    assert.deepEqual(JSON.parse(JSON.stringify(opened)), [
+      { url: 'chrome-extension://test/product-connections.html' },
+    ]);
+    assert.equal(
+      h.calls.some((call) => call.type?.startsWith('product.')),
+      false,
+    );
+  } finally {
+    h.dom.window.close();
+  }
+});
 
 test('弹窗只展示当前页归属，不展示其他任务或诊断正文', async () => {
   const h = await mount({
@@ -167,144 +189,44 @@ test('连接前说明授权范围，一次连接点击即读取结果，不追�
   }
 });
 
-test('云端配对前明确任务页授权范围，移除云端权限开关和追加确认', async () => {
+// 中文注释：旧宿主仍可能返回云端摘要，但不能恢复已删除的入口、轮询或配对动作。
+test('旧云端回执不会恢复配对UI或请求，Esc直接关闭弹窗', async () => {
   const h = await mount({
-    connected: false,
-    tasks: [],
-    cloud: { state: 'unpaired', paired: false, online: false },
-  });
-  try {
-    assert.equal(
-      h.document.querySelector(
-        '#cloud-access-toggle,#cloud-confirm,#cloud-confirm-enable,#cloud-confirm-cancel',
-      ),
-      null,
-    );
-    assert.match(h.document.querySelector('#cloud-detail').textContent, /未配对/);
-    assert.match(
-      h.document.querySelector('#cloud-access-detail').textContent,
-      /确认配对.*允许.*直接.*任务页/,
-    );
-    assert.match(
-      h.document.querySelector('#cloud-access-detail').textContent,
-      /个人标签页.*不授权/,
-    );
-    for (const id of ['cloud-access-detail', 'cloud-dialog-state']) {
-      const detail = h.document.getElementById(id).textContent;
-      assert.match(detail, /读取.*点击.*填写/);
-      assert.doesNotMatch(detail, /脚本|JavaScript|CDP/);
-    }
-    assert.doesNotMatch(h.document.body.textContent, /智能审批|逐项确认|按网站确认/);
-    assert.equal(h.document.querySelector('#cloud-dialog').dataset.open, 'false');
-    assert.equal(
-      h.calls.some((call) => call.type === 'cloud_full_access' || call.type === 'browser_consent'),
-      false,
-    );
-  } finally {
-    h.dom.window.close();
-  }
-});
-
-// 中文注释：读取失败必须显示未知，不能把失败读取当成已断开或继续开放控制。
-test('云端在线时说明直接访问，断线和状态未知时不声称已连接访问', async () => {
-  const initial = {
     connected: true,
     tasks: [],
-    cloud: { state: 'active', paired: true, online: true, fullAccess: false },
-  };
-  const h = await mount(initial);
+    cloud: { state: 'active', paired: true, online: true },
+  });
+  const dispose = h.dom.window.close.bind(h.dom.window);
   try {
-    assert.equal(h.document.querySelector('#cloud-status').textContent, '已配对');
-    assert.match(h.document.querySelector('#cloud-detail').textContent, /云端任务页.*直接/);
-    assert.equal(h.document.querySelector('#cloud-code-panel').hidden, true);
-    assert.equal(h.document.querySelector('#cloud-disconnect').hidden, false);
-    h.setStatus({
-      ...initial,
-      cloud: { ...initial.cloud, state: 'offline', online: false, fullAccess: true },
-    });
-    await h.flush();
-    assert.equal(h.document.querySelector('#cloud-status').textContent, '正在重连');
-    assert.match(h.document.querySelector('#cloud-detail').textContent, /未在线.*恢复连接后/);
-    assert.doesNotMatch(h.document.querySelector('#cloud-detail').textContent, /已在线|可直接/);
-    h.dom.window.chrome.runtime.sendMessage = async () => {
-      throw Error('unavailable');
-    };
-    h.setStatus({});
-    await h.flush();
-    assert.equal(h.document.querySelector('#cloud-status').textContent, '未连接');
-    assert.doesNotMatch(
-      h.document.querySelector('#cloud-detail').textContent,
-      /已与网页端配对|可直接/,
-    );
+    for (const state of ['active', 'offline', 'pending_pairing', 'revoked']) {
+      h.setStatus({
+        connected: true,
+        tasks: [],
+        cloud: { state, paired: true, code: 'OBSOLETE-CODE' },
+      });
+      await h.flush();
+      assert.equal(h.document.querySelector('[id^="cloud-"],.cloud-row'), null);
+      assert.doesNotMatch(h.document.body.textContent, /OBSOLETE-CODE|云端Agent连接/);
+    }
+    assert.ok(h.document.querySelector('#local-row'));
+    assert.ok(h.document.querySelector('#copilot-toggle'));
     assert.equal(
-      h.calls.some((call) => call.type === 'cloud_full_access'),
+      h.calls.some((call) => call.type.startsWith('cloud_')),
       false,
     );
-  } finally {
-    h.dom.window.close();
-  }
-});
-
-test('新云端连接码不继承旧连接码的复制成功提示', async () => {
-  const dom = new JSDOM(html, {
-    url: 'chrome-extension://test/popup.html',
-    runScripts: 'outside-only',
-  });
-  try {
-    dom.window.chrome = { i18n: { getUILanguage: () => 'zh-CN' } };
-    dom.window.setInterval = () => 1;
-    let click, clipboard, finish;
-    const button = dom.window.document.querySelector('#cloud-copy-code');
-    button.addEventListener = (_type, handler) => {
-      click = handler;
+    let closed = 0;
+    h.dom.window.close = () => {
+      closed++;
     };
-    Object.defineProperty(dom.window.navigator, 'clipboard', {
-      value: {
-        writeText: async (code) => {
-          clipboard = code;
-          if (finish) await finish.promise;
-        },
-      },
-    });
-    dom.window.renderStatus = renderStatus;
-    dom.window.eval(cloudScript.replace(/^import\s[^;]*;\n/gm, ''));
-    const update = (code) =>
-      dom.window.dispatchEvent(
-        new dom.window.CustomEvent('fast-browser-link-status', {
-          detail: {
-            state: 'pending_pairing',
-            paired: false,
-            online: false,
-            code,
-            expiresAt: Date.now() + 300000,
-          },
-        }),
-      );
-    update('QADEMO-0001');
-    await click({ isTrusted: true });
-    assert.equal(clipboard, 'QADEMO-0001');
-    assert.equal(button.textContent, '已复制');
-    update('QADEMO-0002');
-    assert.equal(button.textContent, '复制');
-    let resolve;
-    finish = {
-      promise: new Promise((done) => {
-        resolve = done;
-      }),
-    };
-    const copying = click({ isTrusted: true });
-    update('QADEMO-0003');
-    resolve();
-    await copying;
-    assert.equal(clipboard, 'QADEMO-0002');
-    assert.equal(button.textContent, '复制');
+    h.document.dispatchEvent(new h.dom.window.KeyboardEvent('keydown', { key: 'Escape' }));
+    assert.equal(closed, 1);
   } finally {
-    dom.window.close();
+    dispose();
   }
 });
 
 // 中文注释：读取失败必须显示未知，不能把失败读取当成已断开或继续开放控制。
-test('状态读取失败时显示未知并禁用页面控制', async () => {
+test('状态读取失败时显示未知并禁用页面控制，连接读回恢复后清除过时连接错误', async () => {
   const h = await mount({
     connected: true,
     browserFullConsentStatus: 'enabled',
@@ -312,6 +234,7 @@ test('状态读取失败时显示未知并禁用页面控制', async () => {
     tasks: [{ id: 't', generation: 1, title: '测试任务', state: 'ready' }],
   });
   assert.equal(h.document.querySelector('#page-task').hidden, false);
+  const original = h.dom.window.chrome.runtime.sendMessage;
   h.dom.window.chrome.runtime.sendMessage = async () => {
     throw Error('unavailable');
   };
@@ -328,7 +251,71 @@ test('状态读取失败时显示未知并禁用页面控制', async () => {
   );
   assert.equal(h.document.querySelector('#local-connect').hidden, false);
   assert.equal(h.document.querySelector('#page-task').hidden, true);
+  assert.equal(h.document.querySelector('#error-bar').hidden, false);
+  h.dom.window.chrome.runtime.sendMessage = original;
+  h.setStatus({ connected: true, tasks: [] });
+  await h.flush();
+  assert.equal(h.document.querySelector('#error-bar').hidden, true);
   h.dom.window.close();
+});
+
+test('连接请求暂未就绪但真实状态已恢复时不显示过时连接失败', async () => {
+  const h = await mount({ connected: false, tasks: [] });
+  try {
+    const original = h.dom.window.chrome.runtime.sendMessage;
+    h.dom.window.chrome.runtime.sendMessage = async (message) => {
+      if (message.type === 'connect') {
+        h.setStatus({ connected: true, tasks: [] });
+        return { result: { connected: false, lastError: '尚未连接本地桥' } };
+      }
+      return original(message);
+    };
+    h.document.querySelector('#local-connect').click();
+    await h.flush();
+    assert.equal(
+      h.document.querySelector('#connection-label').getAttribute('aria-label'),
+      '本地已连接',
+    );
+    assert.equal(h.document.querySelector('#error-bar').hidden, true);
+  } finally {
+    h.dom.window.close();
+  }
+});
+
+test('正常刷新或状态失败后重连都不能清除产品设置打开失败的操作错误', async () => {
+  const h = await mount({ connected: true, tasks: [] });
+  try {
+    h.dom.window.chrome.runtime.getURL = (file) => `chrome-extension://test/${file}`;
+    h.dom.window.chrome.tabs = {
+      create: async () => {
+        throw Error('settings unavailable');
+      },
+    };
+    h.document.querySelector('#open-products').click();
+    await h.flush();
+    h.setStatus({ connected: true, tasks: [] });
+    await h.flush();
+    assert.equal(h.document.querySelector('#error-bar').hidden, false);
+    assert.equal(h.document.querySelector('#error').textContent, 'settings unavailable');
+    const original = h.dom.window.chrome.runtime.sendMessage;
+    h.dom.window.chrome.runtime.sendMessage = async () => {
+      throw Error('disconnected');
+    };
+    h.setStatus({});
+    await h.flush();
+    assert.equal(
+      h.document.querySelector('#connection-label').getAttribute('aria-label'),
+      '状态待确认',
+    );
+    assert.equal(h.document.querySelector('#error').textContent, 'settings unavailable');
+    h.dom.window.chrome.runtime.sendMessage = original;
+    h.setStatus({ connected: true, tasks: [] });
+    await h.flush();
+    assert.equal(h.document.querySelector('#error-bar').hidden, false);
+    assert.equal(h.document.querySelector('#error').textContent, 'settings unavailable');
+  } finally {
+    h.dom.window.close();
+  }
 });
 
 // 中文注释：新弹窗只保留当前页一行任务状态，模拟鼠标和过滤设置直接展示。

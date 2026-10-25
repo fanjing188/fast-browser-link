@@ -112,7 +112,7 @@ class CleanupContractTests(unittest.TestCase):
             "startedAt": 1,
             "requestIdHash": hashlib.sha256(b"partial").hexdigest(),
         }
-        self.daemon._run_task_impl = lambda *args: {
+        self.daemon._run_task_impl = lambda *args, _authority=None: {
             "clicked": False,
             "delivery": "partial",
             "outcomeUnknown": True,

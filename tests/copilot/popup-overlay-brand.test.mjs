@@ -17,10 +17,8 @@ import { createOverlayView } from '../../native-extension/overlay-view.mjs';
 import { createAutomationOverlay } from '../../native-extension/automation-overlay.mjs';
 import { CopilotBackground } from '../../native-extension/copilot-background.mjs';
 const root = new URL('../../native-extension/', import.meta.url),
-  [html, popup, cloud, css] = await Promise.all(
-    ['popup.html', 'popup.mjs', 'cloud-popup.mjs', 'popup.css'].map((name) =>
-      readFile(new URL(name, root), 'utf8'),
-    ),
+  [html, popup, css] = await Promise.all(
+    ['popup.html', 'popup.mjs', 'popup.css'].map((name) => readFile(new URL(name, root), 'utf8')),
   );
 const flush = async () => {
   for (let i = 0; i < 6; i++) await new Promise((done) => setImmediate(done));
@@ -89,7 +87,6 @@ async function mount(status, { language = 'zh-CN', send } = {}) {
     boardName,
     renderConnection,
   });
-  dom.window.eval(cloud.replace(/^import\s[^;]*;\n/gm, ''));
   dom.window.eval(popup.replace(/^import\s[^;]*;\n/gm, ''));
   await flush();
   return {
@@ -190,78 +187,22 @@ test('opening side panel closes only after confirmed success; toggle uses its de
   assert.equal(failed.doc.querySelector('#error-bar').hidden, false);
   failed.close();
 });
-test('cloud expansion is local, Esc collapses then closes, and untrusted pairing never executes', async () => {
-  const h = await mount({ connected: true, cloud: { state: 'unpaired' } });
-  h.doc.querySelector('#cloud-expand').click();
-  assert.equal(h.doc.querySelector('#cloud-dialog').dataset.open, 'false');
-  await h.fire(h.doc.querySelector('#cloud-expand'));
-  assert.equal(h.doc.querySelector('#cloud-dialog').dataset.open, 'true');
-  assert.equal(
-    h.calls.some((row) => row.type === 'cloud_connect'),
-    false,
-  );
-  h.doc.dispatchEvent(new h.dom.window.KeyboardEvent('keydown', { key: 'Escape' }));
-  assert.equal(h.doc.querySelector('#cloud-dialog').dataset.open, 'false');
-  assert.equal(h.closed, 0);
-  h.doc.dispatchEvent(new h.dom.window.KeyboardEvent('keydown', { key: 'Escape' }));
-  assert.equal(h.closed, 1);
-  h.doc.querySelector('#cloud-connect').click();
-  assert.equal(
-    h.calls.some((row) => row.type === 'cloud_connect'),
-    false,
-  );
-  h.close();
-});
-test('cloud status mapping, explicit disconnect, copy duration and confirmed navigation', async () => {
-  const h = await mount(
-    { connected: true, cloud: { state: 'unpaired' } },
-    {
-      send: async (message) => ({
-        result:
-          message.type === 'cloud_open_web'
-            ? { opened: true }
-            : { state: 'unpaired', paired: false },
-      }),
-    },
-  );
-  for (const [cloud, label, tone] of [
-    [{ state: 'active', paired: true, online: true }, '已配对', 'active'],
-    [{ state: 'offline', paired: true, online: false }, '正在重连', 'connecting'],
-    [{ state: 'revoked', paired: false }, '出错', 'error'],
-    [{ state: 'unpaired' }, '未配对', 'disconnected'],
-  ]) {
-    await h.update({ connected: true, cloud });
-    assert.equal(h.doc.querySelector('#cloud-status').textContent, label);
-    assert.equal(h.doc.querySelector('#cloud-status').dataset.state, tone);
-  }
-  await h.update({
+test('obsolete cloud state never restores controls, and Esc closes immediately', async () => {
+  const h = await mount({
     connected: true,
-    cloud: { state: 'offline', paired: true, error: 'synthetic outage' },
+    cloud: { state: 'active', paired: true, online: true },
   });
-  await h.fire(h.doc.querySelector('#cloud-connect'));
-  assert.equal(h.calls.filter((row) => row.type === 'cloud_connect').length, 1);
-  assert.equal(h.calls.find((row) => row.type === 'cloud_connect').replace, undefined);
-  await h.update({ connected: false, cloud: { state: 'active', paired: true, online: true } });
-  assert.doesNotMatch(h.doc.querySelector('#cloud-detail').textContent, /已在线|可直接/);
-  assert.notEqual(h.doc.querySelector('#cloud-status').dataset.state, 'active');
-  const code = {
-    state: 'pending_pairing',
-    code: 'DEMO-1234',
-    expiresAt: Date.now() + 60000,
-    site: 'https://example.test',
-  };
-  await h.update({ connected: true, cloud: code });
-  await h.fire(h.doc.querySelector('#cloud-copy-code'));
-  assert.equal(h.doc.querySelector('#cloud-copy-code').textContent, '已复制');
-  h.timers.find((row) => row.ms === 1500).fn();
-  assert.equal(h.doc.querySelector('#cloud-copy-code').textContent, '复制');
-  assert.equal(
-    h.calls.some((row) => row.type === 'cloud_disconnect'),
-    false,
-  );
-  await h.fire(h.doc.querySelector('#cloud-open-web'));
-  assert.equal(h.closed, 1);
-  h.close();
+  try {
+    assert.equal(h.doc.querySelector('[id^="cloud-"],.cloud-row'), null);
+    h.doc.dispatchEvent(new h.dom.window.KeyboardEvent('keydown', { key: 'Escape' }));
+    assert.equal(h.closed, 1);
+    assert.equal(
+      h.calls.some((row) => row.type.startsWith('cloud_')),
+      false,
+    );
+  } finally {
+    h.close();
+  }
 });
 test('English popup and motion contracts preserve concise labels and keyboard-accessible safety text', async () => {
   const h = await mount(
@@ -279,15 +220,11 @@ test('English popup and motion contracts preserve concise labels and keyboard-ac
     h.doc.querySelector('#connection-detail').textContent,
     /password values are never echoed/,
   );
-  assert.match(
-    h.doc.querySelector('#cloud-access-detail').textContent,
-    /Existing personal tabs are not authorized/,
-  );
+  assert.equal(h.doc.querySelector('[id^=cloud-]'), null);
   assert.equal(h.doc.querySelector('dialog'), null);
   assert.ok(h.doc.querySelector('.info-button[aria-describedby]'));
   assert.match(css, /min-height:44px/);
   assert.match(await readFile(new URL('brand.css', root), 'utf8'), /prefers-reduced-motion:reduce/);
-  assert.match(css, /200ms/);
   h.close();
 });
 test('popup settings are refused for content and unrelated extension pages', async () => {

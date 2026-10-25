@@ -110,12 +110,9 @@ const inputs = [
   'fbl.py',
   'package.json',
   'package-lock.json',
-  'cloud-link/site/package.json',
-  'cloud-link/site/package-lock.json',
   'executor-plugin',
   'native-bridge',
   'native-extension',
-  'cloud-link',
   'browser-workspaces',
   'browser-diagnostics',
   ...modules,
@@ -136,11 +133,7 @@ async function sourceSnapshot() {
     if (stat.isSymbolicLink()) throw new Error(`Refusing symbolic link in package: ${file}`);
     if (stat.isDirectory()) {
       for (const name of (await readdir(file)).sort())
-        if (
-          !excluded(name) &&
-          !(relative === 'cloud-link' && name === 'site') &&
-          !(relative === 'docs' && name === 'growth')
-        )
+        if (!excluded(name) && !(relative === 'docs' && name === 'growth'))
           await visit(path.join(relative, name));
     } else if (stat.isFile()) {
       if (tracked && !tracked.has(relative.split(path.sep).join('/')))
@@ -304,14 +297,23 @@ async function verifyLayout(root) {
     );
   for (const required of [
     'fast-browser-link/plugin.yaml',
-    'fast-browser-link/script_lane/host_bridge.py',
+    'fast-browser-link/native_bridge/script_lane/host_bridge.py',
     // 中文注释：自动更新必须携带完整维护入口与事务安装器。
     'fast-browser-link/maintenance/update.py',
     'fast-browser-link/maintenance/install-cli.py',
     'fast-browser-link/maintenance/install-executor.py',
-    'fast-browser-link/script_lane/action_session.py',
-    'fast-browser-link/script_lane/child.py',
-    'fast-browser-link/script_lane/tool.py',
+    'fast-browser-link/native_bridge/script_lane/action_session.py',
+    'fast-browser-link/native_bridge/script_lane/child.py',
+    'fast-browser-link/native_bridge/script_lane/tool.py',
+    'fast-browser-link/native_bridge/script_lane/page-request.js',
+    'fast-browser-link/native_bridge/script_lane/page_export.py',
+    'fast-browser-link/native_bridge/script_lane/page_export.js',
+    'fast-browser-link/native_bridge/site_tools/tools.py',
+    'fast-browser-link/native_bridge/site_tools/store.py',
+    'fast-browser-link/native_bridge/browser_sdk.py',
+    'fast-browser-link/native_bridge/assist_adapter.py',
+    'fast-browser-link/native_bridge/product_adapter.py',
+    'fast-browser-link/native_bridge/fbl_scripts.py',
     'fast-browser-link/open_tool.py',
     'fast-browser-link/skills/fast-browser-link/SKILL.md',
     'native-extension/manifest.json',
@@ -407,10 +409,25 @@ try {
     'browser-interactions/index.mjs',
     'approval-policy/policy.mjs',
     'native-extension/build.mjs',
-    'executor-plugin/script_lane/host_bridge.py',
-    'executor-plugin/script_lane/action_session.py',
-    'executor-plugin/script_lane/child.py',
-    'executor-plugin/script_lane/tool.py',
+    'native-bridge/script_lane/host_bridge.py',
+    'native-bridge/script_lane/action_session.py',
+    'native-bridge/script_lane/child.py',
+    'native-bridge/script_lane/tool.py',
+    'native-bridge/script_lane/page-request.js',
+    'native-bridge/script_lane/page_export.py',
+    'native-bridge/script_lane/page_export.js',
+    'native-bridge/site_tools/tools.py',
+    'native-bridge/site_tools/store.py',
+    'native-bridge/browser_sdk.py',
+    'native-bridge/assist_adapter.py',
+    'native-bridge/product_adapter.py',
+    'native-extension/product-fill.mjs',
+    'native-extension/product-fill-content.mjs',
+    'native-extension/product-connections.mjs',
+    'native-extension/product-connections-page.mjs',
+    'native-extension/product-connections.html',
+    'native-extension/product-connections.css',
+    'native-bridge/fbl_scripts.py',
     'executor-plugin/single_tool_adapter/integration.py',
     'executor-plugin/single_tool_adapter/adapter.py',
     'executor-plugin/vault_adapter/__init__.py',
@@ -477,12 +494,7 @@ try {
     path.join(source, 'native-bridge'),
     path.join(output, 'fast-browser-link', 'native_bridge'),
   );
-  // 中文注释：云端只打包本机运行时，网页源码、执行证据和服务器配置不进入扩展安装包。
-  await copyTree(
-    path.join(source, 'cloud-link'),
-    path.join(output, 'fast-browser-link', 'cloud_link'),
-    new Set(['site', 'evidence', 'tests']),
-  );
+
   const diagnosticsOutput = path.join(
     output,
     'fast-browser-link/native_bridge/browser_diagnostics',

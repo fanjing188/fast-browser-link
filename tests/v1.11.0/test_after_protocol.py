@@ -18,11 +18,11 @@ def load(name, path):
     return module
 
 
-child = load("after_child", "executor-plugin/script_lane/child.py")
+child = load("after_child", "native-bridge/script_lane/child.py")
 daemon = load("after_daemon", "native-bridge/daemon.py")
 tools = load("after_native_tools", "executor-plugin/native_tools.py")
 runtime = load("after_runtime", "executor-plugin/runtime.py")
-adapter = load("after_action_session", "executor-plugin/script_lane/action_session.py")
+adapter = load("after_action_session", "native-bridge/script_lane/action_session.py")
 
 
 class AfterProtocolTests(unittest.TestCase):

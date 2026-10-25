@@ -23,6 +23,17 @@ import { fixtureInstaller, isolatedInstallerEnv } from '../helpers/isolated-inst
 import { socketAddress } from '../native-v2/real-session.mjs';
 // 中文注释：保留调用方 TMPDIR，规范化符号路径；只缩短内核地址，不迁移夹具。
 const testTemp = await realpath(tmpdir());
+function historicalCloud(relative) {
+  const result = spawnSync(
+    'git',
+    ['show', `bd42da8138ffb94717325db0b01ae100f41266f1:cloud-link/${relative}`],
+    {
+      cwd: process.env.BROWSER_LINK_RELEASE_HISTORY || path.resolve(import.meta.dirname, '../..'),
+    },
+  );
+  assert.equal(result.status, 0, String(result.stderr));
+  return result.stdout;
+}
 import {
   swapInstalledDirectory,
   rollbackDirectorySwaps,
@@ -304,7 +315,6 @@ test('real dev sync packages and swaps the shared root once while preserving pro
     'executor-plugin',
     'native-bridge',
     'native-extension',
-    'cloud-link',
     'browser-workspaces',
     'browser-diagnostics',
     'page-semantics',
@@ -384,10 +394,9 @@ test('real dev sync packages and swaps the shared root once while preserving pro
   assert.equal(await readFile(f.installed, 'utf8'), 'globalThis.preview = "old";');
   assert.ok(!(await readdir(data)).includes('maintenance.json'));
   await mkdir(path.join(f.root, 'cloud_link'), { recursive: true });
-  await cp(
-    path.join(f.repo, 'cloud-link/native_host.py'),
+  await writeFile(
     path.join(f.root, 'cloud_link/native_host.py'),
-    { recursive: true },
+    historicalCloud('native_host.py'),
   );
   await mkdir(path.join(f.root, 'maintenance'), { recursive: true });
   await fixtureInstaller(
@@ -415,6 +424,8 @@ test('real dev sync packages and swaps the shared root once while preserving pro
     }),
     { mode: 0o600 },
   );
+  const legacyRegistration = path.join(f.base, 'legacy-registration.py');
+  await writeFile(legacyRegistration, historicalCloud('registration.py'));
   const registration = spawnSync(
     process.env.BROWSER_LINK_TEST_PYTHON || 'python3',
     [
@@ -429,13 +440,36 @@ launcher.write_text(text);launcher.chmod(0o700)
 for file,value in manifests:
  file.parent.mkdir(parents=True,exist_ok=True);file.write_text(json.dumps(value));file.chmod(0o600)
  `,
-      path.resolve(import.meta.dirname, '../../cloud-link/registration.py'),
+      legacyRegistration,
       home,
       f.base,
     ],
     { encoding: 'utf8' },
   );
   assert.equal(registration.status, 0, registration.stderr);
+  // 中文注释：有围栏的旧入口也须先走正式退役；开发同步不能删除云注册或私有账本。
+  const legacyRefused = run();
+  assert.notEqual(legacyRefused.status, 0);
+  assert.match(legacyRefused.stderr, /正式事务退役/);
+  await rm(path.join(f.root, 'cloud_link'), { recursive: true });
+  await rm(path.join(home, 'plugin-data/fast-browser-link-cloud/com.fast.browser_link.cloud'));
+  for (const browser of ['Google/Chrome', 'Microsoft Edge'])
+    await rm(
+      path.join(
+        f.base,
+        'Library/Application Support',
+        browser,
+        'NativeMessagingHosts/com.fast.browser_link.cloud.json',
+      ),
+    );
+  await writeFile(
+    path.join(data, 'install-state.json'),
+    JSON.stringify({
+      profiles: ['default', 'named'],
+      cloudRetired: { version: 1 },
+    }),
+    { mode: 0o600 },
+  );
   // 中文注释：共享安装后 Desktop 可能记录命名 profile 的链接路径；真实路径相同应放行，同步后统一写回根路径。
   const marker = JSON.parse(await readFile(f.marker, 'utf8'));
   await writeFile(f.marker, JSON.stringify({ ...marker, source: path.join(f.link, 'desktop') }));
@@ -675,7 +709,41 @@ except BridgeError as error:
 
 test('维护标记存在时云端宿主不取锁直接退出；运行中的云端宿主看到标记后自行退出', async (t) => {
   const { home, data } = await maintenanceHome(t);
-  const early = spawnSync(PYTHON, [path.join(REPO, 'cloud-link/native_host.py'), ORIGIN], {
+  const legacyRoot = path.join(home, 'legacy-cloud');
+  await mkdir(legacyRoot);
+  const listing = spawnSync(
+    'git',
+    ['ls-tree', '-r', '--name-only', 'bd42da8138ffb94717325db0b01ae100f41266f1', 'cloud-link'],
+    {
+      cwd: process.env.BROWSER_LINK_RELEASE_HISTORY || REPO,
+      encoding: 'utf8',
+    },
+  );
+  assert.equal(listing.status, 0, listing.stderr);
+  for (const name of listing.stdout.trim().split('\n')) {
+    const relative = name.replace(/^cloud-link\//, '');
+    if (!relative.endsWith('.py') || /^(?:site|tests)\//.test(relative)) continue;
+    const target = path.join(legacyRoot, relative);
+    await mkdir(path.dirname(target), { recursive: true });
+    await writeFile(target, historicalCloud(relative));
+  }
+  for (const name of [
+    'executor-plugin/native_tools.py',
+    'executor-plugin/native_runtime.py',
+    'executor-plugin/runtime.py',
+    'native-bridge/host.py',
+    'native-bridge/client.py',
+  ]) {
+    const target = path.join(home, name);
+    await mkdir(path.dirname(target), { recursive: true });
+    const source = spawnSync('git', ['show', `bd42da8138ffb94717325db0b01ae100f41266f1:${name}`], {
+      cwd: process.env.BROWSER_LINK_RELEASE_HISTORY || REPO,
+    });
+    assert.equal(source.status, 0, String(source.stderr));
+    await writeFile(target, source.stdout);
+  }
+  const legacyHost = path.join(legacyRoot, 'native_host.py');
+  const early = spawnSync(PYTHON, [legacyHost, ORIGIN], {
     input: '',
     env: { ...process.env, HERMES_HOME: home },
     timeout: 10000,
@@ -683,7 +751,7 @@ test('维护标记存在时云端宿主不取锁直接退出；运行中的云�
   assert.equal(early.status, 5, String(early.stderr));
   assert.ok(!(await readdir(path.join(home, 'plugin-data'))).includes('fast-browser-link-cloud'));
   await rm(path.join(data, 'maintenance.json'));
-  const running = spawn(PYTHON, [path.join(REPO, 'cloud-link/native_host.py'), ORIGIN], {
+  const running = spawn(PYTHON, [legacyHost, ORIGIN], {
     stdio: ['pipe', 'ignore', 'pipe'],
     env: { ...process.env, HERMES_HOME: home },
   });

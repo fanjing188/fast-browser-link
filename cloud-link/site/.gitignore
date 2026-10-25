@@ -1,7 +1,0 @@
-dist/
-site.tar.gz
-node_modules/
-.sites-runtime/
-__pycache__/
-*.sqlite
-pairing.json

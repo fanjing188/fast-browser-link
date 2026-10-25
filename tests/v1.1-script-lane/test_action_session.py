@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 MODULE = (
     pathlib.Path(__file__).resolve().parents[2]
-    / "executor-plugin"
+    / "native-bridge"
     / "script_lane"
     / "action_session.py"
 )
@@ -616,10 +616,10 @@ class PopupDirectIntegrationTest(unittest.TestCase):
             else __import__("native_runtime")
         )
         host = native_runtime.load_module(
-            root / "executor-plugin/script_lane/host_bridge.py", "popup_script_host_"
+            root / "native-bridge/script_lane/host_bridge.py", "popup_script_host_"
         )
         tool = native_runtime.load_module(
-            root / "executor-plugin/script_lane/tool.py", "popup_script_tool_"
+            root / "native-bridge/script_lane/tool.py", "popup_script_tool_"
         )
         projection = native_runtime.load_module(
             root / "executor-plugin/runtime.py", "popup_script_projection_"
@@ -646,7 +646,7 @@ class PopupDirectIntegrationTest(unittest.TestCase):
             return result
 
         runtime = type("Runtime", (), {"call": staticmethod(call), "authority": authority})()
-        bridge = host.HostBridge(runtime, root / "executor-plugin")
+        bridge = host.HostBridge(runtime)
         self.addCleanup(bridge.close)
         bridge.bind("popup-script", owner=owner, task_id="task", tab_id=1)
         handler = tool.make_handler(

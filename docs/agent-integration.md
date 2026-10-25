@@ -2,6 +2,8 @@
 
 Finish [installation](installation.md) and browser confirmation first. Skills and MCP share the same task ownership, sensitive-input and unknown-write checks.
 
+Work products can use the [local Python SDK](browser-core.md) directly. The SDK, CLI and MCP share one browser client; no cloud pairing or relay is needed.
+
 | Agent | Skill | Optional MCP preview |
 | --- | --- | --- |
 | Codex | Restart and use `fast-browser-link/SKILL.md` | `fbl mcp install --agent codex --dry-run` |

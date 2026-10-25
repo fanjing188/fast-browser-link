@@ -38,6 +38,8 @@ const PAGE_WAIT=Symbol('page wait');
 import {PageObservers,listImages} from './page-observers.mjs';
 import {VaultController} from './vault.mjs';
 import {OAuthPopups,isOAuthProvider,OAUTH_PROVIDERS} from './oauth-popups.mjs';
+import {ProductFill} from './product-fill.mjs';
+import {installProductFillAuthority} from './product-fill-content.mjs';
 
 const MAX_PENDING_INTERACTION_PROBES=32;
 const MAX_PENDING_INTERACTION_CLEANUPS=32;
@@ -879,6 +881,7 @@ export class Executor {
  // 中文注释：网关请求不进入普通动作队列，但每一步都重新核实任务、代次、租约与浏览器访问。
  async gateway(method,p){
   const t=this.tasks.get(p.taskId);this.check(t,p);
+  if(t.executionLane==='product_fill')throw Object.assign(Error('PRODUCT_LANE_REQUIRED'),{preDispatch:true});
   if(t.silent&&(method==='browser.cdp_activate'||SILENT_WINDOW_METHODS.has(p.method)))throw Error('SILENT_TASK_FOCUS_DENIED');
   await this.assertSilentTarget(t,p.tabId);
   this.pageRuntime.assertAccess(t);
@@ -942,7 +945,7 @@ export class Executor {
   return next;
  }
  async selectExistingTab(p){
-  if(!p||Object.keys(p).some(key=>!['url','incognito'].includes(key))||typeof p.incognito!=='boolean'||(p.url!==undefined&&(typeof p.url!=='string'||!p.url||p.url.length>4096)))throw Error('ATTACH_UNAVAILABLE');
+  if(!p||Object.keys(p).some(key=>!['url','incognito','productFill'].includes(key))||typeof p.incognito!=='boolean'||(p.productFill!==undefined&&p.productFill!==true)||(p.url!==undefined&&(typeof p.url!=='string'||!p.url||p.url.length>4096)))throw Error('ATTACH_UNAVAILABLE');
   // 中文注释：只接收当前页或精确 URL，模型不能用任意标签编号声明操作权。
   const tabs=await this.api.tabs.query(p.url===undefined?{active:true,lastFocusedWindow:true}:{});
   const candidates=tabs.filter(tab=>!!tab.incognito===p.incognito&&(p.url===undefined||tab.url===p.url));
@@ -950,7 +953,21 @@ export class Executor {
   const tab=candidates[0];
   let parsed;try{parsed=new URL(tab?.url);}catch{throw Error('ATTACH_UNAVAILABLE');}
   if(!Number.isInteger(tab.id)||!['http:','https:'].includes(parsed.protocol)||parsed.username||parsed.password||(tab.pendingUrl&&tab.pendingUrl!==tab.url))throw Error('ATTACH_UNAVAILABLE');
-  return {tabId:tab.id,url:tab.url,incognito:!!tab.incognito};
+  const selection={tabId:tab.id,url:tab.url,incognito:!!tab.incognito};
+  if(p.productFill){
+   // 中文注释：只读探针在选页时冻结浏览器给出的文档身份，URL相同不表示还是原文档。
+   const result=await this.api.scripting.executeScript({target:{tabId:tab.id,frameIds:[0]},world:'ISOLATED',func:()=>location.href});
+   if(result.length!==1||result[0].frameId!==0||typeof result[0].documentId!=='string'||!result[0].documentId||result[0].result!==tab.url)throw Error('ATTACH_UNAVAILABLE');
+   selection.documentId=result[0].documentId;
+  }
+  return selection;
+ }
+ async checkProductDocument(task){
+  if(task.executionLane!=='product_fill')return;
+  const {tabId,url,documentId}=task.attachment||{};
+  if(typeof documentId!=='string'||!documentId)throw Error('ATTACH_UNAVAILABLE');
+  const result=await this.api.scripting.executeScript({target:{tabId,documentIds:[documentId]},world:'ISOLATED',func:()=>location.href});
+  if(result.length!==1||result[0].frameId!==0||result[0].documentId!==documentId||result[0].result!==url)throw Error('ATTACH_UNAVAILABLE');
  }
  async installApproval(task,stillValid) {
   if(!stillValid())throw Error('approval disconnected');
@@ -970,6 +987,7 @@ export class Executor {
    if(!stillValid())throw Error('approval disconnected');
    for(const tab of tabs){if(!!tab.incognito!==!!task.incognito)throw Error('browser context mismatch');this.allowed(task,tab.url);}
    if(task.attachment&&(ids.length!==1||ids[0]!==task.attachment.tabId||tabs[0].url!==task.attachment.url||(tabs[0].pendingUrl&&tabs[0].pendingUrl!==tabs[0].url)))throw Error('ATTACH_UNAVAILABLE');
+   await this.checkProductDocument(task);
    const current=this.tasks.get(task.id);
    if(current&&current!==existing&&(!current.revoked||current.releasing))throw Error('task already active or releasing');
    for(const id of ids)if(this.leases.has(id)&&this.leases.get(id)!==task.id)throw Error('tab claimed');
@@ -991,6 +1009,8 @@ export class Executor {
    }
    // 中文注释：保存保护基线期间也可能导航；发布租约前重新核实同一原页，绝不刷新它。
    if(task.attachment){const tab=await this.api.tabs.get(ids[0]);if(!stillValid()||tab.url!==task.attachment.url||!!tab.incognito!==!!task.incognito||(tab.pendingUrl&&tab.pendingUrl!==tab.url))throw Error('ATTACH_UNAVAILABLE');}
+   await this.checkProductDocument(task);
+   if(!stillValid())throw Error('approval disconnected');
    this.tasks.set(task.id,t);for(const id of ids)this.leases.set(id,t.id);
    queueMicrotask(()=>{for(const id of ids)void this.restoreOverlay(t,id);});
    return t;
@@ -1183,6 +1203,7 @@ export class Executor {
  async pause(taskId,generation) {
   const t=this.tasks.get(taskId);this.check(t,{generation});
   t.pauseRequested=true;
+  if(t.executionLane==='product_fill')await this.productFill?.revoke(t,'paused');
   // 中文注释：先显示等待进度并拒绝后续派发；屏障收尾前不能展示已暂停或放行人工输入。
   await this.syncTaskOverlays(t,'pausing');
   await this.taskBarrier(taskId,true,async()=>{});
@@ -1340,6 +1361,12 @@ export class Executor {
   const markUnknown=(reason,tabIds=[...t.tabIds])=>{cleanupState='unknown';rememberCleanupUncertainty(t,reason,tabIds);};
   const current=()=>this.tasks.get(taskId)===t&&t.generation===generation;
   try{
+   if(t.executionLane==='product_fill'&&this.productFill){
+    try{
+     const revoked=await waitUntil(this.productFill.revoke(t,'released'),deadline);
+     if(revoked===RELEASE_DEADLINE_EXPIRED)markUnknown('product_revocation_timeout');
+    }catch{markUnknown('product_revocation_unknown');}
+   }
    // 中文注释：先等待持久脚本移除回执，再继续解绑和关闭工作页。
    if(t.scriptCleanup){
     const scriptCleanup=await waitUntil(t.scriptCleanup,deadline);
@@ -1559,6 +1586,7 @@ export class Executor {
  }
  async credentials(p) {
   const t=this.tasks.get(p.taskId);this.check(t,p);
+  if(t.executionLane==='product_fill')throw Object.assign(Error('PRODUCT_LANE_REQUIRED'),{preDispatch:true});
   return this.lock(p.tabId,async()=>{
    // 中文注释：页面请求只检查任务、标签与来源；权限模式由动作审批链路处理。
    const guard=()=>{this.check(t,p);if(this.leases.get(p.tabId)!==t.id)throw Error('tab lease denied');};
@@ -1615,6 +1643,14 @@ export class Executor {
  }
  async execute(p) {
   const t=this.tasks.get(p.taskId),sourceTabId=t?.popupReturns?.get(p.tabId);
+  if(p.action==='product.fill'){
+   this.check(t,p);
+   if(t.executionLane!=='product_fill')throw Object.assign(Error('PRODUCT_LANE_REQUIRED'),{preDispatch:true});
+   this.productFill??=new ProductFill(this,installProductFillAuthority);
+   return this.productFill.execute(p);
+  }
+  // 中文注释：产品任务只能走同世界业务保护，通用动作不得成为填写/提交锁旁路。
+  if(t?.executionLane==='product_fill')throw Object.assign(Error('PRODUCT_LANE_REQUIRED'),{preDispatch:true});
   const returned=Number.isInteger(sourceTabId)&&SITE_READ_ACTIONS.has(p.action)&&!this.leases.has(p.tabId)&&this.leases.get(sourceTabId)===t?.id;
   if(returned)p={...p,tabId:sourceTabId};
   let wait;

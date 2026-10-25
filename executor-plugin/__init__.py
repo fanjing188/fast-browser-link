@@ -126,12 +126,12 @@ def _register_runtime(ctx, home, native, native_runtime, profile):
             native_runtime.release_native_profile_runtime(home, profile)
 
     host_bridge_module = native_runtime.load_module(
-        _PLUGIN_ROOT / "script_lane" / "host_bridge.py", "hermes_browser_script_host_bridge_"
+        native.core_root() / "script_lane" / "host_bridge.py", "hermes_browser_script_host_bridge_"
     )
-    script_bridge = host_bridge_module.HostBridge(profile, _PLUGIN_ROOT)
+    script_bridge = host_bridge_module.HostBridge(profile)
     ctx.on_unload(script_bridge.close)
     script_tool = native_runtime.load_module(
-        _PLUGIN_ROOT / "script_lane" / "tool.py", "hermes_browser_script_tool_"
+        native.core_root() / "script_lane" / "tool.py", "hermes_browser_script_tool_"
     )
     script_tool.register(
         ctx,
@@ -144,7 +144,7 @@ def _register_runtime(ctx, home, native, native_runtime, profile):
 
     # 中文注释：网站工具共享脚本通道与宿主租约，不注册独立执行器。
     site_tools = native_runtime.load_module(
-        _PLUGIN_ROOT / "site_tools/tools.py", "hermes_browser_site_tools_"
+        native.core_root() / "site_tools/tools.py", "hermes_browser_site_tools_"
     )
     site_tools.register(
         ctx,

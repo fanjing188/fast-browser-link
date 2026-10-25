@@ -121,7 +121,10 @@ def stage(
         "cookie_mirror.py",
         "host.py",
         "client.py",
+        "browser_sdk.py",
         "daemon.py",
+        "assist_adapter.py",
+        "product_adapter.py",
         "api_client.py",
         "artifacts.py",
         "downloads.py",
@@ -132,26 +135,16 @@ def stage(
     diagnostic_files = ("__init__.py", "schema.py", "runtime.py", "sink.py")
     required = [source_dir / name for name in native_files]
     required += [diagnostics_source / name for name in diagnostic_files]
-    # 中文注释：源码、独立包和 Hermes 包均复制同一份脚本执行器，安装时不生成另一套实现。
-    shared_root = next(
-        (
-            path
-            for path in (
-                source_dir,
-                source_dir.parent,
-                source_dir.parent / "executor-plugin",
-                source_dir.parent / "adapter/fast-browser-link",
-            )
-            if (path / "script_lane/host_bridge.py").is_file()
-        ),
-        source_dir,
-    )
+    # 中文注释：执行底座只按自身目录解析同级模块，缺件时不能回落旧适配器副本。
+    shared_root = source_dir
     shared_files = (
         "script_lane/host_bridge.py",
         "script_lane/action_session.py",
         "script_lane/child.py",
         "script_lane/tool.py",
         "script_lane/page-request.js",
+        "script_lane/page_export.py",
+        "script_lane/page_export.js",
         "site_tools/tools.py",
         "site_tools/store.py",
     )
@@ -208,7 +201,6 @@ def stage(
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(origin, target)
     import importlib.util
-    import sys
 
     sys.path.insert(0, str(source_dir))
     previous_bytecode = sys.dont_write_bytecode

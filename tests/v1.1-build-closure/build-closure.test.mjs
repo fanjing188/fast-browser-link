@@ -40,6 +40,12 @@ const dependencyFiles = [
   'browser-interactions/index.mjs',
 ];
 const sourceCopies = [
+  'product-fill.mjs',
+  'product-fill-content.mjs',
+  'product-connections.mjs',
+  'product-connections-page.mjs',
+  'product-connections.html',
+  'product-connections.css',
   'copilot-annotations.mjs',
   'copilot-basket.mjs',
   'copilot-readiness.mjs',
@@ -96,9 +102,6 @@ const sourceCopies = [
   'icon-32.png',
   'icon-48.png',
   'icon-128.png',
-  // 中文注释：独立云端连接和弹窗必须进入显式产物清单并逐字核验。
-  'cloud-link.mjs',
-  'cloud-popup.mjs',
   // 中文注释：开发同步后的自动重载模块逐字复制；构建哈希文件单独生成。
   'build-reload.mjs',
   'bridge.mjs',
@@ -454,6 +457,32 @@ test('clean scratch build is closed, syntactically valid, source-matched and has
   }
 });
 
+test('product module bytes participate in the native build identity', async () => {
+  const work = await mkdtemp(path.join(scratch, 'product-build-identity-'));
+  try {
+    const sourceRoot = await fixture(work);
+    const before = path.join(work, 'before');
+    const first = runBuild(sourceRoot, before);
+    assert.equal(first.status, 0, `${first.stderr}\n${first.stdout}`);
+    let previous = JSON.parse(await readFile(path.join(before, 'BUILD-DEPS.json'), 'utf8')).buildId;
+    for (const name of sourceCopies.filter((file) => file.startsWith('product-'))) {
+      const source = path.join(sourceRoot, 'native-extension', name);
+      await writeFile(source, `${await readFile(source, 'utf8')}\n`);
+      const output = path.join(work, name);
+      const result = runBuild(sourceRoot, output);
+      assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
+      const current = JSON.parse(
+        await readFile(path.join(output, 'BUILD-DEPS.json'), 'utf8'),
+      ).buildId;
+      assert.notEqual(current, previous, `${name} must change the build identity`);
+      assert.deepEqual(await readFile(path.join(output, name)), await readFile(source));
+      previous = current;
+    }
+  } finally {
+    await rm(work, { recursive: true, force: true });
+  }
+});
+
 test('native artifacts are identical before and after another build has populated dist-native', async () => {
   await mkdir(scratch, { recursive: true });
   const work = await mkdtemp(path.join(scratch, 'v1.1-build-closure-order-'));
@@ -557,8 +586,6 @@ test('版本闭包拒绝桌面、锁文件及运行握手错配', async () => {
     'executor-plugin/dashboard/manifest.json',
     'native-extension/manifest.json',
     'native-extension/background.mjs',
-    'cloud-link/site/package.json',
-    'cloud-link/site/package-lock.json',
   ];
   try {
     for (const file of files) {

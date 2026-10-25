@@ -5,6 +5,7 @@ import io
 import json
 import os
 from pathlib import Path
+import shutil
 import sys
 import tempfile
 import unittest
@@ -23,11 +24,78 @@ def load(name, path):
 
 agent = load("script_agent_entry", "agent-link/fast_browser_link.py")
 fixture = load("script_agent_fixture", "tests/v1.1-script-lane/test_script_tool.py")
-store_module = load("script_agent_store", "executor-plugin/site_tools/store.py")
+store_module = load("script_agent_store", "native-bridge/site_tools/store.py")
 site_fixture = load("script_agent_sites", "tests/site-tools/test_sites.py")
 
 
 class ScriptTests(unittest.TestCase):
+    def test_script_ignores_unrelated_module_with_same_name(self):
+        from types import ModuleType
+
+        # 中文注释：调用方可先导入其他版本；SDK 必须按自身路径加载执行底座。
+        with patch.dict(sys.modules, {"fbl_scripts": ModuleType("fbl_scripts")}):
+            result = self.script("print('own-script-runtime')")
+        self.assertTrue(result["execution_complete"], result)
+        self.assertEqual(result["stdout"].strip(), "own-script-runtime")
+
+    def test_core_only_deployment_runs_real_child_and_site_tool(self):
+        # 中文注释：独立部署不复制任何 Hermes 文件；真实子进程还必须能读取导航摘要。
+        core = self.home / "core-only"
+        core.mkdir()
+        source = ROOT / "native-bridge"
+        shutil.copyfile(source / "fbl_scripts.py", core / "fbl_scripts.py")
+        for name in ("script_lane", "site_tools"):
+            if (source / name).is_dir():
+                shutil.copytree(source / name, core / name)
+        self.assertFalse((core.parent / "executor-plugin").exists())
+        module = load("isolated_core_scripts", core / "fbl_scripts.py")
+        try:
+            lane = module.ScriptLane(self.client, self.home, "core-session")
+        except ValueError as exc:
+            self.fail(f"core-only script runtime unavailable: {exc}")
+        self.addCleanup(lane.close)
+        receipt = lane.execute(
+            "script",
+            {
+                "taskId": "task",
+                "code": "import os\nnew_tab('https://example.com')\n"
+                "page = goto_url('https://example.com/next')['summary']\n"
+                "print(os.getpid(), page['items'][0]['name'])",
+            },
+        )
+        self.assertTrue(receipt["execution_complete"], receipt)
+        pid, title = receipt["stdout"].strip().split()
+        self.assertNotEqual(int(pid), os.getpid())
+        self.assertEqual(title, "Next")
+        store = module.load(core / "site_tools/store.py").Store(
+            self.home / "plugin-data/fast-browser-link-native/site-tools"
+        )
+        draft = store.define(site_fixture.definition())["draft_id"]
+        store.trial(
+            draft,
+            {"query": "x"},
+            [{"path": "title", "equals": "Next"}],
+            lambda *_: {"title": "Next"},
+        )
+        store.activate(draft)
+        original = self.client.call
+
+        def call(method, params):
+            value = original(method, params)
+            return (
+                {**value, "allowedOrigins": ["https://example.com"]}
+                if method == "shared.get"
+                else value
+            )
+
+        self.client.call = call
+        result = lane.execute(
+            "site_run",
+            {"taskId": "task", "site": "example", "name": "read", "args": {"query": "x"}},
+        )
+        self.assertEqual(result.get("result"), {"title": "Next"}, result)
+        self.assertEqual(len(lane.execute("site_search", {})["tools"]), 1)
+
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
@@ -129,13 +197,28 @@ class ScriptTests(unittest.TestCase):
         self.assertTrue(receipt["execution_complete"], receipt)
         self.assertEqual(receipt["stdout"].strip(), "Next")
         for relative in (
+            "fbl_scripts.py",
+            "script_lane/host_bridge.py",
+            "script_lane/tool.py",
             "script_lane/child.py",
             "script_lane/action_session.py",
+            "script_lane/page-request.js",
+            "script_lane/page_export.py",
+            "script_lane/page_export.js",
+            "site_tools/tools.py",
             "site_tools/store.py",
         ):
             self.assertEqual(
-                (host / relative).read_bytes(), (ROOT / "executor-plugin" / relative).read_bytes()
+                (host / relative).read_bytes(), (ROOT / "native-bridge" / relative).read_bytes()
             )
+        sdk = ROOT / "native-bridge/browser_sdk.py"
+        if sdk.is_file():
+            self.assertTrue(
+                (host / sdk.name).is_file(), "stage must include the public browser SDK"
+            )
+            self.assertEqual((host / sdk.name).read_bytes(), sdk.read_bytes())
+        adapter = ROOT / "native-bridge/assist_adapter.py"
+        self.assertEqual((host / adapter.name).read_bytes(), adapter.read_bytes())
 
     def test_timeout_and_bounded_output(self):
         result = self.script("import time\ntime.sleep(5)", timeout=1)
@@ -195,7 +278,7 @@ class ScriptTests(unittest.TestCase):
         from types import SimpleNamespace
 
         sys.path.insert(0, str(ROOT / "native-bridge"))
-        import fbl_runtime
+        import browser_sdk
         import fbl_cli
 
         original_browser = agent.Browser
@@ -216,8 +299,7 @@ class ScriptTests(unittest.TestCase):
         identity = agent.session_owner(session)
         ctx = SimpleNamespace(runtime=self.home, source=ROOT)
         with (
-            patch.object(agent, "Browser", side_effect=browser),
-            patch.object(fbl_runtime, "load", return_value=agent),
+            patch.object(browser_sdk, "Browser", side_effect=browser),
             patch.object(fbl_cli.Context, "locate", return_value=ctx),
             patch.object(sys, "stdin", io.StringIO(payload)),
             patch.object(sys, "stdout", io.StringIO()) as output,

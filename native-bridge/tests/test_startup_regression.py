@@ -11,12 +11,14 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 
 BRIDGE_DIR = Path(__file__).resolve().parents[1]
 SCRATCH = Path(tempfile.gettempdir()).resolve()
 sys.path.insert(0, str(BRIDGE_DIR))
 
+import client  # noqa: E402
 from client import BridgeError, ensure_service  # noqa: E402
 
 WORKER_SOURCE = """from concurrent.futures import ThreadPoolExecutor
@@ -79,6 +81,33 @@ os.execv(sys.executable, [sys.executable, real_daemon, *sys.argv[1:]])
 
 
 class StartupGateRegressionTests(unittest.TestCase):
+    def test_installed_product_adapter_missing_refuses_before_startup(self):
+        host = self.home / "plugin-data/fast-browser-link-native/host-bin"
+        host.mkdir(parents=True)
+        for name in ("daemon.py", "assist_adapter.py"):
+            (host / name).write_text("# installed fixture")
+        with (
+            patch.object(client, "_probe", return_value=False),
+            patch.object(client, "_spawn_detached") as spawn,
+        ):
+            with self.assertRaises(BridgeError) as caught:
+                ensure_service(self.home, timeout=0.01)
+        self.assertEqual(caught.exception.code, "incomplete_runtime")
+        spawn.assert_not_called()
+
+    def test_partial_installed_runtime_never_falls_back_to_source(self):
+        host = self.home / "plugin-data/fast-browser-link-native/host-bin"
+        host.mkdir(parents=True)
+        (host / "client.py").write_text("# partial installed runtime")
+        with (
+            patch.object(client, "_probe", return_value=False),
+            patch.object(client, "_spawn_detached") as spawn,
+        ):
+            with self.assertRaises(BridgeError) as caught:
+                ensure_service(self.home, timeout=0.01)
+        self.assertEqual(caught.exception.code, "incomplete_runtime")
+        spawn.assert_not_called()
+
     def setUp(self):
         SCRATCH.mkdir(parents=True, exist_ok=True)
         self.temp = tempfile.TemporaryDirectory(prefix="sr-", dir=SCRATCH)
@@ -87,7 +116,7 @@ class StartupGateRegressionTests(unittest.TestCase):
         self.wrapper_dir = self.root / "w"
         self.wrapper_dir.mkdir()
         self.worker_path = self.root / "worker.py"
-        self.wrapper_path = self.wrapper_dir / "daemon.py"
+        self.wrapper_path = self.wrapper_dir / "assist_adapter.py"
         self.worker_path.write_text(WORKER_SOURCE, encoding="utf-8")
         self.wrapper_path.write_text(WRAPPER_SOURCE, encoding="utf-8")
         self.ready_file = self.root / "ready"

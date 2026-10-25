@@ -108,7 +108,7 @@ The lists are `NODE_TESTS`, `PYTHON_SUITES` and `REVIEWED_RUNNER_PATHS` in `scri
 ## CI
 
 - `checks.yml`: core tests, lint, syntax, documentation and package closure on Ubuntu and macOS, using Node 22 and Python 3.11; no credentials.
-- `integration.yml`: macOS full gate on `main` pushes or manual dispatch against the pinned Hermes commit above. It uploads the gate report and never touches a personal installation.
+- `integration.yml`: manually dispatched macOS full gate against the pinned Hermes commit above. It uploads the gate report and never touches a personal installation.
 - `secrets.yml`: a pinned Gitleaks binary checks the checked-out Git history; forks use read-only permissions. Public publishing still requires the separate clean-history checklist in [releasing.md](releasing.md).
 
 To run a single suite:
@@ -225,14 +225,36 @@ To keep gate scratch files outside the user's Hermes directory, set `FAST_BROWSE
 
 受影响的离线回归复用既有 `tests/popup-integration/content-filter.test.mjs`、`native-routing.test.mjs` 和 `popup.test.mjs`；此前未登记的 `native-routing.test.mjs` 已加入显式 Node 清单和 coverage matrix。内容、截图和回放用例通过真实 Executor→Bridge；配置用例通过实际 background 消息处理器。CDP、DOM、Canvas 是合成后端，不代表个人浏览器验收。完整配置、拒绝矩阵和个人验收要求见 [页面内容屏蔽](design/content-shield.md)。
 
-## 1.8.0 云端发布检查
+## 执行底座与云端退役
 
-固定离线门禁包含 `cloud-link/tests/`、`tests/native-extension/cloud-link.test.mjs` 和 `cloud-link/site/tests/cloud.test.mjs`，源码与站点分别安装锁文件依赖；CI 不使用个人站点 ID、凭据、浏览器 profile 或执行日志。云端站点的 SQLite/HTTP/MCP 测试验证会话隔离、原子领取、去重、正文擦除和关闭路由。
+SDK 和唯一脚本核心的验收合同见 [浏览器执行底座](browser-core.md)及[Python 执行核心](python-scripting.md#shared-execution-core)。定向入口复用 `tests/agent-link/test_agent_link.py`、`test_script.py` 与既有脚本/网站工具回归。
 
-实际 Chrome 验收覆盖多个独立云端会话、一个任务的两个页面及另一任务的一个页面并发、审批等待时其他任务继续运行、取消后显式恢复、空任务关闭，以及关闭一个会话不影响另一个会话。最终本机未交付回执与未关闭路由均为零。Edge 在线状态已确认；此轮多页面并发的实际操作在 Chrome 完成。闲置一小时回收通过可控时间测试，不代表已等待一小时墙钟时间。
+云端连接不进入新包和新安装。`tests/native-extension/cloud-link.test.mjs` 验证后台启动/重连不创建云 Native 通道；安装回归覆盖受管旧入口退役、遗留在途任务阻断与失败回滚，私有配对数据不清除。原云站点和云宿主测试随退役源码移除，不继续安装云端依赖。
 
-每次正式发布仍需重新执行本文件规定的固定 Hermes 门禁与变更后的安装包检查，历史浏览器记录不能覆盖未经验证的新行为。
+CLI 源码通过、完整固定 Hermes 门禁、临时浏览器端到端及个人安装分别取得证据，不相互替代。
 
+### Fast-Backlink 双扩展填写
+
+`tests/native-v2/real-product-fill.mjs` 是手动 opt-in 的后台无头验收，复用临时 profile/Native stage 启动器，加载实际 Backlink 扩展；不调用其有头浏览器助手，不替换个人安装。先按本页准备固定 Hermes 环境，设置私有 `TMPDIR`、`BK_TEST_TMPDIR="$TMPDIR"`、`BK_PROTECT_REAL=1` 和 `FBL_BACKLINK_SOURCE=<Backlink源码绝对路径>`：
+
+```sh
+node tests/native-v2/real-product-fill.mjs --preflight
+node tests/native-v2/real-product-fill.mjs --package --edge
+node tests/native-v2/real-product-fill.mjs --package
+```
+
+预检不启动浏览器；后两条须串行运行。真实配对 UI、Port、Native 任务/双端租约、FBL 自有 isolated setter 与实际普通/AI 按钮接受本地合成资料及模拟模型服务；人工暂停、提交锁、未知写入不重放、通用 JS/CDP 拒绝与解除配对保留原页分别断言。结果和截图写入 `$TMPDIR/product-fill-{chrome,edge}-*/`，由主会话另行目视。脚本和语法通过不代表该端到端已通过，合成模型不证明真实供应商或账号业务。
+
+### 当前页成品包导出
+
+`tests/native-v2/real-page-export.mjs` 是手动 opt-in 的无头验收，复用同一临时 profile 和隔离 Native stage，固定实际打包代码，不操作个人安装。先准备本页的固定 Hermes 环境与私有 `TMPDIR`，串行运行：
+
+```sh
+node tests/native-v2/real-page-export.mjs --edge
+node tests/native-v2/real-page-export.mjs
+```
+
+验收从本地合成页面的运行后 DOM 进入真实脚本/CDP helper，核 ZIP 的 CRC、成员路径、资源与覆盖清单、当前表单值清除及原页状态不变；离线预览核脚本不执行、没有向原站追加请求。输出写入 `$TMPDIR/page-export-{chrome,edge}-*/`。1440/375 截图须另行目视；脚本存在或语法通过不代表导出已通过，不证明整站、后端或原始框架源码可得。
 
 ## 2.1.0 无痕能力验收
 

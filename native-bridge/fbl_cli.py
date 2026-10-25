@@ -692,7 +692,7 @@ def setup(
 
 
 def logs(ctx, *, follow=False, kind=None, errors=False, bundle=None):
-    from copilot_diagnostics import redact, stderr_summary
+    from copilot_diagnostics import redact
     from copilot_journal import MESSAGES, REASONS
 
     directory = ctx.copilot / "logs"
@@ -786,7 +786,19 @@ def logs(ctx, *, follow=False, kind=None, errors=False, bundle=None):
             (root / "diagnostics.json").write_text(json.dumps(summary, indent=2))
             (root / "events.json").write_text(json.dumps(rows, indent=2))
             stderr = [row.get("text", "") for row in entries() if row["type"] == "stderr"]
-            (root / "stderr-summary.json").write_text(json.dumps(stderr_summary(stderr), indent=2))
+            # 中文注释：脱敏不能证明任意正文可分享，导出只保留固定级别/异常类型及计数。
+            signatures = {}
+            for line in stderr:
+                tokens = re.findall(
+                    r"\b(?:DEBUG|INFO|WARNING|WARN|ERROR|CRITICAL|"
+                    r"ValueError|TypeError|NameError|AttributeError|KeyError|ImportError|"
+                    r"ModuleNotFoundError|RuntimeError|TimeoutError|PermissionError|"
+                    r"ConnectionError|BrokenPipeError|OSError|JSONDecodeError)\b",
+                    line,
+                )
+                for token in set(tokens) or {"unclassified"}:
+                    signatures[token] = signatures.get(token, 0) + 1
+            (root / "stderr-summary.json").write_text(json.dumps(signatures, indent=2))
             try:
                 version = read(ctx.data / "host-bin/runtime-version.json").get("version")
             except (OSError, ValueError):

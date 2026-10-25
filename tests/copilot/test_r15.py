@@ -1,12 +1,14 @@
 """R15：临时安装树、合成协议与无查询发现；从不访问真实配置或供应商。"""
 
 import contextlib
+import fcntl
 import hashlib
 import io
 import json
 import os
 from pathlib import Path
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tarfile
@@ -184,6 +186,206 @@ class R15(unittest.TestCase):
                             self.assertNotIn(b"DO_NOT_COPY_CREDENTIAL", path.read_bytes())
                     records.append((layout, "rollback" if fail else "updated"))
         self.assertEqual(len(records), 6)
+
+    def retired_cloud(self):
+        self.install()
+        state = self.ctx.data / "install-state.json"
+        write(state, {"cloudRetired": {"version": 1}})
+        cloud = self.ctx.runtime / "plugin-data/fast-browser-link-cloud"
+        instance = cloud / "instances/11111111-1111-4111-8111-111111111111"
+        instance.mkdir(parents=True, mode=0o700)
+        cloud.chmod(0o700)
+        instance.parent.chmod(0o700)
+        journal = instance / "requests.sqlite"
+        with contextlib.closing(sqlite3.connect(journal)) as database, database:
+            database.execute(
+                "CREATE TABLE commands (id TEXT PRIMARY KEY, digest TEXT NOT NULL, result TEXT, delivered INTEGER NOT NULL DEFAULT 0)"
+            )
+            database.execute(
+                "CREATE TABLE sessions (id TEXT PRIMARY KEY, task_id TEXT, last_used REAL NOT NULL, closed INTEGER NOT NULL DEFAULT 0, synced INTEGER NOT NULL DEFAULT 0)"
+            )
+            database.execute("INSERT INTO commands VALUES ('old', 'digest', '{}', 1)")
+            database.execute("INSERT INTO sessions VALUES ('old', 'task', 1, 1, 1)")
+        journal.chmod(0o600)
+        private_write(instance / "pairing.json", "opaque private fixture")
+        lock = instance / "native.lock"
+        lock.touch(mode=0o600)
+        return cloud, journal, lock, state
+
+    def assert_cloud_lock_held(self, lock):
+        # 中文注释：独立打开实际实例锁，不能用 mock 证明交换和回滚期间仍持有排他锁。
+        with lock.open("r") as descriptor:
+            with self.assertRaises(BlockingIOError):
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+    def test_retired_cloud_update_preserves_private_data_and_locks_import_validation(self):
+        cloud, _, lock, state = self.retired_cloud()
+        before = {
+            path: (path.read_bytes(), path.stat().st_ino)
+            for path in [state, *cloud.rglob("*")]
+            if path.is_file()
+        }
+        cli = legacy_cli(self.ctx)
+        self.assertTrue(cli.cloud_retired(self.ctx.runtime, self.user))
+        self.assertFalse(cli.cloud_never_configured(self.ctx.runtime, self.user))
+        original = cli.command
+        original_replace = os.replace
+        imports = []
+        swaps = []
+
+        def command(argv, env):
+            if "-I" in argv:
+                self.assert_cloud_lock_held(lock)
+                imports.append(argv)
+            return original(argv, env)
+
+        def replace(source, target):
+            if Path(target) == self.ctx.data / "host-bin":
+                self.assert_cloud_lock_held(lock)
+                swaps.append(Path(target))
+            return original_replace(source, target)
+
+        with (
+            patch("fbl_update.legacy_cli", return_value=cli),
+            patch.object(cli, "command", side_effect=command),
+            patch("fbl_update.os.replace", side_effect=replace),
+        ):
+            result = update(self.ctx, self.release)
+        self.assertEqual(result["status"], "updated")
+        self.assertEqual(len(imports), 1)
+        self.assertEqual(len(swaps), 1)
+        self.assertFalse((self.ctx.data / "host-bin/old-fixture").exists())
+        self.assertEqual(
+            before,
+            {
+                path: (path.read_bytes(), path.stat().st_ino)
+                for path in [state, *cloud.rglob("*")]
+                if path.is_file()
+            },
+        )
+        with lock.open("r") as descriptor:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+    def retired_cloud_rollback(self, *, restart=False):
+        cloud, _, lock, state = self.retired_cloud()
+        before = {path: path.read_bytes() for path in [state, *cloud.rglob("*")] if path.is_file()}
+        old_host = tree_digest(self.ctx.data / "host-bin")
+        cli = legacy_cli(self.ctx)
+        original_command = cli.command
+        original_replace = os.replace
+        restored = []
+
+        def command(argv, env):
+            if "-I" in argv:
+                self.assert_cloud_lock_held(lock)
+                if not restart:
+                    return subprocess.CompletedProcess(argv, 1, "", "synthetic import failure")
+            return original_command(argv, env)
+
+        def replace(source, target):
+            if Path(source).name.startswith("old-"):
+                self.assert_cloud_lock_held(lock)
+                restored.append(Path(target))
+            return original_replace(source, target)
+
+        def health(_):
+            self.assert_cloud_lock_held(lock)
+            return {"ok": False}
+
+        calls = 0
+
+        def verified_pid(*_):
+            nonlocal calls
+            calls += 1
+            # 中文注释：仅模拟更新前曾运行，禁止夹具真正启动服务；停止和文件交换仍走正式路径。
+            return 123 if restart and calls == 1 else None
+
+        with (
+            patch("fbl_update.legacy_cli", return_value=cli),
+            patch.object(cli, "command", side_effect=command),
+            patch.object(cli, "verified_daemon_pid", side_effect=verified_pid),
+            patch("client.BridgeClient") as client,
+            patch("fbl_update.os.replace", side_effect=replace),
+        ):
+            expected = "restarted daemon" if restart else "import validation"
+            with self.assertRaisesRegex(ValueError, expected) as error:
+                update(self.ctx, self.release, health=health)
+            self.assertEqual(client.call_count, 2 if restart else 0)
+        self.assertTrue(getattr(error.exception, "rolled_back", False))
+        self.assertIn(self.ctx.data / "host-bin", restored)
+        self.assertEqual(tree_digest(self.ctx.data / "host-bin"), old_host)
+        self.assertEqual(
+            before,
+            {path: path.read_bytes() for path in [state, *cloud.rglob("*")] if path.is_file()},
+        )
+        self.assertFalse((self.ctx.data / "maintenance.json").exists())
+        with lock.open("r") as descriptor:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+    def test_retired_cloud_import_failure_holds_lock_through_real_rollback(self):
+        self.retired_cloud_rollback()
+
+    def test_retired_cloud_restart_failure_holds_lock_through_health_and_rollback(self):
+        self.retired_cloud_rollback(restart=True)
+
+    def test_retired_cloud_rejects_unknown_wal_schema_pending_and_live_lock_without_data_loss(self):
+        cloud, journal, lock, state = self.retired_cloud()
+        cli = legacy_cli(self.ctx)
+        original_journal = journal.read_bytes()
+        original_state = state.read_bytes()
+        host = self.ctx.data / "host-bin"
+        host_before = tree_digest(host)
+        for case in ("unknown", "wal", "schema", "undelivered", "unsynced", "live_lock"):
+            with self.subTest(case=case), contextlib.ExitStack() as stack:
+                try:
+                    if case == "unknown":
+                        write(state, {"cloudRetired": {"version": 2}})
+                    elif case == "wal":
+                        private_write(Path(str(journal) + "-wal"), "unmerged fixture")
+                    elif case in {"schema", "undelivered", "unsynced"}:
+                        with contextlib.closing(sqlite3.connect(journal)) as database, database:
+                            database.execute(
+                                {
+                                    "schema": "ALTER TABLE sessions ADD COLUMN future INTEGER",
+                                    "undelivered": "UPDATE commands SET delivered=0",
+                                    "unsynced": "UPDATE sessions SET synced=0",
+                                }[case]
+                            )
+                    else:
+                        descriptor = stack.enter_context(lock.open("r"))
+                        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    before = {
+                        path: (path.read_bytes(), path.stat().st_ino)
+                        for path in [state, *cloud.rglob("*")]
+                        if path.is_file()
+                    }
+                    with (
+                        patch("fbl_update.legacy_cli", return_value=cli),
+                        patch.object(
+                            cli, "assert_cloud_fenced", wraps=cli.assert_cloud_fenced
+                        ) as fence,
+                        patch.object(cli, "wait_cloud_released") as wait,
+                    ):
+                        with self.assertRaisesRegex(ValueError, "Cloud state is active or unknown"):
+                            update(self.ctx, self.release)
+                        self.assertEqual(fence.call_count, 1 if case == "unknown" else 0)
+                        wait.assert_not_called()
+                    self.assertEqual(tree_digest(host), host_before)
+                    self.assertEqual(
+                        before,
+                        {
+                            path: (path.read_bytes(), path.stat().st_ino)
+                            for path in [state, *cloud.rglob("*")]
+                            if path.is_file()
+                        },
+                    )
+                    self.assertFalse((self.ctx.data / "maintenance.json").exists())
+                finally:
+                    journal.write_bytes(original_journal)
+                    state.write_bytes(original_state)
+                    Path(str(journal) + "-wal").unlink(missing_ok=True)
+        with lock.open("r") as descriptor:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
 
     def test_idle_unknown_operation_and_cloud_gate_fail_closed(self):
         self.install()
@@ -518,7 +720,10 @@ class R15(unittest.TestCase):
             directory / "2026.hermes-stderr.log",
             "ERROR LEGACY_AGENT_LOG\nERROR PRIVATE_PAGE_SENTINEL token=secret-value",
         )
-        private_write(directory / "2026.agent-stderr.log", "ERROR NEW_AGENT_LOG")
+        private_write(
+            directory / "2026.agent-stderr.log",
+            "ERROR NEW_AGENT_LOG\nERROR private page alpha\nValueError: private page beta",
+        )
         stderr = io.StringIO()
         with contextlib.redirect_stdout(stderr):
             logs(self.ctx, kind="stderr")
@@ -550,6 +755,8 @@ class R15(unittest.TestCase):
             )
             self.assertNotIn("PRIVATE_PAGE_SENTINEL", text)
             self.assertNotIn("secret-value", text)
+            self.assertNotIn("private page alpha", text)
+            self.assertNotIn("private page beta", text)
 
     def test_first_readiness_discovery_and_symlink_refusal(self):
         result = readiness(self.ctx, {"checks": []})
@@ -704,7 +911,7 @@ class R15(unittest.TestCase):
             patch.object(client, "_spawn_detached", side_effect=lambda argv: spawned.append(argv)),
         ):
             client.ensure_service(self.ctx.runtime)
-        self.assertEqual(Path(spawned[0][1]), self.ctx.data / "host-bin/daemon.py")
+        self.assertEqual(Path(spawned[0][1]), self.ctx.data / "host-bin/assist_adapter.py")
         self.assertEqual(spawned[0][-1], str(self.ctx.runtime))
 
     def test_update_dry_run_leaves_installation_and_backups_untouched(self):

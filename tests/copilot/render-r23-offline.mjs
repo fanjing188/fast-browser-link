@@ -23,15 +23,8 @@ import { BRAND_CSS } from '../../native-extension/brand.mjs';
 const source = new URL('../../native-extension/', import.meta.url),
   output = new URL('../../docs/growth/design-r21-claude/', import.meta.url);
 const load = (name) => readFile(new URL(name, source), 'utf8');
-const [panelHTML, panelCSS, popupHTML, popupCSS, popupJS, cloudJS] = await Promise.all(
-  [
-    'copilot-panel.html',
-    'copilot-panel.css',
-    'popup.html',
-    'popup.css',
-    'popup.mjs',
-    'cloud-popup.mjs',
-  ].map(load),
+const [panelHTML, panelCSS, popupHTML, popupCSS, popupJS] = await Promise.all(
+  ['copilot-panel.html', 'copilot-panel.css', 'popup.html', 'popup.css', 'popup.mjs'].map(load),
 );
 const resultHTML = await load('copilot-result.html'),
   resultCSS = await load('copilot-result.css');
@@ -334,7 +327,7 @@ for (theme of ['light', 'dark']) {
               execution_health: { state: kind === '服务未运行' ? 'disconnected' : 'connected' },
               hermes_health: { state: kind === '服务未运行' ? 'disconnected' : 'connected' },
             },
-            cloud: { state: 'unpaired' },
+
             ...(kind === '当前页任务'
               ? {
                   page: { taskId: 'fixture', tabId: 1 },
@@ -348,7 +341,7 @@ for (theme of ['light', 'dark']) {
       },
     };
     Object.assign(win, { mountControls, renderConnection, renderStatus });
-    win.eval(cloudJS.replace(/^import\s[^;]*;\n/gm, ''));
+
     win.eval(popupJS.replace(/^import\s[^;]*;\n/gm, ''));
     await new Promise((resolve) => setImmediate(resolve));
     add('6 · 扩展弹窗', kind, doc, popupCSS, 320, kind === '当前页任务' ? 310 : 260);

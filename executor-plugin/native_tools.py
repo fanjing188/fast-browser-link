@@ -41,6 +41,13 @@ def _is_sign_in_origin(value):
     return host in _SIGN_IN_HOSTS or host.endswith(_SIGN_IN_SUFFIXES)
 
 
+def core_root():
+    # 中文注释：只有 Hermes 适配层识别源码/安装布局；底座绝不反查插件目录。
+    root = Path(__file__).resolve().parent
+    installed = root / "native_bridge"
+    return installed if installed.is_dir() else root.parent / "native-bridge"
+
+
 def runtime_module():
     path = Path(__file__).with_name("native_runtime.py").resolve()
     name = "hermes_browser_native_runtime_" + hashlib.sha256(str(path).encode()).hexdigest()[:16]
@@ -1002,10 +1009,10 @@ def make_tool_handler(tool_name, profile_runtime, *, host_bridge=None, backend_c
                 and isinstance(public, dict)
                 and type(public.get("tabId")) is int
             ):
-                # 中文注释：导航成功后沿用 open 的语义摘要，读取失败不改写已确认的导航回执。
+                # 中文注释：导航成功后直接复用底座摘要，读取失败不改写已确认的导航回执。
                 try:
                     summary_module = runtime_module().load_module(
-                        Path(__file__).with_name("open_tool.py"), "hermes_browser_open_summary_"
+                        core_root() / "script_lane/action_session.py", "browser_page_summary_"
                     )
                     public["summary"] = summary_module._summary(
                         profile_runtime,

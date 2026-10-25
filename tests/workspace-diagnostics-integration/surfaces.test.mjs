@@ -6,21 +6,9 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 const packageVersion = JSON.parse(await readFile('package.json', 'utf8')).version;
 test('offline popup status and local-only diagnostics export retain envelope', async () => {
-  let listener, receiveCloud;
+  let listener;
   const noop = { addListener() {} };
   const data = {};
-  // 中文注释：云端 hello 在内存中回执，避免离线本地连接测试遗留重连定时器。
-  const cloudPort = {
-    onMessage: { addListener: (f) => (receiveCloud = f) },
-    onDisconnect: noop,
-    postMessage: (m) =>
-      queueMicrotask(() =>
-        receiveCloud({
-          id: m.id,
-          result: { state: 'unavailable', online: false, paired: false, fullAccess: false },
-        }),
-      ),
-  };
   globalThis.chrome = {
     notifications: { onClicked: noop },
     storage: {
@@ -33,7 +21,7 @@ test('offline popup status and local-only diagnostics export retain envelope', a
       id: 'test',
       onMessage: { addListener: (f) => (listener = f) },
       connectNative(name) {
-        if (name === 'com.fast.browser_link.cloud') return cloudPort;
+        assert.equal(name, 'com.fast.browser_link');
         throw Error('offline');
       },
     },

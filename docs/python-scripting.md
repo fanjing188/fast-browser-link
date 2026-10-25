@@ -2,10 +2,18 @@
 
 `fast_browser_script` runs a short Python script against the task bound to the current Hermes session. Use it for paging, collecting data, multi-step forms and anything else that would otherwise need many model round trips.
 
+## Shared execution core
+
+The only script and website-tool implementations live in `native-bridge/script_lane/` and `native-bridge/site_tools/`. `fbl_scripts.py` loads these sibling directories directly; CLI/MCP and SDK execution must not search for `executor-plugin`. The Hermes adapter resolves the core in the source checkout or its installed `native_bridge/` directory, then registers the same implementation with host-owned lease and session callbacks. There is no compatibility copy under `executor-plugin`.
+
+A core-only deployment must keep `fbl_scripts.py`, all seven `script_lane` files (`host_bridge.py`, `action_session.py`, `tool.py`, `child.py`, `page-request.js`, `page_export.py`, `page_export.js`) and both `site_tools` files (`tools.py`, `store.py`) together. The installed Native Messaging runtime keeps these directories directly under `host-bin/`; the Hermes package keeps them under `fast-browser-link/native_bridge/`. `HostBridge(runtime)` resolves its action adapter beside itself, never from a client-supplied plugin path. Navigation summaries also live in the core action adapter; Hermes open/single-action tools delegate to that same function.
+
+`tests/agent-link/test_script.py` includes a core-only deployment fixture that copies no Hermes code, starts a real child interpreter, reads a navigation summary, runs an activated website tool and checks the subprocess identity. Browser responses remain synthetic. The existing script/site suites cover session leases, tab and generation scope, unknown-write fencing, workspace isolation and locking. `daemon.py` provides the pure browser service without importing Assist. The full product uses the fixed `assist_adapter.py` bootstrap to assemble product routes, resources and lifecycle explicitly; it is not discovered from page or client parameters. See [browser-core boundaries](browser-core.md).
+
 ## How it runs
 
 - Each call starts a **new** Python process; the session's working directory is kept between calls, so files you write there survive. Element references and approvals do not.
-- Default timeout 120 s, maximum 600 s. A timeout does not mean the page action did not happen, and the script is not re-run automatically.
+- Script timeout defaults to 720 s, maximum 3600 s; website tools default to 120 s, maximum 600 s. A timeout does not mean the page action did not happen, and the script is not re-run automatically.
 - Every helper goes through the same path as a single tool call — trusted session → script host → daemon → extension — with the same ownership, generation, tab lease, connection authorization and sensitive-field checks, plus operation-specific origin checks. Ordinary helper actions run directly; special confirmations remain independent. There is no second executor.
 - Print only a summary to stdout; output is bounded.
 - `execution_complete` comes from the trusted action state and ledger, not only the Python exit code. Caught unknown outcomes, pending approvals and pending manual input still make the run incomplete. `outcome_unknown` remains true when an outcome cannot be established. Resolve the original pending request with `wait_pending`, or explicitly reconcile unknown work; do not replay it.
@@ -58,7 +66,21 @@ For `target_occluded`, inspect the page for a banner or dialog, then explicitly 
 | `claim_download(download_id, dest=None)` | Verify and copy a finished download into the working directory |
 | `cancel_download(download_id)` | Cancel an in-progress task download |
 
-### Page execution
+### Current-page frontend export
+
+`export_page(path='page-export.zip', *, tab=None, max_bytes=32*1024*1024, max_resources=200)` saves a private ZIP in the script workspace or configured `FAST_BROWSER_EXPORT_ROOTS`. It refuses existing files and symlink traversal before browser reads. The returned object contains only `path`, `sha256`, `count` and `coverage`; `count` is the ZIP member count, not a page or resource total.
+
+The package contains rendered top-level `index.html`, available cached frontend bytes in `assets/`, non-executed inline scripts in `source/`, rewritten supported CSS in `preview/`, and `manifest.json` with member hashes, resource dispositions and limits. It never refreshes, navigates, crawls the site or re-fetches missing resources. Current form/editable values and FBL overlays are removed from the preview; scripts, forms, frames and external requests are disabled. Source bytes and visible content can still contain private data: this is **not universal secret sanitization**. Review before sharing; do not dump archive contents into the model context.
+
+Coverage is always partial: child frames, Shadow DOM, canvas pixels, non-HTML namespace subtrees, unreadable cache entries, unsupported CSS and budget exclusions are disclosed. CSS with imports, image-set, comments or escapes is disabled in the preview rather than guessed; raw source remains in the private package. There is no backend source, source-map retrieval or original React/Vue project recovery. Defaults cap the whole operation at 60 seconds and each cached resource at 384 KiB; `max_bytes` is capped at 64 MiB and `max_resources` at 1000. These archive budgets do not raise the existing CDP transport limit: an oversized in-memory MHTML response fails explicitly with `export_budget`, not a fabricated cache-missing result. Script source requires a unique current top-frame default-context identity; ambiguous, custom-sourceURL or missing-event candidates are unreadable. Errors remove an incomplete reserved ZIP; unknown transport outcomes stop without replay. Credential-filled pages and product-only tasks retain their script/CDP refusals.
+
+```python
+# 中文注释：仅导出用户明确指定的当前任务页，保留覆盖缺口，只回传产物元数据。
+receipt = export_page('page-export.zip')
+print(receipt)
+```
+
+### Raw execution
 
 | Helper | Description |
 |---|---|

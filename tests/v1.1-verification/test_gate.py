@@ -20,6 +20,44 @@ spec.loader.exec_module(gate)
 
 
 class GateNegativeControls(unittest.TestCase):
+    def test_product_runners_are_explicit_in_formal_gate_and_core_node_list(self):
+        root = SCRIPT.parents[1]
+        node_runners = {
+            "tests/native-extension/product-fill.test.mjs",
+            "tests/native-extension/product-fill-content.test.mjs",
+            "tests/native-extension/product-fill-controller.test.mjs",
+            "tests/native-extension/product-connections.test.mjs",
+            "tests/native-extension/product-connections-page.test.mjs",
+        }
+        python_runner = "tests/native-v2/test_product_adapter.py"
+        self.assertEqual(
+            node_runners,
+            {
+                path.relative_to(root).as_posix()
+                for path in (root / "tests/native-extension").glob("product-*.test.mjs")
+            },
+        )
+        self.assertTrue(node_runners.issubset(gate.NODE_TESTS))
+        self.assertIn("test_product_adapter.py", gate.PYTHON_FILES["tests/native-v2"])
+        selected = gate.selected_runner_paths(root, gate.matrix(root, sys.executable))
+        self.assertTrue((node_runners | {python_runner}).issubset(selected))
+        with tempfile.TemporaryDirectory() as temporary:
+            with patch.dict(os.environ, {"TMPDIR": temporary}), patch("subprocess.run") as run:
+                run.return_value.returncode = 0
+                runpy.run_path(str(SCRIPT.with_name("test-core.py")), run_name="__main__")
+        core_selected = set().union(
+            *(
+                gate.explicit_runner_paths(
+                    call.args[0], "tap" if "--test" in call.args[0] else "unittest", root
+                )
+                for call in run.call_args_list
+            )
+        )
+        self.assertTrue(node_runners.issubset(core_selected))
+        matrix = (root / "tests/v1.1-verification/coverage-matrix.md").read_text()
+        for runner in node_runners | {python_runner}:
+            self.assertIn(runner, matrix)
+
     # 中文注释：运行真实核心入口但拦截子命令，验证所有临时目录遵守调用方指定的 TMPDIR。
     def test_core_runner_honors_tmpdir_and_passes_owned_scratch_to_children(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -143,6 +181,33 @@ class GateNegativeControls(unittest.TestCase):
                 (destination / "tests/fixtures/dist/manifest.json").read_text(),
                 "tests/fixtures/dist/manifest.json",
             )
+
+    def test_worktree_git_pointer_is_not_a_snapshot_source_input(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            source, destination = root / "source", root / "snapshot"
+            source.mkdir()
+            (source / ".git").write_text("gitdir: /private/fixture-worktree")
+            (source / "module.py").write_text("value = 1\n")
+            hashes = gate.snapshot(source, destination)
+            self.assertNotIn(".git", hashes)
+            self.assertFalse((destination / ".git").exists())
+            self.assertEqual((source / ".git").read_text(), "gitdir: /private/fixture-worktree")
+            self.assertEqual(set(hashes), {"module.py"})
+
+    def test_ruff_cache_never_enters_snapshot_or_source_drift(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            source, destination = root / "source", root / "snapshot"
+            cache = source / ".ruff_cache/0.14.0/cache-entry"
+            cache.parent.mkdir(parents=True)
+            cache.write_bytes(b"first cache")
+            (source / "module.py").write_text("value = 1\n")
+            expected = {"module.py": gate.digest(source / "module.py")}
+            self.assertEqual(gate.snapshot(source, destination), expected)
+            self.assertFalse((destination / ".ruff_cache").exists())
+            cache.write_bytes(b"updated cache")
+            self.assertEqual(gate.inventory(source), expected)
 
     def test_known_failing_script_not_green(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -594,10 +659,16 @@ class GateNegativeControls(unittest.TestCase):
     def test_baseline_and_supplemental_step_counts_are_separate(self):
         # 中文注释：逐文件运行全部已审阅 Node 清单；唯一名称及固定命令形态防止合并或漏跑。
         steps = gate.matrix(Path("/scratch/source"), "/scratch/python")
-        self.assertEqual(len(steps), 193)
+        # 中文注释：退役云站点 Node runner 与四个云宿主 Python runner；本机退役/迁移回归保留。
+        self.assertEqual(len(steps), 196)
         node_steps = [(name, command) for name, command, kind in steps if kind == "tap"]
-        self.assertEqual(len(node_steps), 108)
-        self.assertEqual(len({name for name, _command in node_steps}), 108)
+        self.assertEqual(len(node_steps), 113)
+        self.assertEqual(len({name for name, _command in node_steps}), 113)
+        self.assertEqual(sum(kind != "tap" for _name, _command, kind in steps), 83)
+        self.assertEqual(gate.NODE_BOUNDARIES, (".",))
+        self.assertFalse(
+            any("cloud-link/" in token for _name, command, _kind in steps for token in command)
+        )
         self.assertEqual([command[-1] for _name, command in node_steps], list(gate.NODE_TESTS))
         self.assertTrue(all(len(command) == 5 for _name, command in node_steps))
         self.assertEqual(
@@ -682,7 +753,14 @@ class GateNegativeControls(unittest.TestCase):
         # 中文注释：镜像 Node/Python 两个离线文件也纳入发现与固定清单核对。
         # 中文注释：新增自动更新固定 runner 后，审阅允许清单增加一项。
         # 中文注释：version-set 回归登记后允许清单再增加一项。
-        self.assertEqual(len(gate.known_v11_runner_paths()), 97)
+        # 中文注释：导出的Node序列化和Python真实ZIP两条固定runner同时进入受审清单。
+        self.assertEqual(len(gate.known_v11_runner_paths()), 99)
+        self.assertTrue(
+            {
+                "tests/v1.1-script-lane/page-export.test.mjs",
+                "tests/v1.1-script-lane/test_page_export.py",
+            }.issubset(gate.known_v11_runner_paths())
+        )
         self.assertIn("tests/v1.11.0/recovery.test.mjs", gate.known_v11_runner_paths())
         # 中文注释：1.5.1 桌面 API 与交互均登记，真实浏览器脚本不进入离线门禁。
         # 中文注释：后台审批 runner 登记后显式清单增加一项。

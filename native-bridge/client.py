@@ -612,14 +612,23 @@ def ensure_service(home: os.PathLike[str] | str, timeout: float = 5.0) -> None:
                 return
             installed = data_dir / "host-bin/daemon.py"
             # 中文注释：从下载包运行维护命令时也启动所选安装的宿主，避免进程身份落到下载目录。
-            if installed.exists():
+            if os.path.lexists(installed.parent):
                 if any(part.is_symlink() for part in (installed, *installed.parents)):
                     raise BridgeError(
                         "insecure_daemon_path", "installed daemon path contains symlink"
                     )
-                daemon_path = installed
+                # 中文注释：完整安装不能健康启动却缺少产品执行模块；不回落下载源码补件。
+                if any(
+                    candidate.is_symlink() or not candidate.is_file()
+                    for candidate in (installed, installed.with_name("product_adapter.py"))
+                ):
+                    raise BridgeError("incomplete_runtime", "installed product runtime is missing")
+                daemon_path = installed.with_name("assist_adapter.py")
             else:
-                daemon_path = Path(__file__).with_name("daemon.py")
+                daemon_path = Path(__file__).with_name("assist_adapter.py")
+            # 中文注释：完整产品由固定启动器装配；缺件不退回无Assist路由的纯核心或下载目录。
+            if daemon_path.is_symlink() or not daemon_path.is_file():
+                raise BridgeError("incomplete_runtime", "trusted product bootstrap is missing")
             _spawn_detached([sys.executable, str(daemon_path), "--home", str(home_path)])
             deadline = time.monotonic() + timeout
             while time.monotonic() < deadline:

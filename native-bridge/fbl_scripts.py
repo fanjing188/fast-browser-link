@@ -1,4 +1,4 @@
-"""独立入口只注入可信会话，执行与网站工具复用现有适配器。"""
+"""框架无关脚本入口：只注入可信会话，Hermes 和 CLI/MCP 共用执行实现。"""
 
 import fcntl
 import importlib.util
@@ -21,17 +21,7 @@ class IdentityError(ValueError):
 
 class ScriptLane:
     def __init__(self, client, home, owner):
-        here = Path(__file__).resolve().parent
-        root = next(
-            (
-                p
-                for p in (here, here.parent / "executor-plugin", here.parent)
-                if (p / "script_lane/host_bridge.py").is_file()
-            ),
-            None,
-        )
-        if root is None:
-            raise ValueError("script runtime missing; update the installed runtime")
+        root = Path(__file__).resolve().parent
         self.owner = owner
         self.home = Path(home)
         self.client = client
@@ -42,7 +32,7 @@ class ScriptLane:
         self.authority = self
         self.tools = {self.script.TOOL_NAME}
         self.bridge_denied = host.BridgeDenied
-        self.host = host.HostBridge(self, root, owner_for_session=self.owner_for_session)
+        self.host = host.HostBridge(self, owner_for_session=self.owner_for_session)
         self.handler = self.script.make_handler(
             self.host, self, self.home, lease_error=IdentityError, bridge_denied=host.BridgeDenied
         )

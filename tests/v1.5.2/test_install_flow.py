@@ -197,20 +197,7 @@ class InstallFlowTests(unittest.TestCase):
         if result.returncode:
             cls.scratch.cleanup()
             raise RuntimeError(result.stderr)
-        # 中文注释：夹具生成有效的已安装围栏；不把源码中固定的历史摘要当成当前宿主摘要。
-        digest = hashlib.sha256(
-            (cls.release / "fast-browser-link/cloud_link/native_host.py").read_bytes()
-        ).hexdigest()
-        for relative in ("install-cli.py", "fast-browser-link/maintenance/install-cli.py"):
-            installer = cls.release / relative
-            installer.write_text(
-                re.sub(
-                    r'^CLOUD_FENCE_HOST_SHA256 = "[a-f0-9]{64}"$',
-                    f'CLOUD_FENCE_HOST_SHA256 = "{digest}"',
-                    installer.read_text(),
-                    flags=re.M,
-                )
-            )
+
         # 中文注释：doctor 使用离线连接响应，不连接本机浏览器。
         (
             cls.release / "fast-browser-link/native_bridge/doctor.py"
@@ -408,6 +395,10 @@ if os.environ.get('TEST_ACTIVATE_FAIL') == '1':
         base = self.hermes / "plugin-data/fast-browser-link-cloud"
         directory = base if legacy else base / "instances/11111111-1111-4111-8111-111111111111"
         directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+        for private_dir in [directory, *directory.parents]:
+            # 中文注释：Path.mkdir 的 mode 不作用于中间父目录，正向夹具必须满足真实私有权限。
+            if private_dir == base or private_dir.is_relative_to(base):
+                private_dir.chmod(0o700)
         path = directory / "requests.sqlite"
         with sqlite3.connect(path) as database:
             database.execute(
@@ -454,8 +445,40 @@ if os.environ.get('TEST_ACTIVATE_FAIL') == '1':
             database.execute("ALTER TABLE sessions ADD COLUMN future INTEGER")
         self.assert_named_refusal_has_no_writes("Cloud state is active or unknown", "--upgrade")
 
-    def test_unsupported_cloud_install_refuses_normal_upgrade_without_writes(self):
+    def test_retired_cloud_pending_journal_still_refuses_without_writes(self):
         self.old_install()
+        self.named_shared_reference()
+        self.cloud_journal(pending=True)
+        self.assert_named_refusal_has_no_writes("Cloud state is active or unknown", "--upgrade")
+
+    def test_retirement_refuses_unknown_registration_and_keeps_credentials(self):
+        self.real_head_cloud_install()
+        self.named_shared_reference()
+        registration = (
+            self.home
+            / "Library/Application Support/Google/Chrome/NativeMessagingHosts"
+            / (HOST + ".cloud.json")
+        )
+        value = json.loads(registration.read_text())
+        value["path"] = str(self.root / "unknown-host")
+        registration.write_text(json.dumps(value))
+        before = self.inventory()
+        self.maintenance_invoke(ok=False)
+        self.assertEqual(self.inventory(), before)
+
+    def test_retirement_purge_preserves_old_cloud_data(self):
+        self.old_install()
+        journal = self.cloud_journal()
+        pairing = journal.parent / "pairing.json"
+        pairing.write_bytes(b"opaque synthetic private bytes")
+        pairing.chmod(0o600)
+        original = journal.read_bytes()
+        self.invoke("--uninstall", "--purge", "--yes")
+        self.assertEqual(pairing.read_bytes(), b"opaque synthetic private bytes")
+        self.assertEqual(journal.read_bytes(), original)
+
+    def test_unsupported_cloud_install_refuses_normal_upgrade_without_writes(self):
+        self.real_head_cloud_install()
         self.named_shared_reference()
         state = self.data / "install-state.json"
         value = json.loads(state.read_text())
@@ -467,11 +490,27 @@ if os.environ.get('TEST_ACTIVATE_FAIL') == '1':
         # 中文注释：该旧宿主提交没有发布标签，固定改写后的哈希，不能用邻近标签替代源码。
         private = self.old_install()
         target = self.plugin / "cloud_link"
-        for path in target.rglob("*.py"):
-            relative = path.relative_to(target).as_posix()
+        # 中文注释：旧云运行时只从固定历史构造，不要求新安装包继续携带已退役源码。
+        history = os.environ.get("BROWSER_LINK_RELEASE_HISTORY", ROOT)
+        names = subprocess.check_output(
+            [
+                "git",
+                "ls-tree",
+                "-r",
+                "--name-only",
+                "ce1dbce1b589399f9353726d0324e09328083b05",
+                "cloud-link",
+            ],
+            cwd=history,
+            text=True,
+        ).splitlines()
+        for name in names:
+            if not name.endswith(".py") or "/site/" in name or "/tests/" in name:
+                continue
+            path = target / name.removeprefix("cloud-link/")
+            path.parent.mkdir(parents=True, exist_ok=True)
             content = subprocess.check_output(
-                ["git", "show", "ce1dbce1b589399f9353726d0324e09328083b05:cloud-link/" + relative],
-                cwd=os.environ.get("BROWSER_LINK_RELEASE_HISTORY", ROOT),
+                ["git", "show", "ce1dbce1b589399f9353726d0324e09328083b05:" + name], cwd=history
             )
             # 中文注释：旧版本逻辑保持不变，只映射本次统一改名后的安装命名空间。
             content = (
@@ -483,6 +522,17 @@ if os.environ.get('TEST_ACTIVATE_FAIL') == '1':
                 .replace(b"browser_shared_", b"fast_browser_")
             )
             path.write_bytes(content)
+        registration = __import__("runpy").run_path(str(target / "registration.py"))["registration"]
+        launcher, text, manifests = registration(
+            target, self.home, self.hermes, [ORIGIN], sys.executable
+        )
+        launcher.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        launcher.write_text(text)
+        launcher.chmod(0o700)
+        for path, value in manifests:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(value))
+            path.chmod(0o600)
         state = self.data / "install-state.json"
         value = json.loads(state.read_text())
         value.pop("cloudFence", None)
@@ -622,14 +672,19 @@ mock.patch.object(os,'open',side_effect=open_node).start()
         self.assertEqual((self.root / "paused-launch-proof").read_text(), "paused-launch-blocked")
         self.assertEqual(pairing.read_bytes(), original)
         self.assert_private_kept(private)
-        self.assertIn("cloudFence", json.loads((self.data / "install-state.json").read_text()))
+        state = json.loads((self.data / "install-state.json").read_text())
+        self.assertEqual(state.get("cloudRetired"), {"version": 1})
+        self.assertNotIn("cloudFence", state)
+        self.assertFalse((self.plugin / "cloud_link").exists())
         backup = next((self.hermes / "plugin-backups").iterdir())
         index = json.loads((backup / "paths.json").read_text())
         saved = next(Path(row["backup"]) for row in index if row["path"] == str(launcher))
         self.assertEqual(saved.read_bytes(), original_launcher)
-        self.assertNotIn(b"exit(4)", launcher.read_bytes())
+        self.assertFalse(launcher.exists())
+        self.assertFalse(list(self.home.rglob(HOST + ".cloud.json")))
         self.invoke("--upgrade")
         self.invoke("--uninstall", "--yes")
+        self.assertEqual(pairing.read_bytes(), original)
 
     def test_real_head_maintenance_transaction_failure_restores_original_launcher_and_private(self):
         private = self.real_head_cloud_install()
@@ -685,6 +740,53 @@ mock.patch.object(os,'open',side_effect=open_node).start()
         ]
         self.assertIn("连接授权", description)
         self.assertNotIn("访问模式", description)
+
+    def test_install_reuses_private_verified_snapshot_when_original_package_changes(self):
+        host = self.package / "fast-browser-link/native_bridge/host.py"
+        expected = host.read_bytes()
+        # 中文注释：仍执行真实 CLI；只记录整包快照，并在其校验之后更改外部原包。
+        probe = """import importlib.util, json, pathlib, shutil, sys
+entry = pathlib.Path(sys.argv[1])
+original = entry.parent / 'fast-browser-link/native_bridge/host.py'
+copies = []
+real_copy = shutil.copytree
+def copy_tree(source, target, *args, **kwargs):
+    if (pathlib.Path(source) / 'SHA256SUMS.json').is_file():
+        copies.append(str(target))
+    return real_copy(source, target, *args, **kwargs)
+shutil.copytree = copy_tree
+spec = importlib.util.spec_from_file_location('snapshot_install_cli', entry)
+cli = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(cli)
+real_load = cli.load_module
+def load(name, path):
+    module = real_load(name, path)
+    if pathlib.Path(path).name == 'install-executor.py':
+        verify = module.verify_package
+        def verify_then_change(package):
+            manifest = verify(package)
+            original.write_bytes(b'# changed outside verified snapshot\\n')
+            return manifest
+        module.verify_package = verify_then_change
+    return module
+cli.load_module = load
+sys.argv = [str(entry), '--wait-seconds', '0']
+result = cli.main()
+pathlib.Path('snapshot-count.json').write_text(json.dumps(copies))
+sys.exit(result)
+"""
+        result = subprocess.run(
+            [sys.executable, "-c", probe, str(self.package / "install-cli.py")],
+            env=self.env,
+            capture_output=True,
+            text=True,
+            cwd=self.root,
+            timeout=150,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual((self.plugin / "native_bridge/host.py").read_bytes(), expected)
+        self.assertNotEqual(host.read_bytes(), expected)
+        self.assertEqual(len(json.loads((self.root / "snapshot-count.json").read_text())), 1)
 
     def test_bash_install_filename_from_release_directory(self):
         # 中文注释：新用户常用 bash install.sh；文件名没有斜线时仍要定位当前安装包。
@@ -1479,6 +1581,14 @@ mock.patch.object(socket.socket, 'connect_ex', side_effect=AssertionError('must 
             (
                 f"{sys.executable} {self.plugin}/native_bridge/daemon.py --home {self.hermes}",
                 "Bridge is running",
+            ),
+            (
+                f"{sys.executable} {self.plugin}/native_bridge/assist_adapter.py --home {self.hermes}",
+                "Bridge is running",
+            ),
+            (
+                f"{sys.executable} {self.plugin}/native_bridge/not_assist_adapter.py --home {self.hermes}",
+                "Cannot verify bridge process",
             ),
         ]:
             self.stub("ps", '#!/bin/sh\nprintf "%s\\n" ' + shlex.quote(process) + "\n")

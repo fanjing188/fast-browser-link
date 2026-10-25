@@ -23,6 +23,9 @@
 
 ## 核心 Node
 
+- `tests/v1.1-script-lane/page-export.test.mjs`：实际固定序列化函数的运行后 DOM、控件值排除、离线禁脚本/禁导航及自有遮罩排除。
+- `tests/v1.1-script-lane/test_page_export.py`：真实隔离 Python/UDS 通道、缓存资源与 ZIP 校验、路径/字节/数量/总期限及换文档拒绝；浏览器缓存为合成回执，不代替真实导出验收。
+
 - `tests/copilot/ui.test.mjs`：中文状态、结果表/复制/报告请求、SPA稳定等待、工作页排除及去重。
 
 - `tests/copilot/copilot.test.mjs`：有界语义采集、输入值排除、特殊页跳过、有序轨迹、动态注册和看板消息身份。
@@ -217,14 +220,12 @@
 - `tests/v1.1-verification/test_gate.py`：核心入口直接传递指定 TMPDIR，避免 Unix socket 路径被额外嵌套。
 - `tests/v1.6.0/real-background-input.mjs`、`tests/v1.6.0/real-work-window.mjs`：手动 Chrome/Edge 临时 profile 门禁，支持 --edge、--headed，不进入离线清单。
 
-## 独立云端连接
+## 本机连接与云端退役
 
-- `tests/native-extension/cloud-link.test.mjs`：本地与云端授权隔离、实例绑定与云端重连
-- `cloud-link/site/tests/cloud.test.mjs`：配对、租户/会话隔离、SQLite 原子领取、并发去重、通信擦除及 MCP/HTTP 边界
-- `cloud-link/tests/test_cloud.py`：本机任务归属、闭合结果投影、审批回执、重复调用及晚创建回收
-- `cloud-link/tests/test_native.py`：临时 HOME 的 Native 帧、注册来源与未配对拒绝
-- `cloud-link/tests/test_scheduler.py`：跨会话/页面并发、同页顺序、关闭屏障、取消保留容量与闲置回收
-- `cloud-link/tests/test_service.py`：等待执行时心跳继续、结束后线程与锁释放
+- `tests/native-extension/cloud-link.test.mjs`：真实后台启动和重连只打开本机 Native 通道，旧云端消息拒绝、无配对 UI。
+- `tests/copilot/r29-status-onboarding.test.mjs`：侧栏不展示或轮询云端状态，本机连接与 Agent 初始化合同保留。
+- `tests/v1.1-packaging/test_cloud_fence_pin.py`：旧云端宿主固定身份、锁、在途账本及退役升级保护；不启动远端服务，不删除配对数据。
+- 云站点与云宿主源码已退役，不再安装其依赖或执行原站点 runner；历史代码从 Git 标签查阅。
 
 ## 1.8.4 退出与会话引用
 
@@ -276,7 +277,7 @@
 
 ## R10 popup, brand and task overlay
 
-`tests/copilot/popup-overlay-brand.test.mjs` covers local/cloud status, explicit pairing, pending/success/error feedback, Escape and navigation close, bilingual labels, reduced motion, recent/all logs, scroll following, copy, scoped presentation preferences, closed shadow screenshot blocking and stop confirmation. It joins the explicit offline list (57 grouped steps; the added Node file shares the existing Node group); live browser evidence remains separate. Existing popup/overlay security tests retain unknown-state, generation/lease/origin, trusted-click and screenshot blocking assertions with updated UI selectors.
+`tests/copilot/popup-overlay-brand.test.mjs` covers local status and cloud-retirement rejection, pending/success/error feedback, Escape and navigation close, bilingual labels, reduced motion, recent/all logs, scroll following, copy, scoped presentation preferences, closed shadow screenshot blocking and stop confirmation. It joins the explicit offline list (57 grouped steps; the added Node file shares the existing Node group); live browser evidence remains separate. Existing popup/overlay security tests retain unknown-state, generation/lease/origin, trusted-click and screenshot blocking assertions with updated UI selectors.
 
 ## R11 sidebar and journal
 
@@ -285,3 +286,19 @@
 R12：`controls-confirmation.test.mjs` 归入现有 Copilot Node 组；`test_copilot_health.py` 独立 Python runner。矩阵共59组。覆盖共享控件键盘/搜索/步进、闭合影子确认层、跟随/切换/取消/移除、一次性确认凭据、变更拒绝、确认后才导出/后台采集，以及零模型健康与名称持久化。DOM夹具不是实际Edge证明。
 
 R39：补齐 `tests/v1.1-packaging/test_cloud_fence_pin.py` 的已审阅登记说明；该文件只读仓库源码，核对安装围栏摘要，无浏览器或安装动作。当前固定清单包含 104 个 Node runner、54 个 reviewed runner、96 个发现范围内已知 runner。baseline 从 70 组合并步骤改为 173 个逐文件步骤，supplemental 仍为 2 步。Node runner 各自使用原有单项 150 秒期限，超时、零测试、skip、todo 继续失败，不共享随用例增长而耗尽的 240 秒预算。默认暂存根使用规范化的系统 `/tmp`，显式路径仍接受原有无符号链接检查。
+
+## 执行底座拆分
+
+- `tests/agent-link/test_agent_link.py`：SDK 无 Hermes/Agent 导入、同名模块隔离、任务身份、原操作状态只读及未知不重放。
+- `tests/agent-link/test_script.py`：无适配器的核心部署、真实脚本子进程、网站工具及唯一源码的安装闭包；CLI/MCP/SDK 组合共享身份合同。
+- 当前基线显式为 195 步（112 个 Node runner，83 个 Python/检查步骤）；supplemental 2 步、reviewed 55 步分别统计。新增独立脚本核心和六个产品 runner，退役移除仅为云站点 Node 一项及云宿主 Python 四项，不减少本机授权与未知结果保护回归。
+
+## 产品填写与本机连接
+
+- `tests/native-extension/product-fill.test.mjs`：填写意图、字段限制和敏感值拒绝。
+- `tests/native-extension/product-fill-content.test.mjs`：当前页内容模块、文档身份及读取范围。
+- `tests/native-extension/product-fill-controller.test.mjs`：后台填写派发、页面权威和失效拒绝。
+- `tests/native-extension/product-connections.test.mjs`：本机连接状态、受信消息与权限边界。
+- `tests/native-extension/product-connections-page.test.mjs`：连接管理页面、渲染和用户事件合同。
+- `tests/native-v2/test_product_adapter.py`：产品适配器、页面上下文和 SDK 通道的离线集成。
+- 六个 runner 显式进入正式 baseline，五个 Node runner 同时由核心入口复用；不启动真实浏览器、不操作个人安装。构建与包闭包回归另验六个产品资源逐字复制、构建身份变更和 `product_adapter.py` 安装前缺件拒绝。

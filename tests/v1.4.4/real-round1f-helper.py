@@ -42,9 +42,9 @@ def counted(method, params):
 
 profile.call = counted
 bridge_module = runtime.load_module(
-    paths["plugin"] / "script_lane/host_bridge.py", "round1f_real_bridge"
+    paths["plugin"] / "native_bridge/script_lane/host_bridge.py", "round1f_real_bridge"
 )
-bridge = bridge_module.HostBridge(profile, paths["plugin"])
+bridge = bridge_module.HostBridge(profile)
 session, action, payload = sys.argv[2:5]
 try:
     if action == "open":
@@ -63,7 +63,9 @@ try:
         )
     elif action == "script":
         task_id, code = json.loads(payload)
-        tool = runtime.load_module(paths["plugin"] / "script_lane/tool.py", "round1f_real_script")
+        tool = runtime.load_module(
+            paths["plugin"] / "native_bridge/script_lane/tool.py", "round1f_real_script"
+        )
         owner = profile.authority.owner_for_session(session)
         bridge.bind(session, owner=owner, task_id=task_id)
         result = tool.run_script(

@@ -23,8 +23,8 @@ def load(name, file):
 
 
 RUNTIME = load("window160_runtime", "executor-plugin/runtime.py")
-ACTION = load("window160_action", "executor-plugin/script_lane/action_session.py")
-CHILD = load("window160_child", "executor-plugin/script_lane/child.py")
+ACTION = load("window160_action", "native-bridge/script_lane/action_session.py")
+CHILD = load("window160_child", "native-bridge/script_lane/child.py")
 HINT = (
     "输入已派发但未观察到效果；请读取目标页核对，检查按钮状态或改用页面支持的操作，不要反复重试。"
 )

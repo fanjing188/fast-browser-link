@@ -32,7 +32,12 @@ const verify = (result) => {
   return result;
 };
 try {
-  session = await openRealSession({ browser, label: 'attach', compactScratch: true, headed: true });
+  session = await openRealSession({
+    browser,
+    label: 'attach',
+    compactScratch: true,
+    headed: process.argv.includes('--headed'),
+  });
   await session.enableFullAccess();
   const user = await session.ui.evaluate(
     `chrome.windows.create({url:${JSON.stringify(url)},focused:true}).then(w=>({tabId:w.tabs[0].id,windowId:w.id}))`,

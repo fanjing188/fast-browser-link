@@ -16,6 +16,12 @@ const root = path.resolve(import.meta.dirname, '../..');
 const current = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8')).version;
 const parts = current.split('.').map(BigInt);
 const next = `${parts[0]}.${parts[1]}.${parts[2] + 1n}`;
+const skills = [
+  'skills/fast-browser-link/SKILL.md',
+  'executor-plugin/skills/fast-browser-link/SKILL.md',
+  'executor-plugin/skills/fast-browser-batch-scrape/SKILL.md',
+  'executor-plugin/skills/fast-browser-troubleshoot/SKILL.md',
+];
 const inputs = [
   ...JSON_VERSION_FILES,
   ...TEXT_VERSION_FILES,
@@ -25,6 +31,9 @@ const inputs = [
   `docs/releases/release-${current}.md`,
   'scripts/package-version.mjs',
   'scripts/version-set.mjs',
+  ...skills,
+  'docs/installation.md',
+  'docs/installation.zh-CN.md',
 ];
 async function fixture(fn) {
   const work = await mkdtemp(path.join(tmpdir(), 'bl-version-'));
@@ -41,6 +50,36 @@ async function fixture(fn) {
 async function snapshot(work) {
   return await Promise.all(inputs.map((file) => readFile(path.join(work, file), 'utf8')));
 }
+
+test('源码版本标记不把已发布版本强制降为候选', async () =>
+  fixture(async (work) => {
+    for (const file of ['README.md', 'README.zh-CN.md']) {
+      const target = path.join(work, file);
+      await writeFile(
+        target,
+        (await readFile(target, 'utf8')).replace(
+          `Unreleased (${current} candidate)`,
+          `Source version: ${current}`,
+        ),
+      );
+    }
+    assert.equal(await verifyReleaseVersions(work), current);
+  }));
+
+test('配套 Skill 版本漂移被闭包拒绝', async () =>
+  fixture(async (work) => {
+    for (const file of skills) {
+      const target = path.join(work, file),
+        original = await readFile(target, 'utf8');
+      await writeFile(target, original.replace(/^version:\s*\S+/m, `version: ${next}`));
+      await assert.rejects(
+        verifyReleaseVersions(work),
+        (error) => error.message.includes(`${file}:`),
+        file,
+      );
+      await writeFile(target, original);
+    }
+  }));
 
 test('version:set 更新全部发布副本，保留历史、固定身份和外部依赖', async () =>
   fixture(async (work) => {
@@ -151,10 +190,11 @@ test('预检拒绝已有草稿、损坏模板及版本漂移，避免部分更�
 test('文档、下载标签、锁根字段和握手漂移报告具体文件与行', async () =>
   fixture(async (work) => {
     // 中文注释：依赖恰好同版本且排在根字段之前时，也必须修改项目版本，而非碰巧找到的依赖。
-    const cloudFile = path.join(work, 'cloud-link/site/package.json');
-    const cloud = JSON.parse(await readFile(cloudFile, 'utf8'));
-    cloud.dependencies['version-fixture'] = current;
-    await writeFile(cloudFile, `${JSON.stringify(cloud, null, 2)}\n`);
+    const dependencyFile = path.join(work, 'package.json');
+    const packageData = JSON.parse(await readFile(dependencyFile, 'utf8'));
+    const { version, ...withoutVersion } = packageData;
+    withoutVersion.devDependencies['version-fixture'] = current;
+    await writeFile(dependencyFile, `${JSON.stringify({ ...withoutVersion, version }, null, 2)}\n`);
     for (const file of [
       ...JSON_VERSION_FILES,
       ...TEXT_VERSION_FILES.filter((file) => file !== 'scripts/migrate-to-fast-browser-link.py'),
@@ -188,7 +228,7 @@ test('文档、下载标签、锁根字段和握手漂移报告具体文件与�
     for (const file of ['README.md', 'README.zh-CN.md']) {
       const target = path.join(work, file),
         original = await readFile(target, 'utf8');
-      await writeFile(target, original.replace('Unreleased (', 'Released ('));
+      await writeFile(target, original.replace('Source version:', 'Missing version:'));
       await assert.rejects(verifyReleaseVersions(work), /missing current release reference/);
       await writeFile(
         target,

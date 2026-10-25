@@ -51,6 +51,18 @@ def read_line(reader):
     return json.loads(line)
 
 
+def fixture_daemon_path(home: Path, command: str, candidates):
+    # 中文注释：完整入口和末尾 --home 身份必须同时匹配，路径子串不能授权 inspect 或清理。
+    return next(
+        (
+            Path(candidate)
+            for candidate in candidates
+            if command.strip().endswith(f" {candidate} --home {Path(home).resolve()}")
+        ),
+        None,
+    )
+
+
 def stop_fixture_daemon(home: Path, extra_daemons=()):
     data_dir = Path(home) / "plugin-data" / "fast-browser-link-native"
     pid_path = data_dir / "daemon.pid"
@@ -61,16 +73,16 @@ def stop_fixture_daemon(home: Path, extra_daemons=()):
     command = subprocess.run(
         ["ps", "-p", str(pid), "-o", "command="], capture_output=True, text=True
     )
-    candidates = (
-        Path(__file__).resolve().parents[1] / "daemon.py",
-        Path(home) / "plugins/fast-browser-link/native_bridge/daemon.py",
-        data_dir / "host-bin/daemon.py",
-        *map(Path, extra_daemons),
-    )
-    expected = any(
-        command.stdout.strip().endswith(f" {candidate} --home {Path(home).resolve()}")
-        for candidate in candidates
-    )
+    candidates = [
+        directory / entry
+        for directory in (
+            Path(__file__).resolve().parents[1],
+            Path(home) / "plugins/fast-browser-link/native_bridge",
+            data_dir / "host-bin",
+        )
+        for entry in ("assist_adapter.py", "daemon.py")
+    ]
+    expected = fixture_daemon_path(home, command.stdout, [*candidates, *extra_daemons])
     # 中文注释：PID 文件只含数字；认证探活和完整启动命令均匹配后才允许清理临时 daemon。
     if command.returncode != 0 or not expected or not _probe(Path(home)):
         raise RuntimeError("refusing to stop unverified fixture daemon")

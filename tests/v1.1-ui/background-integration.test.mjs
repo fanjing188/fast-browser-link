@@ -4,7 +4,6 @@ import {
 } from '../../native-extension/overlay-logs.mjs';
 import { taskTableAdapter } from '../../native-extension/copilot-table-job.mjs';
 import { CopilotBackground } from '../../native-extension/copilot-background.mjs';
-import { CloudLink } from '../support/cloud-link-stub.mjs';
 // Synthetic native port + production background/Bridge/notifier. No browser launch.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -209,7 +208,6 @@ function harness({
     updateWorkflowActivity,
     taskTableAdapter,
     CopilotBackground,
-    CloudLink,
     reloadForInstalledBuild: async () => false,
     BUILD_ID: '',
     registerWorkspaceStartup: () => {},

@@ -77,6 +77,20 @@ function fixture({ now = 1_000_000 } = {}) {
 }
 const guard = () => {};
 
+test('first CDP enable buffers synchronous events before its response', async () => {
+  const f = fixture();
+  f.replies['Runtime.enable'] = () => {
+    f.controller.observe({ tabId: 7 }, 'Runtime.executionContextCreated', {
+      context: { id: 19, auxData: { frameId: 'F1', isDefault: true } },
+    });
+    return {};
+  };
+  await f.controller.send(f.task, { tabId: 7, method: 'Runtime.enable' }, guard);
+  const batch = f.controller.drain(f.task, { tabId: 7, cursor: 0 }, 500);
+  assert.equal(batch.events.length, 1);
+  assert.equal(batch.events[0].params.context.id, 19);
+});
+
 test('智能审批授权后的运行资源没有独立期限，撤权和暂停仍会阻断', () => {
   const f = fixture();
   f.task.policy.activeMode = 'smart';

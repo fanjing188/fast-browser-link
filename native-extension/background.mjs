@@ -6,10 +6,10 @@ import { NativeWorkspaces, registerWorkspaceStartup } from './workspace-adapter.
 registerWorkspaceStartup(chrome);
 import { Executor, origin } from './core.mjs';
 import { Bridge, isUiSender, BrowserConsent } from './bridge.mjs';
-import { CloudLink } from './cloud-link.mjs';
 import { BUILD_ID } from './build-id.mjs';
 import { reloadForInstalledBuild } from './build-reload.mjs';
 import { CookieMirror } from './cookie-mirror.mjs';
+import { ProductConnections } from './product-connections.mjs';
 import {
   createApprovalNotifier,
   showPanelNotification,
@@ -487,16 +487,26 @@ const cookieMirror = new CookieMirror(chrome, {
     void refreshApprovals();
   },
 });
-let cloud = null;
 const consent = new BrowserConsent(chrome.storage.local, executor);
-// 中文注释：云端状态通知只刷新弹窗，不触发本地任务的全局权限同步。
-cloud = new CloudLink(chrome, {
-  localBridge: () => (connected ? bridge : null),
-  executor,
-  consent,
-  changed: () => chrome.runtime.sendMessage({ type: 'changed' }).catch(() => {}),
-});
 const consentLoaded = consent.load();
+let productConnectionsInstance;
+// 中文注释：MV3 worker不支持动态import，模块静态加载、连接实例按需构造。
+const productConnections = async () =>
+  (productConnectionsInstance ??= new ProductConnections(
+    chrome,
+    () => (connected ? bridge : null),
+    async () => {
+      await consentLoaded;
+      return connected && (await consent.readStatus()) === 'enabled';
+    },
+  ));
+// 中文注释：仅恢复明确登记的扩展连接；页面任务与写入许可不随worker恢复。
+void chrome.storage.local
+  .get('productConnections')
+  .then(async ({ productConnections: ids }) => {
+    if (Array.isArray(ids) && ids.length) await (await productConnections()).restore();
+  })
+  .catch(() => {});
 executor.resourceGuard = async (task, url) => {
   if (!copilot.protectedHosts) throw Error('TOOL_POLICY_UNAVAILABLE');
   if (!copilot.protectedHosts.includes(new URL(url).hostname)) return;
@@ -882,8 +892,6 @@ async function connect() {
     const instanceId = stored.browserInstanceId || session.instanceId || crypto.randomUUID();
     await chrome.storage.local.set({ browserInstanceId: instanceId });
     await chrome.storage.session.set({ instanceId });
-    // 中文注释：独立连接云端 host；原本地 Native 端口及重连流程保持原样。
-    void cloud.connect(instanceId, /Edg/.test(navigator.userAgent) ? 'Edge' : 'Chrome');
     if (!executor.workspaces)
       executor.workspaces = new NativeWorkspaces(chrome, instanceId, (id) =>
         executor.leases.has(id),
@@ -1005,7 +1013,6 @@ chrome.alarms.onAlarm.addListener(() => {
   void checkInstalledUpdate();
   connect();
   refreshApprovals();
-  void cloud.refresh();
 });
 chrome.windows?.onRemoved?.addListener((windowId) => {
   accessWindowClosed(windowId);
@@ -1091,23 +1098,14 @@ chrome.debugger.onDetach.addListener(({ tabId }, reason) => {
 });
 chrome.runtime.onConnect?.addListener((port) => copilot.attachPanel(port));
 chrome.runtime.onMessage.addListener((m, sender, respond) => {
-  if (m?.type === 'copilot.connections' && copilot.panel(sender)) {
-    const view = cloud.view();
-    respond({
-      result: {
-        cloud:
-          connected && view.paired
-            ? {
-                state: view.online
-                  ? 'connected'
-                  : view.state === 'revoked'
-                    ? 'error'
-                    : 'connecting',
-              }
-            : null,
-      },
-    });
-    return false;
+  if (['product_connections', 'product_pair', 'product_unpair'].includes(m?.type)) {
+    void productConnections()
+      .then((manager) => manager.handleUi(m, sender))
+      .then(
+        (result) => respond({ result }),
+        (error) => respond({ error: error.code || 'PRODUCT_REQUEST_FAILED' }),
+      );
+    return true;
   }
   if (copilot.handle(m, sender, respond)) return true;
   if (m?.type === 'approval_panel_view' || m?.type === 'approval_panel_decision') {
@@ -1141,23 +1139,7 @@ chrome.runtime.onMessage.addListener((m, sender, respond) => {
   if (!isUiSender(sender, chrome.runtime.id)) return false;
   (async () => {
     await consentLoaded;
-    // 中文注释：云端管理仅接受原有受信任扩展 UI，网页、工具参数和原生反向请求不能开完全访问。
-    if (m.type === 'cloud_connect') {
-      const instanceId = (await chrome.storage.local.get('browserInstanceId')).browserInstanceId;
-      if (!instanceId) throw Error('浏览器尚未完成本地连接');
-      await cloud.connect(instanceId, /Edg/.test(navigator.userAgent) ? 'Edge' : 'Chrome');
-      return cloud.act('connect', { replace: m.replace === true });
-    }
 
-    if (m.type === 'cloud_disconnect') return cloud.act('disconnect');
-    if (m.type === 'cloud_open_web') {
-      const site = cloud.view().site,
-        url = new URL(site);
-      if (url.protocol !== 'https:' || url.origin !== site || url.username || url.password)
-        throw Error('云端网址未确认');
-      await chrome.tabs.create({ url: site });
-      return { opened: true };
-    }
     // 中文注释：弹窗仅能打开已有镜像确认请求，不能列站点、发起或轮询复制。
     if (m.type === 'cookie_mirror_pending') {
       await refreshApprovals();
@@ -1177,7 +1159,6 @@ chrome.runtime.onMessage.addListener((m, sender, respond) => {
         browserFullConsentStatus: await consent.readStatus(),
         browser: /Edg/.test(navigator.userAgent) ? 'Edge' : 'Chrome',
         instanceId: connectedInstanceId,
-        cloud: cloud.view(),
         copilot: {
           agent: copilot.agent,
           board_name: copilot.boardName,

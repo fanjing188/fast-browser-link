@@ -504,7 +504,6 @@ async function popupStatus(current) {
     connectedInstanceId: 'fixture',
     consent: { readStatus: async () => 'enabled' },
     navigator: { userAgent: 'Edg' },
-    cloud: { view: () => ({ state: 'unpaired' }) },
     copilot,
     bridge: { request: async () => [] },
     chrome: {
@@ -531,12 +530,11 @@ async function mountPopup(status) {
     },
   };
   Object.assign(dom.window, { renderStatus, mountControls, renderConnection });
-  dom.window.eval((await read('cloud-popup.mjs')).replace(/^import\s[^;]*;\n/gm, ''));
   dom.window.eval((await read('popup.mjs')).replace(/^import\s[^;]*;\n/gm, ''));
   await flush();
   return dom;
 }
-test('popup reads the same ready/execution data as sidebar and unpaired cloud is an ordinary state', async () => {
+test('popup reads the same ready/execution data as sidebar without cloud state', async () => {
   const current = {
     ready: true,
     execution_health: { state: 'connected' },
@@ -552,8 +550,8 @@ test('popup reads the same ready/execution data as sidebar and unpaired cloud is
     const doc = dom.window.document;
     assert.equal(doc.getElementById('access-status').dataset.status, 'connected');
     assert.equal(doc.getElementById('hermes-row'), null);
-    assert.equal(doc.getElementById('cloud-status').textContent, '未配对');
-    assert.notEqual(doc.getElementById('cloud-status').dataset.state, 'error');
+    assert.equal(doc.querySelector('[id^=cloud-]'), null);
+    assert.equal(Object.hasOwn(result, 'cloud'), false);
     assert.equal(doc.getElementById('error-bar').hidden, true);
   } finally {
     dom.window.close();

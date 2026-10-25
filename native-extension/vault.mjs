@@ -123,6 +123,7 @@ export class VaultController {
     const executor = this.executor,
       t = executor.tasks.get(p.taskId);
     executor.check(t, p);
+    if (t.executionLane === 'product_fill') throw denied('PRODUCT_LANE_REQUIRED');
     if (p.instanceId !== t.instanceId || p.modeGeneration !== t.policy.modeGeneration)
       throw denied('VAULT_SCOPE_CHANGED');
     if (executor.leases.get(p.tabId) !== t.id) throw denied('tab lease denied');

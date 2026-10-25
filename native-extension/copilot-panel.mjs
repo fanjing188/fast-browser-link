@@ -556,21 +556,6 @@ chrome.runtime.onMessage.addListener((message) => {
         : 'Table action failed. Retry.';
 });
 
-async function connections() {
-  try {
-    const response = await chrome.runtime.sendMessage({ type: 'copilot.connections' });
-    const cloud = response?.result?.cloud;
-    uiDoc.getElementById('sidebar-cloud').hidden = !cloud;
-    if (cloud) renderConnection(uiDoc.getElementById('sidebar-cloud-status'), cloud, uiLanguage);
-  } catch {
-    uiDoc.getElementById('sidebar-cloud').hidden = true;
-  }
-}
-chrome.runtime.onMessage.addListener((message) => {
-  if (message.type === 'changed') void connections();
-});
-void connections();
-
 async function readiness(fix = false) {
   try {
     const value = await command(fix ? 'fbl_fix' : 'fbl_readiness');

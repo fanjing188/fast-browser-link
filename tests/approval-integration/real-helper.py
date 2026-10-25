@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "native-bridge"))
-from tests.support import stop_fixture_daemon  # noqa: E402
+from tests.support import fixture_daemon_path, stop_fixture_daemon  # noqa: E402
 
 
 def load(path: Path, name: str):
@@ -236,18 +236,23 @@ def inspect(work: Path):
     command = subprocess.run(
         ["ps", "-p", str(pid), "-o", "command="], check=True, capture_output=True, text=True
     ).stdout.strip()
-    expected = value["hermes"] / "plugin-data/fast-browser-link-native/host-bin/daemon.py"
-    alternate = value["plugin"] / "native_bridge/daemon.py"
-    if str(alternate) in command:
+    host_bin = value["hermes"] / "plugin-data/fast-browser-link-native/host-bin"
+    plugin_bridge = value["plugin"] / "native_bridge"
+    candidates = [
+        directory / entry
+        for directory in (host_bin, plugin_bridge)
+        for entry in ("assist_adapter.py", "daemon.py")
+    ]
+    expected = fixture_daemon_path(value["hermes"], command, candidates)
+    if expected is None:
+        raise RuntimeError("daemon is not using staged bridge code")
+    if expected.parent == plugin_bridge:
         import hashlib
 
         assert (
-            hashlib.sha256(alternate.read_bytes()).digest()
-            == hashlib.sha256(expected.read_bytes()).digest()
+            hashlib.sha256(expected.read_bytes()).digest()
+            == hashlib.sha256((host_bin / expected.name).read_bytes()).digest()
         )
-        expected = alternate
-    if str(expected) not in command or str(value["hermes"]) not in command:
-        raise RuntimeError("daemon is not using staged bridge code")
     return {
         "daemonPid": pid,
         "daemonCommand": command,
@@ -267,14 +272,19 @@ def cleanup(work: Path):
     command = subprocess.run(
         ["ps", "-p", str(pid), "-o", "command="], capture_output=True, text=True
     )
-    expected = str(value["hermes"] / "plugin-data/fast-browser-link-native/host-bin/daemon.py")
-    alternate = str(value["plugin"] / "native_bridge/daemon.py")
+    candidates = [
+        directory / entry
+        for directory in (
+            value["hermes"] / "plugin-data/fast-browser-link-native/host-bin",
+            value["plugin"] / "native_bridge",
+        )
+        for entry in ("assist_adapter.py", "daemon.py")
+    ]
     if (
         command.returncode == 0
-        and (expected in command.stdout or alternate in command.stdout)
-        and str(value["hermes"]) in command.stdout
+        and fixture_daemon_path(value["hermes"], command.stdout, candidates) is not None
     ):
-        stop_fixture_daemon(value["hermes"])
+        stop_fixture_daemon(value["hermes"], extra_daemons=candidates)
     else:
         raise RuntimeError("refusing to stop non-fixture process")
     return {}

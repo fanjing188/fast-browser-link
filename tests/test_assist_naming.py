@@ -18,7 +18,7 @@ ALLOWLIST = (
         "识别旧默认名称以显示新的本地化默认值，不作为文案输出",
     ),
     (
-        "native-bridge/daemon.py",
+        "native-bridge/assist_adapter.py",
         re.compile(r"^Hermes 协作·$"),
         "移除已有工作页的旧标题前缀，兼容旧任务",
     ),

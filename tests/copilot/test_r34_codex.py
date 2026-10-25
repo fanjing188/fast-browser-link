@@ -239,7 +239,7 @@ class CodexTests(unittest.TestCase):
         try:
             app.request("instance", "settings", {"enabled": True})
             wait(lambda: app.view("instance")["ready"])
-            with patch.dict(app._state("instance"), ready=False):
+            with app.lock, patch.dict(app._state("instance"), ready=False):
                 app.request(
                     "instance",
                     "quick_task",

@@ -19,13 +19,15 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 PLUGIN = ROOT / "executor-plugin"
+CORE = ROOT / "native-bridge"
+sys.path.insert(0, str(CORE))
 sys.path.insert(0, str(PLUGIN))
 import native_runtime  # noqa: E402
 
 host_bridge = native_runtime.load_module(
-    PLUGIN / "script_lane" / "host_bridge.py", "script_host_bridge_under_test_"
+    CORE / "script_lane" / "host_bridge.py", "script_host_bridge_under_test_"
 )
-tool = native_runtime.load_module(PLUGIN / "script_lane" / "tool.py", "script_tool_under_test_")
+tool = native_runtime.load_module(CORE / "script_lane" / "tool.py", "script_tool_under_test_")
 PNG = base64.b64encode(b"\x89PNG\r\n\x1a\nsynthetic").decode()
 
 
@@ -338,7 +340,7 @@ class ScriptToolTests(unittest.TestCase):
             Path(self.temp.name) / "authority", approval_for=approval_for, **options
         )
         self.runtime.authority.lease_tools((tool.TOOL_NAME,))
-        self.bridge = host_bridge.HostBridge(self.runtime, PLUGIN)
+        self.bridge = host_bridge.HostBridge(self.runtime)
         self.addCleanup(self.bridge.close)
         self.handler = tool.make_handler(
             self.bridge,

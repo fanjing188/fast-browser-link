@@ -15,7 +15,7 @@ from unittest.mock import patch
 import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "native-bridge"))
-from tests.support import stop_fixture_daemon  # noqa: E402
+from tests.support import fixture_daemon_path, stop_fixture_daemon  # noqa: E402
 
 
 def load(path: Path, name: str):
@@ -170,12 +170,13 @@ def cleanup(work: Path) -> dict:
         command = subprocess.run(
             ["ps", "-p", str(pid), "-o", "command="], capture_output=True, text=True
         )
-        expected = str(paths["hermes_home"])
-        installed_daemon = str(paths["installed"] / "native_bridge" / "daemon.py")
+        candidates = [
+            paths["installed"] / "native_bridge" / entry
+            for entry in ("assist_adapter.py", "daemon.py")
+        ]
         if (
             command.returncode == 0
-            and installed_daemon in command.stdout
-            and expected in command.stdout
+            and fixture_daemon_path(paths["hermes_home"], command.stdout, candidates) is not None
         ):
             stop_fixture_daemon(paths["hermes_home"])
         else:
@@ -195,8 +196,11 @@ def inspect_install(work: Path) -> dict:
     process = subprocess.run(
         ["ps", "-p", str(pid), "-o", "command="], capture_output=True, text=True, check=True
     )
-    daemon_path = paths["installed"] / "native_bridge" / "daemon.py"
-    if str(daemon_path) not in process.stdout or str(paths["hermes_home"]) not in process.stdout:
+    candidates = [
+        paths["installed"] / "native_bridge" / entry for entry in ("assist_adapter.py", "daemon.py")
+    ]
+    daemon_path = fixture_daemon_path(paths["hermes_home"], process.stdout, candidates)
+    if daemon_path is None:
         raise RuntimeError("daemon process is not using installed package code")
     launcher_text = launcher.read_text(encoding="utf-8")
     if str(paths["installed"] / "native_bridge" / "host.py") not in launcher_text:

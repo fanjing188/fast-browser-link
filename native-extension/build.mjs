@@ -11,6 +11,12 @@ await mkdir(dest, { recursive: true });
 // 中文注释：内容过滤模块随扩展打包，保持源码和加载版本一致。
 // 中文注释：扩展和系统通知共用的品牌图标也在清单内；清单内不放注释，集成检查器按字面量解析它。
 for (const file of [
+  'product-fill.mjs',
+  'product-fill-content.mjs',
+  'product-connections.mjs',
+  'product-connections-page.mjs',
+  'product-connections.html',
+  'product-connections.css',
   'ui-design.mjs',
   'copilot-annotations.mjs',
   'copilot-basket.mjs',
@@ -88,8 +94,6 @@ for (const file of [
   'popup.html',
   'popup.css',
   'popup.mjs',
-  'cloud-link.mjs',
-  'cloud-popup.mjs',
   'build-reload.mjs',
 ]) {
   await copyFile(path.join(source, file), path.join(dest, file));

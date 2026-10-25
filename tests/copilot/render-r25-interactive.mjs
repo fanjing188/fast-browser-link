@@ -62,7 +62,7 @@ const publishAgent=()=>send({action:'agent-fixture',catalog:agentCatalog,enabled
 function agentEnabled(enabled){const version=++connectionVersion;state.enabled=enabled;state.ready=false;state.agent={id:'hermes',name:'Hermes',state:enabled?'connecting':'disconnected'};state.hermes_health={state:state.agent.state};agentCatalog.busy=enabled;agentCatalog.agents[0].can_setup=!enabled;changed();publishAgent();if(enabled)window.setTimeout(()=>{if(version!==connectionVersion||!state.enabled)return;state.ready=true;state.agent.state='connected';state.hermes_health={state:'connected'};changed();publishAgent();},1400);}
 function onboardingExample(){connectionVersion++;agentJob=null;agentPhase=0;agentCatalog={default_agent:'hermes',onboarding_required:true,busy:false,agents:[{id:'hermes',name:'Hermes',installed:false,configured:false,status:'not_installed',can_setup:true,setup_action:'install_engine'}]};state.enabled=false;state.ready=false;state.settings_saved=false;state.agent={id:'hermes',name:'Hermes',state:'disconnected'};state.hermes_health={state:'disconnected'};state.work={};state.suggestions=[];tableState.capture=null;tableState.saved=null;changed();emit({type:'copilot.tables_changed'});publishAgent();emit({type:'copilot.agent_onboarding'});}
 let directoryJob=null,directorySequence=0;
-let logRevision=1,logId=3,tick=0,cloud={state:'unpaired',paired:false,online:false},entries=[{id:1,time:now-42,type:'execution',event:'execute_start',summary:'开始整理公开页面',details:{task_id:'live-task',capability:'browser_read'}},{id:2,time:now-30,type:'execution',event:'execute_step',summary:'已读取第一批页面',details:{task_id:'live-task',step_index:1,step_name:'browser_read',count:4}},{id:3,time:now-25,type:'execution',event:'execute_complete',summary:'关键词分组完成',details:{task_id:'done-keywords',count:24,duration_ms:18200}}];
+let logRevision=1,logId=3,tick=0,entries=[{id:1,time:now-42,type:'execution',event:'execute_start',summary:'开始整理公开页面',details:{task_id:'live-task',capability:'browser_read'}},{id:2,time:now-30,type:'execution',event:'execute_step',summary:'已读取第一批页面',details:{task_id:'live-task',step_index:1,step_name:'browser_read',count:4}},{id:3,time:now-25,type:'execution',event:'execute_complete',summary:'关键词分组完成',details:{task_id:'done-keywords',count:24,duration_ms:18200}}];
 // 中文注释：仅共享当前合成任务及日志，避免详情页重新初始化后丢失预览执行结果。
 const snapshotKey=id=>'fbl-r25-fixture-'+id;
 if(role==='result'){
@@ -114,14 +114,12 @@ const chrome={i18n:{getUILanguage:()=> 'zh-CN'},windows:{getCurrent:async()=>({i
  try{
   if(message.type==='copilot.command')return {result:await command(message.command,message.params||{})};
   if(message.type==='copilot.local')return {result:await localTableCommand(message.command,message.params||{})};
-  if(message.type==='copilot.connections')return {result:{cloud:null}};
+
   if(message.type==='copilot.reconnect')return {result:state};
-  if(message.type==='popup_status')return {result:{connected:true,copilot:{enabled:state.enabled,ready:state.ready,agent:state.agent,hermes_health:state.hermes_health},cloud,tasks:[]}};
+  if(message.type==='popup_status')return {result:{connected:true,copilot:{enabled:state.enabled,ready:state.ready,agent:state.agent,hermes_health:state.hermes_health},tasks:[]}};
   if(message.type==='copilot.popup_settings'){if(message.enabled&&agentCatalog.onboarding_required){send({action:'agent-onboarding'});return {result:{enabled:false,onboarding_required:true}};}if(role==='popup'){state.enabled=message.enabled;send({action:'fixture-toggle',enabled:message.enabled});}else agentEnabled(message.enabled);return {result:{enabled:message.enabled}};}
   if(message.type==='copilot.open'){send({action:'board'});return {result:{opened:true}};}
-  if(message.type==='cloud_connect'){cloud={state:'pending_pairing',paired:false,online:false,code:'DEMO-7421',expiresAt:Date.now()+300000};return {result:cloud};}
-  if(message.type==='cloud_disconnect'){cloud={state:'unpaired',paired:false,online:false};return {result:cloud};}
-  if(message.type==='cloud_open_web'){send({action:'notice',text:'预览不会打开真实配对页面。'});return {result:{opened:true}};}
+
   if(message.type==='connect')return {result:{connected:true}};
   throw Error('预览禁止未声明的运行时消息');
  }catch(error){return {error:error.message};}
@@ -134,7 +132,7 @@ document.addEventListener('click',event=>{if(event.target.closest('a')){event.pr
 window.addEventListener('message',event=>{if(event.origin!==origin||event.source!==window.parent||!event.data?.preview)return;const message=event.data;if(message.action==='onboarding-demo'&&role==='panel')onboardingExample();if(message.action==='agent-onboarding'&&role==='panel')emit({type:'copilot.agent_onboarding'});if(message.action==='fixture-toggle'&&role==='panel')agentEnabled(message.enabled);if(message.action==='agent-fixture'){agentCatalog=message.catalog;state.enabled=message.enabled;state.ready=message.ready;state.agent=message.agent;state.hermes_health={state:message.agent.state};emit({type:'changed'});}if(message.action==='directory-choice'&&directoryJob?.id===message.id)directoryJob=message.selected?{...directoryJob,status:'selected',path:'/tmp/fbl-preview/selected-exports'}:{...directoryJob,status:'cancelled'};if(message.action==='settings'&&role==='panel')document.getElementById('open-settings').click();if(message.action==='theme')document.documentElement.dataset.theme=message.theme;if(message.action==='select'&&role==='panel'){if(document.getElementById('settings-view').dataset.active==='true')document.querySelector('#settings-view [data-back]').click();selectDashboardTab(document,message.tab);}});
 setInterval(()=>{tick++;const steps=['browser_read','search_web','browser_page','terminal_script','model','result'];for(const row of state.suggestions.filter(row=>row.status==='executing')){row.workflow_completed=(row.workflow_completed+1)%7;row.step=steps[Math.min(row.workflow_completed,5)];if(row.id!=='live-task'&&row.workflow_completed===6){Object.assign(row,{status:'completed',completion_status:'completed',finished_at:Date.now()/1000,result:notesResult});log(row,'execute_complete');}else log(row);}changed();},3000);
 
-const entrypoints=role==='panel'?['copilot-panel.mjs']:role==='popup'?['popup.mjs','cloud-popup.mjs']:['copilot-result.mjs'];
+const entrypoints=role==='panel'?['copilot-panel.mjs']:role==='popup'?['popup.mjs']:['copilot-result.mjs'];
 for(const entry of entrypoints)await import('/native-extension/'+entry);
 `,
 );

@@ -261,7 +261,6 @@ test('completed native handshake releases connecting while post-connect synchron
     BUILD_ID: 'fixture',
     crypto: { randomUUID: () => 'browser' },
     navigator: { userAgent: 'Edg' },
-    cloud: { connect: noop },
     copilot: { synchronize: () => sync.promise },
     consent: { synchronize: noop },
     executor: {

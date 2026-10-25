@@ -1,0 +1,160 @@
+/* 中文注释：沿用共享品牌与深浅色，只为本机连接设置定义布局。 */
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: 16px/1.6 var(--ui);
+}
+.connection-settings {
+  max-width: 704px;
+  margin: 0 auto;
+  padding: 32px 20px 40px;
+}
+.page-header {
+  margin-bottom: 32px;
+}
+.brand-lockup {
+  color: var(--ink-2);
+  font-size: 14px;
+}
+h1 {
+  margin: 24px 0 8px;
+  font-size: 24px;
+  line-height: 1.3;
+}
+h2 {
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.4;
+}
+p {
+  margin: 8px 0;
+}
+.page-header p,
+.help {
+  color: var(--ink-2);
+}
+label {
+  display: block;
+  font-weight: 600;
+}
+.help {
+  font-size: 16px;
+}
+#id-help {
+  margin-top: 8px;
+  margin-bottom: 12px;
+}
+input {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  min-height: 48px;
+  padding: 10px 12px;
+  background: var(--paper);
+  color: var(--ink);
+  border: 1px solid var(--ink-2);
+  border-radius: var(--rc);
+  font: 16px/1.5 var(--mono);
+}
+input[aria-invalid='true'] {
+  border-color: var(--bad);
+}
+button {
+  min-height: 44px;
+  min-width: 44px;
+  padding: 8px 16px;
+  font-size: 16px;
+  line-height: 1.5;
+}
+button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+button.primary:hover:not(:disabled) {
+  background: var(--brand);
+  filter: brightness(0.94);
+}
+#pair-button {
+  width: 100%;
+  margin-top: 16px;
+}
+.feedback {
+  margin: 20px 0 0;
+  padding: 12px 0;
+  overflow-wrap: anywhere;
+}
+.feedback[data-state='error'],
+#registry-status[data-state='error'] {
+  color: var(--bad);
+}
+.feedback[data-state='success'] {
+  color: var(--ok);
+}
+.registry {
+  margin-top: 40px;
+  border-top: 1px solid var(--line);
+  padding-top: 24px;
+}
+.section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+#registry-status {
+  color: var(--ink-2);
+  margin: 12px 0;
+}
+#connections {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.product-row {
+  padding: 20px 0;
+  border-bottom: 1px solid var(--line);
+  min-width: 0;
+}
+.product-id {
+  display: block;
+  margin-bottom: 8px;
+  overflow-wrap: anywhere;
+  font: 16px/1.6 var(--mono);
+}
+.product-state {
+  color: var(--ink-2);
+}
+.product-state[data-connected='true'] {
+  color: var(--ok);
+}
+.product-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+.product-actions button {
+  flex: 1;
+}
+footer {
+  margin-top: 24px;
+}
+@media (min-width: 480px) {
+  .connection-settings {
+    padding: 48px 32px;
+  }
+  #pair-button {
+    width: auto;
+  }
+  .product-actions {
+    flex-wrap: nowrap;
+  }
+  .product-actions button {
+    flex: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  button:active:not(:disabled) {
+    transform: none;
+  }
+}

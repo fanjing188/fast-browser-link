@@ -347,10 +347,7 @@ def run(args):
                     cli.cloud_gate(
                         home,
                         user_home=args.user_home,
-                        installed=(
-                            (home / "plugins/fast-browser-link/cloud_link/native_host.py").exists()
-                            or (home / "plugin-data/fast-browser-link-cloud").exists()
-                        ),
+                        installed=True,
                     ),
                 ):
                     pass

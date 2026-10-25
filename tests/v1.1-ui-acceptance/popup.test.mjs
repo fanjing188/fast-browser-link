@@ -25,11 +25,7 @@ test('弹窗入口保留中文状态语义、连接授权说明和任务控制',
     document.querySelector('#local-connect').getAttribute('aria-describedby'),
     'connection-detail access-detail',
   );
-  assert.equal(
-    document.querySelector('#cloud-connect').getAttribute('aria-describedby'),
-    'cloud-access-detail',
-  );
-  assert.match(document.querySelector('#cloud-access-detail').textContent, /确认配对.*允许.*直接/);
+  assert.equal(document.querySelector('[id^=cloud-],.cloud-row'), null);
   assert.ok(document.querySelector('#takeover'));
   assert.ok(document.querySelector('#stop-task'));
   assert.equal(document.querySelector('#tasks,#verify-control,#task-list'), null);

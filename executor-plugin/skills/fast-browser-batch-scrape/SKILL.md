@@ -1,5 +1,6 @@
 ---
 name: fast-browser-batch-scrape
+version: 2.4.0
 description: Use fast_browser_script to read, locate elements by meaning and act in bulk in the user's authorized browser with Python — paging, extraction, de-duplication, saving, multi-step forms. Fewer model round trips.
 ---
 
@@ -8,6 +9,8 @@ description: Use fast_browser_script to read, locate elements by meaning and act
 First bind this session to a ready task with `fast_browser_open`; use its summary before another snapshot. Then run bounded steps with `fast_browser_script(code=..., timeout_s=...)`. Each call is a new Python process; the working directory is kept between calls. Do not carry element refs or approvals across calls. Use this tool set for the whole page workflow; do not mix in `browser_exec`.
 
 ## Helpers
+
+当前页成品包用 `export_page('page.zip', tab=...)`，回 path/sha256/count/coverage；只读渲染 DOM＋缓存前端资源，不重抓。离线禁脚本/外联、清表单值；恒 partial，不含后端/原工程，JS/可见内容仍可能敏感。详见 `docs/python-scripting.md`。
 
 | Function | Purpose |
 |---|---|
@@ -102,7 +105,9 @@ print({'filled': [item.get('verified') for item in filled],
 # 中文注释：核对页面反馈后停在提交前，不点击最终提交按钮。
 ```
 
-需要用户处理人机验证、敏感字段或付费时，结果列出工作标签页 ID。会话结束后待人工处理的工作页及标签组会保留，任务权限和遮罩会撤销。验证码、Turnstile、最终提交这类执行器看不到的人工步骤，用 `fast_browser_close(task_id, keep_tabs=true)` 把工作页明确交给用户；不要对已交给用户的页调用普通关闭。后续要自动操作必须重新调用 `fast_browser_open`。
+需要用户处理人机验证、敏感字段或付费时，结果列出工作标签页 ID。会话结束后待人工处理的工作页及标签组会保留，任务权限和遮罩会撤销。验证码、Turnstile、最终提交这类执行器看不到的人工步骤，用 `fast_browser_close(task_id, keep_tabs=true, handoff_reason='captcha')` 把工作页明确交给用户；按实际原因选 `captcha/login/verification/final_submit/user_requested`，不要对已交给用户的页调用普通关闭。后续要自动操作必须重新调用 `fast_browser_open`。
+
+共享脚本执行仅使用本机连接。CLI/MCP/SDK 复用同一核心及未知回执账本；断连不回退云端或另一执行器。工作产品的人工输入与提交锁须在实际写入处验证，通用字段 helper 不能替代这些业务保护。
 
 ## Reuse verified workflows
 

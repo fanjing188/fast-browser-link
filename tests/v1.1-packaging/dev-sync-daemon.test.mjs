@@ -21,6 +21,18 @@ import { fixtureInstaller, isolatedInstallerEnv } from '../helpers/isolated-inst
 import { socketAddress } from '../native-v2/real-session.mjs';
 
 const testTemp = await realpath(tmpdir());
+const historicalCloud = (relative) => {
+  const result = spawnSync(
+    'git',
+    ['show', `bd42da8138ffb94717325db0b01ae100f41266f1:cloud-link/${relative}`],
+    {
+      cwd: process.env.BROWSER_LINK_RELEASE_HISTORY || path.resolve(import.meta.dirname, '../..'),
+      encoding: 'utf8',
+    },
+  );
+  assert.equal(result.status, 0, result.stderr);
+  return result.stdout;
+};
 import {
   assertDevelopmentIdle,
   runDevelopmentGuard,
@@ -190,7 +202,7 @@ async function syncFixture(t) {
   await mkdir(path.join(home, 'plugins/fast-browser-link/maintenance'), { recursive: true });
   const cloudHost = path.join(home, 'plugins/fast-browser-link/cloud_link/native_host.py');
   const cli = path.join(home, 'plugins/fast-browser-link/maintenance/install-cli.py');
-  await cp(path.resolve(import.meta.dirname, '../../cloud-link/native_host.py'), cloudHost);
+  await writeFile(cloudHost, historicalCloud('native_host.py'));
   await fixtureInstaller(path.join(repo, 'scripts/install-cli.py'), cli, cloudHost);
   const hash = async (file) =>
     createHash('sha256')
@@ -211,6 +223,7 @@ async function syncFixture(t) {
     path.join(repo, 'scripts/package-executor.mjs'),
     "console.error('PACKAGING_REACHED');process.exit(42);",
   );
+  await writeFile(path.join(repo, 'legacy-registration.py'), historicalCloud('registration.py'));
   const registration = spawnSync(
     process.env.BROWSER_LINK_TEST_PYTHON || 'python3',
     [
@@ -225,7 +238,7 @@ launcher.write_text(text);launcher.chmod(0o700)
 for file,value in manifests:
  file.parent.mkdir(parents=True,exist_ok=True);file.write_text(json.dumps(value));file.chmod(0o600)
  `,
-      path.resolve(import.meta.dirname, '../../cloud-link/registration.py'),
+      path.join(repo, 'legacy-registration.py'),
       home,
       base,
     ],
@@ -299,6 +312,7 @@ test('dev-sync 未知任务合同在打包及首次写入前拒绝', async (t) =
 
 test('dev-sync 打包期间新增活动必须拒绝且目标字节和 mtime 不变', async (t) => {
   const f = await syncFixture(t);
+  await retiredCloudFixture(f);
   await writeFile(path.join(f.data, 'tasks.json'), JSON.stringify({ version: 1, tasks: [] }), {
     mode: 0o600,
   });
@@ -345,6 +359,7 @@ test('dev-sync 打包期间新增活动必须拒绝且目标字节和 mtime 不�
 
 test('dev-sync 正式守卫覆盖整个子进程并阻止真实 daemon 启动', async (t) => {
   const f = await syncFixture(t);
+  await retiredCloudFixture(f);
   await writeFile(path.join(f.data, 'tasks.json'), JSON.stringify({ version: 1, tasks: [] }), {
     mode: 0o600,
   });
@@ -483,6 +498,7 @@ test('测试解释器仅在 Actions 信任 RUNNER_TEMP，不信任 TMPDIR 或逃
 
 test('Chrome、Edge、Hermes 和其他宿主存在时，同步只读取注入的 PID 状态', async (t) => {
   const f = await syncFixture(t);
+  await retiredCloudFixture(f);
   const applications = [
     '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
     '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
@@ -649,10 +665,6 @@ async function startInstalledDaemon(t, home, env) {
 
 // 中文注释：替身打包器生成同步所需的最小产物与哈希清单，其余流程走真实 dev-sync。
 async function fakePackager(f) {
-  const cloudHost = await readFile(
-    path.join(f.home, 'plugins/fast-browser-link/cloud_link/native_host.py'),
-    'utf8',
-  );
   const cli = await readFile(
     path.join(f.home, 'plugins/fast-browser-link/maintenance/install-cli.py'),
     'utf8',
@@ -703,7 +715,6 @@ async function fakePackager(f) {
  const files=${JSON.stringify({
    ...copilotFiles,
    'fast-browser-link/desktop/plugin.js': 'new-desktop',
-   'fast-browser-link/cloud_link/native_host.py': cloudHost,
    'fast-browser-link/maintenance/install-cli.py': cli,
    'native-extension/manifest.json': JSON.stringify({ name: 'Test extension', version: '1.0.0' }),
  })};
@@ -717,8 +728,29 @@ async function fakePackager(f) {
   );
 }
 
+async function retiredCloudFixture(f) {
+  await rm(path.join(f.home, 'plugins/fast-browser-link/cloud_link'), { recursive: true });
+  await rm(path.join(f.home, 'plugin-data/fast-browser-link-cloud'), { recursive: true });
+  for (const browser of ['Google/Chrome', 'Microsoft Edge'])
+    await rm(
+      path.join(
+        f.env.HOME,
+        'Library/Application Support',
+        browser,
+        'NativeMessagingHosts/com.fast.browser_link.cloud.json',
+      ),
+    );
+  await writeFile(
+    path.join(f.data, 'install-state.json'),
+    JSON.stringify({ cloudRetired: { version: 1 } }),
+    { mode: 0o600 },
+  );
+}
+
 test('dev-sync 一条命令：暂停 Hermes、写维护标记、停止已核实 daemon、同步后删除标记并恢复', async (t) => {
   const f = await syncFixture(t);
+  // 中文注释：旧云入口先经正式事务退役，开发同步只消费该既有状态。
+  await retiredCloudFixture(f);
   await writeFile(path.join(f.data, 'tasks.json'), JSON.stringify({ version: 1, tasks: [] }), {
     mode: 0o600,
   });
@@ -729,6 +761,9 @@ test('dev-sync 一条命令：暂停 Hermes、写维护标记、停止已核实 
   assert.equal(result.status, 0, result.stderr);
   const output = JSON.parse(result.stdout);
   assert.equal(output.status, 'synced');
+  const state = JSON.parse(await readFile(path.join(f.data, 'install-state.json'), 'utf8'));
+  assert.deepEqual(state.cloudRetired, { version: 1 });
+  assert.equal(Object.hasOwn(state, 'cloudFence'), false);
   const copilot = JSON.parse(await readFile(path.join(f.data, 'copilot/config.json'), 'utf8'));
   assert.equal(copilot.context_limit, 6000);
   assert.deepEqual((await readdir(path.join(f.data, 'copilot/templates'))).sort(), [
@@ -862,6 +897,7 @@ test('daemon 已停止时已关闭且清理成功任务的残留历史不再阻�
     await t.test(JSON.stringify(record), async (t) => {
       const f = await syncFixture(t);
       await writeFile(path.join(f.data, 'tasks.json'), JSON.stringify(record), { mode: 0o600 });
+      await retiredCloudFixture(f);
       const result = f.run();
       // 中文注释：通过全部门禁后才会到达替身打包器。
       assert.match(result.stderr, /PACKAGING_REACHED/);

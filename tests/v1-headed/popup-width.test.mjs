@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile, mkdtemp, mkdir, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { createRequire } from 'node:module';
+import { tmpdir } from 'node:os';
 
 // 复用浏览器交互模块的测试依赖，不再读取已删除的独立执行器。
 const require = createRequire(new URL('../../browser-interactions/package.json', import.meta.url));
@@ -16,7 +17,7 @@ const [css, brand, html] = await Promise.all(
 // 中文注释：真实生产结构在中英文、连接状态和协作开关变化时保持 320px，无横向滚动。
 test('production popup fits 320px for both languages and collaboration states', async () => {
   // 中文注释：宽度验收同样只用新 profile，并保留真实 HOME。
-  const work = await mkdtemp('/tmp/fast-popup-'),
+  const work = await mkdtemp(path.join(tmpdir(), 'fast-popup-')),
     profile = path.join(work, 'profile'),
     temp = path.join(work, 'tmp');
   await mkdir(temp);
@@ -51,7 +52,7 @@ test('production popup fits 320px for both languages and collaboration states', 
                 el.textContent = el.dataset[language];
               document.getElementById('open-copilot').hidden = !enabled || !connected;
               document.getElementById('local-connect').hidden = connected;
-              for (const id of ['access-status', 'cloud-status']) {
+              for (const id of ['access-status']) {
                 const status = document.getElementById(id);
                 status.className = 'st bare';
                 status.innerHTML =
@@ -74,6 +75,7 @@ test('production popup fits 320px for both languages and collaboration states', 
             })),
           }));
           assert.equal(actual.body, 320);
+          assert.equal(actual.rows.length, 2);
           assert.equal(actual.width, 320, `${language}/${enabled}/${connected} overflowed`);
           assert.ok(
             actual.rows.every((row) => row.width === row.client),

@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url';
 import {
   JSON_VERSION_FILES,
   TEXT_VERSION_FILES,
+  SKILL_VERSION_FILES,
   MIGRATION_VERSIONS,
   VERSION_PATTERN,
   documentVersionMatches,
@@ -48,7 +49,7 @@ export async function setVersion(source, next) {
         return text.replace(MIGRATION_VERSIONS, (match, versions) =>
           match.replace(`{${versions}}`, `{${versions.replace(/,?\s*$/, '')}, '${next}'}`),
         );
-      if (file === 'executor-plugin/plugin.yaml')
+      if (file === 'executor-plugin/plugin.yaml' || SKILL_VERSION_FILES.includes(file))
         return text.replace(/^version:\s*\S+/m, `version: ${next}`);
       // 中文注释：按已校验的位置从后往前替换，保留外部依赖版本和其余正文。
       for (const match of documentVersionMatches(text).reverse())

@@ -32,4 +32,4 @@ page-semantics/redact.mjs
 native-extension/brand.mjs
 
 # 页面网络函数按表达式读取并注入；格式化补分号会破坏外层括号。
-executor-plugin/script_lane/page-request.js
+native-bridge/script_lane/page-request.js

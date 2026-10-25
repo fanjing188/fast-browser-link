@@ -85,7 +85,7 @@ _HELPER_ASSESSMENTS = {
             "screenshot behavior is established."
         ),
         "evidence": [
-            "executor-plugin/script_lane/action_session.py",
+            "native-bridge/script_lane/action_session.py",
             "tests/v1.1-python/test_official_bridge.py",
             "tests/v1.1-python/official_smoke_child.py",
         ],
@@ -98,7 +98,7 @@ _HELPER_ASSESSMENTS = {
         ),
         "evidence": [
             "docs/python-scripting.md",
-            "executor-plugin/script_lane/host_bridge.py",
+            "native-bridge/script_lane/host_bridge.py",
         ],
     },
     "page_info": {
@@ -108,8 +108,8 @@ _HELPER_ASSESSMENTS = {
             "CLI/host path. It is disabled by default and has not been verified against a real browser."
         ),
         "evidence": [
-            "executor-plugin/script_lane/host_bridge.py",
-            "executor-plugin/script_lane/action_session.py",
+            "native-bridge/script_lane/host_bridge.py",
+            "native-bridge/script_lane/action_session.py",
             "tests/v1.1-python/test_official_bridge.py",
         ],
     },
@@ -120,8 +120,8 @@ _HELPER_ASSESSMENTS = {
             "tests. It is disabled by default; real page event delivery and browser versions remain unverified."
         ),
         "evidence": [
-            "executor-plugin/script_lane/host_bridge.py",
-            "executor-plugin/script_lane/action_session.py",
+            "native-bridge/script_lane/host_bridge.py",
+            "native-bridge/script_lane/action_session.py",
             "tests/v1.1-python/test_official_bridge.py",
         ],
     },
@@ -961,7 +961,7 @@ def _assessment(surface: str, item: dict[str, Any]) -> dict[str, Any]:
             "the same tool or return contract."
         )
         evidence = [
-            "executor-plugin/script_lane/action_session.py",
+            "native-bridge/script_lane/action_session.py",
             "tests/v1.1-official-actions/test_official_route.py",
         ]
     else:
@@ -971,7 +971,7 @@ def _assessment(surface: str, item: dict[str, Any]) -> dict[str, Any]:
             "contract-level test were found; API-name presence is not compatibility."
         )
         evidence = [
-            "executor-plugin/script_lane/action_session.py",
+            "native-bridge/script_lane/action_session.py",
             "tests/v1.1-official-actions/test_official_route.py",
         ]
     result = dict(selected or {"status": "缺失", "reason": default_reason, "evidence": evidence})

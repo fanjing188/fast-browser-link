@@ -21,6 +21,7 @@ sys.path.insert(0, str(ROOT / "native-bridge"))
 from copilot import Copilot, private_write
 from copilot_setup import setup
 from daemon import BridgeDaemon, ProtocolError, _extension_frames, _encode_line
+from assist_adapter import AssistAdapter
 from host import record_exit
 from tests.support import temporary_bridge_home
 from client import socket_address
@@ -92,7 +93,7 @@ class Replay(unittest.TestCase):
             if target in self.daemon.extensions
             else None,
         )
-        self.daemon.copilot = self.app
+        self.daemon.optional_service = AssistAdapter(self.daemon, app=self.app)
         self.addCleanup(self.app.close)
         self.server = socket.socket(socket.AF_UNIX)
         self.addCleanup(self.server.close)
@@ -338,6 +339,73 @@ class Replay(unittest.TestCase):
 
 
 class Local(unittest.TestCase):
+    def test_product_bootstrap_runs_real_daemon_and_closes_after_initialization(self):
+        from client import _probe
+
+        with temporary_bridge_home() as home:
+            process = subprocess.Popen(
+                [
+                    sys.executable,
+                    str(ROOT / "native-bridge/assist_adapter.py"),
+                    "--home",
+                    str(home),
+                ],
+                cwd=tempfile.gettempdir(),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            try:
+                deadline = time.monotonic() + 5
+                while not _probe(home):
+                    self.assertIsNone(process.poll(), "product bootstrap exited before health")
+                    self.assertLess(time.monotonic(), deadline, "product bootstrap health timeout")
+                    time.sleep(0.02)
+                data = home / "plugin-data/fast-browser-link-native"
+                with socket.socket(socket.AF_UNIX) as peer:
+                    peer.settimeout(3)
+                    peer.connect(socket_address(data / "bridge.sock"))
+                    peer.sendall(
+                        _encode_line(
+                            {
+                                "role": "extension",
+                                "token": (data / "token").read_text().strip(),
+                                "origin": ORIGIN,
+                            }
+                        )
+                    )
+                    with peer.makefile("rb") as reader:
+
+                        def request(identity, method, params):
+                            peer.sendall(
+                                _encode_line({"id": identity, "method": method, "params": params})
+                            )
+                            while True:
+                                response = json.loads(reader.readline())
+                                if response.get("id") == identity:
+                                    self.assertNotIn("error", response)
+                                    return response["result"]
+
+                        self.assertTrue(
+                            request(
+                                "hello",
+                                "extension.hello",
+                                {
+                                    "instanceId": "bootstrap",
+                                    "browser": "edge",
+                                    "version": "fixture",
+                                },
+                            )["connected"]
+                        )
+                        self.assertFalse(request("state", "extension.copilot.state", {})["enabled"])
+            finally:
+                if process.poll() is None:
+                    process.terminate()
+                stdout, stderr = process.communicate(timeout=10)
+            self.assertEqual(process.returncode, 0, stderr.decode())
+            self.assertEqual(stderr, b"")
+            self.assertFalse((data / "daemon.pid").exists())
+            self.assertFalse((data / "bridge.sock").exists())
+
     def setUp(self):
         self.temp = self.enterContext(tempfile.TemporaryDirectory())
         self.root = Path(self.temp).resolve()
@@ -382,7 +450,7 @@ class Local(unittest.TestCase):
         sent = []
         sink = type("Socket", (), {"sendall": lambda _self, data: sent.append(data)})()
         extension = {"instanceId": "fixture", "socket": sink, "sendLock": threading.RLock()}
-        self.daemon.copilot = self.app
+        self.daemon.optional_service = AssistAdapter(self.daemon, app=self.app)
         self.daemon._send_extension(extension, value)
         self.daemon._send_extension(extension, {"id": "large", "result": "x" * (17 * 1024 * 1024)})
         self.assertTrue(all(len(frame) < 512 * 1024 for frame in sent))
@@ -481,7 +549,7 @@ class Local(unittest.TestCase):
             for line in (self.app.directory / "acp-requests.jsonl").read_text().splitlines()
         ]
         self.assertTrue(any("synthetic resume summary" in json.dumps(row) for row in requests))
-        with patch.dict(self.app._state("fixture"), ready=False):
+        with self.app.lock, patch.dict(self.app._state("fixture"), ready=False):
             self.app.request(
                 "fixture", "quick_task", {"action": "general.task", "params": {"task": "fixture"}}
             )

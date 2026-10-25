@@ -1,0 +1,66 @@
+<!doctype html>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Product fill · synthetic local fixture</title>
+<style>
+  body { font: 15px/1.4 system-ui; padding: 16px; max-width: 680px; }
+  label { display: block; margin: 8px 0; }
+  input, textarea { display: block; width: 100%; box-sizing: border-box; min-height: 28px; }
+  textarea { height: 50px; }
+  button { min-height: 36px; }
+</style>
+<h1>Synthetic submission form</h1>
+<form id="entry">
+  <label>Product name<input id="name" name="product_name" /></label>
+  <div id="ordinary">
+    <label>Website URL<input id="url" name="website_url" type="url" /></label>
+    <label
+      >Description<textarea id="description" name="description" maxlength="500"></textarea>
+    </label>
+    <label
+      >Editor's note<textarea id="draft" name="editor_note">Human draft, never replace</textarea>
+    </label>
+    <label>Cobalt answer<input id="hint" name="cobalt_answer" /></label>
+    <label id="extra-label" hidden>Cobalt switch<input id="extra" name="cobalt_switch" /></label>
+    <button type="button" id="add-field">Add a question</button>
+    <label>API key<input id="api-key" name="api_key" autocomplete="off" /></label>
+    <label>Password<input id="password" type="password" autocomplete="new-password" /></label>
+    <label>Card number<input id="card" name="card_number" autocomplete="cc-number" /></label>
+    <label
+      >Verification code<input id="otp" name="verification_code" autocomplete="one-time-code"
+    /></label>
+  </div>
+  <button type="submit" id="submit">Submit synthetic form</button>
+</form>
+<script>
+  // 中文注释：只记录真实页面事件；unknown 用站点事件同步改字段资格触发，不替换setter、消息或回执。
+  window.fixtureMarker = crypto.randomUUID();
+  window.fixtureEvents = [];
+  const mode = new URL(location.href).searchParams.get('mode') || 'ordinary';
+  if (mode !== 'ordinary') document.querySelector('#ordinary').remove();
+  document.querySelector('#add-field')?.addEventListener('click', () => {
+    document.querySelector('#extra-label').hidden = false;
+  });
+  document.addEventListener('input', event => {
+    window.fixtureEvents.push({id: event.target.id, type: event.type, trusted: event.isTrusted});
+    if (mode === 'unknown' && event.target.id === 'name' && !event.isTrusted) {
+      event.target.readOnly = true;
+    }
+  }, true);
+  document.addEventListener('change', event => {
+    window.fixtureEvents.push({id: event.target.id, type: event.type, trusted: event.isTrusted});
+  }, true);
+  document.querySelector('#entry').addEventListener('submit', event => {
+    event.preventDefault();
+    window.fixtureEvents.push({id: 'entry', type: 'submit', trusted: event.isTrusted});
+    if (mode === 'submission' && !document.querySelector('#after-submit')) {
+      const label = document.createElement('label');
+      label.textContent = 'Tagline';
+      const input = document.createElement('input');
+      input.id = 'after-submit';
+      input.name = 'tagline';
+      label.append(input);
+      document.querySelector('#entry').append(label);
+    }
+  });
+</script>

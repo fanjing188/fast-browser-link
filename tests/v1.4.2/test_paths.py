@@ -18,8 +18,8 @@ def module(name, path):
     return loaded
 
 
-child = module("browser_child_142", "executor-plugin/script_lane/child.py")
-script = module("browser_script_142", "executor-plugin/script_lane/tool.py")
+child = module("browser_child_142", "native-bridge/script_lane/child.py")
+script = module("browser_script_142", "native-bridge/script_lane/tool.py")
 
 
 class PathsAndNames(unittest.TestCase):

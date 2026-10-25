@@ -18,7 +18,7 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "native-bridge"))
-from tests.support import stop_fixture_daemon  # noqa: E402
+from tests.support import fixture_daemon_path, stop_fixture_daemon  # noqa: E402
 from client import _probe, socket_address  # noqa: E402
 
 
@@ -217,9 +217,10 @@ def _invoke(plugins, tools, profile, name: str, args: dict, session: str):
         root = profile.plugin_root
         module = load(root / "open_tool.py", "existing_tab_open_" + uuid.uuid4().hex)
         bridge_module = load(
-            root / "script_lane/host_bridge.py", "existing_tab_bridge_" + uuid.uuid4().hex
+            root / "native_bridge/script_lane/host_bridge.py",
+            "existing_tab_bridge_" + uuid.uuid4().hex,
         )
-        bridge = bridge_module.HostBridge(profile, root)
+        bridge = bridge_module.HostBridge(profile)
         try:
             return json.loads(
                 module.make_handler(profile, bridge, lease_error=runtime.OwnerLeaseError)(
@@ -354,17 +355,18 @@ def inspect(work: Path):
         ["ps", "-p", str(pid), "-o", "command="], check=True, capture_output=True, text=True
     ).stdout.strip()
     # 中文注释：源码阶段使用隔离 host-bin；正式包阶段必须核实 daemon 来自包内已安装的插件。
-    installed_daemon = value["plugin"] / "native_bridge/daemon.py"
-    host_daemon = value["hermes"] / "plugin-data/fast-browser-link-native/host-bin/daemon.py"
+    installed_bridge = value["plugin"] / "native_bridge"
+    host_bridge = value["hermes"] / "plugin-data/fast-browser-link-native/host-bin"
     # 中文注释：源码阶段 daemon 可由隔离 host-bin 或临时安装的插件拉起，二者都必须在本次临时目录内。
     candidates = [
-        path
-        for path in (installed_daemon, host_daemon)
-        if path.is_file()
-        and (path.is_relative_to(value["work"]) or path.is_relative_to(value["hermes"]))
+        directory / entry
+        for directory in (installed_bridge, host_bridge)
+        for entry in ("assist_adapter.py", "daemon.py")
+        if (directory / entry).is_file()
+        and (directory.is_relative_to(value["work"]) or directory.is_relative_to(value["hermes"]))
     ]
-    expected = next((path for path in candidates if str(path) in command), None)
-    if expected is None or str(value["hermes"]) not in command:
+    expected = fixture_daemon_path(value["hermes"], command, candidates)
+    if expected is None:
         raise RuntimeError("daemon is not using staged bridge code")
     return {
         "daemonPid": pid,
@@ -703,12 +705,13 @@ def script_run(work: Path, session: str, task_id: str, code: str, checkpoint: st
     profile = runtime.NativeProfileRuntime(value["hermes"], value["plugin"])
     try:
         bridge_module = runtime.load_module(
-            value["plugin"] / "script_lane" / "host_bridge.py", "native_v2_script_bridge_"
+            value["plugin"] / "native_bridge/script_lane" / "host_bridge.py",
+            "native_v2_script_bridge_",
         )
         tool = runtime.load_module(
-            value["plugin"] / "script_lane" / "tool.py", "native_v2_script_tool_"
+            value["plugin"] / "native_bridge/script_lane" / "tool.py", "native_v2_script_tool_"
         )
-        bridge = bridge_module.HostBridge(profile, value["plugin"])
+        bridge = bridge_module.HostBridge(profile)
         owner = profile.authority.owner_for_session(session)
         bridge.bind(session, owner=owner, task_id=task_id)
         try:
@@ -772,22 +775,21 @@ def cleanup(work: Path):
         ["ps", "-p", str(pid), "-o", "command="], capture_output=True, text=True
     )
     # 中文注释：daemon 可能由 Native host（host-bin）或插件客户端（插件内 native_bridge）拉起，二者都在本次临时目录内。
-    candidates = (
-        value["plugin"] / "native_bridge/daemon.py",
-        value["hermes"] / "plugin-data/fast-browser-link-native/host-bin/daemon.py",
-    )
-    expected = [
-        str(path)
-        for path in candidates
-        if path.is_relative_to(value["work"]) or path.is_relative_to(value["hermes"])
+    candidates = [
+        directory / entry
+        for directory in (
+            value["plugin"] / "native_bridge",
+            value["hermes"] / "plugin-data/fast-browser-link-native/host-bin",
+        )
+        for entry in ("assist_adapter.py", "daemon.py")
+        if directory.is_relative_to(value["work"]) or directory.is_relative_to(value["hermes"])
     ]
     if (
         command.returncode == 0
-        and any(path in command.stdout for path in expected)
-        and str(value["hermes"]) in command.stdout
+        and fixture_daemon_path(value["hermes"], command.stdout, candidates) is not None
     ):
         # 中文注释：daemon 被测试终止后可能由临时插件目录内的客户端重新拉起，该路径也在本次临时目录内。
-        stop_fixture_daemon(value["hermes"], extra_daemons=[path for path in expected])
+        stop_fixture_daemon(value["hermes"], extra_daemons=candidates)
     else:
         raise RuntimeError("refusing to stop non-fixture process")
     return {}

@@ -38,6 +38,7 @@ SKIP_DIR = {
     "tmp",
     "__pycache__",
     ".pytest_cache",
+    ".ruff_cache",
     "coverage",
     "results",
     "logs",
@@ -48,6 +49,8 @@ SKIP_DIR = {
 SKIP_ROOT_DIR = {"release", "dist", ".ci"}
 # 中文注释：本地审计报告是验证后的生成输出，不参与运行源码快照；真实源码漂移仍须失败。
 SKIP_FILES = {
+    # 中文注释：worktree 的 .git 是指向主仓库的文件，不能让隔离夹具继承真实 Git 写目标。
+    ".git",
     "CODEX-AUDIT-REPORT.md",
     "CODEX-STREAM-REPORT.md",
     ".DS_Store",
@@ -60,9 +63,10 @@ SKIP_FILES = {
     "steps.json",
 }
 # 当前共享浏览器桥接不再包含独立执行器依赖边界。
-NODE_BOUNDARIES = (".", "cloud-link/site")
+NODE_BOUNDARIES = (".",)
 # Explicit runner inventory: no glob expands into browser, install, or evidence suites.
 NODE_TESTS = (
+    "tests/v1.1-script-lane/page-export.test.mjs",
     "tests/copilot/r16.test.mjs",
     "tests/copilot/r15.test.mjs",
     "tests/copilot/r14.test.mjs",
@@ -97,9 +101,14 @@ NODE_TESTS = (
     "tests/copilot/sidebar-logs.test.mjs",
     "tests/copilot/controls-confirmation.test.mjs",
     "tests/v1.11.0/recovery.test.mjs",
-    # 中文注释：云端授权与 SQLite/MCP 测试使用合成配对和设备，不连接个人浏览器。
+    # 中文注释：退役回归验证本机启动与重连均不创建云 Native 通道。
     "tests/native-extension/cloud-link.test.mjs",
-    "cloud-link/site/tests/cloud.test.mjs",
+    # 中文注释：产品适配、页面填写与连接管理只运行合成离线夹具。
+    "tests/native-extension/product-fill.test.mjs",
+    "tests/native-extension/product-fill-content.test.mjs",
+    "tests/native-extension/product-fill-controller.test.mjs",
+    "tests/native-extension/product-connections.test.mjs",
+    "tests/native-extension/product-connections-page.test.mjs",
     # 中文注释：诊断三契约对照只导入源码并校验合成值，纳入显式离线清单。
     "browser-diagnostics/tests/diagnostics.test.mjs",
     # 中文注释：独立工作窗口和效果观察只用合成 API/DOM。
@@ -199,8 +208,6 @@ NODE_TESTS = (
 PYTHON_SUITES = (
     "tests/copilot",
     "tests/agent-link",
-    # 中文注释：云端调度、原生帧及收尾测试仅使用临时 HOME 和可控网络替身。
-    "cloud-link/tests",
     # 中文注释：自动更新的网络与调度调用均由测试替换，不触碰真实安装。
     "tests/auto-update",
     "browser-diagnostics/tests",
@@ -258,8 +265,7 @@ PYTHON_FILES = {
         "test_copilot_journal.py",
         "test_copilot_health.py",
     ),
-    "tests/agent-link": ("test_agent_link.py",),
-    "cloud-link/tests": ("test_cloud.py", "test_native.py", "test_scheduler.py", "test_service.py"),
+    "tests/agent-link": ("test_agent_link.py", "test_script.py"),
     "tests/auto-update": ("test_update.py",),
     # 中文注释：诊断用例只使用合成事件和临时日志目录，按名称限定运行范围。
     "browser-diagnostics/tests": ("test_schema.py", "test_runtime.py", "test_sink.py"),
@@ -275,6 +281,7 @@ PYTHON_FILES = {
     "tests/v1.3.6": ("test_concurrent_tabs.py",),
     # 中文注释：pure-offline；popup 使用进程内 daemon 和合成扩展/工具/Vault scope，按文件限制执行。
     "tests/native-v2": (
+        "test_product_adapter.py",
         "test_wire_contract.py",
         "test_daemon_wire.py",
         "test_click_mode.py",
@@ -315,6 +322,7 @@ PYTHON_GROUPED_FILES = {
         "test_action_session.py",
         "test_script_tool.py",
         "test_page_helpers.py",
+        "test_page_export.py",
     ),
     "tests/v1.1-approval-notify": ("test_approval_notify.py",),
     "tests/v1.1-verification": ("test_gate.py",),

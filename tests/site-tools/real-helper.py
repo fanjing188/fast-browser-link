@@ -17,8 +17,10 @@ value = base.paths(Path(sys.argv[1]))
 plugin = value["plugin"]
 native = base.load(plugin / "native_runtime.py", "site_real_native")
 profile = native.NativeProfileRuntime(value["hermes"], plugin)
-bridge_module = native.load_module(plugin / "script_lane/host_bridge.py", "site_real_bridge_")
-bridge = bridge_module.HostBridge(profile, plugin)
+bridge_module = native.load_module(
+    plugin / "native_bridge/script_lane/host_bridge.py", "site_real_bridge_"
+)
+bridge = bridge_module.HostBridge(profile)
 handlers = {}
 try:
     session, task, name, args = sys.argv[2], sys.argv[3], sys.argv[4], json.loads(sys.argv[5])
@@ -36,7 +38,7 @@ try:
     ctx = types.SimpleNamespace(
         register_tool=lambda **kw: handlers.update({kw["name"]: kw["handler"]})
     )
-    sites = native.load_module(plugin / "site_tools/tools.py", "site_real_tools_")
+    sites = native.load_module(plugin / "native_bridge/site_tools/tools.py", "site_real_tools_")
     sites.register(
         ctx,
         bridge,

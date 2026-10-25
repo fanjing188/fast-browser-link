@@ -480,7 +480,7 @@ class R16(unittest.TestCase):
         self.assertIn(str(self.root / "fenced"), captured[0][2])
 
     def test_external_action_requires_backend_issued_second_receipt(self):
-        with patch.dict(self.state, ready=False):
+        with self.app.lock, patch.dict(self.state, ready=False):
             self.app.request(
                 "fixture",
                 "quick_task",

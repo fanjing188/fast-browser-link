@@ -69,7 +69,7 @@ For wire-level details see [protocol.md](protocol.md).
 
 ## Reusable site tools and evidence
 
-`executor-plugin/site_tools/` stores inactive drafts, schema contracts and verified revisions. Definition management never executes source. Trial and run enter the existing `script_lane`; every helper still goes through the owner-bound task. Profile-level tool definitions are reusable across sessions, while execution authority is not.
+`native-bridge/site_tools/` stores inactive drafts, schema contracts and verified revisions. Definition management never executes source. Trial and run enter the existing `script_lane`; every helper still goes through the owner-bound task. Profile-level tool definitions are reusable across sessions, while execution authority is not.
 
 `native-extension/network-evidence.mjs` keeps bounded capture state inside the live task, separately from the raw CDP event queue. Its structured action is routed through the same daemon and extension checks. `script_lane/page-request.js` is the fixed same-origin request function used by the Python helper.
 

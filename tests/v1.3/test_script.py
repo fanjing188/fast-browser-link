@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def load(name):
     spec = importlib.util.spec_from_file_location(
-        "v13_" + name, ROOT / "executor-plugin/script_lane" / (name + ".py")
+        "v13_" + name, ROOT / "native-bridge/script_lane" / (name + ".py")
     )
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

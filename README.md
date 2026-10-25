@@ -6,7 +6,7 @@ Fast-browser-link lets AI agents work in the browser you’re already signed int
 
 ## Install in three steps
 
-1. On macOS with Chrome or Edge and Python 3.11+, follow [installation](docs/installation.md) to obtain a published package or build this candidate from source. **Unreleased (2.3.0 candidate)**.
+1. On macOS with Chrome or Edge and Python 3.11+, follow [installation](docs/installation.md) to obtain a published package or build from source. **Source version: 2.4.0**. Published versions and checksums are listed in [Releases](https://github.com/fanjing188/fast-browser-link/releases).
 2. Run `python3 -B -m fbl setup` from the package, then load the printed extension directory and confirm the browser connection.
 3. Start Codex or Claude Code with the installed Skill, or preview `fbl mcp install --agent codex` / `fbl mcp install --agent claude` and add `--apply` after review. Open the sidebar to try local tools immediately.
 
@@ -28,6 +28,6 @@ macOS + Chrome/Edge. Windows and Linux are planned; no release dates are promise
 
 [Export a multi-page table](docs/export-tables.md) · [Troubleshooting](docs/fbl-troubleshooting.md) · [Optional Hermes integration](docs/installation.md#hermes) · [Incognito](docs/incognito.md)
 
-[Development](docs/development.md) · [Design and safety contracts](docs/design/architecture.md) · [Testing](docs/testing.md) · [Release notes](docs/releases/release-2.3.0.md)
+[Development](docs/development.md) · [Design and safety contracts](docs/design/architecture.md) · [Testing](docs/testing.md) · [Release notes](docs/releases/release-2.4.0.md)
 
 MIT · [Third-party notices](THIRD_PARTY_NOTICES.md)

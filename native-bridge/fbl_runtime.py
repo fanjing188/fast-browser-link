@@ -527,11 +527,13 @@ def doctor(ctx, fix=False, probe=None, deep=False, start=False):
     )
     add(
         "cloud",
-        True,
-        "configured"
+        False,
+        "retired_data_preserved"
         if (ctx.runtime / "plugin-data/fast-browser-link-cloud").exists()
-        else "not_configured",
-        "Cloud is optional",
+        else "retired",
+        "Cloud link is retired; existing local data and tokens are preserved. Remote revocation requires the user.",
+        severity="info",
+        verified=False,
     )
     if invalid:
         add("configuration", False, "invalid_json", "Review malformed files; preserved")

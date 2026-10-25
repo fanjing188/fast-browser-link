@@ -26,8 +26,8 @@ def load(name, relative):
 
 TOOLS = load("round1f_tools", "executor-plugin/native_tools.py")
 OPEN = load("round1f_open", "executor-plugin/open_tool.py")
-CHILD = load("round1f_child", "executor-plugin/script_lane/child.py")
-SCRIPT = load("round1f_script_tool", "executor-plugin/script_lane/tool.py")
+CHILD = load("round1f_child", "native-bridge/script_lane/child.py")
+SCRIPT = load("round1f_script_tool", "native-bridge/script_lane/tool.py")
 REFERENCE = load("round1f_reference", "executor-plugin/reference.py")
 BINDING = {"taskId": "t", "documentId": "d", "leaseId": "l"}
 

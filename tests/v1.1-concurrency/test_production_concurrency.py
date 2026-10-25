@@ -292,13 +292,15 @@ class ProductionConcurrencyTests(unittest.TestCase):
             sys.path.remove(str(plugin))
         profile = native_runtime.NativeProfileRuntime(self.home, plugin)
         self.assertEqual(profile.bridge_home, self.home, "运行时必须仍绑定本轮隔离 daemon")
-        script = native_runtime.load_module(plugin / "script_lane/host_bridge.py", "audit_script_")
+        script = native_runtime.load_module(
+            ROOT / "native-bridge/script_lane/host_bridge.py", "audit_script_"
+        )
         integration = native_runtime.load_module(
             plugin / "single_tool_adapter/integration.py", "audit_binding_"
         )
         opener = native_runtime.load_module(plugin / "open_tool.py", "audit_open_")
         tools = native_runtime.load_module(plugin / "native_tools.py", "audit_tools_")
-        script_bridge = script.HostBridge(profile, plugin)
+        script_bridge = script.HostBridge(profile)
         bridge = integration.HostBindingCoordinator(script_bridge)
         profile.authority.lease_tools(("fast_browser_open", "fast_browser_use_tab"))
         open_handler = opener.make_handler(

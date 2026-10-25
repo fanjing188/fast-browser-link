@@ -1696,16 +1696,20 @@ print('RESULT=' + json.dumps(out))`;
     assert.ok(remaining.includes(userTabId), 'user tab retained');
     const installed = await helperCall('inspect', work);
     // 中文注释：包模式必须来自包内已安装插件；源码模式可来自隔离 host-bin 或临时安装的插件副本。
-    if (packageMode)
-      assert.equal(installed.daemonPath, path.join(staged.plugin, 'native_bridge/daemon.py'));
-    else
-      assert.ok(
-        [
-          path.join(staged.hermesHome, 'plugin-data/fast-browser-link-native/host-bin/daemon.py'),
-          path.join(staged.hermesHome, 'plugins/fast-browser-link/native_bridge/daemon.py'),
-        ].includes(installed.daemonPath),
-        installed.daemonPath,
-      );
+    const bridgeDirectories = packageMode
+      ? [path.join(staged.plugin, 'native_bridge')]
+      : [
+          path.join(staged.hermesHome, 'plugin-data/fast-browser-link-native/host-bin'),
+          path.join(staged.hermesHome, 'plugins/fast-browser-link/native_bridge'),
+        ];
+    assert.ok(
+      bridgeDirectories
+        .flatMap((directory) =>
+          ['assist_adapter.py', 'daemon.py'].map((entry) => path.join(directory, entry)),
+        )
+        .includes(installed.daemonPath),
+      installed.daemonPath,
+    );
     if (packageMode) assert.equal(installed.pluginPath, staged.plugin);
     else
       assert.ok(

@@ -18,6 +18,7 @@ from copilot import Copilot, validate, private_write
 from copilot_setup import setup
 from copilot_results import compose, legacy, result_schema, words
 from copilot_tables import number, expanded, xlsx_bytes, csv_bytes, export, TableStore
+from assist_adapter import AssistAdapter
 
 
 def wait(check):
@@ -237,6 +238,98 @@ class ResultContracts(unittest.TestCase):
 
 
 class SilentTaskBoundaries(unittest.TestCase):
+    def test_table_export_uses_only_trusted_extension_entry_when_assist_is_inactive(self):
+        from daemon import BridgeDaemon, ProtocolError
+
+        with tempfile.TemporaryDirectory() as temporary:
+            daemon = BridgeDaemon(Path(temporary), service_factory=AssistAdapter)
+            self.addCleanup(daemon.stop)
+            daemon.data_dir.mkdir(parents=True)
+            extension = {"instanceId": "edge", "browser": "edge"}
+            daemon.extensions["edge"] = extension
+            self.assertIsNone(daemon.copilot)
+            with patch.object(daemon, "_notify_tasks_changed"):
+                task = daemon._dispatch_connected_extension(
+                    extension, "extension.copilot.work_create", {"url": "https://example.test/data"}
+                )
+                self.assertTrue(task["silent"])
+                self.assertEqual(task["state"], "pending_approval")
+                self.assertEqual(task["tabIds"], [])
+                self.assertFalse(daemon.copilot.active)
+                params = {
+                    "owner": "fixture",
+                    "title": "fixture",
+                    "instanceId": "edge",
+                    "allowedOrigins": ["https://example.test"],
+                    "copilotSilentToken": daemon.copilot.silent_token,
+                }
+                # 中文注释：侧栏的本地表格入口不依赖模型启用，但同一个令牌不能授权普通后台 RPC。
+                with self.assertRaises(ProtocolError) as denied:
+                    daemon._dispatch_client("shared.create", params)
+                self.assertEqual(denied.exception.code, "copilot_silent_denied")
+                for marker in (True, False, "trusted"):
+                    with self.assertRaises(ProtocolError) as denied:
+                        daemon._dispatch_client(
+                            "shared.create", {**params, "copilotTableExport": marker}
+                        )
+                    self.assertEqual(denied.exception.code, "invalid_params")
+                with self.assertRaises(ProtocolError) as replaced:
+                    daemon._dispatch_connected_extension(
+                        dict(extension),
+                        "extension.copilot.work_create",
+                        {"url": "https://example.test/data"},
+                    )
+                self.assertEqual(replaced.exception.code, "connection_replaced")
+            daemon._flush_tasks()
+
+    def test_adapter_binds_resource_row_and_preserves_serialized_capability_scope(self):
+        from daemon import BridgeDaemon, ProtocolError
+
+        with tempfile.TemporaryDirectory() as temporary:
+            daemon = BridgeDaemon(Path(temporary), service_factory=AssistAdapter)
+            self.addCleanup(daemon.stop)
+            daemon.data_dir.mkdir(parents=True)
+            extension = {"instanceId": "edge", "browser": "edge"}
+            daemon.extensions["edge"] = extension
+            daemon._dispatch_connected_extension(extension, "extension.copilot.state", {})
+            app = daemon.copilot
+            state = app._state("edge")
+            app.browser_fetches["resource"] = {
+                "instance": "edge",
+                "epoch": state["epoch"],
+                "resource": "serialized",
+                "row_id": "row",
+            }
+            with (
+                patch.object(daemon, "_notify_tasks_changed"),
+                patch.object(app, "_resource_policy", return_value={"example.test": "serialized"}),
+            ):
+                for resource in (None, "forged"):
+                    with self.assertRaises(ProtocolError) as denied:
+                        daemon._dispatch_connected_extension(
+                            extension,
+                            "extension.copilot.work_create",
+                            {"url": "https://example.test/data", "resourceId": resource},
+                        )
+                    self.assertEqual(denied.exception.code, "copilot_denied")
+                for field, value in (("instance", "other"), ("epoch", state["epoch"] + 1)):
+                    with patch.dict(app.browser_fetches["resource"], {field: value}):
+                        with self.assertRaises(ProtocolError) as denied:
+                            daemon._dispatch_connected_extension(
+                                extension,
+                                "extension.copilot.work_create",
+                                {"url": "https://example.test/data", "resourceId": "resource"},
+                            )
+                        self.assertEqual(denied.exception.code, "copilot_denied")
+                task = daemon._dispatch_connected_extension(
+                    extension,
+                    "extension.copilot.work_create",
+                    {"url": "https://example.test/data", "resourceId": "resource"},
+                )
+                self.assertEqual(app.resource_tasks[task["id"]], "resource")
+                self.assertEqual(daemon.tasks[task["id"]]["copilotRowId"], "row")
+            daemon._flush_tasks()
+
     def test_daemon_only_marks_current_copilot_capability_and_never_claims_user_tabs(self):
         from daemon import BridgeDaemon, ProtocolError
         from types import SimpleNamespace
@@ -245,8 +338,11 @@ class SilentTaskBoundaries(unittest.TestCase):
             daemon = BridgeDaemon(Path(temporary).resolve())
             daemon.data_dir.mkdir(parents=True)
             daemon.extensions["edge"] = {"browser": "edge"}
-            daemon.copilot = SimpleNamespace(
-                valid_silent_token=lambda token: token == "proof", silent_token="proof"
+            daemon.optional_service = AssistAdapter(
+                daemon,
+                app=SimpleNamespace(
+                    valid_silent_token=lambda token: token == "proof", silent_token="proof"
+                ),
             )
             daemon.work_window_mode = "current"
             params = {

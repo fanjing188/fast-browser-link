@@ -5,7 +5,6 @@ import {
 } from '../../native-extension/overlay-logs.mjs';
 import { taskTableAdapter } from '../../native-extension/copilot-table-job.mjs';
 import { CopilotBackground } from '../../native-extension/copilot-background.mjs';
-import { CloudLink } from '../support/cloud-link-stub.mjs';
 // 中文注释：VM 夹具显式注入独立 Cookie 模块，保持生产后台模块依赖一致。
 import { CookieMirror } from '../../native-extension/cookie-mirror.mjs';
 import test from 'node:test';
@@ -70,7 +69,6 @@ async function background() {
     updateWorkflowActivity,
     taskTableAdapter,
     CopilotBackground,
-    CloudLink,
     CookieMirror,
     reloadForInstalledBuild: async () => false,
     BUILD_ID: '',
@@ -238,7 +236,6 @@ test('production onCreated preserves ambiguous concurrent children and reports u
     updateWorkflowActivity,
     taskTableAdapter,
     CopilotBackground,
-    CloudLink,
     CookieMirror,
     reloadForInstalledBuild: async () => false,
     BUILD_ID: '',

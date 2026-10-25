@@ -17,7 +17,7 @@ native_tools = native_runtime.load_module(
     ROOT / "executor-plugin/native_tools.py", "oauth_native_tools_"
 )
 action = native_runtime.load_module(
-    ROOT / "executor-plugin/script_lane/action_session.py", "oauth_action_session_"
+    ROOT / "native-bridge/script_lane/action_session.py", "oauth_action_session_"
 )
 vault = native_runtime.load_module(ROOT / "native-bridge/vault_private.py", "oauth_vault_private_")
 from vault_adapter.integration import VaultBindingRegistry
@@ -134,7 +134,7 @@ class ExecutorPopupTests(unittest.TestCase):
             registry.bind("session", owner="owner", task_id="task", tab_id=3)
 
     def test_child_helpers_forward_source_tab_scoped_candidate_ref(self):
-        tree = ast.parse((ROOT / "executor-plugin/script_lane/child.py").read_text())
+        tree = ast.parse((ROOT / "native-bridge/script_lane/child.py").read_text())
         functions = [
             n
             for n in tree.body

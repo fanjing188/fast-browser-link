@@ -282,6 +282,12 @@ Wait until document.readyState reaches ``until``; returns the final state.  The 
 
 扩展能力：`browser_core_v1`。
 
+### `export_page(path='page-export.zip', *, tab=None, max_bytes=32 * 1024 * 1024, max_resources=200)`
+
+保存当前顶层渲染 DOM 与已加载资源的私有离线 ZIP；回执不含页面正文。
+
+扩展能力：`browser_core_v1`。
+
 ### `screenshot(path='shot.png', *, tab=None, name=None, selector=None)`
 
 保存视口截图到工作区或配置的导出根，返回绝对路径。

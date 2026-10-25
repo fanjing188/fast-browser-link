@@ -23,7 +23,6 @@ INPUTS = (
     "scripts/setup-copilot-package.py",
     "package.json",
     "package-lock.json",
-    "cloud-link",
     "THIRD_PARTY_NOTICES.md",
     "third-party",
     "scripts/install-cli.py",

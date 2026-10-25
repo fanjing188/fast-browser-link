@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location(
-    "page_helpers", Path(__file__).resolve().parents[2] / "executor-plugin/script_lane/child.py"
+    "page_helpers", Path(__file__).resolve().parents[2] / "native-bridge/script_lane/child.py"
 )
 child = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(child)

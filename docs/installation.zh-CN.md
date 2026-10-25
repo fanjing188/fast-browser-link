@@ -1,6 +1,6 @@
 # 为你的 Agent 安装
 
-需要 macOS、Chrome/Edge、Python 3.11+。当前源码是未发布候选。从 [Releases](https://github.com/fanjing188/fast-browser-link/releases) 选择已有正式独立 ZIP，不选 Source code 或 Hermes 适配器 ZIP。使用当前候选需按[开发说明](development.md)以 Node.js 22.12+ 从源码构建。
+需要 macOS、Chrome/Edge、Python 3.11+。**Source version: 2.4.0**。从 [Releases](https://github.com/fanjing188/fast-browser-link/releases) 选择正式独立 ZIP 及校验文件，不选 Source code 或 Hermes 适配器 ZIP。源码构建需按[开发说明](development.md)使用 Node.js 22.12+；源码版本标记本身不代表已公开发布。
 
 1. 完整解压，在包目录运行 `python3 -B -m fbl setup`。加 `--dry-run` 可预览；需要时把打印的 CLI 目录加入 PATH。
 2. 打开 `chrome://extensions` 或 `edge://extensions`，启用开发者模式，加载打印的扩展目录，在弹窗确认连接。保留该稳定目录。

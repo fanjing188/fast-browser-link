@@ -1,7 +1,7 @@
 """发现只列标签元数据或在新归属工作页读取结构，不接管用户页面。"""
 
 import json
-from pathlib import Path
+
 import secrets
 import time
 import uuid
@@ -10,34 +10,13 @@ from client import BridgeClient
 
 
 def browser_call(ctx, operation, params, session=None):
-    from fbl_runtime import load
+    from browser_sdk import Browser, session_owner
 
-    root = Path(__file__).resolve().parent.parent
-    entry = next(
-        (
-            p
-            for p in (
-                root / "agent-link/fast_browser_link.py",
-                ctx.runtime / "runtime/agent-link/fast_browser_link.py",
-                root / "agent_link/fast_browser_link.py",
-            )
-            if p.is_file()
-        ),
-        None,
-    )
-    if entry is None:
-        raise ValueError("agent runtime missing")
-    agent = load("fbl_browser_agent", entry)
     if operation not in {"health", "browsers"} and not session:
         raise ValueError("task operations require --session")
-    owner = agent.session_owner(session) if session else None
-    browser = agent.Browser(home=ctx.runtime, owner=owner)
-    try:
+    owner = session_owner(session) if session else None
+    with Browser(home=ctx.runtime, owner=owner) as browser:
         return browser.call(operation, params)
-    finally:
-        if browser.lane is not None:
-            browser.lane.close()
-        browser.client.close()
 
 
 class BrowserDiscovery:

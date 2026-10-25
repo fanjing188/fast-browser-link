@@ -117,7 +117,7 @@ class CopilotTest(unittest.TestCase):
 
     def general(self, task):
         # 中文注释：执行夹具经真实用户入口准备，不借模型输出制造自由任务。
-        with patch.dict(self.state, ready=False):
+        with self.module.lock, patch.dict(self.state, ready=False):
             self.module.request(
                 "browser", "quick_task", {"action": "general.task", "params": {"task": task}}
             )
@@ -705,6 +705,44 @@ class CopilotTest(unittest.TestCase):
         wait_for(lambda: not self.module.executions.jobs and process.poll() is not None)
         wait_for(lambda: row["status"] == "stopped")
 
+    def test_general_preparation_serializes_background_refresh(self):
+        original = self.module.request
+        probed, refreshed = threading.Event(), threading.Event()
+        acquired = []
+        workers = []
+
+        def request(instance, method, params):
+            if method == "quick_task":
+
+                def refresh():
+                    held = self.module.lock.acquire(blocking=False)
+                    acquired.append(held)
+                    if held:
+                        self.module.lock.release()
+                    probed.set()
+                    self.module.view(instance)
+                    refreshed.set()
+
+                worker = threading.Thread(target=refresh)
+                workers.append(worker)
+                worker.start()
+                self.assertTrue(probed.wait(2))
+                self.assertEqual(acquired, [False], "临时准备状态不能被后台刷新观察")
+            return original(instance, method, params)
+
+        try:
+            with patch.object(self.module, "request", side_effect=request):
+                row = self.general("synthetic prepared task")
+            self.assertTrue(refreshed.wait(2))
+            self.assertIs(self.state["suggestions"][row["id"]], row)
+            self.assertTrue(row["explicit"])
+            self.assertEqual(row["status"], "pending")
+            self.assertTrue(self.state["ready"])
+        finally:
+            for worker in workers:
+                worker.join(2)
+                self.assertFalse(worker.is_alive())
+
     def test_stream_result_schema_and_oversize_rejection(self):
         for mode in ("bad_schema", "huge_result", "bad_stream", "huge_stream"):
             row = self.general(mode)
@@ -790,8 +828,9 @@ class CopilotTest(unittest.TestCase):
         self.module.journal.flush()
         self.assertFalse(old.exists())
         from daemon import BridgeDaemon, ProtocolError
+        from assist_adapter import AssistAdapter
 
-        daemon = BridgeDaemon(self.directory / "home")
+        daemon = BridgeDaemon(self.directory / "home", service_factory=AssistAdapter)
         extension = {"instanceId": "fixture"}
         daemon.extensions["fixture"] = extension
         self.assertFalse(
@@ -805,7 +844,9 @@ class CopilotTest(unittest.TestCase):
             )
         with self.assertRaises(ACPError):
             self.module.runtime.call("unsupported", {})
-        daemon.copilot.close()
+        product = daemon.copilot
+        daemon.stop()
+        self.assertTrue(product.closed)
 
 
 class ModelCatalogTest(unittest.TestCase):

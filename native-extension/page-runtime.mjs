@@ -55,6 +55,7 @@ export class PageRuntime {
     return t.execution ?? null;
   }
   assertAccess(t) {
+    if (t?.executionLane === 'product_fill') throw fail('PRODUCT_LANE_REQUIRED');
     if (!t || t.revoked || !['smart', 'full'].includes(t.policy?.activeMode))
       throw fail('BROWSER_ACCESS_REQUIRED');
     if (t.paused || t.pauseRequested) throw fail('task paused');
@@ -360,6 +361,8 @@ export class PageRuntime {
       if (p.method.startsWith('Input.'))
         inputWindow = await this.openInputWindow(t, p.tabId, p.method, params, guard, { gateway });
       await this.assertTargetScope(t, p, guard, target, { allFrames: true });
+      // 中文注释：enable 可在响应前同步发上下文/脚本事件；先登记现有授权页的缓冲，避免首批丢失。
+      if (!gateway) this.subscribe(t, p.tabId, target.sessionId || null, 'buffer');
       const result = await bounded(
         this.executor.api.debugger.sendCommand(target, p.method, params),
       );
@@ -384,7 +387,6 @@ export class PageRuntime {
         error.outcomeUnknown = true;
         throw error;
       }
-      if (!gateway) this.subscribe(t, p.tabId, target.sessionId || null, 'buffer');
       const safe = ['Page.captureScreenshot', 'Page.printToPDF'].includes(p.method)
         ? result
         : omitPasswordValues(result, await this.executor.collectPasswords(t, p));

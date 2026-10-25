@@ -184,8 +184,13 @@ class StagedDiagnosticsClosureTests(unittest.TestCase):
             source_root = scratch_root / "source"
             bridge_source = source_root / "native-bridge"
             bridge_source.mkdir(parents=True)
-            for name in ("install.py", "host.py", "client.py", "daemon.py", "api_client.py"):
-                shutil.copyfile(ROOT / "native-bridge" / name, bridge_source / name)
+            # 中文注释：复制当前真实宿主闭包后只移除目标模块，避免新 bootstrap 缺件掩盖负例。
+            shutil.copytree(
+                ROOT / "native-bridge",
+                bridge_source,
+                dirs_exist_ok=True,
+                ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "tests"),
+            )
             diagnostics_source = source_root / "browser-diagnostics/python/browser_diagnostics"
             shutil.copytree(
                 ROOT / "browser-diagnostics/python/browser_diagnostics", diagnostics_source

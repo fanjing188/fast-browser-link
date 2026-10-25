@@ -3,7 +3,7 @@
 import json
 import os
 from pathlib import Path
-import shlex
+
 import subprocess
 import sys
 import threading
@@ -13,22 +13,39 @@ from unittest.mock import patch
 from test_native_tools import ROOT, load
 
 sys.path.insert(0, str(ROOT.parent / "native-bridge"))
-from tests.support import stop_fixture_daemon, temporary_bridge_home  # noqa: E402
+from tests.support import (  # noqa: E402
+    fixture_daemon_path,
+    stop_fixture_daemon,
+    temporary_bridge_home,
+)
 
 
 def _is_fixture_daemon(command, home):
-    try:
-        arguments = shlex.split(command)
-        daemon_home = Path(arguments[arguments.index("--home") + 1]).resolve()
-    except (IndexError, ValueError):
-        return False
-    return (
-        any(Path(argument).name == "daemon.py" for argument in arguments)
-        and daemon_home == Path(home).resolve()
-    )
+    # 中文注释：复用真实夹具的完整入口和末尾 home 核验，不按文件名猜测待停止的进程。
+    candidates = [
+        ROOT.parent / "native-bridge" / entry for entry in ("assist_adapter.py", "daemon.py")
+    ]
+    return fixture_daemon_path(Path(home), command, candidates) is not None
 
 
 class NativeIntegrationTests(unittest.TestCase):
+    def test_fixture_identity_accepts_only_exact_bootstrap_and_home(self):
+        home = Path("/fixture/runtime")
+        core = ROOT.parent / "native-bridge"
+        for entry in ("assist_adapter.py", "daemon.py"):
+            self.assertTrue(
+                _is_fixture_daemon(f"{sys.executable} {core / entry} --home {home}", home)
+            )
+            self.assertFalse(
+                _is_fixture_daemon(f"{sys.executable} /foreign/{entry} --home {home}", home)
+            )
+            self.assertFalse(
+                _is_fixture_daemon(f"{sys.executable} {core / entry} --home {home}-other", home)
+            )
+            self.assertFalse(
+                _is_fixture_daemon(f"{sys.executable} {core / entry} --home {home} --extra", home)
+            )
+
     def test_real_hermes_bounded_hook_to_real_client(self):
         hermes_root = Path(
             os.environ.get("HERMES_SOURCE", str(Path.home() / ".hermes/hermes-agent"))
@@ -93,7 +110,7 @@ class NativeIntegrationTests(unittest.TestCase):
                         command = subprocess.check_output(
                             ["ps", "-p", str(daemon_pid), "-o", "command="], text=True
                         )
-                        self.assertIn("daemon.py", command)
+                        self.assertIn(str(client_path.with_name("assist_adapter.py")), command)
                         self.assertTrue(_is_fixture_daemon(command, tmp), command)
                         self.assertTrue((pid_path.parent / "bridge.sock").is_socket())
                         self.assertNotEqual(threads[0], threading.get_ident())

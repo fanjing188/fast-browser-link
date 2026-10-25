@@ -30,10 +30,23 @@ test('桥接候选包包含完整清单且不包含旧独立引擎', (t) => {
     'fast-browser-link/open_tool.py',
     'fast-browser-link/skills/fast-browser-link/SKILL.md',
     'fast-browser-link/native_bridge/daemon.py',
+    'fast-browser-link/native_bridge/browser_sdk.py',
+    'fast-browser-link/native_bridge/fbl_scripts.py',
+    'fast-browser-link/native_bridge/script_lane/host_bridge.py',
+    'fast-browser-link/native_bridge/script_lane/action_session.py',
+    'fast-browser-link/native_bridge/script_lane/child.py',
+    'fast-browser-link/native_bridge/script_lane/tool.py',
+    'fast-browser-link/native_bridge/script_lane/page-request.js',
+    'fast-browser-link/native_bridge/site_tools/store.py',
+    'fast-browser-link/native_bridge/site_tools/tools.py',
     'native-extension/manifest.json',
     'install-executor.py',
   ];
   for (const name of expected) assert.ok(manifest[name], `missing ${name}`);
+  assert.ok(
+    Object.keys(manifest).every((name) => !/cloud[-_]link|cloud-popup\.mjs/.test(name)),
+    'new packages must not ship the retired cloud runtime or extension entries',
+  );
   assert.ok(Object.keys(manifest).every((name) => !name.startsWith('fast-browser-link/engine/')));
   assert.ok(!Object.hasOwn(manifest, 'docs/EXECUTOR-ACCEPTANCE.md'));
   for (const [name, expectedHash] of Object.entries(manifest)) {

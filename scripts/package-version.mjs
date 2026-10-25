@@ -9,15 +9,22 @@ export const JSON_VERSION_FILES = [
   'package-lock.json',
   'executor-plugin/dashboard/manifest.json',
   'native-extension/manifest.json',
-  'cloud-link/site/package.json',
-  'cloud-link/site/package-lock.json',
+];
+export const SKILL_VERSION_FILES = [
+  'skills/fast-browser-link/SKILL.md',
+  'executor-plugin/skills/fast-browser-link/SKILL.md',
+  'executor-plugin/skills/fast-browser-batch-scrape/SKILL.md',
+  'executor-plugin/skills/fast-browser-troubleshoot/SKILL.md',
 ];
 export const TEXT_VERSION_FILES = [
   'executor-plugin/plugin.yaml',
   'README.md',
   'README.zh-CN.md',
+  'docs/installation.md',
+  'docs/installation.zh-CN.md',
   'docs/releasing.md',
   'scripts/migrate-to-fast-browser-link.py',
+  ...SKILL_VERSION_FILES,
 ];
 export const MIGRATION_VERSIONS = /extension\[['"]version['"]\]\s+not\s+in\s*\{([^}]+)\}/;
 
@@ -98,19 +105,36 @@ export async function verifyPackageVersions(source) {
 // 中文注释：只检查当前说明的版本副本，历史发布说明和 CHANGELOG 旧节不参与同步。
 export async function verifyReleaseVersions(source) {
   const version = await verifyPackageVersions(source);
-  for (const file of ['README.md', 'README.zh-CN.md', 'docs/releasing.md']) {
+  for (const file of SKILL_VERSION_FILES) {
+    const text = await sourceText(source, file);
+    const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(text);
+    const fields = [...(frontmatter?.[1] || '').matchAll(/^version:\s*(\S+)\s*$/gm)];
+    if (fields.length !== 1) mismatch(file, text, 0, 'exactly one Skill version is required');
+    expectVersion(file, text, text.indexOf(fields[0][0]), fields[0][1], version, 'Skill version');
+  }
+  for (const file of [
+    'README.md',
+    'README.zh-CN.md',
+    'docs/installation.md',
+    'docs/installation.zh-CN.md',
+    'docs/releasing.md',
+  ]) {
     const text = await sourceText(source, file);
     const matches = documentVersionMatches(text);
     if (!matches.length) mismatch(file, text, 0, 'current release version is missing');
     for (const match of matches)
       expectVersion(file, text, match.index, match[0], version, 'document version');
-    const required = file.startsWith('README')
-      ? [`Unreleased (${version} candidate)`, 'docs/installation']
-      : [
-          `artifacts/public-source-${version}`,
-          `--release ${version} --output out/fast-browser-link-${version}`,
-          `tag \`v${version}\``,
-        ];
+    const required =
+      file.startsWith('README') || file.startsWith('docs/installation')
+        ? [
+            `Source version: ${version}`,
+            ...(file.startsWith('README') ? ['docs/installation'] : []),
+          ]
+        : [
+            `artifacts/public-source-${version}`,
+            `--release ${version} --output out/fast-browser-link-${version}`,
+            `tag \`v${version}\``,
+          ];
     for (const token of required)
       if (!text.includes(token))
         mismatch(file, text, 0, `missing current release reference: ${token}`);

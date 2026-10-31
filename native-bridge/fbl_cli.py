@@ -279,9 +279,7 @@ def parser():
             s.add_argument("--fix", action="store_true")
         elif name == "logs":
             s.add_argument("--follow", action="store_true")
-            s.add_argument(
-                "--type", choices=["system", "execution", "capture"]
-            )
+            s.add_argument("--type", choices=["system", "execution", "capture"])
             s.add_argument("--errors", action="store_true")
             s.add_argument("--bundle", nargs="?", const="fbl-diagnostics.zip")
         elif name == "mcp":

@@ -4048,10 +4048,7 @@ class BridgeDaemon:
                     and (
                         force
                         or not t.get("ungroupAttempted")
-                        or (
-                            t.get("cleanupState") == "unknown"
-                            and t.get("ungroupAttempts", 1) < 2
-                        )
+                        or (t.get("cleanupState") == "unknown" and t.get("ungroupAttempts", 1) < 2)
                         or "autoClosePending" in t
                     )
                     and (t.get("workTabs") or "autoClosePending" in t)

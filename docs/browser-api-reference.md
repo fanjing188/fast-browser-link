@@ -433,7 +433,7 @@ health/browsers 使用运行时已解析的 bridge_home；doctor/reference 跟�
 
 ```json
 {
-  "description": "仅在多实例歧义或诊断时调用；通常直接 fast_browser_open。只读列出 Chrome/Edge 实例和主要链接标记；多台可用时 fast_browser_open 优先使用已启用的主要链接。",
+  "description": "仅在多实例歧义或诊断时调用；通常直接 fast_browser_open。只读列出 Chrome/Edge 已连接或曾连接实例及主要链接标记；离线实例可在创建任务时尝试启动。多台可用时优先已启用的主要链接。",
   "parameters": {
     "type": "object",
     "properties": {},
@@ -447,7 +447,7 @@ health/browsers 使用运行时已解析的 bridge_home；doctor/reference 跟�
 
 ```json
 {
-  "description": "在指定浏览器实例中为给定网站建任务（默认共享普通登录状态，incognito=true 使用无痕会话）。通常直接用 fast_browser_open；就绪后用 new_tab 打开工作页。详见技能 fast-browser-link:fast-browser-link。",
+  "description": "在指定浏览器实例中为给定网站建任务（默认共享普通登录状态，incognito=true 使用无痕会话）。曾连接的离线实例会尝试后台启动并等待重连；失败不换浏览器。通常直接用 fast_browser_open；就绪后用 new_tab 打开工作页。详见技能 fast-browser-link:fast-browser-link。",
   "parameters": {
     "type": "object",
     "properties": {

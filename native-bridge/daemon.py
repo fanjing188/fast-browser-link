@@ -24,6 +24,7 @@ import select
 import signal
 import socket
 import stat
+import subprocess
 import tempfile
 import threading
 import time
@@ -349,6 +350,8 @@ def _safe_error_data(data: Any) -> dict:
 
 
 _DAEMON_IDLE_GRACE_SECONDS = 30.0
+_BROWSER_WAKE_WAIT_SECONDS = 12.0
+_BROWSER_WAKE_COOLDOWN_SECONDS = 15.0
 
 
 class BridgeDaemon:
@@ -407,6 +410,9 @@ class BridgeDaemon:
         self.pending_journal = []
         self.journal_path = self.data_dir / "requests.jsonl"
         self.primary_path = self.data_dir / "primary-browser.json"
+        self.known_browsers_path = self.data_dir / "known-browsers.json"
+        self.browser_launch_lock = threading.Lock()
+        self.browser_launch_attempts = {}
         self.task_log_dir = self.data_dir / "task-logs"
         self.task_log_lock = threading.Lock()
         self.task_log_pruned_at = None
@@ -842,6 +848,126 @@ class BridgeDaemon:
         ):
             raise ProtocolError("invalid_state", "主要链接配置无效")
         return value
+
+    def _known_browsers(self):
+        try:
+            value = json.loads(_read_private_regular(self.known_browsers_path).decode("utf-8"))
+        except FileNotFoundError:
+            return []
+        if (
+            not isinstance(value, dict)
+            or value.get("version") != 1
+            or not isinstance(value.get("browsers"), list)
+            or len(value["browsers"]) > 16
+            or any(
+                not isinstance(row, dict)
+                or set(row) != {"instanceId", "browser", "lastSeenAt"}
+                or not isinstance(row["instanceId"], str)
+                or not 0 < len(row["instanceId"]) <= 256
+                or row["browser"] not in {"chrome", "edge"}
+                or not isinstance(row["lastSeenAt"], (int, float))
+                or not math.isfinite(row["lastSeenAt"])
+                for row in value["browsers"]
+            )
+        ):
+            raise ProtocolError("invalid_state", "known browser record is invalid")
+        return value["browsers"]
+
+    def _known_browsers_safe(self):
+        try:
+            return self._known_browsers()
+        except (OSError, ValueError, RuntimeError, ProtocolError):
+            # 可选连接历史损坏不影响已连接浏览器，也不能变成启动授权。
+            return []
+
+    def _remember_browser(self, instance_id, browser):
+        with self.browser_launch_lock:
+            known = [row for row in self._known_browsers() if row["instanceId"] != instance_id]
+            known.append({"instanceId": instance_id, "browser": browser, "lastSeenAt": time.time()})
+            _atomic_write_private(
+                self.known_browsers_path,
+                json.dumps({"version": 1, "browsers": known[-16:]}, separators=(",", ":")).encode(),
+            )
+
+    def _seed_known_browsers(self):
+        # 2.5.0 之前没有连接历史文件；已创建任务本身证明对应实例曾成功连接。
+        if os.path.lexists(self.known_browsers_path):
+            self._known_browsers_safe()
+            return
+        by_id = {}
+        for task in self.tasks.values():
+            instance_id, browser = task.get("instanceId"), task.get("browser")
+            seen = task.get("updatedAt")
+            if (
+                not isinstance(instance_id, str)
+                or not 0 < len(instance_id) <= 256
+                or browser not in {"chrome", "edge"}
+                or not isinstance(seen, (int, float))
+                or not math.isfinite(seen)
+            ):
+                continue
+            previous = by_id.get(instance_id)
+            if previous is None or previous["lastSeenAt"] < seen:
+                by_id[instance_id] = {
+                    "instanceId": instance_id,
+                    "browser": browser,
+                    "lastSeenAt": seen,
+                }
+        if by_id:
+            ordered = sorted(by_id.values(), key=lambda row: row["lastSeenAt"])[-16:]
+            _atomic_write_private(
+                self.known_browsers_path,
+                json.dumps({"version": 1, "browsers": ordered}, separators=(",", ":")).encode(),
+            )
+
+    @staticmethod
+    def _launch_browser(browser):
+        if sys.platform != "darwin":
+            raise ProtocolError("browser_launch_failed", "automatic browser startup needs macOS")
+        bundle = {"chrome": "com.google.Chrome", "edge": "com.microsoft.edgemac"}[browser]
+        try:
+            result = subprocess.run(
+                ["/usr/bin/open", "-g", "-b", bundle],
+                capture_output=True,
+                timeout=5,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            raise ProtocolError("browser_launch_failed", "browser startup failed") from None
+        if result.returncode != 0:
+            raise ProtocolError("browser_launch_failed", "browser startup failed")
+
+    def _ensure_task_browser(self, instance_id):
+        with self.state_lock:
+            if instance_id in self.extensions:
+                return
+        known = next(
+            (row for row in self._known_browsers_safe() if row["instanceId"] == instance_id),
+            None,
+        )
+        primary = self._primary_browser()
+        if known is None and primary is not None and primary["instanceId"] == instance_id:
+            known = primary
+        if known is None:
+            raise ProtocolError("instance_unavailable", "browser instance is not connected")
+        with self.browser_launch_lock:
+            with self.state_lock:
+                if instance_id in self.extensions:
+                    return
+            now = time.monotonic()
+            if (
+                now - self.browser_launch_attempts.get(instance_id, -math.inf)
+                >= _BROWSER_WAKE_COOLDOWN_SECONDS
+            ):
+                self.browser_launch_attempts[instance_id] = now
+                self._launch_browser(known["browser"])
+        deadline = time.monotonic() + _BROWSER_WAKE_WAIT_SECONDS
+        while not self.stop_event.is_set() and time.monotonic() < deadline:
+            with self.state_lock:
+                if instance_id in self.extensions:
+                    return
+            time.sleep(0.1)
+        raise ProtocolError("instance_unavailable", "browser did not reconnect after startup")
 
     def _set_primary_browser(self, instance_id):
         with self.state_lock:
@@ -1428,6 +1554,7 @@ class BridgeDaemon:
             self.task_locks[task["id"]] = threading.RLock()
             self.cleanup_locks[task["id"]] = threading.Lock()
             self.dedupe[task["id"]] = restored_dedupe
+        self._seed_known_browsers()
         if any(self._task_archive_due(task, time.time()) for task in self.tasks.values()):
             self._flush_tasks()
         elif changed:
@@ -1766,6 +1893,26 @@ class BridgeDaemon:
                         "accessRequestSupported": item.get("accessRequestSupported") is True,
                     }
                 )
+            connected_ids = {item["instanceId"] for item in result}
+            for known in self._known_browsers_safe():
+                if known["instanceId"] in connected_ids:
+                    continue
+                result.append(
+                    {
+                        "instanceId": known["instanceId"],
+                        "browser": known["browser"],
+                        "version": "",
+                        "features": [],
+                        "connected": False,
+                        "consentStatus": "unknown",
+                        "accessRequestSupported": False,
+                        "primary": bool(
+                            primary
+                            and known["instanceId"] == primary["instanceId"]
+                            and known["browser"] == primary["browser"]
+                        ),
+                    }
+                )
             if primary and not any(item["primary"] for item in result):
                 result.append(
                     {
@@ -2001,15 +2148,25 @@ class BridgeDaemon:
         incognito = params.get("incognito", False)
         if type(incognito) is not bool:
             raise ProtocolError("invalid_params", "incognito must be a boolean")
-        attachment = None
-        attachment_extension = None
-        attachment_generation = None
+        if "apiUrls" in params:
+            raise ProtocolError("invalid_params", "separate API URL scope is not supported")
+        selector = params.get("existingTab") if "existingTab" in params else None
         if "existingTab" in params:
-            selector = params["existingTab"]
             if silent or not isinstance(selector, dict) or set(selector) - {"url"}:
                 raise ProtocolError("invalid_params", "existingTab only accepts an optional URL")
             if "url" in selector:
                 self._validate_action_url(selector["url"], [])
+        origins = (
+            None
+            if "existingTab" in params
+            else self._validate_origins(params.get("allowedOrigins"))
+        )
+        # 只有已登记的同一实例才可由任务启动路径唤醒；连接回执到达前不创建任务。
+        self._ensure_task_browser(instance_id)
+        attachment = None
+        attachment_extension = None
+        attachment_generation = None
+        if "existingTab" in params:
             with self.state_lock:
                 attachment_extension = self.extensions.get(instance_id)
                 if attachment_extension is not None:
@@ -2051,7 +2208,7 @@ class BridgeDaemon:
             parsed = urlsplit(attachment["url"])
             origins = self._validate_origins([f"{parsed.scheme}://{parsed.netloc}"])
         else:
-            origins = self._validate_origins(params.get("allowedOrigins"))
+            assert origins is not None
         if incognito:
             with self.state_lock:
                 checked_extension = self.extensions.get(instance_id)
@@ -2067,8 +2224,6 @@ class BridgeDaemon:
                     {"outcomeUnknown": False},
                 )
         # 中文注释：页面请求只受任务来源与浏览器模式控制，不预登记单独的 URL 清单。
-        if "apiUrls" in params:
-            raise ProtocolError("invalid_params", "separate API URL scope is not supported")
         with self.state_lock:
             extension = self.extensions.get(instance_id)
             if extension is None:
@@ -6352,6 +6507,12 @@ class BridgeDaemon:
                 }
                 # 中文注释：当前读循环只持有自己登记的连接，不能在锁外重新取到并发替换后的 socket。
                 self.extensions[instance_id] = extension
+            try:
+                self._remember_browser(instance_id, browser)
+            except (OSError, ValueError, RuntimeError, ProtocolError):
+                logging.getLogger("fast-browser-link").warning(
+                    "浏览器连接历史未保存，自动启动不可用。"
+                )
             self._diagnostic("connection_state", "connected")
             hello_result = {"connected": True}
             if access_request_supported:

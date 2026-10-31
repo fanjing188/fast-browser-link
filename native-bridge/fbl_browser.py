@@ -50,10 +50,19 @@ class BrowserDiscovery:
         task = None
         owner = secrets.token_urlsafe(24)
         try:
-            browsers = [row for row in client.call("browser.list", {}) if row.get("connected")]
-            if not browsers:
-                raise ValueError("no connected browser")
-            browser = browsers[0]
+            listed = client.call("browser.list", {})
+            browsers = [row for row in listed if row.get("connected")]
+            remembered = [row for row in listed if row.get("connected") is False]
+            if browsers:
+                browser = browsers[0]
+            else:
+                primary = [row for row in remembered if row.get("primary") is True]
+                if len(primary) == 1:
+                    browser = primary[0]
+                elif len(remembered) == 1:
+                    browser = remembered[0]
+                else:
+                    raise ValueError("no unambiguous browser to start")
             identity = browser.get("instanceId") or browser.get("id")
             task = client.call(
                 "shared.create",

@@ -257,6 +257,7 @@ PYTHON_FILES = {
         "test_cleanup_contract.py",
         "test_cancel_routing.py",
         "test_browser_consent.py",
+        "test_browser_wake.py",
         "test_manual_input.py",
     ),
 }

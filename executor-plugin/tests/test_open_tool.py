@@ -280,6 +280,35 @@ class OpenToolTests(unittest.TestCase):
         self.assertEqual(smart["instance_id"], "edge-1")
         self.assertNotIn("primaryUnavailable", smart)
 
+    def test_remembered_offline_browser_can_start_a_new_task(self):
+        offline = {**EDGE, "connected": False, "primary": True, "consentStatus": "unknown"}
+        self.make([offline])
+        result = self.open({"url": "https://shop.example/list"})
+        self.assertEqual(result["instance_id"], "edge-1")
+        self.assertEqual(self.methods().count("shared.create"), 1)
+        self.make([offline, {**CHROME, "connected": False}])
+        result = self.open({"url": "https://shop.example/list", "instance_id": "chrome-1"})
+        self.assertEqual(result["instance_id"], "chrome-1")
+
+    def test_offline_launch_failure_reports_no_task(self):
+        offline = {**EDGE, "connected": False, "primary": True, "consentStatus": "unknown"}
+        self.make([offline])
+        original = self.runtime.call
+        client_module = native_runtime.load_module(
+            PLUGIN.parent / "native-bridge/client.py", "wake_client_"
+        )
+
+        def call(method, params):
+            if method == "shared.create":
+                raise client_module.BridgeError("browser_launch_failed", "failed")
+            return original(method, params)
+
+        self.runtime.call = call
+        result = self.open({"url": "https://shop.example/list"})
+        self.assertEqual(result["code"], "browser_launch_failed")
+        self.assertIn("未创建任务", result["error"])
+        self.assertNotIn("task_id", result)
+
     def test_open_receipt_counts_session_pages_and_reminds_above_six(self):
         self.make([CHROME])
         for index in range(7):

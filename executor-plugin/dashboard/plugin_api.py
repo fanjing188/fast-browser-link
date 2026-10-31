@@ -577,9 +577,12 @@ def shared_create(body: SharedCreateBody):
         runtime = _native_profile_runtime()
         browsers = runtime.call("browser.list", {})
         if not any(
-            b.get("instanceId") == body.instanceId and b.get("connected") is True for b in browsers
+            b.get("instanceId") == body.instanceId
+            and b.get("browser") in {"chrome", "edge"}
+            and b.get("connected") in {True, False}
+            for b in browsers
         ):
-            raise HTTPException(422, "请选择已连接的浏览器实例；不会自动切换浏览器")
+            raise HTTPException(422, "请选择已连接或曾连接的浏览器实例")
         return runtime.call(
             "shared.create", dict(body.model_dump(), owner=runtime.authority.ui_owner())
         )

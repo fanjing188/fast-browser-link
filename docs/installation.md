@@ -1,6 +1,6 @@
 # Install for your Agent
 
-Requires macOS, Chrome/Edge and Python 3.11+. **Source version: 2.5.0**. Choose a published independent ZIP and its checksums from [Releases](https://github.com/fanjing188/fast-browser-link/releases), not Source code or the Hermes adapter ZIP. Source builds require Node.js 22.12+ as described in [development](development.md); a source checkout alone does not establish publication status.
+Requires macOS, Chrome/Edge and Python 3.11+. **Source version: 2.5.1**. Choose a published independent ZIP and its checksums from [Releases](https://github.com/fanjing188/fast-browser-link/releases), not Source code or the Hermes adapter ZIP. Source builds require Node.js 22.12+ as described in [development](development.md); a source checkout alone does not establish publication status.
 
 1. Extract the entire package and run `python3 -B -m fbl setup`. Preview with `--dry-run`; add the printed CLI directory to PATH if needed.
 2. In `chrome://extensions` or `edge://extensions`, enable Developer mode and load the printed unpacked extension directory. Confirm connection in the popup. Keep that directory in place.

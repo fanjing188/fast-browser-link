@@ -42,6 +42,10 @@ node tests/v1.4.4/real-round1f.mjs --edge
 
 真实等待命中比较旧/新算法各五次，完整解析需减少至少 70%，p50 命中延迟不退步。机械基准仍需相同浏览器和起点 1.4.3，p50 退步不超过 10%。受限环境无法启动服务时，应记录阻塞并在可运行环境复查。
 
+## 2.5.1 browser wake
+
+离线浏览器唤醒回归在 `native-bridge/tests/test_browser_wake.py`、`executor-plugin/tests/test_open_tool.py` 与 `executor-plugin/tests/test_api_native.py`。测试使用临时账本和替身启动器，覆盖旧账本恢复、已知实例选择、同实例回连、并发合并、启动失败、超时、无效任务拒绝和不创建任务。实际 macOS 的 `open -g -b` 目标 bundle ID 已在本机安装包中读回；这些离线测试不证明个人浏览器在关闭状态下的真实重连，正式升级时不为测试而退出用户浏览器。
+
 ## 1.4.3 automatic cleanup
 
 `npm test` includes `tests/v1.4.3/autoclose.test.mjs` and `tests/v1.4.3/test_autoclose.py`. They use synthetic browser APIs, temporary ledgers and the actual plugin hooks. Run the real fixture separately on your Mac:

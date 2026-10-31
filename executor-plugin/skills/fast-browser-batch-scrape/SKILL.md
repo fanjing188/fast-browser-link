@@ -1,6 +1,6 @@
 ---
 name: fast-browser-batch-scrape
-version: 2.5.0
+version: 2.5.1
 description: Use fast_browser_script to read, locate elements by meaning and act in bulk in the user's authorized browser with Python — paging, extraction, de-duplication, saving, multi-step forms. Fewer model round trips.
 ---
 

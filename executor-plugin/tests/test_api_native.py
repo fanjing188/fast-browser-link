@@ -151,7 +151,7 @@ class NativeApiTests(unittest.TestCase):
         )
         self.assertEqual(self.bridge.calls, [])
 
-    def test_create_requires_connected_instance_and_exact_origins(self):
+    def test_create_accepts_remembered_instance_and_requires_exact_origins(self):
         self.assertEqual(self.client.get(PREFIX + "/browsers").status_code, 200)
         payload = {
             "title": "共享任务",
@@ -163,8 +163,10 @@ class NativeApiTests(unittest.TestCase):
         self.assertEqual(response.json()["state"], "pending_approval")
         self.assertIn("扩展", response.json()["message"])
         self.assertEqual(self.bridge.tasks["created"]["owner"], self.runtime.authority.ui_owner())
+        offline = self.client.post(PREFIX + "/tasks", json=payload | {"instanceId": "offline"})
+        self.assertEqual(offline.status_code, 201, offline.text)
         for bad in [
-            {"instanceId": "offline"},
+            {"instanceId": "unknown"},
             {"instanceId": ""},
             {"allowedOrigins": ["https://example.org/path"]},
             {"allowedOrigins": ["https://user:pass@example.org"]},

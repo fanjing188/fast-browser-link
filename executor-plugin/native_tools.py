@@ -3,7 +3,7 @@
 Parent integration: load this module by path; call runtime_module(), then
 get_native_profile_runtime(home, plugin_root), then register_native_context(ctx,
 runtime, cleanup=...). Export TOOL_SCHEMAS/TOOL_NAMES for manifest alignment.
-The ninth tool is health; browsers enumerates explicit connected instance IDs.
+The ninth tool is health; browsers enumerates connected and remembered offline instance IDs.
 Neither schemas nor RPC adapters accept a model-provided owner or approval.
 """
 
@@ -169,11 +169,11 @@ TOOL_SCHEMAS = {
         "parameters": _object({}),
     },
     "fast_browser_browsers": {
-        "description": "仅在多实例歧义或诊断时调用；通常直接 fast_browser_open。只读列出 Chrome/Edge 实例和主要链接标记；多台可用时 fast_browser_open 优先使用已启用的主要链接。",
+        "description": "仅在多实例歧义或诊断时调用；通常直接 fast_browser_open。只读列出 Chrome/Edge 已连接或曾连接实例及主要链接标记；离线实例可在创建任务时尝试启动。多台可用时优先已启用的主要链接。",
         "parameters": _object({}),
     },
     "fast_browser_create": {
-        "description": "在指定浏览器实例中为给定网站建任务（默认共享普通登录状态，incognito=true 使用无痕会话）。通常直接用 fast_browser_open；就绪后用 new_tab 打开工作页。详见技能 fast-browser-link:fast-browser-link。",
+        "description": "在指定浏览器实例中为给定网站建任务（默认共享普通登录状态，incognito=true 使用无痕会话）。曾连接的离线实例会尝试后台启动并等待重连；失败不换浏览器。通常直接用 fast_browser_open；就绪后用 new_tab 打开工作页。详见技能 fast-browser-link:fast-browser-link。",
         "parameters": _object(
             {
                 "title": _text(200),
@@ -1121,6 +1121,7 @@ def make_tool_handler(tool_name, profile_runtime, *, host_bridge=None, backend_c
                 "redirected_out_of_scope": "页面跳转到任务范围外的网站（finalOrigin），未在该页继续执行；需要该网站时用 fast_browser_open 以该来源新开任务。",
                 "task_closed": "任务已结束；请重新 fast_browser_open。",
                 "instance_unavailable": "浏览器扩展未连接；请检查连接后重新读取任务状态。",
+                "browser_launch_failed": "曾连接的浏览器启动失败；请手动打开并检查扩展连接。未创建任务。",
                 "invalid_state": "任务未就绪；请查看状态。若已结束，请重新 fast_browser_open。",
                 "task_preparing": "任务授权正在准备或等待浏览器批准；请先查询任务状态，ready 后重新调用。本次未执行。",
                 # 中文注释：截图超时不返回图片，也不建议自动重试。

@@ -3,7 +3,7 @@
   "label": "浏览器连接",
   "description": "浏览器连接授权与 Cookie 镜像；桌面界面由 Hermes 插件提供。",
   "icon": "Globe",
-  "version": "2.5.0",
+  "version": "2.5.1",
   "tab": {
     "path": "/fast-browser-link",
     "position": "after:sessions",

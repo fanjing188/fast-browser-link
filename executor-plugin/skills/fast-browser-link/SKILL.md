@@ -1,6 +1,6 @@
 ---
 name: fast-browser-link
-version: 2.5.0
+version: 2.5.1
 description: Standard workflow and safety rules for working in the user's own logged-in Chrome/Edge (open pages, read, click, fill, page through, upload, download). Read this before using the user's browser.
 ---
 
@@ -23,6 +23,7 @@ Takeover pauses. Cookie mirror needs source-extension confirmation. Auto-update 
 ## Standard flow
 
 1. **Start**: `fast_browser_open(url=...)` 自动选浏览器、建或复用同站任务、等待授权并绑定/打开工作页，返回 `task_id`、`tab_id`。先 open；仅歧义或诊断时列浏览器。
+   - 若所选浏览器曾连接但当前离线，创建任务会后台尝试启动该浏览器，并等待同一实例重连；未重连就返回错误，不换用另一浏览器。重连后仍按原有授权流程进行。
    - **原页接管**：仅用户明确要求时传 `existing_tab=true`，无 `url` 选当前页，有则唯一精确匹配；不刷新/导航/建页。歧义请用户切目标页到前台再接管，不猜 tabId。结束保留原页和分组；断线后重新显式选页，不 resume 旧编号。
    - `browser_choice_required`: pass `instance_id`; Hermes process environment `FAST_BROWSER_DEFAULT=edge`, `chrome` or an instance ID sets the default.
    - `awaiting_authorization`: confirm browser access in the extension; wait for `fast_browser_get(task_id).state=ready`, then call `fast_browser_open` again.

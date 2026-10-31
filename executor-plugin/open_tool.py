@@ -122,8 +122,16 @@ def _default_browser(runtime):
 
 def _pick_browser(rows, instance_id, default_browser=None):
     connected = [row for row in rows if isinstance(row, dict) and row.get("connected") is True]
+    remembered = [
+        row
+        for row in rows
+        if isinstance(row, dict)
+        and row.get("connected") is False
+        and row.get("browser") in {"chrome", "edge"}
+        and isinstance(row.get("instanceId"), str)
+    ]
     if instance_id:
-        match = [row for row in connected if row.get("instanceId") == instance_id]
+        match = [row for row in [*connected, *remembered] if row.get("instanceId") == instance_id]
         return (match[0], None) if match else (None, "instance_unavailable")
     enabled = [row for row in connected if row.get("consentStatus") == "enabled"]
     # 中文注释：兼容旧状态回执，仅优先已连接的主要链接；实际任务权限仍由宿主核实。
@@ -147,6 +155,23 @@ def _pick_browser(rows, instance_id, default_browser=None):
         return enabled[0], None
     if not enabled and len(connected) == 1:
         return connected[0], None
+    if not connected:
+        primary_offline = [row for row in remembered if row.get("primary") is True]
+        if len(primary_offline) == 1:
+            return primary_offline[0], None
+        if default_browser:
+            matches = [
+                row
+                for row in remembered
+                if row.get("instanceId") == default_browser
+                or row.get("browser") == default_browser.lower()
+            ]
+            if len(matches) == 1:
+                return matches[0], None
+        if len(remembered) == 1:
+            return remembered[0], None
+        if remembered:
+            return None, "browser_choice_required"
     return None, ("no_browser" if not connected else "browser_choice_required")
 
 
@@ -404,6 +429,11 @@ def make_handler(runtime, host_bridge, *, lease_error, clock=time.monotonic, sle
             if code == "incognito_access_required":
                 return _error(
                     "请在 Chrome/Edge 扩展详情中开启允许无痕/InPrivate 访问，然后重试。", code
+                )
+            if code in {"browser_launch_failed", "instance_unavailable"} and task is None:
+                return _error(
+                    "曾连接的浏览器未能启动或原实例未重连；请手动打开浏览器并确认扩展连接。未创建任务。",
+                    code,
                 )
             if code == "redirected_out_of_scope":
                 return _error(

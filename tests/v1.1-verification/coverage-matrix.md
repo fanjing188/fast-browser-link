@@ -299,7 +299,7 @@ R39：补齐 `tests/v1.1-packaging/test_cloud_fence_pin.py` 的已审阅登记�
 
 - `tests/agent-link/test_agent_link.py`：SDK 无 Hermes/Agent 导入、同名模块隔离、任务身份、原操作状态只读及未知不重放。
 - `tests/agent-link/test_script.py`：无适配器的核心部署、真实脚本子进程、网站工具及唯一源码的安装闭包；CLI/MCP/SDK 组合共享身份合同。
-- 当前基线显式为 195 步（112 个 Node runner，83 个 Python/检查步骤）；supplemental 2 步、reviewed 55 步分别统计。新增独立脚本核心和六个产品 runner，退役移除仅为云站点 Node 一项及云宿主 Python 四项，不减少本机授权与未知结果保护回归。
+- 当前基线显式为 146 步（86 个 Node runner，60 个 Python/检查步骤）；supplemental 2 步、reviewed 55 步分别统计。归档与浏览器唤醒各新增一个独立 Python 步骤，不减少本机授权与未知结果保护回归。
 
 ## 产品填写与本机连接
 

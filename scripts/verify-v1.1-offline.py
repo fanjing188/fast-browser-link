@@ -251,6 +251,7 @@ PYTHON_FILES = {
         "test_hardening.py",
         "test_startup_regression.py",
         "test_tasks.py",
+        "test_task_archive.py",
         "test_fd_lifecycle.py",
         "test_host_shutdown.py",
         "test_cleanup_contract.py",

@@ -92,6 +92,7 @@ def verify_package_layout(package, files):
         # 中文注释：宿主启动依赖独立 Cookie 内存通道。
         "fast-browser-link/native_bridge/cookie_mirror.py",
         "fast-browser-link/native_bridge/daemon.py",
+        "fast-browser-link/native_bridge/task_archive.py",
         "fast-browser-link/native_bridge/product_adapter.py",
         "fast-browser-link/native_bridge/work_adapter.py",
         "fast-browser-link/native_bridge/core_adapter.py",

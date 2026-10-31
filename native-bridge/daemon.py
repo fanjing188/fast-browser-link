@@ -110,6 +110,7 @@ from downloads import (
 )
 from cdp_gateway import CdpGateway, GatewayDenied
 from vault_private import VaultPrivateService, remove_stale_socket
+from task_archive import TaskArchive
 
 V1_ACTIONS = frozenset(
     {
@@ -377,6 +378,7 @@ class BridgeDaemon:
         self.socket_path = self.data_dir / "bridge.sock"
         self.token_path = self.data_dir / "token"
         self.tasks_path = self.data_dir / "tasks.json"
+        self.task_archive = TaskArchive(self.data_dir / "tasks-archive.sqlite3")
         self.pid_path = self.data_dir / "daemon.pid"
         self.lock_path = self.data_dir / "daemon.lock"
         self.stop_event = threading.Event()
@@ -439,12 +441,14 @@ class BridgeDaemon:
         self.task_idle_timeout_seconds = self._idle_seconds(
             "FAST_BROWSER_TASK_IDLE_TIMEOUT_SECONDS", 1200
         )
+        self.task_archive_seconds = self._idle_seconds("FAST_BROWSER_TASK_ARCHIVE_DAYS", 7) * 86400
 
         # 中文注释：配置从可信 daemon 环境下发，模型参数不能选择工作窗口。
         self.work_window_mode = os.environ.get("FAST_BROWSER_WORK_WINDOW", "separate")
         if self.work_window_mode not in {"separate", "current"}:
             raise ValueError("FAST_BROWSER_WORK_WINDOW must be separate or current")
         self.needs_sync_sweep_at = 0.0
+        self.task_archive_sweep_at = 0.0
         # 中文注释：仅接受启动器显式装配的可信服务，不从环境或本机目录自动发现产品代码。
         if service_factory is not None:
             self.optional_service = service_factory(self)
@@ -732,6 +736,30 @@ class BridgeDaemon:
         except (KeyError, TypeError, ValueError, OverflowError):
             return False
 
+    def _task_archive_due(self, task, now):
+        timestamps = (task.get("updatedAt"), task.get("lastActivityAt"))
+        if not isinstance(timestamps[0], (int, float)) or any(
+            value is not None and not isinstance(value, (int, float)) for value in timestamps
+        ):
+            return False
+        activity = max(value for value in timestamps if value is not None)
+        verified = task.get("userVerified")
+        if isinstance(verified, dict):
+            try:
+                from datetime import datetime
+
+                activity = max(activity, datetime.fromisoformat(verified["at"]).timestamp())
+            except (KeyError, TypeError, ValueError):
+                return False
+        if not isinstance(activity, (int, float)) or activity > now - self.task_archive_seconds:
+            return False
+        if any(
+            task.get(field)
+            for field in ("tabIds", "agentTabIds", "adoptedPopupTabIds", "spawnedTabIds")
+        ):
+            return False
+        return self._task_safe_for_reload(task)
+
     def _try_idle_exit(self):
         # 中文注释：与快照相同的写锁顺序；落盘中或失败时不为退出清理任何状态。
         if not self.persist_lock.acquire(blocking=False):
@@ -784,9 +812,20 @@ class BridgeDaemon:
         while not self.stop_event.is_set():
             self._sweep_empty_needs_sync()
             self._sweep_idle_tasks()
+            self._sweep_task_archive()
             if self._try_idle_exit():
                 return
             self.stop_event.wait(0.5)
+
+    def _sweep_task_archive(self):
+        now = time.time()
+        if now < self.task_archive_sweep_at:
+            return
+        self.task_archive_sweep_at = now + 3600
+        with self.state_lock:
+            due = any(self._task_archive_due(task, now) for task in self.tasks.values())
+        if due:
+            self._flush_tasks()
 
     def _primary_browser(self):
         # 中文注释：所有 profile 读取同一 daemon 数据目录；配置只保留实例 ID 与浏览器类型。
@@ -1389,7 +1428,9 @@ class BridgeDaemon:
             self.task_locks[task["id"]] = threading.RLock()
             self.cleanup_locks[task["id"]] = threading.Lock()
             self.dedupe[task["id"]] = restored_dedupe
-        if changed:
+        if any(self._task_archive_due(task, time.time()) for task in self.tasks.values()):
+            self._flush_tasks()
+        elif changed:
             self._persist_tasks()
 
     def _ledger_record(self, task, entry):
@@ -1448,6 +1489,27 @@ class BridgeDaemon:
         # 中文注释：统一写锁保证快照不会倒序覆盖，拍照后释放状态锁再执行文件 IO。
         with self.persist_lock:
             with self.state_lock:
+                now = time.time()
+                archived = [
+                    {k: v for k, v in task.items() if k != "activeMode"}
+                    for task in self.tasks.values()
+                    if self._task_archive_due(task, now)
+                ]
+                # Archive commits first. A crash before the JSON snapshot leaves a safe
+                # duplicate, which the next startup can archive again before removing.
+                if archived:
+                    try:
+                        self.task_archive.put(archived)
+                    except Exception as exc:
+                        self.persist_error = exc
+                        raise
+                    for task in archived:
+                        task_id = task["id"]
+                        self.tasks.pop(task_id)
+                        self.task_locks.pop(task_id, None)
+                        self.cleanup_locks.pop(task_id, None)
+                        self.dedupe.pop(task_id, None)
+                        self.cleanup_proofs.pop(task_id, None)
                 timer, self.persist_timer = self.persist_timer, None
                 if timer is not None:
                     timer.cancel()

@@ -17,6 +17,8 @@ Python standard-library daemon and Chromium Native Messaging host. Wire contract
 
 Runtime data lives in `$HERMES_HOME/plugin-data/fast-browser-link-native/` (mode `0700`); `bridge.sock`, `token`, `daemon.pid` and `tasks.json` are `0600`. The token never appears in a Native Messaging manifest.
 
+Settled tasks stay in the hot `tasks.json` ledger for seven days by default. After that, the daemon moves only tasks with confirmed cleanup, no live tab leases or pending human input, and settled operation history (or a valid prior user verification) into the private, compressed `tasks-archive.sqlite3` file. The full request fingerprints and original unknown states remain in the archive; elapsed time never turns an unknown browser outcome into success. Set `FAST_BROWSER_TASK_ARCHIVE_DAYS` in the trusted daemon environment to change the hot retention period. Archiving is checked at startup and hourly while the daemon runs. SQLite uses Python's built-in `sqlite3` module and does not run a database server. The active ledger remains the installer's safety gate; archive writes commit before a task is removed from the hot snapshot so an interrupted archive can be retried safely.
+
 Unix socket addresses are limited to 103 encoded bytes. `client.socket_address()` keeps a fitting absolute address; otherwise it uses a fitting path relative to the caller's current directory, pointing to the same canonical socket. If neither fits, it refuses before connecting or binding. It does not change the process working directory, create aliases, relocate runtime data, or weaken authentication and permissions.
 
 ## Behavior worth knowing

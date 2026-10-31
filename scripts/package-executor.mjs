@@ -398,6 +398,7 @@ try {
     'native-bridge/vault_private.py',
     'native-bridge/vault_client.py',
     'native-bridge/daemon.py',
+    'native-bridge/task_archive.py',
     'native-bridge/client.py',
     'native-bridge/host.py',
     'native-extension/manifest.json',

@@ -80,6 +80,7 @@ def stage(
         "client.py",
         "browser_sdk.py",
         "daemon.py",
+        "task_archive.py",
         "work_adapter.py",
         "core_adapter.py",
         "product_adapter.py",

@@ -17,6 +17,7 @@ BRIDGE_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BRIDGE_DIR))
 from tests.support import stop_fixture_daemon, temporary_bridge_home
 from client import socket_address
+from task_archive import TaskArchive
 
 ORIGIN = "chrome-extension://abcdefghijklmnopabcdefghijklmnop/"
 
@@ -336,16 +337,19 @@ class NativeHostHistoryIntegrationTests(unittest.TestCase):
         )
         self.assertTrue(hello["connected"])
         records = request("cleanup", "extension.tasks", {"includeClosed": True})
-        self.assertEqual(len(records), 500)
+        # 七天前已安全结束的任务由归档承载，不再把历史列表发给扩展。
+        self.assertEqual(len(records), 0)
         self.assertTrue(
             all(
                 set(row) == {"id", "instanceId", "generation", "state", "tabIds"} for row in records
             )
         )
         self.assertEqual(request("normal-read", "extension.tasks", {}), [])
-        # 中文注释：清理响应后连接仍可用，磁盘上的完整历史详情没有被裁剪。
+        # 中文注释：清理响应后连接仍可用，完整历史详情可从归档恢复。
+        self.assertEqual(json.loads(path.read_text())["tasks"], [])
         self.assertEqual(
-            json.loads(path.read_text())["tasks"][0]["operationTimeline"], [operation] * 32
+            TaskArchive(data / "tasks-archive.sqlite3").get("history-0")["operationTimeline"],
+            [operation] * 32,
         )
         process.stdin.close()
         self.assertEqual(process.wait(timeout=0.8), 0)

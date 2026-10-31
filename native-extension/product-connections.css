@@ -45,7 +45,8 @@ label {
   margin-top: 8px;
   margin-bottom: 12px;
 }
-input {
+input,
+select {
   display: block;
   width: 100%;
   min-width: 0;
@@ -59,6 +60,10 @@ input {
 }
 input[aria-invalid='true'] {
   border-color: var(--bad);
+}
+select {
+  margin: 8px 0 24px;
+  font-family: var(--ui);
 }
 button {
   min-height: 44px;

@@ -2663,7 +2663,8 @@ export class Executor {
   if(p[PAGE_WAIT])return p[PAGE_WAIT].poll((action,options)=>this.performSettled(t,{...p,action,options}));
   const after=actionObservationOptions(p),modeGeneration=t.policy.modeGeneration;
   const finish=async result=>after?{...result,observation:result?.recovery?.observation||await this.observeAfterAction(t,p,after,modeGeneration)}:result;
-  const queryRead=p.action==='semantic_snapshot'&&!!(p.options?.query||p.options?.roles?.length)&&!p.options?.cursor;
+  // 中文注释：产品局部读取的空集是结果，不进入会扩大根、遍历与预算的目标恢复。
+  const queryRead=t.executionLane!=='product_work'&&p.action==='semantic_snapshot'&&!!(p.options?.query||p.options?.roles?.length)&&!p.options?.cursor;
   const execute=async params=>{
    this.check(t,params);
    if(t.paused||t.pauseRequested)throw Object.assign(Error('task paused'),{preDispatch:true});
@@ -2983,6 +2984,13 @@ export class Executor {
   return this.workspaces&&INPUT_ACTIONS.has(p.action)?this.workspaces.withInput(t,p,guard,()=>this.performAuthorized(t,p,guard,get,modeGeneration)):this.performAuthorized(t,p,guard,get,modeGeneration);
  }
  async performAuthorized(t,p,guard,get,modeGeneration){
+  const boundSnapshot=p.action==='semantic_snapshot'&&p.binding;
+  if(boundSnapshot){
+   const documentGeneration=this.docs.get(p.tabId)||0,previousGuard=guard;
+   // 中文注释：续读固定原快照绑定；等待期间换文档或撤引用时，不采纳新文档重读。
+   guard=()=>{previousGuard();if(documentGeneration!==(this.docs.get(p.tabId)||0)||canonical(t.semanticBindings.get(p.tabId))!==canonical(p.binding))throw Object.assign(Error('BINDING_MISMATCH'),{preDispatch:true});};
+   guard();
+  }
   if(p.action==='official.new_tab')return officialOpenTab(this,t,p,guard);
   if(p.action==='official.goto_url')return officialNavigate(this,t,{...p,_doc:this.docs.get(p.tabId)||0},guard);
   if(p.action==='official.ready_state')return officialReadyState(this,t,p,guard);
@@ -3014,8 +3022,9 @@ export class Executor {
    return {tabId:p.tabId,url:settled.tab.url,ready:settled.ready};
   }
   if(!this.attached.has(p.tabId)){
-   await this.api.debugger.attach(target,'1.3');
-   try{guard();}catch(e){await this.api.debugger.detach(target).catch(()=>{});throw e;}
+   try{await this.api.debugger.attach(target,'1.3');}
+   catch(error){if(p.action==='js.evaluate'||p.action==='cdp.send')throw Object.assign(Error('RUNTIME_ATTACH_FAILED'),{preDispatch:true});throw error;}
+   try{guard();}catch(e){await this.api.debugger.detach(target).catch(()=>{});if(p.action==='js.evaluate'||p.action==='cdp.send')e.preDispatch=true;throw e;}
    this.attached.add(p.tabId);
   }
   await this.ensurePageEvents(target,guard);
@@ -3125,6 +3134,7 @@ export class Executor {
   const doc=this.docs.get(p.tabId)||0;let result;
   // 中文注释：组合读取只遍历同源可访问 DOM；无关跨源框架不能阻止顶层解析，框架动作仍单独授权。
   const initialTree=await this.checkedFrameTree(target,t,guard,false);
+  if(boundSnapshot&&canonical(this.semanticBinding(t,p.tabId,initialTree.frame.loaderId))!==canonical(p.binding))throw Object.assign(Error('BINDING_MISMATCH'),{preDispatch:true});
   const overlay=await this.timed(p,'overlay',()=>this.ensureOverlay(t,p.tabId,target,guard,false,initialTree,initialTab));
   guard();
   if(overlay)void this.syncPreveil(t,p.tabId).catch(()=>{});
@@ -3199,7 +3209,7 @@ export class Executor {
    }
    else if(['page.observe','semantic_snapshot','page.parse'].includes(p.action)){
     const context=p.options?.composed===true?await this.exposeClosedShadowRoots(target,tree.frame.id,guard,executionContextId,true):executionContextId;
-    result=await this.callSemanticWorld(target,tree.frame.id,p.action,{binding:semanticBinding,options:p.options||{},requireCurrentDocument:!!p[OBSERVATION_FENCE]},guard,context);
+    result=await this.callSemanticWorld(target,tree.frame.id,p.action,{binding:semanticBinding,options:p.options||{},requireCurrentDocument:!!p[OBSERVATION_FENCE]||!!boundSnapshot},guard,context);
    }
    else {
     let resolved=p.frameToken?await this.resolveFrame(t,p,tree,guard):null;

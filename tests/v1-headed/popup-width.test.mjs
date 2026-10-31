@@ -13,9 +13,12 @@ const [css, brand, html] = await Promise.all(
     readFile(new URL('../../native-extension/' + file, import.meta.url), 'utf8'),
   ),
 );
+const version = JSON.parse(
+  await readFile(new URL('../../package.json', import.meta.url), 'utf8'),
+).version;
 
-// 中文注释：真实生产结构在中英文、连接状态和协作开关变化时保持 320px，无横向滚动。
-test('production popup fits 320px for both languages and collaboration states', async () => {
+// 中文注释：真实生产结构在中英文与连接状态下保持固定弹窗宽度，窄/宽视口均不横向溢出。
+test('production popup fits 375px and 1440px without a bundled Assist row', async () => {
   // 中文注释：宽度验收同样只用新 profile，并保留真实 HOME。
   const work = await mkdtemp(path.join(tmpdir(), 'fast-popup-')),
     profile = path.join(work, 'profile'),
@@ -36,21 +39,20 @@ test('production popup fits 320px for both languages and collaboration states', 
       },
     });
     const page = await browser.newPage();
-    await page.setViewportSize({ width: 320, height: 600 });
     await page.setContent(
       html
         .replace(/<link[^>]*>/g, '')
         .replace(/<script[^>]*>[\s\S]*?<\/script>/g, '')
         .replace('</head>', `<style>${brand}\n${css}</style></head>`),
     );
-    for (const language of ['zh', 'en'])
-      for (const enabled of [false, true])
+    for (const width of [375, 1440]) {
+      await page.setViewportSize({ width, height: 800 });
+      for (const language of ['zh', 'en'])
         for (const connected of [false, true]) {
           await page.evaluate(
-            ({ language, enabled, connected }) => {
+            ({ language, connected, version }) => {
               for (const el of document.querySelectorAll('[data-zh]'))
                 el.textContent = el.dataset[language];
-              document.getElementById('open-copilot').hidden = !enabled || !connected;
               document.getElementById('local-connect').hidden = connected;
               for (const id of ['access-status']) {
                 const status = document.getElementById(id);
@@ -62,9 +64,9 @@ test('production popup fits 320px for both languages and collaboration states', 
               const header = document.getElementById('connection-label');
               header.className = 'st idle';
               header.textContent = language === 'zh' ? '未就绪' : 'Not ready';
-              document.getElementById('version-label').textContent = 'v2.2.0';
+              document.getElementById('version-label').textContent = `v${version}`;
             },
-            { language, enabled, connected },
+            { language, connected, version },
           );
           const actual = await page.evaluate(() => ({
             body: document.body.getBoundingClientRect().width,
@@ -75,13 +77,20 @@ test('production popup fits 320px for both languages and collaboration states', 
             })),
           }));
           assert.equal(actual.body, 320);
-          assert.equal(actual.rows.length, 2);
-          assert.equal(actual.width, 320, `${language}/${enabled}/${connected} overflowed`);
+          assert.equal(actual.rows.length, 1);
+          assert.equal(actual.width, width, `${width}/${language}/${connected} overflowed`);
           assert.ok(
             actual.rows.every((row) => row.width === row.client),
-            `${language}/${enabled}/${connected} feature row overflowed`,
+            `${width}/${language}/${connected} feature row overflowed`,
           );
+          if (language === 'zh' && !connected && process.env.FBL_POPUP_EVIDENCE_DIR) {
+            await mkdir(process.env.FBL_POPUP_EVIDENCE_DIR, { recursive: true });
+            await page.screenshot({
+              path: path.join(process.env.FBL_POPUP_EVIDENCE_DIR, `${width}.png`),
+            });
+          }
         }
+    }
   } finally {
     await browser?.close();
     await rm(work, { recursive: true, force: true });

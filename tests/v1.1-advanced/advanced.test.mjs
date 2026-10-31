@@ -1,10 +1,13 @@
 // 中文注释：任务页面执行离线测试；合成调试会话，不启动浏览器。
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { Bridge } from '../../native-extension/bridge.mjs';
+import { Executor } from '../../native-extension/core.mjs';
 import {
   PageRuntime,
   CHUNK_CHARS,
   EVENT_BUFFER_LIMIT,
+  MAX_JS_RESULT_CHARS,
 } from '../../native-extension/page-runtime.mjs';
 import {
   cdpMethodAllowed,
@@ -77,6 +80,56 @@ function fixture({ now = 1_000_000 } = {}) {
 }
 const guard = () => {};
 
+function runtimeRequest(f, params, check = guard) {
+  const bridge = new Bridge(
+    { onMessage: { addListener() {} }, postMessage() {} },
+    {
+      execute: (p) =>
+        p.action === 'js.evaluate'
+          ? f.controller.evaluate(f.task, p, check)
+          : f.controller.send(f.task, p, check),
+    },
+  );
+  return bridge.executeRequest({ id: 'runtime-probe', method: 'browser.execute', params });
+}
+
+// 中文注释：经真实 PageRuntime→Bridge 核对前置失败，不能只在桥接替身手填 preDispatch。
+for (const stage of ['frame tree', 'frame resolution', 'isolated world', 'world guard'])
+  test(`JS preparation failure before ${stage} is known not dispatched`, async () => {
+    const f = fixture();
+    const error = Error('PRIVATE_PREPARATION_CANARY');
+    if (stage === 'frame tree')
+      f.executor.checkedFrameTree = async () => {
+        throw error;
+      };
+    if (stage === 'frame resolution')
+      f.executor.resolveFrame = async () => {
+        throw error;
+      };
+    f.replies['Page.createIsolatedWorld'] = () => {
+      if (stage === 'isolated world') throw error;
+      if (stage === 'world guard') f.task.revoked = true;
+      return { executionContextId: 44 };
+    };
+    const reply = await runtimeRequest(
+      f,
+      {
+        action: 'js.evaluate',
+        tabId: 7,
+        expression: 'sideEffect()',
+        ...(stage === 'frame resolution' ? { frameToken: 'child' } : {}),
+      },
+      () => {
+        if (f.task.revoked) throw error;
+      },
+    );
+    assert.equal(f.sent.filter((row) => row.method === 'Runtime.evaluate').length, 0);
+    assert.equal(f.sent.filter((row) => row.method === 'Runtime.callFunctionOn').length, 0);
+    assert.equal(reply.error.code, 'runtime_preparation_failed');
+    assert.deepEqual(reply.error.data, { outcomeUnknown: false, retryable: false });
+    assert.doesNotMatch(JSON.stringify(reply), /PRIVATE_PREPARATION_CANARY/);
+  });
+
 test('first CDP enable buffers synchronous events before its response', async () => {
   const f = fixture();
   f.replies['Runtime.enable'] = () => {
@@ -89,6 +142,92 @@ test('first CDP enable buffers synchronous events before its response', async ()
   const batch = f.controller.drain(f.task, { tabId: 7, cursor: 0 }, 500);
   assert.equal(batch.events.length, 1);
   assert.equal(batch.events[0].params.context.id, 19);
+});
+
+for (const callable of [false, true])
+  test(`user-thrown SyntaxError after evaluation stays unknown (callable=${callable})`, async () => {
+    const f = fixture();
+    let effects = 0;
+    const failure = () => {
+      effects++;
+      return {
+        exceptionDetails: {
+          exception: { className: 'SyntaxError', description: 'SyntaxError: user-thrown' },
+        },
+      };
+    };
+    f.replies['Runtime.evaluate'] = callable
+      ? () => ({ result: { type: 'function', objectId: 'callable' } })
+      : failure;
+    f.replies['Runtime.callFunctionOn'] = failure;
+    const result = await f.controller.evaluate(
+      f.task,
+      {
+        tabId: 7,
+        expression: callable
+          ? '() => { sideEffect(); throw new SyntaxError("x"); }'
+          : 'sideEffect(); throw new SyntaxError("x")',
+        ...(callable ? { arguments: {} } : {}),
+      },
+      guard,
+    );
+    assert.equal(effects, 1);
+    assert.equal(result.outcomeUnknown, true);
+    assert.equal(result.code, 'js_syntax_error');
+  });
+
+for (const method of ['Runtime.evaluate', 'Runtime.callFunctionOn'])
+  test(`raw CDP ${method} frame preparation failure stays known not dispatched`, async () => {
+    const f = fixture();
+    f.executor.checkedFrameTree = async () => {
+      throw Error('PRIVATE_PREPARATION_CANARY');
+    };
+    const result = await runtimeRequest(f, {
+      action: 'cdp.send',
+      method,
+      tabId: 7,
+      frameToken: 'child',
+      params: {},
+    });
+    assert.equal(f.sent.filter((row) => row.method === method).length, 0);
+    assert.deepEqual(result.error.data, { outcomeUnknown: false, retryable: false });
+    assert.doesNotMatch(JSON.stringify(result), /PRIVATE_PREPARATION_CANARY/);
+  });
+
+test('production Executor debugger-attach failure does not claim JS was dispatched', async () => {
+  const f = fixture();
+  f.task.policy.modeGeneration = 1;
+  const executor = new Executor({
+    ...f.executor.api,
+    debugger: {
+      ...f.executor.api.debugger,
+      attach: async () => {
+        throw Error('PRIVATE_PREPARATION_CANARY');
+      },
+    },
+  });
+  executor.tasks.set(f.task.id, f.task);
+  executor.leases.set(7, f.task.id);
+  const bridge = new Bridge({ onMessage: { addListener() {} }, postMessage() {} }, executor);
+  const result = await bridge.executeRequest({
+    id: 'attach-failure',
+    method: 'browser.execute',
+    params: {
+      taskId: f.task.id,
+      generation: f.task.generation,
+      tabId: 7,
+      action: 'js.evaluate',
+      expression: 'sideEffect()',
+    },
+  });
+  assert.equal(
+    f.sent.filter(
+      (row) => row.method === 'Runtime.evaluate' && row.params?.expression === 'sideEffect()',
+    ).length,
+    0,
+  );
+  assert.deepEqual(result.error.data, { outcomeUnknown: false, retryable: false });
+  assert.doesNotMatch(JSON.stringify(result), /PRIVATE_PREPARATION_CANARY/);
 });
 
 test('智能审批授权后的运行资源没有独立期限，撤权和暂停仍会阻断', () => {
@@ -163,20 +302,37 @@ test('non-serializable, circular and oversize values become bounded descriptions
   f.replies['Runtime.evaluate'] = () => ({
     result: { type: 'object', className: 'Object', description: 'Object', objectId: 'o2' },
   });
-  f.replies['Runtime.callFunctionOn'] = () => ({
-    result: { value: { kind: 'error', name: 'TypeError' } },
+  f.replies['Runtime.getProperties'] = () => ({
+    result: [{ name: 'self', enumerable: true, value: { type: 'object', objectId: 'o2' } }],
   });
   result = await f.controller.evaluate(f.task, { tabId: 7, expression: 'a', world: 'main' }, guard);
   assert.equal(result.reason, 'circular_or_unsupported');
-  f.replies['Runtime.callFunctionOn'] = () => ({
-    result: { value: { kind: 'too_large', size: 999999 } },
+  f.replies['Runtime.getProperties'] = () => ({
+    result: [
+      { name: 'large', enumerable: true, value: { type: 'string', value: 'x'.repeat(300000) } },
+    ],
   });
   result = await f.controller.evaluate(f.task, { tabId: 7, expression: 'a', world: 'main' }, guard);
   assert.equal(result.truncated, true);
-  assert.equal(result.size, 999999);
-  f.replies['Runtime.callFunctionOn'] = () => ({
-    result: { value: { kind: 'json', text: '{"a":[1,2]}' } },
-  });
+  assert.ok(result.size > MAX_JS_RESULT_CHARS);
+  f.replies['Runtime.getProperties'] = (params) =>
+    params.objectId === 'o2'
+      ? {
+          result: [
+            {
+              name: 'a',
+              enumerable: true,
+              value: { type: 'object', subtype: 'array', objectId: 'a' },
+            },
+          ],
+        }
+      : {
+          result: [
+            { name: '0', enumerable: true, value: { type: 'number', value: 1 } },
+            { name: '1', enumerable: true, value: { type: 'number', value: 2 } },
+            { name: 'length', enumerable: false, value: { type: 'number', value: 2 } },
+          ],
+        };
   result = await f.controller.evaluate(f.task, { tabId: 7, expression: 'a', world: 'main' }, guard);
   assert.deepEqual(result.value, { a: [1, 2] });
   f.replies['Runtime.evaluate'] = () => ({
@@ -192,8 +348,42 @@ test('non-serializable, circular and oversize values become bounded descriptions
   assert.equal(result.exception.text, 'Error: boom');
 });
 
+test('result inspection skips page toJSON and refuses getters without invoking them', async () => {
+  const f = fixture();
+  f.replies['Runtime.evaluate'] = () => ({
+    result: { type: 'object', className: 'Object', objectId: 'safe-object' },
+  });
+  f.replies['Runtime.callFunctionOn'] = () => {
+    throw Error('page serialization must not run');
+  };
+  f.replies['Runtime.getProperties'] = () => ({
+    result: [
+      { name: 'x', enumerable: true, value: { type: 'number', value: 1 } },
+      { name: 'toJSON', enumerable: true, value: { type: 'function', objectId: 'fn' } },
+    ],
+  });
+  const safe = await f.controller.evaluate(
+    f.task,
+    { tabId: 7, expression: '({x:1,toJSON(){while(true){}}})', world: 'main' },
+    guard,
+  );
+  assert.deepEqual(safe.value, { x: 1 });
+  assert.equal(f.sent.filter((row) => row.method === 'Runtime.callFunctionOn').length, 0);
+  f.replies['Runtime.getProperties'] = () => ({
+    result: [{ name: 'secret', enumerable: true, get: { type: 'function', objectId: 'getter' } }],
+  });
+  const accessor = await f.controller.evaluate(
+    f.task,
+    { tabId: 7, expression: '({get secret(){while(true){}}})', world: 'main' },
+    guard,
+  );
+  assert.equal(accessor.serializable, false);
+  assert.equal(accessor.reason, 'accessor_property');
+  assert.equal(f.sent.filter((row) => row.method === 'Runtime.callFunctionOn').length, 0);
+});
+
 test('JavaScript syntax and runtime errors carry stable codes and bounded first line', async () => {
-  // 中文注释：语法错误在执行前确定，运行时异常按已执行表达式保留副作用未知。
+  // 中文注释：异常名称不能证明解析失败而未执行，所有已派发求值保留副作用未知。
   const f = fixture();
   f.controller.assert(f.task, { tabId: 7 });
   f.replies['Runtime.evaluate'] = () => ({
@@ -211,7 +401,7 @@ test('JavaScript syntax and runtime errors carry stable codes and bounded first 
     guard,
   );
   assert.equal(result.code, 'js_syntax_error');
-  assert.equal(result.outcomeUnknown, false);
+  assert.equal(result.outcomeUnknown, true);
   f.replies['Runtime.evaluate'] = () => ({
     exceptionDetails: {
       text: 'Uncaught',
@@ -821,13 +1011,13 @@ test('buffer helpers and gateway subscriptions receive events independently', as
   );
 });
 
-// 中文注释：结果 JSON 化会运行页面 toJSON，必须计入调用期限，否则页面锁可能永久占用。
-test('evaluation deadline also covers serialization of the returned object', async () => {
+// 中文注释：即使 CDP 属性读取失联，期限仍覆盖返回值读取与清理。
+test('evaluation deadline also covers reading properties of the returned object', async () => {
   const f = fixture();
   f.replies['Runtime.evaluate'] = () => ({
     result: { type: 'object', className: 'Object', objectId: 'result-object' },
   });
-  f.replies['Runtime.callFunctionOn'] = () => new Promise(() => {});
+  f.replies['Runtime.getProperties'] = () => new Promise(() => {});
   let timer;
   try {
     await assert.rejects(
@@ -849,6 +1039,55 @@ test('evaluation deadline also covers serialization of the returned object', asy
   } finally {
     clearTimeout(timer);
   }
+});
+
+test('hung CDP cleanup acknowledgements cannot hide a JavaScript timeout', async () => {
+  const f = fixture();
+  f.replies['Runtime.evaluate'] = () => ({
+    result: { type: 'object', className: 'Object', objectId: 'result-object' },
+  });
+  for (const method of [
+    'Runtime.getProperties',
+    'Runtime.terminateExecution',
+    'Runtime.releaseObjectGroup',
+  ])
+    f.replies[method] = () => new Promise(() => {});
+  let timer;
+  try {
+    await assert.rejects(
+      Promise.race([
+        f.controller.evaluate(
+          f.task,
+          { tabId: 7, expression: '({toJSON(){while(true){}}})', world: 'main', timeoutMs: 100 },
+          guard,
+        ),
+        new Promise((_, reject) => {
+          timer = setTimeout(() => reject(Error('cleanup exceeded five seconds')), 5000);
+        }),
+      ]),
+      (error) => error.message === 'JS_TIMEOUT' && error.outcomeUnknown === true,
+    );
+    assert.ok(f.sent.some((row) => row.method === 'Runtime.terminateExecution'));
+    assert.ok(f.sent.some((row) => row.method === 'Runtime.releaseObjectGroup'));
+  } finally {
+    clearTimeout(timer);
+  }
+});
+
+test('each evaluation releases only its own remote object group', async () => {
+  const f = fixture();
+  f.replies['Runtime.evaluate'] = () => ({ result: { type: 'number', value: 1 } });
+  for (let i = 0; i < 2; i++)
+    await f.controller.evaluate(f.task, { tabId: 7, expression: '1', world: 'main' }, guard);
+  const evaluations = f.sent.filter((row) => row.method === 'Runtime.evaluate');
+  const releases = f.sent.filter((row) => row.method === 'Runtime.releaseObjectGroup');
+  assert.equal(evaluations.length, 2);
+  assert.equal(releases.length, 2);
+  assert.notEqual(evaluations[0].params.objectGroup, evaluations[1].params.objectGroup);
+  assert.deepEqual(
+    releases.map((row) => row.params.objectGroup),
+    evaluations.map((row) => row.params.objectGroup),
+  );
 });
 // 中文注释：已派发 CDP 的结果缓存超限不能误报未派发，桥接层必须保留结果未知标记。
 test('CDP chunk capacity failure preserves dispatched outcome in bridge error', async () => {

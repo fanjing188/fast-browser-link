@@ -1,8 +1,9 @@
 import { replaceDeclaration } from '../support/source-code.mjs';
-import { taskTableAdapter } from '../../native-extension/copilot-table-job.mjs';
-import { CopilotBackground } from '../../native-extension/copilot-background.mjs';
 // 中文注释：VM 夹具显式注入独立 Cookie 模块，保持生产后台模块依赖一致。
 import { CookieMirror } from '../../native-extension/cookie-mirror.mjs';
+import { AssistObservation } from '../../native-extension/assist-observation.mjs';
+import { AssistController } from '../../native-extension/assist-controller.mjs';
+import { AssistConnections } from '../../native-extension/assist-connections.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
@@ -31,6 +32,10 @@ async function start(e, id = 'a', ids = [1]) {
 async function listeners(e) {
   const events = {}; // 中文注释：合成后台提供通知事件 API，不访问系统通知中心。
   const chrome = {
+    storage: {
+      local: { get: async () => ({}), set: async () => {} },
+      session: { get: async () => ({}), set: async () => {} },
+    },
     notifications: { onClicked: { addListener() {} }, clear: async () => true },
     runtime: { id: 'ext', onMessage: { addListener: (fn) => (events.message = fn) } },
     alarms: { create() {}, onAlarm: { addListener() {} } },
@@ -50,9 +55,10 @@ async function listeners(e) {
     .replace(/^const consent\s*=\s*new BrowserConsent[^;]*;$/m, 'const consent={load:async()=>{}};')
     .replace(/connect\(\);\s*$/, '');
   vm.runInNewContext(source, {
-    taskTableAdapter,
-    CopilotBackground,
     CookieMirror,
+    AssistObservation,
+    AssistController,
+    AssistConnections,
     reloadForInstalledBuild: async () => false,
     BUILD_ID: '',
     registerWorkspaceStartup: () => {},

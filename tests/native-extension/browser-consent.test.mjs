@@ -1,7 +1,8 @@
-import { taskTableAdapter } from '../../native-extension/copilot-table-job.mjs';
-import { CopilotBackground } from '../../native-extension/copilot-background.mjs';
 // 中文注释：VM 夹具显式注入独立 Cookie 模块，保持生产后台模块依赖一致。
 import { CookieMirror } from '../../native-extension/cookie-mirror.mjs';
+import { AssistObservation } from '../../native-extension/assist-observation.mjs';
+import { AssistController } from '../../native-extension/assist-controller.mjs';
+import { AssistConnections } from '../../native-extension/assist-connections.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as module from '../../native-extension/bridge.mjs';
@@ -346,9 +347,10 @@ test('trusted popup rejects removed mode controls without changing tasks', async
       .replace(/^import\s[^;]*;\n/gm, '')
       .replace(/connect\(\);\s*$/, 'bridge=injectedBridge;connected=true;');
     vm.runInNewContext(source, {
-      taskTableAdapter,
-      CopilotBackground,
       CookieMirror,
+      AssistObservation,
+      AssistController,
+      AssistConnections,
       chrome,
       Executor,
       BrowserConsent: module.BrowserConsent,

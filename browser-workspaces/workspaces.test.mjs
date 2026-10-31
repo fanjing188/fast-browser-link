@@ -837,6 +837,30 @@ test('terminal ungroup uses private journal without deleting pages or touching m
     assert.equal(result.cleanupState, mismatch === 'windowId' ? 'pending' : 'succeeded');
   }
 });
+test('ungroup acknowledges only a confirmed group change and can safely retry', async () => {
+  const f = fixture(),
+    cap = f.grant(),
+    work = await f.manager.open(cap, {
+      requestId: 'kept',
+      url: 'https://example.test',
+    }),
+    options = {
+      records: [{ ...work, windowId: 1 }],
+      withTabLock: async (_id, fn) => fn(),
+      canUngroup: () => true,
+    };
+  const ungroup = f.api.tabs.ungroup;
+  f.api.tabs.ungroup = async () => {};
+  const uncertain = await f.manager.ungroup(cap, options);
+  assert.equal(uncertain.cleanupState, 'unknown');
+  assert.deepEqual(uncertain.unknownTabIds, [work.tabId]);
+  assert.equal(f.tabs.get(work.tabId).groupId, work.groupId);
+  f.api.tabs.ungroup = ungroup;
+  const confirmed = await f.manager.ungroup(cap, options);
+  assert.equal(confirmed.cleanupState, 'succeeded');
+  assert.equal(f.tabs.get(work.tabId).groupId, -1);
+  assert.ok(f.tabs.has(work.tabId));
+});
 
 // 中文注释：恢复态保留组；明确终态且保留页面时，页面交还用户并移出任务组。
 test('needs_sync retains prior group while terminal preserved pages are ungrouped', async () => {

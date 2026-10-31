@@ -361,7 +361,7 @@ def inspect(work: Path):
     candidates = [
         directory / entry
         for directory in (installed_bridge, host_bridge)
-        for entry in ("assist_adapter.py", "daemon.py")
+        for entry in ("core_adapter.py", "daemon.py")
         if (directory / entry).is_file()
         and (directory.is_relative_to(value["work"]) or directory.is_relative_to(value["hermes"]))
     ]
@@ -781,7 +781,7 @@ def cleanup(work: Path):
             value["plugin"] / "native_bridge",
             value["hermes"] / "plugin-data/fast-browser-link-native/host-bin",
         )
-        for entry in ("assist_adapter.py", "daemon.py")
+        for entry in ("core_adapter.py", "daemon.py")
         if directory.is_relative_to(value["work"]) or directory.is_relative_to(value["hermes"])
     ]
     if (

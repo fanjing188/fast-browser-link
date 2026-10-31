@@ -104,7 +104,7 @@ test('temporary OAuth setup keeps the production background and sender guard, ch
     assert.ok(compact.includes("awaitcurrent.request('extension.popup_adopted',p).then(result=>"));
     assert.match(
       compact,
-      /chrome\.tabs\.onCreated\.addListener\(\(?tab\)?=>\{copilot\.tabEvent\(tab\.id,'打开标签页',tab\);returnexecutor\.tabCreated\(tab\)/,
+      /chrome\.tabs\.onCreated\.addListener\(\(?tab\)?=>\{returnexecutor\.tabCreated\(tab\)/,
     );
     assert.ok(compact.includes('onOverlayCommand:overlayCommand'));
     assert.ok(body.includes('chrome.runtime.connectNative'));

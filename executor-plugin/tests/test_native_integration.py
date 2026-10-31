@@ -23,7 +23,7 @@ from tests.support import (  # noqa: E402
 def _is_fixture_daemon(command, home):
     # 中文注释：复用真实夹具的完整入口和末尾 home 核验，不按文件名猜测待停止的进程。
     candidates = [
-        ROOT.parent / "native-bridge" / entry for entry in ("assist_adapter.py", "daemon.py")
+        ROOT.parent / "native-bridge" / entry for entry in ("core_adapter.py", "daemon.py")
     ]
     return fixture_daemon_path(Path(home), command, candidates) is not None
 
@@ -32,7 +32,7 @@ class NativeIntegrationTests(unittest.TestCase):
     def test_fixture_identity_accepts_only_exact_bootstrap_and_home(self):
         home = Path("/fixture/runtime")
         core = ROOT.parent / "native-bridge"
-        for entry in ("assist_adapter.py", "daemon.py"):
+        for entry in ("core_adapter.py", "daemon.py"):
             self.assertTrue(
                 _is_fixture_daemon(f"{sys.executable} {core / entry} --home {home}", home)
             )
@@ -110,7 +110,7 @@ class NativeIntegrationTests(unittest.TestCase):
                         command = subprocess.check_output(
                             ["ps", "-p", str(daemon_pid), "-o", "command="], text=True
                         )
-                        self.assertIn(str(client_path.with_name("assist_adapter.py")), command)
+                        self.assertIn(str(client_path.with_name("core_adapter.py")), command)
                         self.assertTrue(_is_fixture_daemon(command, tmp), command)
                         self.assertTrue((pid_path.parent / "bridge.sock").is_socket())
                         self.assertNotEqual(threads[0], threading.get_ident())

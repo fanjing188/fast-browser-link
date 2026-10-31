@@ -449,11 +449,6 @@ class BridgeDaemon:
         if service_factory is not None:
             self.optional_service = service_factory(self)
 
-    @property
-    def copilot(self):
-        # 中文注释：现有 BrowserBroker 读取此属性；兼容只读引用，不在底座保留产品逻辑。
-        return getattr(self.optional_service, "app", None)
-
     @staticmethod
     def _idle_seconds(name, default):
         value = float(os.environ.get(name, default))
@@ -1305,6 +1300,8 @@ class BridgeDaemon:
             ):
                 raise RuntimeError("invalid request journal")
             task = tasks.setdefault(task_id, record["task"])
+            if record["task"].get("workUnknownLatched"):
+                task["workUnknownLatched"] = True
             history = task.setdefault("requestHistory", [])
             previous = next(
                 (row for row in history if row.get("requestIdHash") == entry["requestIdHash"]), None
@@ -1351,6 +1348,18 @@ class BridgeDaemon:
                     raise RuntimeError("invalid persisted request history")
                 restored_dedupe[request_hash] = (payload_hash, None, None)
             task["requestHistory"] = history
+            if task.get("executionLane") == "product_work":
+                # 中文注释：旧快照可能早于 journal；仅最终已确认账本可排除本次派发未知。
+                unresolved = any(
+                    entry.get("state") in {"dispatched", "unknown"}
+                    or entry.get("dispatched") is True
+                    and entry.get("state") not in {"confirmed", "failed"}
+                    for entry in history
+                )
+                task["workUnknownLatched"] = bool(task.get("workUnknownLatched") or unresolved)
+                task["workOutcomeUnknown"] = bool(
+                    task.get("workOutcomeUnknown") or task["workUnknownLatched"]
+                )
             if task.get("state") not in {"cancelled", "closed", "failed", "needs_sync"}:
                 task["state"] = "needs_sync"
                 task["tabIds"] = []
@@ -1416,6 +1425,9 @@ class BridgeDaemon:
 
     def _persist_dispatched(self, task, entry):
         with self.state_lock:
+            if task.get("executionLane") == "product_work":
+                # 中文注释：崩溃或回执丢失不能借新端口重开资源；墓碑与派发记录同一次 fsync。
+                task["workOutcomeUnknown"] = True
             record = self._ledger_record(task, entry)
         # 中文注释：IO 不持全局状态锁；fsync 返回后才允许调用扩展。
         with self.persist_lock:
@@ -1533,6 +1545,8 @@ class BridgeDaemon:
                 and method
                 not in {
                     "shared.activity",
+                    "shared.diagnostics",
+                    "shared.diagnostics_lookup",
                     "shared.session_end",
                     "shared.cleanup_status",
                     "shared.cleanup_retry",
@@ -1758,13 +1772,23 @@ class BridgeDaemon:
             return {"closed": True}
         if method == "shared.diagnostics":
             return self._shared_diagnostics(params)
+        if method == "shared.diagnostics_lookup":
+            # 中文注释：HTTP 诊断只核可信 registry 的 owner 归属，不借 shared.list 续期。
+            if set(params) != {"owner", "taskId"}:
+                raise ProtocolError("invalid_params", "invalid diagnostics lookup")
+            owner = self._required_string(params, "owner")
+            task_id = self._required_string(params, "taskId")
+            with self.state_lock:
+                task = self.tasks.get(task_id)
+                return task is not None and task["owner"] == owner
         if method == "shared.list":
             owner = self._required_string(params, "owner")
             with self.state_lock:
                 return [
                     self._public_task(task)
                     for task in self.tasks.values()
-                    if task["owner"] == owner and task.get("executionLane") != "product_fill"
+                    if task["owner"] == owner
+                    and task.get("executionLane") not in {"product_fill", "product_work"}
                 ]
         if method == "shared.run":
             return self._run_task(params)
@@ -1890,11 +1914,14 @@ class BridgeDaemon:
                 extension["accessRequest"] = None
             return {"closed": True}
 
-    def _create_task(self, params: Dict[str, Any], *, _execution_lane="default") -> Dict[str, Any]:
+    def _create_task(
+        self, params: Dict[str, Any], *, _execution_lane="default", _silent=False
+    ) -> Dict[str, Any]:
         context = None
         silent = False
         if self.optional_service is not None:
             params, silent, context = self.optional_service.prepare_task(params)
+        silent = silent or _silent
         # 中文注释：纯底座不接受未经装配的私有授权字段；静默行为只能由可信服务校验后选择。
         if set(params) - {
             "owner",
@@ -2185,6 +2212,8 @@ class BridgeDaemon:
         self, params: Dict[str, Any], _approval=None, _gateway=False, *, _authority=None
     ) -> Any:
         task = self._owned_task(params, _authority=_authority)
+        if task.get("executionLane") == "product_work":
+            self.optional_service.work.validate_request(task, params, _authority)
         if (task.get("executionLane") == "product_fill") != (
             params.get("action") == "product.fill"
         ):
@@ -2202,7 +2231,7 @@ class BridgeDaemon:
         popup_closed = None
         if params.get("action") in SITE_READ_ACTIONS:
             self._validate_run_params(params["action"], params)
-            task = self._owned_task(params)
+            task = self._owned_task(params, _authority=_authority)
             with self.state_lock:
                 source_id = task.get("popupReturns", {}).get(str(params.get("tabId")))
                 if (
@@ -2388,6 +2417,8 @@ class BridgeDaemon:
         with _task_admission(lock, wait_deadline):
             with self.state_lock:
                 self._owned_task(params, _authority=_authority)
+                if task.get("executionLane") == "product_work":
+                    self.optional_service.work.validate_request(task, params, _authority)
                 if action == "product.fill" and (
                     task.get("activeMode") != "full"
                     or params["tabId"] not in task["tabIds"]
@@ -2655,7 +2686,16 @@ class BridgeDaemon:
                                 modeGeneration=task.get("modeGeneration", 1),
                                 allowedOrigins=list(task["allowedOrigins"]),
                             )
-                        assessed = self._extension_call(ext, "browser.assess", assessment_params)
+                        assessed = self._extension_call(
+                            ext,
+                            "browser.assess",
+                            assessment_params,
+                            **(
+                                {"_authority": _authority}
+                                if task.get("executionLane") == "product_work"
+                                else {}
+                            ),
+                        )
                         with self.state_lock:
                             if (
                                 task["state"] not in {"ready", "running"}
@@ -2960,7 +3000,15 @@ class BridgeDaemon:
                                 else (75.0 if action == "js.evaluate" else 30.0)
                             )
                             result = self._extension_call(
-                                extension, "browser.execute", command_params, timeout=timeout
+                                extension,
+                                "browser.execute",
+                                command_params,
+                                timeout=timeout,
+                                **(
+                                    {"_authority": _authority}
+                                    if task.get("executionLane") == "product_work"
+                                    else {}
+                                ),
                             )
                         else:
                             timeout = (
@@ -2986,7 +3034,12 @@ class BridgeDaemon:
                                 "browser.execute",
                                 command_params,
                                 timeout=timeout,
-                                **({"_authority": _authority} if action == "product.fill" else {}),
+                                **(
+                                    {"_authority": _authority}
+                                    if action == "product.fill"
+                                    or task.get("executionLane") == "product_work"
+                                    else {}
+                                ),
                             )
                         if isinstance(result, dict) and "__fastChunked" in result:
                             # 中文注释：工具通道单行上限 1MB；超限结果已执行但不回传正文，改用网关或更小的请求。
@@ -3001,13 +3054,16 @@ class BridgeDaemon:
                                 "size": size if type(size) is int else None,
                             }
                         if (
-                            action == "product.fill"
+                            (
+                                action == "product.fill"
+                                or task.get("executionLane") == "product_work"
+                            )
                             and isinstance(result, dict)
                             and result.get("status") == "unknown"
                         ):
                             result = {**result, "outcomeUnknown": True, "retryable": False}
             except ProtocolError as exc:
-                if action == "product.fill":
+                if action == "product.fill" or task.get("executionLane") == "product_work":
                     unknown = exc.data.get("outcomeUnknown") is not False
                     # 中文注释：产品错误与页面正文不进入缓存、状态或日志，只保存固定码。
                     exc = ProtocolError(
@@ -3063,7 +3119,9 @@ class BridgeDaemon:
                 if read_only and exc.code in {"extension_timeout", "extension_disconnected"}:
                     exc.data = {"outcomeUnknown": False, "retryable": False}
                 with self.state_lock:
-                    if action == "product.fill" and exc.data.get("outcomeUnknown") is True:
+                    if (
+                        action == "product.fill" or task.get("executionLane") == "product_work"
+                    ) and exc.data.get("outcomeUnknown") is True:
                         self._record_request_locked(task, request_hash, payload_hash, None, None)
                         if task["state"] == "running" and task["generation"] == generation:
                             task["state"] = "ready"
@@ -3482,7 +3540,10 @@ class BridgeDaemon:
             task["requestHistory"].append(entry)
         uncertain_result = isinstance(result, dict) and (
             outcome_kind == "result"
-            and entry.get("action") not in {"js.evaluate", "api_request", "cdp.send"}
+            and (
+                task.get("executionLane") == "product_work"
+                or entry.get("action") not in {"js.evaluate", "api_request", "cdp.send"}
+            )
             and result.get("outcomeUnknown") is True
             or outcome_kind == "error"
             and isinstance(result.get("data"), dict)
@@ -3499,6 +3560,10 @@ class BridgeDaemon:
             dispatched=entry.get("dispatched") is True or outcome_kind in {"result", None},
             generation=task["generation"],
         )
+        if task.get("executionLane") == "product_work":
+            if entry["state"] == "unknown":
+                task["workUnknownLatched"] = True
+            task["workOutcomeUnknown"] = task.get("workUnknownLatched", False)
         self.pending_journal.append(self._ledger_record(task, entry))
 
     def _operation_status(self, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -3979,8 +4044,16 @@ class BridgeDaemon:
                         or t.get("cleanupState") == "unknown"
                         or t.get("cleanupReason") in {"preserved", "handed_to_user"}
                     )
-                    # 中文注释：普通重连只尝试一次；显式 sweep 可以重新复核，仍不能扩大创建证明。
-                    and (force or not t.get("ungroupAttempted") or "autoClosePending" in t)
+                    # 中文注释：未确认的收组最多在重连时补试一次；每次仍由扩展私有创建日志复核归属。
+                    and (
+                        force
+                        or not t.get("ungroupAttempted")
+                        or (
+                            t.get("cleanupState") == "unknown"
+                            and t.get("ungroupAttempts", 1) < 2
+                        )
+                        or "autoClosePending" in t
+                    )
                     and (t.get("workTabs") or "autoClosePending" in t)
                 ),
                 key=lambda t: t.get("updatedAt", 0),
@@ -4024,13 +4097,28 @@ class BridgeDaemon:
                     )
                     self._record_cleanup(task, generation, extension, response)
                 except (ProtocolError, OSError):
+                    with self.state_lock:
+                        if task["generation"] == generation and task["state"] in {
+                            "closed",
+                            "cancelled",
+                        }:
+                            attempts = task.get(
+                                "ungroupAttempts", 1 if task.get("ungroupAttempted") else 0
+                            )
+                            task["ungroupAttempted"] = True
+                            task["ungroupAttempts"] = min(2, attempts + 1)
+                            self._persist_tasks()
                     continue
                 with self.state_lock:
                     if task["generation"] == generation and task["state"] in {
                         "closed",
                         "cancelled",
                     }:
+                        attempts = task.get(
+                            "ungroupAttempts", 1 if task.get("ungroupAttempted") else 0
+                        )
                         task["ungroupAttempted"] = True
+                        task["ungroupAttempts"] = min(2, attempts + 1)
                         if task.get("handoff") and task.get("cleanupState") == "succeeded":
                             # 中文注释：收组回执不能丢失 keep_tabs/人工接管的移交语义。
                             task["cleanupReason"] = "handed_to_user"
@@ -4230,7 +4318,7 @@ class BridgeDaemon:
             "api_request": {"httpMethod"},
             "page.observe": {"options"},
             "page.parse": {"options"},
-            "semantic_snapshot": {"options"},
+            "semantic_snapshot": {"options", "binding"},
             "interaction.drag_coordinates": {"mode", "steps"},
             "interaction.drag_elements": {"mode", "steps"},
             "js.evaluate": {"world", "awaitPromise", "timeoutMs", "frameToken", "arguments"},
@@ -4679,6 +4767,20 @@ class BridgeDaemon:
         with self.state_lock:
             task_id = params.get("taskId")
             task = self.tasks.get(task_id) if isinstance(task_id, str) else None
+            if task and task.get("executionLane") == "product_work":
+                if method in {"browser.execute", "browser.assess"}:
+                    self._owned_task(
+                        {"owner": task["owner"], "taskId": task_id}, _authority=_authority
+                    )
+                    self.optional_service.work.validate_request(
+                        task, params, _authority, dispatch=True
+                    )
+                elif method not in {
+                    "browser.release",
+                    "browser.cleanup_status",
+                    "browser.cleanup_retry",
+                }:
+                    raise ProtocolError("execution_lane_denied", "task execution lane denied")
             if task and task.get("executionLane") == "product_fill":
                 if method == "browser.execute" and params.get("action") == "product.fill":
                     self._owned_task(
@@ -4765,7 +4867,7 @@ class BridgeDaemon:
                 raise ProtocolError("not_found", "task not found")
             if task["owner"] != owner:
                 raise ProtocolError("forbidden", "task belongs to another owner")
-            if task.get("executionLane") == "product_fill":
+            if task.get("executionLane") in {"product_fill", "product_work"}:
                 if (
                     _authority is None
                     or self.task_authorities.get(task_id) is not _authority
@@ -4773,6 +4875,11 @@ class BridgeDaemon:
                     or _authority["connectionGeneration"]
                     != _authority["extension"].get("connectionGeneration")
                     or _authority["generation"] != task["generation"]
+                ):
+                    raise ProtocolError("execution_lane_denied", "task execution lane denied")
+                if task.get("executionLane") == "product_work" and (
+                    task.get("workProductId") != _authority.get("productId")
+                    or task.get("workSession") != _authority.get("session")
                 ):
                     raise ProtocolError("execution_lane_denied", "task execution lane denied")
             return task
@@ -5630,7 +5737,7 @@ class BridgeDaemon:
             if grant.get("revoked") is True:
                 raise GatewayDenied("gateway connection was revoked")
             task = self.tasks.get(grant["taskId"])
-            if task and task.get("executionLane") == "product_fill":
+            if task and task.get("executionLane") in {"product_fill", "product_work"}:
                 raise GatewayDenied("task execution lane denied")
             if (
                 task is None

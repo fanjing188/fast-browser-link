@@ -801,6 +801,26 @@ if __name__ == "__main__":
 class TerminalUngroupTests(unittest.TestCase):
     setUp = CleanupContractTests.setUp
 
+    def test_transport_failure_has_one_bounded_reconnect_retry(self):
+        task = self.daemon.tasks[self.task["id"]]
+        task.update(
+            state="closed",
+            cleanupState="unknown",
+            workTabs=[{"tabId": 73, "groupId": 20, "windowId": 7}],
+        )
+        calls = []
+
+        def fail(_extension, method, _params, **_kwargs):
+            calls.append(method)
+            raise ProtocolError("extension_timeout", "fixture transport timeout")
+
+        self.daemon._extension_call = fail
+        for _ in range(3):
+            self.daemon._ungroup_terminal_tasks("browser", self.extension)
+        self.assertEqual(calls, ["browser.cleanup_retry", "browser.cleanup_retry"])
+        self.assertEqual(task["ungroupAttempts"], 2)
+        self.assertEqual(task["cleanupState"], "unknown")
+
     def test_reconnect_ungroups_only_terminal_unknown_and_persists_honest_result(self):
         task = self.daemon.tasks[self.task["id"]]
         task.update(
@@ -831,14 +851,17 @@ class TerminalUngroupTests(unittest.TestCase):
         self.assertEqual(task["cleanupState"], "unknown")
         self.assertEqual(task["cleanupReason"], "ungrouped_unverified")
         self.assertNotIn(task["id"], self.daemon.cleanup_proofs)
-        # 中文注释：同一终态任务只尝试一次收组，之后的重连不再重复调用扩展。
+        # 中文注释：未确认的收组只在重连时补试一次；两次后不再消耗资源。
         self.daemon._ungroup_terminal_tasks("browser", self.extension)
-        self.assertEqual(len(calls), 1)
+        self.assertEqual(len(calls), 2)
         self.assertTrue(task["ungroupAttempted"])
+        self.assertEqual(task["ungroupAttempts"], 2)
+        self.daemon._ungroup_terminal_tasks("browser", self.extension)
+        self.assertEqual(len(calls), 2)
         task["state"] = "needs_sync"
         task.pop("ungroupAttempted")
         self.daemon._ungroup_terminal_tasks("browser", self.extension)
-        self.assertEqual(len(calls), 1)
+        self.assertEqual(len(calls), 2)
 
     def test_stale_connection_or_resumed_generation_cannot_publish_cleanup(self):
         task = self.daemon.tasks[self.task["id"]]

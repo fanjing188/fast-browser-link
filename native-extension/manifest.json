@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "incognito": "spanning",
   "name": "Fast-browser-link",
-  "version": "2.4.0",
+  "version": "2.5.0",
   "permissions": [
     "nativeMessaging",
     "debugger",
@@ -13,8 +13,7 @@
     "storage",
     "alarms",
     "cookies",
-    "notifications",
-    "sidePanel"
+    "notifications"
   ],
   "background": {
     "service_worker": "background.mjs",
@@ -44,23 +43,18 @@
     "48": "icon-48.png",
     "128": "icon-128.png"
   },
-  "description": "让 AI agent（Hermes、Codex、Claude Code 等）直接调用已连接的浏览器执行工作，连接授权后直接执行：页面操作、表单、上传下载、表格导出与实时协作。",
-  "side_panel": {
-    "default_path": "copilot-panel.html"
-  },
+  "description": "让 AI agent 直接调用已连接的浏览器执行页面操作、表单填写、上传下载和数据读取；任务、授权与清理由 Fast-browser-link 管理。",
   "web_accessible_resources": [
     {
       "resources": [
-        "copilot-collector.mjs",
-        "copilot-tables.mjs",
-        "copilot-observation.mjs",
+        "product-browser-data.mjs",
+        "product-observation.mjs",
+        "product-selection.mjs",
+        "product-table-confirm.mjs",
+        "product-tables.mjs",
+        "product-tool-reports.mjs",
         "vendor/page-semantics.mjs",
-        "vendor/redact.mjs",
-        "copilot-selection.mjs",
-        "copilot-i18n.mjs",
-        "brand.mjs",
-        "ui-design.mjs",
-        "copilot-annotations.mjs"
+        "vendor/redact.mjs"
       ],
       "matches": [
         "http://*/*",

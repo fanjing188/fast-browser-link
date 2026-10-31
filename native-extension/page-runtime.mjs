@@ -26,6 +26,25 @@ export const CHUNK_CHARS = 512 * 1024;
 const MAX_CHUNKS = 64;
 const JS_DEFAULT_TIMEOUT_MS = 10000,
   JS_MAX_TIMEOUT_MS = 60000;
+const MAX_REMOTE_DEPTH = 8,
+  MAX_REMOTE_PROPERTIES = 512,
+  MAX_REMOTE_ARRAY_LENGTH = 2048;
+const JS_CLEANUP_ACK_TIMEOUT_MS = 1000;
+async function boundedCleanup(command) {
+  let timer;
+  try {
+    await Promise.race([
+      Promise.resolve()
+        .then(command)
+        .catch(() => {}),
+      new Promise((resolve) => {
+        timer = setTimeout(resolve, JS_CLEANUP_ACK_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 // 中文注释：原始 CDP 输入的遮罩放行窗口。按下未松开（鼠标、触摸、拖动中）时放长窗口，避免按下与松开落在不同目标上。
 export const INPUT_WINDOW_MS = 600,
   INPUT_HOLD_MS = 5000;
@@ -48,6 +67,7 @@ export class PageRuntime {
     this.pending = [];
     this.flushTimer = null;
     this.chunks = new Map();
+    this.objectGroupSequence = 0;
   }
   // 中文注释：这里只缓存运行资源，不生成授权、期限或第二套代次。
   state(t) {
@@ -117,23 +137,31 @@ export class PageRuntime {
     const timeout = p.timeoutMs === undefined ? JS_DEFAULT_TIMEOUT_MS : p.timeoutMs;
     if (!Number.isInteger(timeout) || timeout < 100 || timeout > JS_MAX_TIMEOUT_MS)
       throw fail('INVALID_JS_TIMEOUT');
-    const { target, frame } = await this.frameTarget(t, p, guard);
     const api = this.executor.api.debugger;
-    let contextId;
-    if (world === 'isolated') {
-      const key = `${p.tabId}|${target.sessionId || ''}|${frame.id}|${frame.loaderId}`;
-      contextId = resources.worlds.get(key);
-      if (!contextId) {
-        const created = await api.sendCommand(target, 'Page.createIsolatedWorld', {
-          frameId: frame.id,
-          worldName: 'fast-page-runtime',
-          grantUniveralAccess: false,
-        });
-        guard();
-        contextId = created.executionContextId;
-        resources.worlds.set(key, contextId);
-      }
-    } else if (frame.parentId && !target.sessionId) throw fail('MAIN_WORLD_FRAME_UNSUPPORTED');
+    const objectGroup = `fast-page-runtime-${Date.now().toString(36)}-${++this.objectGroupSequence}`;
+    let target, frame, contextId;
+    try {
+      ({ target, frame } = await this.frameTarget(t, p, guard));
+      if (world === 'isolated') {
+        const key = `${p.tabId}|${target.sessionId || ''}|${frame.id}|${frame.loaderId}`;
+        contextId = resources.worlds.get(key);
+        if (!contextId) {
+          const created = await api.sendCommand(target, 'Page.createIsolatedWorld', {
+            frameId: frame.id,
+            worldName: 'fast-page-runtime',
+            grantUniveralAccess: false,
+          });
+          guard();
+          contextId = created.executionContextId;
+          resources.worlds.set(key, contextId);
+        }
+      } else if (frame.parentId && !target.sessionId) throw fail('MAIN_WORLD_FRAME_UNSUPPORTED');
+      guard();
+    } catch (error) {
+      // 中文注释：此区间只准备框架与执行世界，尚未求值；保留已知拒绝，不制造未知写入。
+      if (error?.preDispatch === true) throw error;
+      throw fail('JS_PREPARATION_FAILED');
+    }
     let expired = false;
     const check = () => {
       guard();
@@ -150,7 +178,7 @@ export class PageRuntime {
         timeout,
         userGesture: false,
         generatePreview: false,
-        objectGroup: 'fast-page-runtime',
+        objectGroup,
       });
       check();
       if (!callable || value.exceptionDetails) return value;
@@ -164,7 +192,7 @@ export class PageRuntime {
         returnByValue: false,
         awaitPromise: true,
         userGesture: false,
-        objectGroup: 'fast-page-runtime',
+        objectGroup,
       });
     })().then(async (response) => {
       check();
@@ -179,7 +207,7 @@ export class PageRuntime {
       }
       if (response.exceptionDetails) {
         const details = response.exceptionDetails;
-        // 中文注释：只保留异常类型和经页面文字过滤的首行；语法错误确定没有执行。
+        // 中文注释：SyntaxError也可能由已执行代码抛出；异常类型只能分类，不能证明没有副作用。
         const type = String(details.exception?.className || 'Error').slice(0, 80);
         const raw = String(details.exception?.description || details.text || 'Uncaught')
           .split(/\r?\n/, 1)[0]
@@ -189,7 +217,7 @@ export class PageRuntime {
         return {
           ok: false,
           code: syntax ? 'js_syntax_error' : 'js_exception',
-          outcomeUnknown: !syntax,
+          outcomeUnknown: true,
           exception: {
             type,
             text,
@@ -219,14 +247,14 @@ export class PageRuntime {
       return await Promise.race([evaluation, timed]);
     } catch (error) {
       if (error?.message === 'JS_TIMEOUT')
-        await api.sendCommand(target, 'Runtime.terminateExecution').catch(() => {});
+        await boundedCleanup(() => api.sendCommand(target, 'Runtime.terminateExecution'));
       throw error;
     } finally {
       clearTimeout(timer);
       // 中文注释：包括撤权和序列化异常，所有已创建的远端句柄都走相同释放路径。
-      await api
-        .sendCommand(target, 'Runtime.releaseObjectGroup', { objectGroup: 'fast-page-runtime' })
-        .catch(() => {});
+      await boundedCleanup(() =>
+        api.sendCommand(target, 'Runtime.releaseObjectGroup', { objectGroup }),
+      );
     }
   }
   // 中文注释：结果以值返回；DOM 节点、循环对象等不可序列化值只给类型描述，不外泄调试句柄。
@@ -252,35 +280,58 @@ export class PageRuntime {
         description: String(object.description || '').slice(0, 500),
         serializable: false,
       };
-    const json = await this.executor.api.debugger
-      .sendCommand(target, 'Runtime.callFunctionOn', {
-        objectId: object.objectId,
-        functionDeclaration: `function(limit){try{const text=JSON.stringify(this);if(text===undefined)return {kind:'undefined'};if(text.length>limit)return {kind:'too_large',size:text.length};return {kind:'json',text};}catch(error){return {kind:'error',name:String(error&&error.name||'Error')};}}`,
-        arguments: [{ value: MAX_JS_RESULT_CHARS }],
-        returnByValue: true,
-      })
-      .catch(() => null);
-    guard();
-    const verdict = json?.result?.value;
-    if (verdict?.kind === 'json') return { ...base, value: JSON.parse(verdict.text) };
-    if (verdict?.kind === 'too_large')
-      return {
-        ...base,
-        description: String(object.description || '').slice(0, 500),
-        serializable: false,
-        truncated: true,
-        size: verdict.size,
-      };
+    // 中文注释：读取 CDP 自有属性描述，不在页面执行 JSON.stringify、toJSON 或 getter。
+    // 任一不安全或超出预算的子值只返回描述，不能以部分结果冒充完整 JSON。
+    let remaining = MAX_REMOTE_PROPERTIES;
+    const read = async (remote, depth) => {
+      if (Object.hasOwn(remote, 'value')) return { kind: 'value', value: remote.value };
+      if (remote.type === 'undefined' || remote.type === 'function') return { kind: 'omit' };
+      if (remote.unserializableValue || remote.type !== 'object' || !remote.objectId)
+        return { kind: 'unsupported' };
+      if (remote.subtype && remote.subtype !== 'array') return { kind: 'unsupported' };
+      if (depth >= MAX_REMOTE_DEPTH || remaining <= 0) return { kind: 'unsupported' };
+      const properties = await this.executor.api.debugger
+        .sendCommand(target, 'Runtime.getProperties', {
+          objectId: remote.objectId,
+          ownProperties: true,
+          accessorPropertiesOnly: false,
+          generatePreview: false,
+        })
+        .catch(() => null);
+      guard();
+      if (!Array.isArray(properties?.result)) return { kind: 'unsupported' };
+      remaining -= properties.result.length;
+      if (remaining < 0) return { kind: 'unsupported' };
+      const array = remote.subtype === 'array';
+      const length = array
+        ? properties.result.find((entry) => entry.name === 'length')?.value?.value
+        : 0;
+      if (array && (!Number.isSafeInteger(length) || length > MAX_REMOTE_ARRAY_LENGTH))
+        return { kind: 'unsupported' };
+      const value = array ? new Array(length).fill(null) : {};
+      for (const entry of properties.result) {
+        if (!entry.enumerable || entry.symbol) continue;
+        if (entry.get || entry.set || !entry.value) return { kind: 'accessor' };
+        if (array && !/^(0|[1-9]\d*)$/.test(entry.name)) continue;
+        const child = await read(entry.value, depth + 1);
+        if (child.kind === 'unsupported' || child.kind === 'accessor') return child;
+        if (child.kind === 'omit') continue;
+        Object.defineProperty(value, entry.name, {
+          value: child.value,
+          enumerable: true,
+          writable: true,
+          configurable: true,
+        });
+      }
+      return { kind: 'value', value };
+    };
+    const verdict = await read(object, 0);
+    if (verdict.kind === 'value') return this.bounded({ ...base, value: verdict.value });
     return {
       ...base,
       description: String(object.description || '').slice(0, 500),
       serializable: false,
-      ...(verdict?.kind === 'error'
-        ? {
-            reason:
-              verdict.name === 'TypeError' ? 'circular_or_unsupported' : 'serialization_error',
-          }
-        : {}),
+      reason: verdict.kind === 'accessor' ? 'accessor_property' : 'circular_or_unsupported',
     };
   }
   bounded(result) {
@@ -339,10 +390,16 @@ export class PageRuntime {
       if (!page) throw fail('TARGET_NOT_OWNED');
     }
     const target = { tabId: p.tabId, ...(p.childSessionId ? { sessionId: p.childSessionId } : {}) };
-    if (p.frameToken) {
-      const tree = await this.executor.checkedFrameTree({ tabId: p.tabId }, t, guard, false);
-      const resolved = await this.executor.resolveFrame(t, p, tree, guard);
-      if (resolved.target.sessionId) target.sessionId = resolved.target.sessionId;
+    try {
+      if (p.frameToken) {
+        const tree = await this.executor.checkedFrameTree({ tabId: p.tabId }, t, guard, false);
+        const resolved = await this.executor.resolveFrame(t, p, tree, guard);
+        if (resolved.target.sessionId) target.sessionId = resolved.target.sessionId;
+      }
+      guard();
+    } catch (error) {
+      if (error?.preDispatch === true) throw error;
+      throw fail('CDP_PREPARATION_FAILED');
     }
     if (verdict.category === 'navigation') {
       let url = params.url;

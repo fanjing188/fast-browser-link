@@ -25,8 +25,6 @@ INPUTS = (
     "fbl.py",
     "skills",
     "agent-link",
-    "scripts/setup-copilot-profile.py",
-    "scripts/setup-copilot-package.py",
     "package.json",
     "package-lock.json",
     "executor-plugin",
@@ -47,7 +45,6 @@ INPUTS = (
     "docs/design/hermes-installation.md",
     "docs/development.md",
     "docs/agent-integration.md",
-    "docs/assist.md",
     "docs/fbl-troubleshooting.md",
     "docs/installation.zh-CN.md",
     "docs/python-scripting.md",
@@ -393,7 +390,7 @@ class ReleaseClosure(unittest.TestCase):
         self.assertFalse(any("official_adapter" in name for name in sums))
         runtime = self.output / "fast-browser-link/native_bridge"
         members = (
-            "assist_adapter.py",
+            "core_adapter.py",
             "product_adapter.py",
             "browser_sdk.py",
             "fbl_scripts.py",
@@ -509,7 +506,7 @@ assert pathlib.Path(browser_sdk.__file__).parent == pathlib.Path(sys.argv[1])
 
     def test_missing_script_lane_member_rejected_before_output(self):
         for relative in (
-            "assist_adapter.py",
+            "core_adapter.py",
             "product_adapter.py",
             "browser_sdk.py",
             "fbl_scripts.py",
@@ -543,7 +540,6 @@ assert pathlib.Path(browser_sdk.__file__).parent == pathlib.Path(sys.argv[1])
         for document in (
             "development.md",
             "agent-integration.md",
-            "assist.md",
             "fbl-troubleshooting.md",
             "installation.zh-CN.md",
             "design/hermes-installation.md",
@@ -594,7 +590,7 @@ assert pathlib.Path(browser_sdk.__file__).parent == pathlib.Path(sys.argv[1])
         installer = load_installer()
         home, hermes = self.root / "home", self.root / "hermes"
         for relative in (
-            "assist_adapter.py",
+            "core_adapter.py",
             "product_adapter.py",
             "browser_sdk.py",
             "fbl_scripts.py",

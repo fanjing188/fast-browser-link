@@ -10,7 +10,6 @@ Run `fbl doctor`, inspect the failed component, then use its printed action. `fb
 | extension / version | Open the browser, load the printed unpacked directory and enable connection. Reload after update; installed extension version and host stamp must agree. |
 | runtime_root | Conflicting manifest roots: select the intended runtime explicitly and review registrations; never guess based on whichever socket responds. |
 | hermes / models | Hermes is optional for core browsing. Configure it separately; setup lists actual available models, not a fixed model name. Cached metadata alone does not prove live model availability. |
-| Hermes profile (`fast-copilot`) | Only marked dedicated profiles are merged. Preserve migrated model and config version; restore zero ACP tools, title generation off and reasoning low. Unknown profiles remain untouched. |
 | templates | `.json.new` means user changes need merging. `--fix` updates digest-owned templates, preserving customized originals. |
 | packages | Correct registered local paths with pack install/discovery. Do not copy private tools into the public repository. |
 | logs | Check ownership and writable directory; do not chmod unrelated files or escalate permissions automatically. |

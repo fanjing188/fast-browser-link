@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { copyFile, mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 const source = import.meta.dirname;
@@ -8,9 +8,25 @@ const dest = path.resolve(process.argv[2] || path.join(source, 'dist-native'));
 if (dest === source) throw Error('output must not replace source');
 
 await mkdir(dest, { recursive: true });
+// 中文注释：仅清理带本构建标记的旧协作产物，避免增量构建把退役侧栏继续带进安装目录。
+const oldProductFiles = (await readdir(dest)).filter((name) => name.startsWith('copilot-'));
+if (oldProductFiles.length) {
+  let prior;
+  try {
+    prior = JSON.parse(await readFile(path.join(dest, 'BUILD-DEPS.json'), 'utf8'));
+  } catch {
+    throw Error('stale collaboration output is not an owned build');
+  }
+  if (prior?.version !== 1 || typeof prior?.buildId !== 'string')
+    throw Error('stale collaboration output is not an owned build');
+  for (const name of oldProductFiles) await rm(path.join(dest, name));
+}
 // 中文注释：内容过滤模块随扩展打包，保持源码和加载版本一致。
 // 中文注释：扩展和系统通知共用的品牌图标也在清单内；清单内不放注释，集成检查器按字面量解析它。
 for (const file of [
+  'assist-connections.mjs',
+  'assist-controller.mjs',
+  'assist-observation.mjs',
   'product-fill.mjs',
   'product-fill-content.mjs',
   'product-connections.mjs',
@@ -18,16 +34,12 @@ for (const file of [
   'product-connections.html',
   'product-connections.css',
   'ui-design.mjs',
-  'copilot-annotations.mjs',
-  'copilot-basket.mjs',
-  'copilot-workbench.mjs',
-  'copilot-readiness.mjs',
-  'copilot-retry.mjs',
-  'copilot-controls.mjs',
-  'copilot-table-confirm.mjs',
-  'copilot-logs.mjs',
-  'copilot-task-logs.mjs',
-  'copilot-result.css',
+  'product-browser-data.mjs',
+  'product-observation.mjs',
+  'product-selection.mjs',
+  'product-table-confirm.mjs',
+  'product-tables.mjs',
+  'product-tool-reports.mjs',
   'brand-mark.svg',
   'brand.css',
   'brand.mjs',
@@ -35,34 +47,6 @@ for (const file of [
   'brand-logo-small.svg',
   'overlay-view.mjs',
   'overlay-logs.mjs',
-  'copilot-tool-reports.mjs',
-  'copilot-capabilities-panel.mjs',
-  'copilot-capabilities.css',
-  'copilot-agent-panel.mjs',
-  'copilot-agents.css',
-  'copilot-packs-panel.mjs',
-  'copilot-selection.mjs',
-  'copilot-browser-data.mjs',
-  'copilot-i18n.mjs',
-  'copilot-tables.mjs',
-  'copilot-table-job.mjs',
-  'copilot-table-panel.mjs',
-  'copilot-result-view.mjs',
-  'copilot-result-content.mjs',
-  'copilot-generic-result.mjs',
-  'copilot-result.mjs',
-  'copilot-result.html',
-  'copilot-settings.mjs',
-  'copilot-settings-tabs.mjs',
-  'copilot-memory-panel.mjs',
-  'copilot-view.mjs',
-  'copilot-entry.js',
-  'copilot-collector.mjs',
-  'copilot-background.mjs',
-  'copilot-observation.mjs',
-  'copilot-panel.html',
-  'copilot-panel.css',
-  'copilot-panel.mjs',
   'manifest.json',
   'work-window.mjs',
   'work-window.html',
@@ -127,12 +111,7 @@ for (const [relative, canonical] of Object.entries(dependencies)) {
   };
 }
 
-for (const file of [
-  'copilot-observation.mjs',
-  'copilot-selection.mjs',
-  'copilot-annotations.mjs',
-  'copilot-background.mjs',
-]) {
+for (const file of ['product-observation.mjs', 'product-selection.mjs']) {
   await writeFile(
     path.join(dest, file),
     (await readFile(path.join(source, file), 'utf8'))
@@ -140,6 +119,7 @@ for (const file of [
       .replace("from '../page-semantics/redact.mjs'", "from './vendor/redact.mjs'"),
   );
 }
+
 const sourceCore = await readFile(path.join(source, 'core.mjs'), 'utf8');
 await writeFile(
   path.join(dest, 'oauth-popups.mjs'),

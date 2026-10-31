@@ -114,12 +114,14 @@ export function mountProductConnections(doc, runtime) {
   const input = doc.querySelector('#extension-id');
   const feedback = doc.querySelector('#action-status');
   const list = doc.querySelector('#connections');
+  const kind = doc.querySelector('#product-kind');
+  const prefix = () => (kind.value === 'assist' ? 'assist' : 'product');
   list.setAttribute('aria-label', t.registry);
   let busy = false;
 
   function setBusy(value) {
     busy = value;
-    for (const control of doc.querySelectorAll('button, input')) control.disabled = value;
+    for (const control of doc.querySelectorAll('button, input, select')) control.disabled = value;
     doc.querySelector('#pair-form').setAttribute('aria-busy', String(value));
   }
 
@@ -194,7 +196,7 @@ export function mountProductConnections(doc, runtime) {
     announce(removing ? t.unpairing : t.pairing, 'loading');
     try {
       const response = await runtime.sendMessage({
-        type: removing ? 'product_unpair' : 'product_pair',
+        type: prefix() + (removing ? '_unpair' : '_pair'),
         extensionId,
       });
       const entries = registryReceipt(response);
@@ -228,7 +230,7 @@ export function mountProductConnections(doc, runtime) {
     status.dataset.state = 'loading';
     markUnconfirmed();
     try {
-      const response = await runtime.sendMessage({ type: 'product_connections' });
+      const response = await runtime.sendMessage({ type: prefix() + '_connections' });
       render(registryReceipt(response));
     } catch {
       status.dataset.state = 'error';
@@ -238,6 +240,21 @@ export function mountProductConnections(doc, runtime) {
       if (restoreFocus) refresh.focus();
     }
   }
+  function productCopy() {
+    const name = kind.value === 'assist' ? 'Fast-browser-assist' : 'Fast-Backlink';
+    for (const key of ['intro', 'label', 'help'])
+      doc.querySelector(`[data-copy="${key}"]`).textContent = t[key].replaceAll(
+        'Fast-Backlink',
+        name,
+      );
+  }
+  kind.addEventListener('change', () => {
+    productCopy();
+    input.value = '';
+    list.replaceChildren();
+    void readStatus();
+  });
+  productCopy();
   void readStatus();
 }
 

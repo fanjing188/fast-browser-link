@@ -450,16 +450,6 @@ class BridgeClient:
 
     def call(self, method: str, params: Dict[str, Any] | None = None) -> Any:
         params = dict(params or {})
-        silent = os.environ.get("FAST_BROWSER_COPILOT_SILENT_TOKEN")
-        if silent and method == "browser.access_request":
-            raise BridgeError(
-                "copilot_background_only", "协作任务不能打开前台授权窗口，请在侧栏处理连接。"
-            )
-        if silent and method == "shared.create":
-            params["copilotSilentToken"] = silent
-            resource = os.environ.get("FAST_BROWSER_COPILOT_RESOURCE_TOKEN")
-            if resource:
-                params["copilotResourceToken"] = resource
         request = {"id": uuid.uuid4().hex, "method": method, "params": params}
         with self._lock:
             if self._socket is not None and not self._reusable():
@@ -617,18 +607,23 @@ def ensure_service(home: os.PathLike[str] | str, timeout: float = 5.0) -> None:
                     raise BridgeError(
                         "insecure_daemon_path", "installed daemon path contains symlink"
                     )
-                # 中文注释：完整安装不能健康启动却缺少产品执行模块；不回落下载源码补件。
+                # 中文注释：完整安装必须包含底座接收模块；不回落到下载目录补件。
                 if any(
                     candidate.is_symlink() or not candidate.is_file()
-                    for candidate in (installed, installed.with_name("product_adapter.py"))
+                    for candidate in (
+                        installed,
+                        installed.with_name("product_adapter.py"),
+                        installed.with_name("work_adapter.py"),
+                        installed.with_name("core_adapter.py"),
+                    )
                 ):
                     raise BridgeError("incomplete_runtime", "installed product runtime is missing")
-                daemon_path = installed.with_name("assist_adapter.py")
+                daemon_path = installed.with_name("core_adapter.py")
             else:
-                daemon_path = Path(__file__).with_name("assist_adapter.py")
-            # 中文注释：完整产品由固定启动器装配；缺件不退回无Assist路由的纯核心或下载目录。
+                daemon_path = Path(__file__).with_name("core_adapter.py")
+            # 中文注释：底座由固定启动器装配；缺件不从下载目录补件。
             if daemon_path.is_symlink() or not daemon_path.is_file():
-                raise BridgeError("incomplete_runtime", "trusted product bootstrap is missing")
+                raise BridgeError("incomplete_runtime", "trusted core bootstrap is missing")
             _spawn_detached([sys.executable, str(daemon_path), "--home", str(home_path)])
             deadline = time.monotonic() + timeout
             while time.monotonic() < deadline:

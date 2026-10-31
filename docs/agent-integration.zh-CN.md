@@ -14,4 +14,4 @@
 
 多步工作使用 `script`，传 `taskId`、Python `code`、有界 `timeout`。检查 `execution_complete`、`outcome_unknown` 和 `last_operation`；捕获异常不代表人工输入或审批已完成。未知写入先核实再继续。[Python 参考](python-scripting.md) · [CLI](fbl.zh-CN.md)
 
-主动建议另在侧栏配置 Agent 并显式开启。核心浏览器工具与本地导出无需 Hermes 或模型配置。[第一次使用](assist.zh-CN.md) · [English](agent-integration.md)
+主动建议由独立的 Fast-browser-assist 产品提供。核心浏览器工具无需 Hermes 或模型配置。[English](agent-integration.md)

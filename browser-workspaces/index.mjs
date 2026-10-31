@@ -728,9 +728,24 @@ export function createWorkspaces({ chrome, authority }) {
           // 中文注释：仅解绑有创建证据的这一页；用户放进任务组的其他页和用户自建组不动。
           try {
             await chrome.tabs.ungroup(record.tabId);
-            r.status = 'kept';
-            r.disposition = 'ungrouped';
-            preservedTabIds.push(record.tabId);
+            const after = await inspectTab(record.tabId);
+            if (after.kind === 'missing') {
+              r.status = 'released';
+              r.disposition = 'gone';
+              r.cleanupOutcome = 'succeeded';
+            } else if (
+              after.kind === 'present' &&
+              after.tab.id === record.tabId &&
+              after.tab.windowId === t.windowId &&
+              after.tab.groupId === -1
+            ) {
+              r.status = 'kept';
+              r.disposition = 'ungrouped';
+              preservedTabIds.push(record.tabId);
+            } else {
+              // 中文注释：API 回执不证明标签已离组；用户同时移动时不再操作，也不报告成功。
+              unknownTabIds.push(record.tabId);
+            }
           } catch {
             unknownTabIds.push(record.tabId);
           }

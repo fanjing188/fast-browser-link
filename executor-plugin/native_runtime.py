@@ -213,8 +213,12 @@ class NativeProfileRuntime:
                     client = self._client_module.BridgeClient(self.bridge_home, timeout=timeout)
                     self._thread_clients[thread] = client
                 client.timeout = timeout
-                # 中文注释：活动通知只连接已有 daemon，避免 doctor/reference 只读调用启动后台服务。
-                client.autostart = method != "shared.activity"
+                # 中文注释：诊断与活动通知只连接已有daemon，不能因读取触发任务恢复或日志写入。
+                client.autostart = method not in {
+                    "shared.activity",
+                    "shared.diagnostics",
+                    "shared.diagnostics_lookup",
+                }
                 for previous in list(self._thread_clients):
                     if previous is not thread and not previous.is_alive():
                         self._thread_clients.pop(previous).close()

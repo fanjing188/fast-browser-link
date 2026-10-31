@@ -1,12 +1,12 @@
 # Fast-browser-link
 
-Fast-browser-link lets AI agents work in the browser you’re already signed into: read pages, fill forms, export tables and collect multi-page data. Assist follows your work and suggests the next step.
+Fast-browser-link lets AI agents work in the browser you’re already signed into: read pages, fill forms, upload and download files, and collect page data. Collaboration lives in the separate Fast-browser-assist product.
 
 <!-- Demo recording pending: add docs/assets/demo.gif (browse → suggestion → run → result) and embed it here. -->
 
 ## Install in three steps
 
-1. On macOS with Chrome or Edge and Python 3.11+, follow [installation](docs/installation.md) to obtain a published package or build from source. **Source version: 2.4.0**. Published versions and checksums are listed in [Releases](https://github.com/fanjing188/fast-browser-link/releases).
+1. On macOS with Chrome or Edge and Python 3.11+, follow [installation](docs/installation.md) to obtain a published package or build from source. **Source version: 2.5.0**. Published versions and checksums are listed in [Releases](https://github.com/fanjing188/fast-browser-link/releases).
 2. Run `python3 -B -m fbl setup` from the package, then load the printed extension directory and confirm the browser connection.
 3. Start Codex or Claude Code with the installed Skill, or preview `fbl mcp install --agent codex` / `fbl mcp install --agent claude` and add `--apply` after review. Open the sidebar to try local tools immediately.
 
@@ -18,16 +18,15 @@ Use your signed-in browser while passwords, payments, verification codes and fin
 
 ## What you can do
 
-- **Browser tools:** read and navigate pages, fill ordinary fields, upload/download files, export tables and collect multiple pages through Skills, CLI or MCP.
-- **Assist:** optional Hermes or Codex integration for suggestions and background tasks. First try table exports, multi-page collection, page annotations and the work basket without configuring an Agent. [First use](docs/assist.md).
-- **Packs:** describe your objects, data sources and repeatable workflows. [Write your own pack](docs/packs-guide.md).
+- **Browser tools:** read and navigate pages, fill ordinary fields, upload/download files and collect page data through Skills, CLI or MCP.
+- **Product connection:** external extensions such as Fast-browser-assist use the bounded product connection and work page APIs. Browser execution, authorization and cleanup remain in Fast-browser-link.
 
 ## Platforms
 
 macOS + Chrome/Edge. Windows and Linux are planned; no release dates are promised.
 
-[Export a multi-page table](docs/export-tables.md) · [Troubleshooting](docs/fbl-troubleshooting.md) · [Optional Hermes integration](docs/installation.md#hermes) · [Incognito](docs/incognito.md)
+[Troubleshooting](docs/fbl-troubleshooting.md) · [Optional Hermes integration](docs/installation.md#hermes) · [Incognito](docs/incognito.md)
 
-[Development](docs/development.md) · [Design and safety contracts](docs/design/architecture.md) · [Testing](docs/testing.md) · [Release notes](docs/releases/release-2.4.0.md)
+[Development](docs/development.md) · [Design and safety contracts](docs/design/architecture.md) · [Testing](docs/testing.md) · [Release notes](docs/releases/release-2.5.0.md)
 
 MIT · [Third-party notices](THIRD_PARTY_NOTICES.md)

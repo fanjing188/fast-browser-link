@@ -12,7 +12,6 @@ import {
   runMaintenanceStep,
   waitForTasks,
   hermesControl,
-  initializeCopilot,
 } from './dev-sync-daemon.mjs';
 import { spawnSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
@@ -257,7 +256,6 @@ try {
   );
   for (const target of pluginTargets) await verifyTree(target, packageHashes, 'fast-browser-link/');
   await verifyTree(extensionTarget, packageHashes, 'native-extension/');
-  initializeCopilot(home, pluginTarget);
   // 中文注释：Hermes 桌面只监视 materialized 副本，更新入口文件会触发热重载。
   const desktopSource = path.join(pluginTarget, 'desktop', 'plugin.js');
   const entry = desktopEntry;

@@ -8,7 +8,7 @@ The only script and website-tool implementations live in `native-bridge/script_l
 
 A core-only deployment must keep `fbl_scripts.py`, all seven `script_lane` files (`host_bridge.py`, `action_session.py`, `tool.py`, `child.py`, `page-request.js`, `page_export.py`, `page_export.js`) and both `site_tools` files (`tools.py`, `store.py`) together. The installed Native Messaging runtime keeps these directories directly under `host-bin/`; the Hermes package keeps them under `fast-browser-link/native_bridge/`. `HostBridge(runtime)` resolves its action adapter beside itself, never from a client-supplied plugin path. Navigation summaries also live in the core action adapter; Hermes open/single-action tools delegate to that same function.
 
-`tests/agent-link/test_script.py` includes a core-only deployment fixture that copies no Hermes code, starts a real child interpreter, reads a navigation summary, runs an activated website tool and checks the subprocess identity. Browser responses remain synthetic. The existing script/site suites cover session leases, tab and generation scope, unknown-write fencing, workspace isolation and locking. `daemon.py` provides the pure browser service without importing Assist. The full product uses the fixed `assist_adapter.py` bootstrap to assemble product routes, resources and lifecycle explicitly; it is not discovered from page or client parameters. See [browser-core boundaries](browser-core.md).
+`tests/agent-link/test_script.py` includes a core-only deployment fixture that copies no Hermes code, starts a real child interpreter, reads a navigation summary and checks subprocess identity. Browser responses remain synthetic. The script suites cover session leases, tab and generation scope, unknown-write fencing, workspace isolation and locking. `core_adapter.py` is the fixed browser bootstrap, including bounded product routes; it never discovers Assist from page or client parameters. See [browser-core boundaries](browser-core.md).
 
 ## How it runs
 
@@ -139,13 +139,14 @@ The following helpers use the existing task, session, generation and lease check
 | Helper | Contract |
 | --- | --- |
 | `parse_page(root=None, sections=[...], composed=False, budget=12000, maxScan=20000, cursor=None)` | Returns regions, blocks, table-row fragments, form relationships and collections, with source references, coverage, warnings and a continuation cursor. Sections are `regions`, `blocks`, `tables`, `forms`, `collections`. |
-| `extract(schema, **options)` | A schema has a CSS `record` selector and named `fields`; each field accepts `selector`, `type` (`text`, `number`, `url`), optional allowlisted `attribute`, and `required`. `:scope` selects the record itself; selectors such as `:scope > h2` are evaluated relative to each record in its own DOM tree. Ambiguous/missing/redacted/truncated fields are explicit, never guessed. |
+| `extract(schema, **options)` | A schema has a CSS `record` selector and named `fields`; each field accepts `selector`, `type` (`text`, `number`, `url`), optional allowlisted `attribute`, and `required`. Set `multiple: true` for a repeated field and optionally `limit` (1–20, default 20). Its value and source evidence become aligned arrays; `states[field].items` reports each value's status, and overflow reports `truncated` with `field_limit`. `:scope` selects the record itself; selectors such as `:scope > h2` are evaluated relative to each record in its own DOM tree. Ambiguous/missing/redacted/truncated fields are explicit, never guessed. |
 | `page_markdown(**options)` | Renders the current block page as Markdown while retaining coverage and continuation metadata. |
 | `evaluate(function, arguments=None, world='isolated', timeout_ms=10000)` | Executes a JavaScript function string with separately serialized arguments. This is arbitrary JavaScript, not a read-only sandbox. |
 | `wait_for(selector, state='present', text=None, count=None, timeout=10, interval=0.25)` | Read-only wait for `present`, `absent`, `text`, `count` or `stable`. Returns `satisfied`, `timed_out` and the last observation. Partial reads never prove absence. |
 | `expect_response(url=None, timeout=15)` / `expect_navigation(url=None, timeout=15)` | Context managers that subscribe before your action and expose a matching event in `.result`. Matching is observation by filter, not proof that your action caused it or that business processing succeeded. Ambiguous events, overflow and timeouts fail without replaying the action. |
 
-With `composed=True`, schema fields and ARIA form options include descendants across accessible Shadow trees and same-origin frames within the selected root and record/control. Hidden and private content stays excluded; multiple matching fields remain ambiguous. With `composed=False`, containment uses the light DOM. Implicit table column headers associate with every column interval covered by a cell's `colSpan`; explicit `headers` take priority and row headers stay limited to their row spans. These associations do not normalize a table into a spreadsheet.
+With `composed=True`, schema fields and ARIA form options include descendants across accessible Shadow trees and same-origin frames within the selected root and record/control. Hidden and private content stays excluded; multiple matches remain ambiguous for single-value fields. With `composed=False`, containment uses the light DOM. Implicit table column headers associate with every column interval covered by a cell's `colSpan`; explicit `headers` take priority and row headers stay limited to their row spans. These associations do not normalize a table into a spreadsheet.
+If a deeply nested page exceeds the bounded record index, `record_index_limit` marks the result partial and no schema records are returned from that pass; narrow `root` before extracting again.
 
 ```python
 # 中文注释：先选定业务记录范围，再按明确字段读取；字段缺失会保留状态。
@@ -155,6 +156,7 @@ result = extract({
         'title': {'selector': 'h2', 'required': True},
         'price': {'selector': '.price', 'type': 'text'},
         'link': {'selector': 'a', 'attribute': 'href', 'type': 'url'},
+        'tags': {'selector': '.tag', 'multiple': True, 'limit': 10},
     },
 })
 print({'records': result['records'], 'coverage': result['coverage']})

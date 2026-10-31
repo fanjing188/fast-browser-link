@@ -206,15 +206,21 @@ try {
         JSON.stringify(refs),
       );
       await script('import json\nprint(json.dumps(network_stop()))');
-      // 中文注释：真实浏览器中结果序列化超时必须释放执行器；原表达式只能执行一次。
+      // 中文注释：返回值读取不执行页面的 toJSON 或 getter，避免卡住后续操作。
       const serialization = await task.run('js.evaluate', {
         world: 'main',
-        timeout_ms: 100,
+        timeout_ms: 2000,
         expression:
           'globalThis.auditSerializationCount=(globalThis.auditSerializationCount||0)+1;({toJSON(){while(true){}}})',
       });
-      assert.equal(serialization.bridgeCode, 'js_timeout', JSON.stringify(serialization));
-      assert.equal(serialization.outcome_unknown, true, JSON.stringify(serialization));
+      assert.deepEqual(serialization.value, {}, JSON.stringify(serialization));
+      const accessor = await task.run('js.evaluate', {
+        world: 'main',
+        timeout_ms: 2000,
+        expression: '({get blocked(){while(true){}}})',
+      });
+      assert.equal(accessor.serializable, false, JSON.stringify(accessor));
+      assert.equal(accessor.reason, 'accessor_property', JSON.stringify(accessor));
       const once = await task.run('js.evaluate', {
         world: 'main',
         expression: 'globalThis.auditSerializationCount',
@@ -353,7 +359,7 @@ try {
           '启用搜索和重复调用',
           '在线能力文档',
           '取消后拒绝执行',
-          '序列化超时释放且不重放',
+          '返回值读取不触发页面自定义钩子',
           '持久脚本注册允许且外部目标仍核实任务归属',
           '第三方子框架不阻断原始CDP',
         ],

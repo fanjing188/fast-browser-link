@@ -64,7 +64,7 @@ class InstallPrerequisitesTests(unittest.TestCase):
             # 中文注释：当前包必须携带独立 Cookie 内存通道，夹具不省略运行模块。
             "fast-browser-link/native_bridge/cookie_mirror.py": "# cookie channel\n",
             "fast-browser-link/native_bridge/daemon.py": "# daemon\n",
-            "fast-browser-link/native_bridge/assist_adapter.py": "# product bootstrap\n",
+            "fast-browser-link/native_bridge/core_adapter.py": "# product bootstrap\n",
             "fast-browser-link/native_bridge/product_adapter.py": "# product runtime\n",
             "fast-browser-link/native_bridge/api_client.py": "# api\n",
             "fast-browser-link/native_bridge/vault_client.py": "# vault client\n",

@@ -1,15 +1,13 @@
-import {
-  refreshOverlaySteps as refreshSteps,
-  updateWorkflowActivity,
-} from '../../native-extension/overlay-logs.mjs';
-import { taskTableAdapter } from '../../native-extension/copilot-table-job.mjs';
-import { CopilotBackground } from '../../native-extension/copilot-background.mjs';
+import { refreshOverlaySteps as refreshSteps } from '../../native-extension/overlay-logs.mjs';
 // Synthetic native port + production background/Bridge/notifier. No browser launch.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { readFile } from 'node:fs/promises';
 import { CookieMirror } from '../../native-extension/cookie-mirror.mjs';
+import { AssistObservation } from '../../native-extension/assist-observation.mjs';
+import { AssistController } from '../../native-extension/assist-controller.mjs';
+import { AssistConnections } from '../../native-extension/assist-connections.mjs';
 import { Bridge, BrowserConsent, isUiSender } from '../../native-extension/bridge.mjs';
 import { createApprovalNotifier } from '../../native-extension/approval-notifier.mjs';
 const packageVersion = JSON.parse(await readFile('package.json', 'utf8')).version;
@@ -205,15 +203,15 @@ function harness({
   };
   vm.runInNewContext(background.replace(/^import\s[^;]*;\n/gm, ''), {
     refreshSteps,
-    updateWorkflowActivity,
-    taskTableAdapter,
-    CopilotBackground,
     reloadForInstalledBuild: async () => false,
     BUILD_ID: '',
     registerWorkspaceStartup: () => {},
     NativeWorkspaces: WorkspaceFake,
     Executor: ExecutorFake,
     CookieMirror,
+    AssistObservation,
+    AssistController,
+    AssistConnections,
     Bridge,
     BrowserConsent,
     isUiSender,

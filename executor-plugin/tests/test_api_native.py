@@ -35,6 +35,9 @@ class Bridge:
 
     def call(self, method, params):
         self.calls.append((method, dict(params)))
+        if method == "shared.diagnostics_lookup":
+            task = self.tasks.get(params["taskId"])
+            return task is not None and task["owner"] == params["owner"]
         if method == "browser.list":
             return [
                 {"instanceId": "connected", "browser": "edge", "connected": True},

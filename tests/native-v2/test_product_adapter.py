@@ -13,7 +13,7 @@ import unittest
 
 BRIDGE = Path(__file__).resolve().parents[2] / "native-bridge"
 sys.path.insert(0, str(BRIDGE))
-from assist_adapter import AssistAdapter  # noqa: E402
+from core_adapter import CoreAdapter  # noqa: E402
 from daemon import BridgeDaemon, ProtocolError  # noqa: E402
 
 URL = "https://fixture.test/form?draft=1"
@@ -23,7 +23,7 @@ class ProductAdapterTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="product-")
         self.addCleanup(self.temp.cleanup)
-        self.daemon = BridgeDaemon(Path(self.temp.name), service_factory=AssistAdapter)
+        self.daemon = BridgeDaemon(Path(self.temp.name), service_factory=CoreAdapter)
         self.daemon._prepare_data_dir()
         self.addCleanup(self.daemon._flush_tasks)
         self.daemon._notify_tasks_changed = lambda _: None
@@ -235,7 +235,7 @@ class ProductAdapterTests(unittest.TestCase):
                 )
             ],
         )
-        self.assertIsNone(self.daemon.copilot)
+        self.assertFalse(hasattr(self.daemon, "copilot"))
 
     def test_run_uses_existing_browser_execute_ledger_and_never_replays_unknown(self):
         attached = self.attach()
@@ -328,7 +328,7 @@ class ProductAdapterTests(unittest.TestCase):
                     "command": {"operation": "commit", "grantHandle": "grant"},
                 },
             )
-        restored = BridgeDaemon(Path(self.temp.name), service_factory=AssistAdapter)
+        restored = BridgeDaemon(Path(self.temp.name), service_factory=CoreAdapter)
         restored._load_tasks()
         restored.extensions["fixture"] = self.extension
         self.addCleanup(restored._flush_tasks)
@@ -492,7 +492,7 @@ class ProductAdapterTests(unittest.TestCase):
         task = self.ready(attached)
         task["lastActivityAt"] = time.time() - self.daemon.task_idle_timeout_seconds - 1
         self.daemon._flush_tasks()
-        restarted = BridgeDaemon(Path(self.temp.name), service_factory=AssistAdapter)
+        restarted = BridgeDaemon(Path(self.temp.name), service_factory=CoreAdapter)
         restarted._load_tasks()
         self.addCleanup(restarted._flush_tasks)
         self.assertFalse(restarted.task_authorities)
@@ -641,7 +641,7 @@ class ProductAdapterTests(unittest.TestCase):
         self.assertNotIn("canary", task["currentOperation"].get("errorCode", ""))
 
     def test_real_extension_reader_remains_available_for_product_browser_roundtrips(self):
-        daemon = BridgeDaemon(Path(self.temp.name) / "wire", service_factory=AssistAdapter)
+        daemon = BridgeDaemon(Path(self.temp.name) / "wire", service_factory=CoreAdapter)
         daemon._prepare_data_dir()
         daemon._start_lifecycle_worker = (
             lambda target, *args: threading.Thread(target=target, args=args, daemon=True).start()
@@ -857,7 +857,7 @@ class ProductAdapterTests(unittest.TestCase):
         attached = self.attach()
         task = self.ready(attached)
         self.daemon._flush_tasks()
-        restarted = BridgeDaemon(Path(self.temp.name), service_factory=AssistAdapter)
+        restarted = BridgeDaemon(Path(self.temp.name), service_factory=CoreAdapter)
         restarted._load_tasks()
         self.addCleanup(restarted._flush_tasks)
         restarted.extensions["fixture"] = self.extension

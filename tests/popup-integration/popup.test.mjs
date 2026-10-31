@@ -1,23 +1,15 @@
 import { renderStatus, readableCopy } from '../../native-extension/ui-design.mjs';
-import { renderChains } from '../../native-extension/copilot-readiness.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { JSDOM } from 'jsdom';
 
 const root = new URL('../../native-extension/', import.meta.url);
-const [html, popupModule, controlsModule] = await Promise.all(
-  ['popup.html', 'popup.mjs', 'copilot-controls.mjs'].map((file) =>
-    readFile(new URL(file, root), 'utf8'),
-  ),
+const [html, popupModule] = await Promise.all(
+  ['popup.html', 'popup.mjs'].map((file) => readFile(new URL(file, root), 'utf8')),
 );
 // 中文注释：jsdom 的 eval 只执行经典脚本；把弹窗依赖的共享组件模块内联成同一作用域，行为与浏览器按模块加载一致。
-const script =
-  '(()=>{' +
-  controlsModule.replace(/^import\s[^;]*;\n/gm, '').replace(/^export (const|function) /gm, '$1 ') +
-  '\n' +
-  popupModule.replace(/^import\s[^;]*;\n/gm, '') +
-  '\n})()';
+const script = '(()=>{' + popupModule.replace(/^import\s[^;]*;\n/gm, '') + '\n})()';
 
 async function mount(initial) {
   const dom = new JSDOM(html, {
@@ -65,7 +57,6 @@ async function mount(initial) {
   dom.window.setInterval = () => 1;
   dom.window.renderStatus = renderStatus;
   dom.window.readableCopy = readableCopy;
-  dom.window.renderChains = renderChains;
   dom.window.eval(script);
   const flush = async () => {
     for (let i = 0; i < 5; i++) await new Promise((resolve) => setImmediate(resolve));
@@ -209,7 +200,7 @@ test('旧云端回执不会恢复配对UI或请求，Esc直接关闭弹窗', asy
       assert.doesNotMatch(h.document.body.textContent, /OBSOLETE-CODE|云端Agent连接/);
     }
     assert.ok(h.document.querySelector('#local-row'));
-    assert.ok(h.document.querySelector('#copilot-toggle'));
+    assert.equal(h.document.querySelector('#copilot-toggle'), null);
     assert.equal(
       h.calls.some((call) => call.type.startsWith('cloud_')),
       false,

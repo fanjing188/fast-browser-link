@@ -7,7 +7,6 @@ document.documentElement.lang = chinese ? 'zh-CN' : 'en';
 for (const el of document.querySelectorAll('[data-zh]'))
   el.textContent = t(el.dataset.zh, el.dataset.en);
 for (const [id, zh, en] of [
-  ['copilot-toggle', '协作', 'Assist'],
   ['error-close', '关闭错误提示', 'Dismiss error'],
   ['version-label', '扩展版本', 'Extension version'],
 ])
@@ -33,15 +32,8 @@ let connected = false,
   revision = 0,
   controlPending = null,
   stoppedReceipt = null,
-  errorSource = null,
-  windowId;
+  errorSource = null;
 $('#version-label').textContent = `v${chrome.runtime.getManifest().version}`;
-void chrome.windows
-  ?.getCurrent?.()
-  .then((view) => {
-    windowId = view.id;
-  })
-  .catch(() => {});
 function error(message, source = 'action') {
   // 中文注释：连接状态另有独立展示，临时断连不能覆盖尚未解决的操作失败。
   if (source === 'connection' && errorSource === 'action') return;
@@ -112,9 +104,6 @@ function render() {
           '连接确认窗口尚未关闭。',
           'The connection confirmation window is open.',
         ),
-        table_confirmation: t('表格保存确认尚未结束。', 'Table confirmation is pending.'),
-        table_job: t('表格采集尚未结束。', 'Table collection is active.'),
-        suggestion: t('协作任务尚未结束。', 'A collaboration task is active.'),
         browser_task: t('浏览器任务尚未释放。', 'A browser task has not been released.'),
         busy: t('仍有活动任务或确认操作。', 'A task or confirmation is active.'),
         unverified: t('本机空闲状态尚未核实。', 'Local idle status is not verified.'),
@@ -160,13 +149,8 @@ function render() {
   );
   const first = known && !connected && statusData?.browserFullConsentStatus === 'disabled';
   $('#local-connect').classList.toggle('primary', first);
-  $('#open-copilot').classList.remove('primary');
   $('#local-connect').hidden = connected || busy;
   $('#local-connect').textContent = t('重试', 'Retry');
-  const copilot = statusData?.copilot;
-  $('#open-copilot').hidden = !known || !connected || copilot?.enabled !== true;
-  $('#copilot-toggle').setAttribute('aria-checked', String(copilot?.enabled === true));
-  $('#copilot-toggle').disabled = !known || !connected;
   renderWork();
 }
 async function refresh() {
@@ -385,45 +369,13 @@ $('#open-products').addEventListener(
       chrome.tabs.create({ url: chrome.runtime.getURL('product-connections.html') }),
     ),
 );
-function openCopilot(button) {
-  return feedback(button, async () => {
-    const result = await call({ type: 'copilot.open', windowId });
-    if (result.opened !== true)
-      throw Error(t('侧栏未打开，请重试', 'Could not open the side panel. Try again.'));
-    window.close();
-  });
-}
-$('#open-copilot').addEventListener('click', () => void openCopilot($('#open-copilot')));
-$('#copilot-toggle').addEventListener(
-  'click',
-  () =>
-    void feedback($('#copilot-toggle'), async () => {
-      const enabling = $('#copilot-toggle').getAttribute('aria-checked') !== 'true';
-      // 中文注释：在用户点击的同步阶段请求侧栏，保留浏览器的手势授权。
-      const opening = enabling ? call({ type: 'copilot.open', windowId }) : Promise.resolve(null);
-      const [opened, state] = await Promise.all([
-        opening,
-        call({ type: 'copilot.popup_settings', enabled: enabling }),
-      ]);
-      if (state.onboarding_required) {
-        await refresh();
-        window.close();
-        return;
-      }
-      if (typeof state.enabled !== 'boolean')
-        throw Error(t('协作状态未确认', 'Assist state not confirmed'));
-      await refresh();
-      if (enabling && opened.opened !== true)
-        throw Error(t('侧栏未打开，请点击协作重试', 'Open Assist to retry.'));
-    }),
-);
 document.addEventListener('keydown', (event) => {
   if (event.key !== 'Escape') return;
   event.preventDefault();
   window.close();
 });
 chrome.runtime.onMessage.addListener((message) => {
-  if (message?.type === 'changed' || message?.type === 'copilot.changed') void refresh();
+  if (message?.type === 'changed') void refresh();
 });
 void refresh();
 setInterval(refresh, 1500);

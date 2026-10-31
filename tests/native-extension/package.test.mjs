@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, realpath, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { buildCurrentPackageArchive } from './current-package.mjs';
@@ -30,7 +30,6 @@ test('independent MV3 has no content script and popup preserves task protections
   assert.deepEqual(
     m.permissions.sort(),
     [
-      'sidePanel',
       'notifications',
       'cookies',
       'alarms',
@@ -43,12 +42,12 @@ test('independent MV3 has no content script and popup preserves task protections
       'tabs',
     ].sort(),
   );
-  assert.equal(m.side_panel.default_path, 'copilot-panel.html');
+  assert.equal(m.side_panel, undefined);
   assert.deepEqual(m.host_permissions, ['<all_urls>']);
   assert.equal(m.content_scripts, undefined);
   assert.equal(m.externally_connectable, undefined);
   assert.doesNotMatch(m.description, /智能审批|smart[- ]approval/i);
-  assert.match(m.description, /连接授权后直接执行/);
+  assert.match(m.description, /任务、授权与清理/);
   const ui = await readFile(new URL('popup.html', root), 'utf8');
   assert.match(ui, /连接状态/);
   assert.match(ui, /本地连接/);
@@ -103,7 +102,7 @@ for layout in ('legacy','missing','incomplete-flat'):
   for name,data in files.items(): z.writestr(name,data)
   z.writestr('SHA256SUMS.json',json.dumps({n:hashlib.sha256(d).hexdigest() for n,d in files.items()}))
  if layout=='legacy':
-  result=m.prepare(w/layout,archive);assert result['extensionLayout']=='legacy-dist-native';assert result['extensionRoot']==str(w/layout/'package/native-extension/dist-native')
+  result=m.prepare(w/layout,archive);assert result['extensionLayout']=='legacy-dist-native';assert result['extensionRoot']==str((w/layout/'package/native-extension/dist-native').resolve())
  else:
   try: m.prepare(w/layout,archive)
   except ValueError: pass
@@ -136,31 +135,31 @@ test('real helper extracts and verifies the current package before native E2E', 
     const result = JSON.parse(stdout);
     assert.equal(result.manifestExact, true);
     assert.ok(Number.isInteger(result.hashedFiles) && result.hashedFiles > 0);
-    assert.equal(result.packageRoot, path.join(work, 'package'));
-    assert.equal(result.extensionRoot, path.join(work, 'package', 'native-extension'));
+    assert.equal(result.packageRoot, await realpath(path.join(work, 'package')));
+    assert.equal(
+      result.extensionRoot,
+      await realpath(path.join(work, 'package', 'native-extension')),
+    );
     assert.equal(result.extensionLayout, 'flat');
     assert.match(result.pluginSource, /package\/fast-browser-link$/);
+    const files = JSON.parse(await readFile(path.join(result.packageRoot, 'SHA256SUMS.json')));
+    assert.equal(
+      Object.keys(files).some((name) => /\/(?:copilot[-_/]|assist_adapter\.py)/.test(name)),
+      false,
+    );
     await assert.rejects(
       readFile(path.join(result.packageRoot, 'docs/growth/report-copilot-mode-p1.md')),
       { code: 'ENOENT' },
     );
-    assert.equal(
-      JSON.parse(
-        await readFile(
-          path.join(result.packageRoot, 'docs/examples/copilot-package/package.json'),
-          'utf8',
-        ),
-      ).id,
-      'example-seo-tool',
+    await assert.rejects(
+      readFile(path.join(result.packageRoot, 'docs/examples/copilot-package/package.json')),
+      { code: 'ENOENT' },
     );
-    assert.equal(
-      JSON.parse(
-        await readFile(
-          path.join(result.pluginSource, 'native_bridge/copilot-packages/generic/package.json'),
-          'utf8',
-        ),
-      ).id,
-      'generic',
+    await assert.rejects(
+      readFile(
+        path.join(result.pluginSource, 'native_bridge/copilot-packages/generic/package.json'),
+      ),
+      { code: 'ENOENT' },
     );
     const installation = await readFile(path.join(result.packageRoot, 'INSTALL.txt'), 'utf8');
     assert.doesNotMatch(installation, /smart[- ]approval|智能审批/i);

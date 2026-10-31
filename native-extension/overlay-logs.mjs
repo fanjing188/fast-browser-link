@@ -1,4 +1,3 @@
-import { readableCopy } from './ui-design.mjs';
 // 中文注释：只使用 daemon 的脱敏日志，并在异步回执后复核连接与任务身份。
 export async function refreshOverlaySteps(current, executor, connection, selectedTask = null) {
   for (const task of selectedTask ? [selectedTask] : executor.tasks.values()) {
@@ -20,30 +19,5 @@ export async function refreshOverlaySteps(current, executor, connection, selecte
     } catch {
       /* 中文注释：日志回读失败不能改变浏览器动作的执行结果。 */
     }
-  }
-}
-
-export async function updateWorkflowActivity(executor, row) {
-  for (const task of executor.tasks.values()) {
-    if (task.revoked || task.copilotRowId !== row.id) continue;
-    for (const [tabId, entry] of task.overlays || [])
-      await executor
-        .overlayCall(tabId, entry, 'activity', {
-          activity: {
-            step: row.step || '',
-            completed: row.workflow_completed || 0,
-            total: row.workflow_total || 0,
-            status: row.status,
-            reason: readableCopy(row.reason),
-            summary: row.result?.verdict || '',
-            resumeFrom: row.resume_from,
-            metrics: Object.fromEntries(
-              (row.result?.metrics || []).slice(0, 3).map((item) => [item.label, item.value]),
-            ),
-            canOpen: !!row.result?.export?.files?.[0]?.id,
-            canBasket: !!(row.params?.object || row.params?.keyword),
-          },
-        })
-        .catch(() => {});
   }
 }

@@ -46,22 +46,8 @@ const sourceCopies = [
   'product-connections-page.mjs',
   'product-connections.html',
   'product-connections.css',
-  'copilot-annotations.mjs',
-  'copilot-basket.mjs',
-  'copilot-readiness.mjs',
-  'copilot-retry.mjs',
-  'copilot-controls.mjs',
   'ui-design.mjs',
-  'copilot-table-confirm.mjs',
-  'copilot-logs.mjs',
-  'copilot-task-logs.mjs',
-  'copilot-result.css',
-  'copilot-agent-panel.mjs',
-  'copilot-agents.css',
-  'copilot-capabilities.css',
-  'copilot-packs-panel.mjs',
-  'copilot-generic-result.mjs',
-  'copilot-memory-panel.mjs',
+  'product-table-confirm.mjs',
   'brand.css',
   'brand.mjs',
   'brand-logo.svg',
@@ -69,29 +55,11 @@ const sourceCopies = [
   'brand-mark.svg',
   'overlay-view.mjs',
   'overlay-logs.mjs',
-  'copilot-tool-reports.mjs',
-  'copilot-capabilities-panel.mjs',
-  'copilot-selection.mjs',
-  'copilot-browser-data.mjs',
-  'copilot-i18n.mjs',
-  'copilot-tables.mjs',
-  'copilot-table-job.mjs',
-  'copilot-table-panel.mjs',
-  'copilot-result-view.mjs',
-  'copilot-result-content.mjs',
-  'copilot-result.mjs',
-  'copilot-result.html',
-  'copilot-settings.mjs',
-  'copilot-settings-tabs.mjs',
-  'copilot-view.mjs',
-  'copilot-workbench.mjs',
-  'copilot-entry.js',
-  'copilot-collector.mjs',
-  'copilot-background.mjs',
-  'copilot-observation.mjs',
-  'copilot-panel.html',
-  'copilot-panel.css',
-  'copilot-panel.mjs',
+  'product-tool-reports.mjs',
+  'product-selection.mjs',
+  'product-browser-data.mjs',
+  'product-tables.mjs',
+  'product-observation.mjs',
   // 中文注释：新增工作窗口和效果模块同样进入显式构建闭包。
   'action-effects.mjs',
   'work-window.mjs',
@@ -107,6 +75,10 @@ const sourceCopies = [
   'bridge.mjs',
   'request-ledger.mjs',
   'background.mjs',
+  // 中文注释：独立Assist的固定接收端也属于后台静态模块闭包。
+  'assist-connections.mjs',
+  'assist-controller.mjs',
+  'assist-observation.mjs',
   'automation-overlay.mjs',
   'interaction-highlight.mjs',
   'official-actions.mjs',
@@ -287,12 +259,7 @@ async function assertBuildContents(sourceRoot, output) {
   for (const relative of sourceCopies) {
     const staged = await readFile(path.join(output, relative));
     const rawSource = await readFile(path.join(sourceRoot, 'native-extension', relative));
-    const source = [
-      'copilot-observation.mjs',
-      'copilot-selection.mjs',
-      'copilot-annotations.mjs',
-      'copilot-background.mjs',
-    ].includes(relative)
+    const source = ['product-observation.mjs', 'product-selection.mjs'].includes(relative)
       ? Buffer.from(
           rawSource
             .toString()
@@ -475,7 +442,16 @@ test('product module bytes participate in the native build identity', async () =
         await readFile(path.join(output, 'BUILD-DEPS.json'), 'utf8'),
       ).buildId;
       assert.notEqual(current, previous, `${name} must change the build identity`);
-      assert.deepEqual(await readFile(path.join(output, name)), await readFile(source));
+      const raw = await readFile(source);
+      const expected = ['product-observation.mjs', 'product-selection.mjs'].includes(name)
+        ? Buffer.from(
+            raw
+              .toString()
+              .replace("from '../page-semantics/index.js'", "from './vendor/page-semantics.mjs'")
+              .replace("from '../page-semantics/redact.mjs'", "from './vendor/redact.mjs'"),
+          )
+        : raw;
+      assert.deepEqual(await readFile(path.join(output, name)), expected);
       previous = current;
     }
   } finally {

@@ -1,15 +1,10 @@
 import { renderStatus } from '../../native-extension/ui-design.mjs';
-import { renderChains } from '../../native-extension/copilot-readiness.mjs';
-import {
-  mountControls,
-  boardName,
-  renderConnection,
-} from '../../native-extension/copilot-controls.mjs';
-import { taskTableAdapter } from '../../native-extension/copilot-table-job.mjs';
-import { CopilotBackground } from '../../native-extension/copilot-background.mjs';
 // 中文注释：VM 夹具显式注入独立 Cookie 模块，保持生产后台模块依赖一致。
 import { CookieMirror } from '../../native-extension/cookie-mirror.mjs';
 import { ProductConnections } from '../../native-extension/product-connections.mjs';
+import { AssistObservation } from '../../native-extension/assist-observation.mjs';
+import { AssistController } from '../../native-extension/assist-controller.mjs';
+import { AssistConnections } from '../../native-extension/assist-connections.mjs';
 // Real popup -> real background dispatcher -> real Bridge request envelope.
 // Browser/Executor and daemon replies are in-memory doubles; NO browser or host starts.
 import { test } from 'node:test';
@@ -195,14 +190,15 @@ async function harness(initialStorage = {}, manifestVersion = packageVersion) {
   };
   // Only ES module linking is replaced. The background handler body is unchanged.
   vm.runInNewContext(background.replace(/^import\s[^;]*;\n/gm, ''), {
-    taskTableAdapter,
-    CopilotBackground,
     CookieMirror,
     Executor: TestExecutor,
     NativeWorkspaces: TestWorkspaces,
     Bridge,
     BrowserConsent,
     ProductConnections,
+    AssistObservation,
+    AssistController,
+    AssistConnections,
     isUiSender,
     reloadForInstalledBuild: async () => false,
     BUILD_ID: '',
@@ -244,10 +240,6 @@ async function harness(initialStorage = {}, manifestVersion = packageVersion) {
   dom.window.clearInterval = () => {};
   Object.assign(dom.window, {
     renderStatus,
-    renderChains,
-    mountControls,
-    boardName,
-    renderConnection,
   });
   dom.window.eval(popup.replace(/^import\s[^;]*;\n/gm, ''));
   await flush();

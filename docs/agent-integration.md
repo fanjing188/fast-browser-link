@@ -16,4 +16,4 @@ Use the installed Skill's Python entrypoint or `fbl browser` for JSON CLI operat
 
 For multi-step work use the `script` operation with `taskId`, Python `code` and a bounded `timeout`. Inspect `execution_complete`, `outcome_unknown` and `last_operation`; a caught exception does not clear pending human input or approval. Inspect an uncertain write before continuing. [Python helpers](python-scripting.md) · [CLI](fbl.md)
 
-For Assist suggestions, configure the Agent separately in the sidebar and explicitly enable it. Core browser tools and local exports require no Hermes or model configuration. [First use](assist.md) · [中文](agent-integration.zh-CN.md)
+Collaboration is provided by the separate Fast-browser-assist product. The core browser tools require no Hermes or model configuration. [中文](agent-integration.zh-CN.md)

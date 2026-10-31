@@ -37,7 +37,6 @@ with (
     commands = [
         # 中文注释：先核对运行元数据、当前发布文档和下载链接，再执行离线用例。
         ["node", "scripts/package-version.mjs"],
-        [sys.executable, "tests/test_assist_naming.py"],
         [sys.executable, "-m", "unittest", "discover", "-s", "bench/agent", "-v"],
         [sys.executable, "-m", "unittest", "discover", "-s", "bench", "-v"],
         ["node", "--test", "--test-concurrency=1", *gate.NODE_TESTS],
@@ -56,7 +55,11 @@ with (
                 name,
                 "-v",
             ]
-            for name in ("test_oauth_popup.py", "test_oauth_popup_executor.py")
+            for name in (
+                "test_oauth_popup.py",
+                "test_oauth_popup_executor.py",
+                "test_work_adapter.py",
+            )
         ],
         [sys.executable, "-m", "unittest", "discover", "-s", "tests/v1.1-script-lane", "-v"],
         [sys.executable, "-m", "unittest", "discover", "-s", "tests/v1.3", "-v"],
@@ -66,7 +69,6 @@ with (
             [sys.executable, "-m", "unittest", "discover", "-s", suite, "-v"]
             for suite in (
                 # 中文注释：自动更新只运行合成 Release 和临时安装目录的离线用例。
-                "tests/copilot",
                 "tests/agent-link",
                 "tests/auto-update",
                 "tests/v1.6.0",

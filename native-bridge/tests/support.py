@@ -80,7 +80,7 @@ def stop_fixture_daemon(home: Path, extra_daemons=()):
             Path(home) / "plugins/fast-browser-link/native_bridge",
             data_dir / "host-bin",
         )
-        for entry in ("assist_adapter.py", "daemon.py")
+        for entry in ("core_adapter.py", "daemon.py")
     ]
     expected = fixture_daemon_path(home, command.stdout, [*candidates, *extra_daemons])
     # 中文注释：PID 文件只含数字；认证探活和完整启动命令均匹配后才允许清理临时 daemon。

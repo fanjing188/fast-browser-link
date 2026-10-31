@@ -133,6 +133,78 @@ test('extracts with field evidence and does not coerce ambiguous currency', () =
     f.close();
   }
 });
+test('structured records keep bounded repeated fields and per-item evidence', () => {
+  const f = fixture(
+    '<main><article><h2>产品 A</h2><ul><li class="tag">快</li><li class="tag">轻</li><li class="tag">省电</li></ul><a href="/one?token=private">详情</a><a href="/two">规格</a></article><article><h2>产品 B</h2></article></main>',
+  );
+  try {
+    const result = f.parser.parse({
+      sections: [],
+      schema: {
+        record: 'article',
+        fields: {
+          title: { selector: 'h2', required: true },
+          tags: { selector: '.tag', multiple: true, limit: 2, required: true },
+          links: { selector: 'a[href]', attribute: 'href', type: 'url', multiple: true },
+        },
+      },
+    });
+    assert.deepEqual(result.records[0].fields.tags, ['快', '轻']);
+    assert.equal(result.records[0].states.tags.status, 'truncated');
+    assert.equal(result.records[0].states.tags.observed, 3);
+    assert.equal(result.records[0].sources.tags.length, 2);
+    assert.deepEqual(result.records[0].fields.links, [
+      'https://example.test/one',
+      'https://example.test/two',
+    ]);
+    assert.equal(result.records[0].valid, false);
+    assert.deepEqual(result.records[1].fields.tags, []);
+    assert.equal(result.records[1].states.tags.status, 'missing');
+    assert(result.warnings.includes('field_limit'));
+    assert.equal(result.coverage.complete, false);
+  } finally {
+    f.close();
+  }
+});
+test('invalid repeated-field rules fail even when a page has no records', () => {
+  const f = fixture('<main><p>Empty list</p></main>');
+  try {
+    assert.throws(() => f.parser.parse({ root: '[', sections: [] }), /INVALID_PARSE_OPTIONS/);
+    assert.throws(
+      () => f.parser.parse({ sections: [], schema: { record: '[', fields: {} } }),
+      /INVALID_PARSE_OPTIONS/,
+    );
+    assert.throws(
+      () =>
+        f.parser.parse({
+          sections: [],
+          schema: { record: 'article', fields: { tags: { selector: '[' } } },
+        }),
+      /INVALID_PARSE_OPTIONS/,
+    );
+    assert.throws(
+      () =>
+        f.parser.parse({
+          sections: [],
+          schema: { record: 'article', fields: { tags: { selector: '.tag', limit: 2 } } },
+        }),
+      /INVALID_PARSE_OPTIONS/,
+    );
+    assert.throws(
+      () =>
+        f.parser.parse({
+          sections: [],
+          schema: {
+            record: 'article',
+            fields: { tags: { selector: '.tag', multiple: true, limit: 21 } },
+          },
+        }),
+      /INVALID_PARSE_OPTIONS/,
+    );
+  } finally {
+    f.close();
+  }
+});
 test('page cursor rejects document change and budget never asserts completeness', () => {
   const f = fixture(
     '<main>' +

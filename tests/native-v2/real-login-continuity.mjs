@@ -15,7 +15,7 @@ const server = createServer((req, res) => {
 await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
 const origin = `http://127.0.0.1:${server.address().port}`;
 let session;
-async function overlay(tabId) {
+async function overlay(tabId, { expand = false } = {}) {
   return session.ui.evaluate(`(async()=>{
   const target={tabId:${tabId}},send=(method,params={})=>chrome.debugger.sendCommand(target,method,params);
   const tree=await send('Page.getFrameTree');
@@ -25,7 +25,7 @@ async function overlay(tabId) {
   try{
    const {node}=await send('DOM.describeNode',{objectId:host.result.objectId,depth:1,pierce:true});
    const {object}=await send('DOM.resolveNode',{backendNodeId:node.shadowRoots[0].backendNodeId,executionContextId:world.executionContextId,objectGroup:'fixture-overlay'});
-   const result=await send('Runtime.callFunctionOn',{objectId:object.objectId,functionDeclaration:'function(){return {taskId:globalThis.__fastAutomationOverlay.taskId,steps:this.querySelector("ol").textContent}}',returnByValue:true});
+   const result=await send('Runtime.callFunctionOn',{objectId:object.objectId,functionDeclaration:'function(){const all=this.querySelector("[data-role=all-steps]");if(${expand}&&all&&!all.hidden&&/^(展开|Show)/.test(all.textContent))all.click();return {taskId:globalThis.__fastAutomationOverlay.taskId,steps:this.querySelector("ol").textContent}}',returnByValue:true});
    if(result.exceptionDetails)throw Error(JSON.stringify(result.exceptionDetails));return result.result.value;
   }finally{await send('Runtime.releaseObjectGroup',{objectGroup:'fixture-overlay'});}
  })()`);
@@ -88,7 +88,8 @@ try {
       tab.windowId,
     );
     await session.rpc(other.owner, 'close', { task_id: other.task.id });
-    const click = await task.act('ref_click', await task.ref('Login', ['button']));
+    const loginBefore = await task.ref('Login', ['button']);
+    const click = await task.act('ref_click', loginBefore);
     assert.equal(click.error, undefined, JSON.stringify(click));
     const popup = await waitFor(
       async () => {
@@ -122,6 +123,17 @@ try {
     });
     assert.ok(snapshot.items.length, JSON.stringify(snapshot));
     await session.ui.evaluate(`chrome.tabs.remove(${popup.id}).then(()=>true)`);
+    // 中文注释：跨界面链返回 A 后继续沿同一任务执行；新文档必须重新取得引用。
+    const returned = await task.run('navigate', { url: `${origin}/a` });
+    assert.equal(returned.tabId, task.tabId);
+    const loginAfter = await task.ref('Login', ['button']);
+    assert.equal(loginAfter.binding.taskId, task.task.id);
+    assert.notEqual(loginAfter.binding.documentId, loginBefore.binding.documentId);
+    const returnedPanel = await waitFor(async () => {
+      const panel = await overlay(task.tabId, { expand: true });
+      return panel?.steps.includes('点击') && panel;
+    }, 10000);
+    assert.equal(returnedPanel.taskId, task.task.id);
     const state = await session.rpc(task.owner, 'get', { task_id: task.task.id });
     assert.equal(state.id, task.task.id);
     assert.equal(state.state, 'ready');
@@ -133,7 +145,7 @@ try {
       false,
     );
     console.log(
-      `PASS incognito=${incognito}: A→B→C, shared task ID, Login log on B/C, popup execution, return, cookie isolation and cleanup`,
+      `PASS incognito=${incognito}: A→B→C→A, shared task ID, fresh return-page reference, popup execution, cookie isolation and cleanup`,
     );
   }
 } finally {

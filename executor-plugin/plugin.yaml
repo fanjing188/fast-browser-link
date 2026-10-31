@@ -1,9 +1,9 @@
 name: fast-browser-link
-version: 2.4.0
+version: 2.5.0
 manifest_version: 2
 api_version: 1
 # 中文注释：按宿主钩子能力注册，不用版本号阻止加载。
-description: 让 AI agent（Hermes、Codex、Claude Code 等）直接调用已连接的浏览器执行工作，连接授权后直接执行：页面操作、表单、上传下载、表格导出与实时协作。
+description: 让 AI agent（Hermes、Codex、Claude Code 等）直接调用已连接的浏览器，执行页面操作、表单填写、上传下载和数据读取；任务授权与清理由 Fast-browser-link 管理。
 author: FanJean
 license: MIT
 tags: [browser, automation, native-messaging, desktop, privacy, python, cookie-mirror]

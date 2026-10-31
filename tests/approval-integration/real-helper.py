@@ -241,7 +241,7 @@ def inspect(work: Path):
     candidates = [
         directory / entry
         for directory in (host_bin, plugin_bridge)
-        for entry in ("assist_adapter.py", "daemon.py")
+        for entry in ("core_adapter.py", "daemon.py")
     ]
     expected = fixture_daemon_path(value["hermes"], command, candidates)
     if expected is None:
@@ -278,7 +278,7 @@ def cleanup(work: Path):
             value["hermes"] / "plugin-data/fast-browser-link-native/host-bin",
             value["plugin"] / "native_bridge",
         )
-        for entry in ("assist_adapter.py", "daemon.py")
+        for entry in ("core_adapter.py", "daemon.py")
     ]
     if (
         command.returncode == 0

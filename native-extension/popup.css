@@ -7,7 +7,7 @@ body{width:320px;min-width:320px;margin:0;background:var(--paper);color:var(--in
 .row-label{flex:1;min-width:0;overflow-wrap:anywhere}
 .connection-row>.st{margin-left:auto;flex-shrink:0}
 .connection-row>.small-button{padding:8px;min-height:44px;flex-shrink:0;white-space:normal}
-.row-icon{display:none}.copilot-section .switch{flex-shrink:0}
+.row-icon{display:none}
 .info{position:relative;display:inline-flex;flex-shrink:0}
 .info-button{border:0;background:none;color:var(--ink-2);padding:0;width:44px;min-height:44px}
 .tooltip{display:none;position:fixed;z-index:20;left:12px;right:12px;top:56px;background:var(--paper);border:1px solid var(--line);border-radius:var(--r);padding:10px 12px;font-size:12px;box-shadow:var(--shadow);overflow-wrap:anywhere}

@@ -1,6 +1,6 @@
 ---
 name: fast-browser-link
-version: 2.4.0
+version: 2.5.0
 description: Standard workflow and safety rules for working in the user's own logged-in Chrome/Edge (open pages, read, click, fill, page through, upload, download). Read this before using the user's browser.
 ---
 
@@ -107,6 +107,6 @@ Errors: `fast-browser-link:fast-browser-troubleshoot`. Product tasks allow only 
 
 表单、截图、iframe、JS/CDP、Python 工作流和上传下载沿用既有任务接口。登录弹窗和下载优先用 `ref_click` 提供可信手势；刷新后继续原 taskId。原任务的最近日志在新页面恢复，超出面板五步的历史用 `fast_browser_get(include_log=true)` 查看。普通 Cookie 镜像保持原规则，不支持无痕会话镜像。密码、验证码与支付字段仍必须交给用户或已经授权的私有 Vault。
 
-## 初始化与协作
+## 初始化与维护
 
-包内 `python3 -B -m fbl setup`；无需 Node，核心无需 Hermes，协作需 Hermes。`fbl doctor --fix` 修受管项，`fbl logs --bundle` 导出脱敏诊断；`fbl update --dry-run` 预览空闲升级与失败回滚。`fbl packs discover` 或侧栏“本机能力 › 发现”审阅保存；私有声明只留本机。见 `docs/fbl.md`、`docs/fbl-packs.md`。
+包内 `python3 -B -m fbl setup`；无需 Node 或协作 Agent。`fbl doctor --fix` 修受管项，`fbl logs --bundle` 导出只含固定诊断字段的 ZIP；`fbl update --dry-run` 预览空闲升级与失败回滚。Fast-browser-assist 是独立产品，连接它不改变本技能的任务授权。见 `docs/fbl.md`。

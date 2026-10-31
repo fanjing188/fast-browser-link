@@ -307,6 +307,21 @@ test('连续动作跳过短等待文案，等待阶段立即收回派发窗口',
   assert.match(detail.textContent, /输入内容/);
   overlay.remove();
 });
+test('未知总步数时状态区只显示当前动作，不显示虚假进度', () => {
+  const { overlay, bar, detail } = recentFixture();
+  const now = bar.children.find((node) => node.className === 'now');
+  const index = now.children.find((node) => node.dataset.role === 'step-index');
+  const progress = now.children.find((node) => node.dataset.role === 'task-progress');
+  overlay.update({ state: 'running', step: 'navigate' });
+  assert.equal(index.hidden, true);
+  assert.equal(progress.hidden, true);
+  assert.doesNotMatch(now.textContent, /正在准备步骤|已完成步骤/);
+  assert.match(detail.textContent, /打开网页/);
+  overlay.setActivity({ step: 'navigate', completed: 1, total: 3 });
+  assert.equal(index.hidden, false);
+  assert.equal(progress.hidden, false);
+  overlay.remove();
+});
 test('重复动作更新不重写未变化文本、按钮、边框、目标和鼠标样式', () => {
   const { overlay, bar } = recentFixture();
   const update = {

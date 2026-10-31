@@ -83,6 +83,100 @@ function executeUserApproved(executor, command) {
   return executor.execute(command);
 }
 
+test('受信分页快照在读取前拒绝旧文档绑定，当前绑定仍可读取', async () => {
+  const { Executor } = await load();
+  const { api } = workspaceFixture();
+  api.debugger.attach = async () => {};
+  const executor = new Executor(api);
+  await executor.approve(task());
+  const current = executor.tasks.get('a');
+  executor.ensurePageEvents = async () => {};
+  executor.checkedFrameTree = async () => safeTree(1).frameTree;
+  executor.ensureOverlay = async () => null;
+  let reads = 0;
+  executor.callSemanticWorld = async (_target, _frame, _action, payload) => {
+    reads++;
+    return { version: 2, binding: payload.binding, items: [], nextCursor: null };
+  };
+  const binding = executor.semanticBinding(current, 1, 'document-1');
+  const params = {
+    taskId: 'a',
+    generation: 1,
+    tabId: 1,
+    action: 'semantic_snapshot',
+    options: { mode: 'content', cursor: 'native-cursor' },
+    binding: { ...binding, documentId: 'previous-document' },
+  };
+  await assert.rejects(executor.perform(current, params), /BINDING_MISMATCH/);
+  assert.equal(reads, 0);
+  params.binding = { ...binding };
+  const result = await executor.perform(current, params);
+  assert.deepEqual(result.binding, binding);
+  assert.equal(reads, 1);
+});
+
+test('受信分页快照在等待遮罩期间换文档或引用租约时不读取正文', async () => {
+  const { Executor } = await load();
+  for (const change of ['document', 'binding']) {
+    const { api } = workspaceFixture();
+    api.debugger.attach = async () => {};
+    const executor = new Executor(api);
+    await executor.approve(task());
+    const current = executor.tasks.get('a');
+    executor.ensurePageEvents = async () => {};
+    executor.checkedFrameTree = async () => safeTree(1).frameTree;
+    const binding = executor.semanticBinding(current, 1, 'document-1');
+    let reads = 0;
+    executor.callSemanticWorld = async () => {
+      reads++;
+      return { items: [] };
+    };
+    executor.ensureOverlay = async () => {
+      if (change === 'document') executor.docs.set(1, 1);
+      else current.semanticBindings.clear();
+      return null;
+    };
+    await assert.rejects(
+      executor.perform(current, {
+        taskId: 'a',
+        generation: 1,
+        tabId: 1,
+        action: 'semantic_snapshot',
+        binding: { ...binding },
+        options: { mode: 'content', cursor: 'native-cursor' },
+      }),
+      /BINDING_MISMATCH|DOCUMENT_CHANGED/,
+    );
+    assert.equal(reads, 0, change);
+  }
+});
+
+test('产品局部快照零匹配不扩大根预算或派生恢复截图', async () => {
+  const { Executor } = await load();
+  const executor = new Executor(workspaceFixture().api);
+  await executor.approve(task());
+  const current = executor.tasks.get('a');
+  current.executionLane = 'product_work';
+  const options = { root: '#scope', query: 'absent', composed: false, budget: 512 };
+  const command = { taskId: 'a', generation: 1, tabId: 1, action: 'semantic_snapshot', options };
+  const snapshot = { version: 2, items: [], coverage: { complete: true }, nextCursor: null };
+  const calls = [];
+  executor.performSettled = async (_task, params) => {
+    calls.push(structuredClone(params));
+    assert.deepEqual(params, command);
+    return snapshot;
+  };
+  executor.checkedFrameTree = async () => {
+    throw Error('unexpected wider recovery scan');
+  };
+  assert.equal(await executor.performRecovering(current, command), snapshot);
+  assert.deepEqual(calls, [command]);
+  executor.performSettled = async () => {
+    throw Error('INVALID_ROOT');
+  };
+  await assert.rejects(executor.performRecovering(current, command), /INVALID_ROOT/);
+});
+
 test('文档扫描在取得句柄后撤销时仍释放句柄，不再读取 DOM', async () => {
   const { Executor } = await load();
   const calls = [];

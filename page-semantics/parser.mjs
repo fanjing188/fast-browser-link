@@ -20,7 +20,8 @@ export function createPageParser(context) {
   const selected=options.sections??sections;
   if(!Array.isArray(selected)||selected.some(s=>!sections.includes(s))||selected.length>5)fail();
   if(root!==null&&(typeof root!=='string'||!root||root.length>512))fail();
-  const scope=root?doc.querySelector(root):doc.body;
+  let scope;
+  try{scope=root?doc.querySelector(root):doc.body;}catch{fail();}
   if(!scope||!scope.isConnected)throw Error('INVALID_ROOT');
   const epoch=revision();
   const fingerprint=JSON.stringify({root,composed,budget,maxScan,selected,schema});
@@ -149,31 +150,70 @@ export function createPageParser(context) {
   if(recordNodes.length>1000)warnings.add('record_limit');
   if(schema){
    if(typeof schema!=='object'||Array.isArray(schema)||Object.keys(schema).some(k=>!['record','fields'].includes(k))||typeof schema.record!=='string'||!schema.record||schema.record.length>512||!schema.fields||typeof schema.fields!=='object'||Array.isArray(schema.fields)||Object.keys(schema.fields).length>40)fail();
+   const rules=Object.entries(schema.fields);
+   // 中文注释：空列表也要拒绝无效选择器，避免同一 schema 因页面有无记录而改变错误分类。
+   try{doc.createElement('div').matches(schema.record);}catch{fail();}
+   for(const [key,rule] of rules){
+    if(!/^[A-Za-z_][\w-]{0,63}$/.test(key)||!rule||typeof rule!=='object'||Array.isArray(rule)||Object.keys(rule).some(k=>!['selector','type','attribute','required','multiple','limit'].includes(k))||typeof rule.selector!=='string'||!rule.selector||rule.selector.length>512||!['text','number','url'].includes(rule.type||'text')||!['href','src','alt','title','datetime',undefined].includes(rule.attribute)||('required' in rule&&typeof rule.required!=='boolean')||('multiple' in rule&&typeof rule.multiple!=='boolean')||('limit' in rule&&(!rule.multiple||!limited(rule.limit,1,20))))fail();
+    try{doc.createElement('div').matches(rule.selector);}catch{fail();}
+   }
    const records=nodes.filter(n=>matches(n,schema.record));
    coverage.observedRecords=records.length;
-   for(const record of records.slice(0,1000)){
+   let selectedRecords=records.slice(0,1000);
+   const recordDescendants=new Map(selectedRecords.map(record=>[record,[]]));
+   let ancestrySteps=0,assignments=0,indexLimited=false;
+   // 中文注释：一次祖先遍历把已扫描节点归到所属记录，含嵌套记录与同源框架；不为每条记录反复扫整页。
+   recordIndex:for(const node of nodes){
+    const seen=new Set();
+    for(let current=node;current;current=parent(current)){
+     if(seen.has(current))throw Error('INVALID_DOM_ANCESTRY');
+     seen.add(current);
+     if(++ancestrySteps>2000000){indexLimited=true;break recordIndex;}
+     const descendants=recordDescendants.get(current);
+     if(descendants){
+      if(++assignments>1000000){indexLimited=true;break recordIndex;}
+      descendants.push(node);
+     }
+     if(current===scope)break;
+    }
+   }
+   // 中文注释：超出归属预算时不返回可能缺字段却看似有效的记录；覆盖明确标为部分。
+   if(indexLimited){warnings.add('record_index_limit');selectedRecords=[];recordDescendants.clear();}
+   for(const record of selectedRecords){
     const fields={},sources={},states={};
-    for(const [key,rule] of Object.entries(schema.fields)){
-     if(!/^[A-Za-z_][\w-]{0,63}$/.test(key)||!rule||typeof rule!=='object'||Array.isArray(rule)||Object.keys(rule).some(k=>!['selector','type','attribute','required'].includes(k))||typeof rule.selector!=='string'||rule.selector.length>512||!['text','number','url'].includes(rule.type||'text')||!['href','src','alt','title','datetime',undefined].includes(rule.attribute)||('required' in rule&&typeof rule.required!=='boolean'))fail();
+    // 中文注释：字段只能读取 root 内已经扫描且可见的节点，不能用选择器扩大页面读取范围。
+    const descendants=recordDescendants.get(record);
+    const extract=(node,rule)=>{
+     if(matches(node,`input,textarea,select,${context.editable}`))return {value:null,status:'unsupported',raw:null};
+     const readValue=rule.attribute?context.attribute(node,rule.attribute):safe(node),raw=readValue.text;
+     if(readValue.truncated){warnings.add('text_truncated');return {value:null,status:'truncated',raw};}
+     if(raw.includes('[redacted]'))return {value:null,status:'redacted',raw};
+     if(!raw.trim())return {value:null,status:'empty',raw};
+     if(rule.type==='number')return /^-?\d+(?:\.\d+)?$/.test(raw.trim())&&Number.isFinite(Number(raw))?{value:Number(raw),status:'ok',raw}:{value:null,status:'invalid_format',raw};
+     if(rule.type==='url'){
+      const value=cleanURL(raw);return {value,status:value===null?'invalid_format':'ok',raw};
+     }
+     return {value:raw,status:'ok',raw};
+    };
+    for(const [key,rule] of rules){
      // 中文注释：带 :scope 的字段选择器由记录节点解释，不能把每个候选节点当作自身作用域。
      let scoped=null;
      if(rule.selector.includes(':scope')&&rule.selector!==':scope'){
       try{scoped=new Set(record.querySelectorAll(rule.selector));}catch{fail();}
      }
-     const candidates=rule.selector===':scope'?[record]:nodes.filter(n=>contains(record,n)&&(scoped?scoped.has(n):matches(n,rule.selector)));
+     const candidates=rule.selector===':scope'?[record]:descendants.filter(n=>scoped?scoped.has(n):matches(n,rule.selector));
+     if(rule.multiple){
+      const limit=rule.limit??20,limitedCandidates=candidates.slice(0,limit),items=limitedCandidates.map(node=>extract(node,rule));
+      if(candidates.length>limit)warnings.add('field_limit');
+      fields[key]=items.map(item=>item.value);
+      sources[key]=limitedCandidates.map(evidence);
+      states[key]={status:candidates.length===0?'missing':candidates.length>limit?'truncated':items.every(item=>item.status==='ok')?'ok':'partial',required:rule.required===true,raw:items.map(item=>item.raw),items:items.map(item=>({status:item.status,raw:item.raw})),observed:candidates.length};
+      continue;
+     }
      let status=candidates.length===0?'missing':candidates.length>1?'ambiguous':'ok',value=null,raw=null;
      if(candidates.length===1){
       const node=candidates[0];sources[key]=evidence(node);
-      if(matches(node,`input,textarea,select,${context.editable}`))status='unsupported';
-      else{
-       const readValue=rule.attribute?context.attribute(node,rule.attribute):safe(node);raw=readValue.text;
-       if(readValue.truncated){status='truncated';warnings.add('text_truncated');}
-       else if(raw.includes('[redacted]'))status='redacted';
-       else if(!raw.trim())status='empty';
-       else if(rule.type==='number'){if(/^-?\d+(?:\.\d+)?$/.test(raw.trim())&&Number.isFinite(Number(raw)))value=Number(raw);else status='invalid_format';}
-       else if(rule.type==='url'){value=cleanURL(raw);if(value===null)status='invalid_format';}
-       else value=raw;
-      }
+      ({value,status,raw}=extract(node,rule));
      }
      fields[key]=value;states[key]={status,required:rule.required===true,raw};
     }

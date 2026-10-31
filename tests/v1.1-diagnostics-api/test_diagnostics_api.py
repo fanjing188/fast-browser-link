@@ -52,6 +52,11 @@ class SyntheticDiagnosticsBridge:
 
     def call(self, method, params):
         self.calls.append((method, dict(params)))
+        if method == "shared.diagnostics_lookup":
+            return any(
+                task["id"] == params["taskId"] and task["owner"] == params["owner"]
+                for task in self.tasks.values()
+            )
         if method == "shared.list":
             return [dict(task) for task in self.tasks.values() if task["owner"] == params["owner"]]
         if method == "shared.diagnostics":

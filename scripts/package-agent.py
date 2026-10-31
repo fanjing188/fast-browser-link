@@ -63,8 +63,6 @@ def package(output, release=None):
         for name in (
             "install-cli.py",
             "install-executor.py",
-            "setup-copilot-profile.py",
-            "setup-copilot-package.py",
         ):
             target = staged / "scripts" / name
             target.parent.mkdir(exist_ok=True)

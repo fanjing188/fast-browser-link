@@ -24,6 +24,14 @@ export function createOverlayView(
     BRAND_CSS +
     `
  [data-role=status]{position:fixed;right:16px;bottom:16px;width:min(288px,calc(100vw - 32px));max-height:calc(100vh - 32px);background:var(--paper);color:var(--ink);font:13px/1.45 var(--ui);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);pointer-events:auto;overflow:auto;overscroll-behavior:contain}.overlay-top,[data-role=actions],.timeline-head{display:flex;align-items:center;gap:8px}.overlay-top{padding:8px 12px}.overlay-brand{display:flex;gap:8px;align-items:center;font-size:12px;font-weight:600;flex:1}.overlay-title{padding:0 12px 6px}.overlay-title strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}.elapsed{font:12px var(--mono);color:var(--ink-2)}[data-role=minimize]{width:28px;border:0;padding:0}.now{margin:0 12px 8px;padding:8px 10px;border-radius:var(--r);background:var(--run-bg)}.now[data-tone=bad]{background:var(--bad-bg)}.now[data-tone=warn]{background:var(--warn-bg)}.now[data-tone=ok]{background:var(--ok-bg)}[data-role=step-index]{font:11px var(--mono);color:var(--ink-2)}[data-role=detail]{font-size:13px;font-weight:650;margin:2px 0 6px;overflow-wrap:anywhere}[data-role=state]{margin-bottom:4px}progress{display:block;width:100%;height:4px;accent-color:var(--brand)}.stats{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:11px;color:var(--ink-2);margin-top:6px}.stats:empty,[data-role=explanation]:empty{display:none}.stats>div{display:flex;align-items:baseline;gap:4px;min-width:0;overflow-wrap:anywhere}.stats b{font:13px var(--mono);color:var(--ink)}[data-role=actions]{padding:0 12px 8px;flex-wrap:wrap}[data-action=takeover],[data-action=resume]{background:var(--brand);color:var(--on-brand);border-color:var(--brand)}[data-role=recent]{border-top:1px solid var(--line-2);padding:2px 12px 6px}summary{cursor:pointer;color:var(--ink-2);font-size:11px;min-height:24px;line-height:24px}[data-role=recent-list]{padding:0;margin:0;list-style:none;max-height:144px;overflow:auto;overscroll-behavior:contain}[data-role=recent-list]>li{padding:4px 0;border-bottom:1px solid var(--line-2)}.timeline-head>.st{padding:0;background:none}.timeline-head>.st span{display:none}.step-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}[data-role=step-time]{font:11px var(--mono);color:var(--ink-2)}.step-reason{color:var(--bad);font-size:12px;margin:4px 0 0 20px;overflow-wrap:anywhere}[data-result=failed],[data-result=unknown]{background:var(--bad-bg)}.log-toolbar{display:flex;gap:6px;padding-top:4px}.log-toolbar button{font-size:11px;padding:2px 6px;border:0}.takeover-tip{display:none;position:absolute;bottom:100%;left:0;padding:8px;background:var(--paper);border:1px solid var(--line);border-radius:var(--rc);font-size:11px;white-space:nowrap}.takeover-wrap{position:relative}.takeover-wrap:hover .takeover-tip,.takeover-wrap:focus-within .takeover-tip{display:block}[data-role=status][data-minimized=true]{width:auto;border-radius:999px}[data-minimized=true]>.overlay-title,[data-minimized=true]>.now,[data-minimized=true]>[data-role=actions],[data-minimized=true]>details{display:none}[data-minimized=true] .overlay-brand>span{display:none}[data-minimized=true] .overlay-brand{flex:none}[data-role=capsule-step]{max-width:140px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}button[data-busy=true]{opacity:.6}`;
+  // 中文注释：已知状态与当前动作共用一行；没有总步数时不显示伪进度。
+  style.textContent += `
+    .now [data-role=step-index]{margin-bottom:4px}
+    .now [data-role=state]{display:inline-flex;vertical-align:baseline;margin:0}
+    .now [data-role=detail]{display:inline;margin:0;font-weight:600}
+    .now [data-role=detail]:not(:empty)::before{content:' · '}
+    .now [data-role=task-progress]{margin-top:8px}
+  `;
   const bar = make('section', 'status');
   Object.assign(bar.style, {
     position: 'fixed',
@@ -54,9 +62,11 @@ export function createOverlayView(
   const indexLabel = make('div', 'step-index'),
     label = make('span', 'state'),
     detail = make('div', 'detail');
+  indexLabel.hidden = true;
   label.setAttribute('aria-live', 'polite');
   const progress = make('progress', 'task-progress');
   progress.setAttribute('aria-label', t('任务进度', 'Task progress'));
+  progress.hidden = true;
   const stats = make('div', 'stats');
   stats.className = 'stats';
   now.append(indexLabel, label, detail, progress, stats);
@@ -285,10 +295,10 @@ export function createOverlayView(
     label.dataset.state = value;
     now.dataset.tone =
       { failed: 'bad', unknown: 'bad', paused: 'warn', completed: 'ok' }[value] || 'run';
-    detail.textContent =
-      value === 'paused'
-        ? t('你已接管这个页面', 'You control this page')
-        : current || label.textContent;
+    const detailText =
+      value === 'paused' ? t('你已接管这个页面', 'You control this page') : current;
+    detail.textContent = detailText;
+    indexLabel.hidden = totalSteps <= 0;
     indexLabel.textContent =
       value === 'paused'
         ? t(
@@ -300,13 +310,14 @@ export function createOverlayView(
               `第 ${Math.min(totalSteps, completedSteps + 1)} / ${totalSteps} 步`,
               `Step ${Math.min(totalSteps, completedSteps + 1)} / ${totalSteps}`,
             )
-          : t('正在准备步骤', 'Preparing steps');
+          : '';
     capsule.textContent = current || label.textContent;
     capsule.setAttribute('aria-label', label.textContent);
   }
   function activity(completed, total, metrics = {}) {
     totalSteps = total;
     completedSteps = completed;
+    progress.hidden = total <= 0;
     if (total > 0) {
       progress.max = total;
       progress.value = Math.max(0, Math.min(total, completed));
@@ -315,14 +326,6 @@ export function createOverlayView(
     for (const [caption, value] of Object.entries(metrics)) {
       const item = make('div');
       item.append(make('b', null, String(value)), make('span', null, caption));
-      stats.append(item);
-    }
-    if (!stats.children.length && total > 0) {
-      const item = make('div');
-      item.append(
-        make('b', null, `${completed}/${total}`),
-        make('span', null, t('已完成步骤', 'Steps done')),
-      );
       stats.append(item);
     }
     state(lastState);

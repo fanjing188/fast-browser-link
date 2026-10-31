@@ -33,11 +33,7 @@ const historicalCloud = (relative) => {
   assert.equal(result.status, 0, result.stderr);
   return result.stdout;
 };
-import {
-  assertDevelopmentIdle,
-  runDevelopmentGuard,
-  initializeCopilot,
-} from '../../scripts/dev-sync-daemon.mjs';
+import { assertDevelopmentIdle, runDevelopmentGuard } from '../../scripts/dev-sync-daemon.mjs';
 
 // 中文注释：使用调用方指定的真实临时根，短随机目录不绕过 TMPDIR。
 async function daemonHome() {
@@ -669,42 +665,6 @@ async function fakePackager(f) {
     path.join(f.home, 'plugins/fast-browser-link/maintenance/install-cli.py'),
     'utf8',
   );
-  const copilotFiles = {
-    'fast-browser-link/native_bridge/copilot-templates/workflow.run.json': await readFile(
-      path.join(REPO, 'native-bridge/copilot-templates/workflow.run.json'),
-      'utf8',
-    ),
-    'fast-browser-link/native_bridge/copilot-packages/generic/neutral_judge.py': await readFile(
-      path.join(REPO, 'native-bridge/copilot-packages/generic/neutral_judge.py'),
-      'utf8',
-    ),
-    'fast-browser-link/native_bridge/copilot-packages/generic/package.json': await readFile(
-      path.join(REPO, 'native-bridge/copilot-packages/generic/package.json'),
-      'utf8',
-    ),
-    'fast-browser-link/native_bridge/copilot-templates/browser.open.json': await readFile(
-      path.join(REPO, 'native-bridge/copilot-templates/browser.open.json'),
-      'utf8',
-    ),
-    'fast-browser-link/native_bridge/copilot-templates/general.task.json': await readFile(
-      path.join(REPO, 'native-bridge/copilot-templates/general.task.json'),
-      'utf8',
-    ),
-  };
-  for (const name of (await readdir(path.join(REPO, 'native-bridge'))).filter((name) =>
-    /^copilot(?:_.*)?\.py$/.test(name),
-  ))
-    copilotFiles[`fast-browser-link/native_bridge/${name}`] = await readFile(
-      path.join(REPO, 'native-bridge', name),
-      'utf8',
-    );
-  for (const name of (await readdir(path.join(REPO, 'native-bridge/copilot-templates/seo'))).filter(
-    (name) => name.endsWith('.json'),
-  ))
-    copilotFiles[`fast-browser-link/native_bridge/copilot-templates/seo/${name}`] = await readFile(
-      path.join(REPO, 'native-bridge/copilot-templates/seo', name),
-      'utf8',
-    );
   await writeFile(
     path.join(f.repo, 'scripts/package-executor.mjs'),
     `
@@ -713,7 +673,6 @@ async function fakePackager(f) {
  import path from 'node:path';
  const output=process.argv[process.argv.indexOf('--output')+1];
  const files=${JSON.stringify({
-   ...copilotFiles,
    'fast-browser-link/desktop/plugin.js': 'new-desktop',
    'fast-browser-link/maintenance/install-cli.py': cli,
    'native-extension/manifest.json': JSON.stringify({ name: 'Test extension', version: '1.0.0' }),
@@ -764,22 +723,7 @@ test('dev-sync 一条命令：暂停 Hermes、写维护标记、停止已核实 
   const state = JSON.parse(await readFile(path.join(f.data, 'install-state.json'), 'utf8'));
   assert.deepEqual(state.cloudRetired, { version: 1 });
   assert.equal(Object.hasOwn(state, 'cloudFence'), false);
-  const copilot = JSON.parse(await readFile(path.join(f.data, 'copilot/config.json'), 'utf8'));
-  assert.equal(copilot.context_limit, 6000);
-  assert.deepEqual((await readdir(path.join(f.data, 'copilot/templates'))).sort(), [
-    'browser.open.json',
-    'general.task.json',
-    'seo.competitor_keywords.json',
-    'seo.domain_rating.json',
-    'seo.keyword_check.json',
-    'seo.longtail.json',
-    'seo.ranking_sites.json',
-    'seo.save_pool.json',
-    'seo.serp_breakdown.json',
-    'seo.top_pages.json',
-    'seo.trends.json',
-    'workflow.run.json',
-  ]);
+  assert.equal(await exists(path.join(f.data, 'copilot/config.json')), false);
   assert.equal(output.daemonStopped, true);
   assert.equal(output.hermesPausedBefore, false);
   // 中文注释：daemon 收到 SIGTERM 后自行收尾，退出码为 0 而不是被强杀。
@@ -1037,35 +981,4 @@ test('tasks:ack 拒绝未关闭、不存在、带授权、未合并日志和 dae
     assert.equal((await f.backups()).length, 1);
     assert.equal(await exists(path.join(f.data, 'maintenance.json')), false);
   });
-});
-
-test('copilot 初始化使用真实暂存运行时并保留既有配置；失败包含 Python stderr', async (t) => {
-  const base = await mkdtemp(path.join(testTemp, 'copilot-sync-'));
-  t.after(() => rm(base, { recursive: true, force: true }));
-  const home = await realpath(base),
-    plugin = path.join(home, 'plugin');
-  const runtime = path.join(plugin, 'native_bridge');
-  assert.throws(
-    () => initializeCopilot(home, plugin),
-    /协作配置初始化失败[\s\S]*copilot_setup\.py/,
-  );
-  await cp(path.resolve(import.meta.dirname, '../../native-bridge'), runtime, { recursive: true });
-  initializeCopilot(home, plugin);
-  const config = path.join(home, 'plugin-data/fast-browser-link-native/copilot/config.json');
-  const parsed = JSON.parse(await readFile(config, 'utf8'));
-  assert.equal(parsed.context_limit, 6000);
-  assert.equal(parsed.inference_profile, 'fast-copilot');
-  assert.equal(parsed.exec_profile, 'fast-copilot');
-  await writeFile(config, 'user-owned-config');
-  initializeCopilot(home, plugin);
-  assert.equal(await readFile(config, 'utf8'), 'user-owned-config');
-  await writeFile(
-    path.join(runtime, 'copilot_setup.py'),
-    "import sys; print('COPILOT_SETUP_SENTINEL',file=sys.stderr);raise SystemExit(7)\n",
-  );
-  assert.throws(
-    () => initializeCopilot(home, plugin),
-    /协作配置初始化失败[\s\S]*COPILOT_SETUP_SENTINEL/,
-  );
-  assert.equal(await readFile(config, 'utf8'), 'user-owned-config');
 });

@@ -19,6 +19,11 @@
         <p data-copy="intro">在本机将已加载的 Fast-Backlink 连接到 FBL。</p>
       </header>
       <form id="pair-form" novalidate>
+        <label for="product-kind">专项产品 / Product</label>
+        <select id="product-kind" name="productKind">
+          <option value="product">Fast-Backlink</option>
+          <option value="assist">Fast-browser-assist</option>
+        </select>
         <label for="extension-id" data-copy="label">Fast-Backlink 扩展 ID</label>
         <p id="id-help" class="help" data-copy="help">
           从 Fast-Backlink 侧栏的连接区复制当前已加载的扩展 ID，再粘贴到这里。

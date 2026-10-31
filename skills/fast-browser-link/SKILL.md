@@ -1,6 +1,6 @@
 ---
 name: fast-browser-link
-version: 2.4.0
+version: 2.5.0
 description: 使用用户已登录的 Chrome 或 Edge 执行普通或无痕网页任务、填写表单、处理登录弹窗和上传下载。优先通过 MCP 调用本机 Fast-browser-link，无 MCP 时使用本技能 Python 入口。
 ---
 
@@ -49,6 +49,6 @@ description: 使用用户已登录的 Chrome 或 Edge 执行普通或无痕网�
 
 仅使用本机连接，不再提供云端配对或中转；离线时不找旧云入口。SDK/CLI/MCP/Hermes 共用任务、租约与操作账本，SDK 不是第三方沙箱。Fast-Backlink 通过 FBL 可信“产品连接”页登记实际扩展 ID，仅走专用填写通道；业务绑定、人工修订、提交锁及末端 setter 都在 FBL 自有页面上下文。普通 `ref_fill` 不具备这些保护，产品任务禁止通用 JS/CDP/Vault 回落。暂停、换项目及解除配对须确认撤销屏障；恢复重新观察和授权，未知不重放。`Browser.close()` 只关客户端，任务须显式关闭并读回清理。
 
-## 初始化与协作
+## 初始化与维护
 
-包内 `python3 -B -m fbl setup`；无需 Node，核心无需 Hermes，协作需 Hermes。`fbl doctor --fix` 修受管项，`fbl logs --bundle` 导出脱敏诊断；`fbl update --dry-run` 预览空闲升级与失败回滚。`fbl packs discover` 或侧栏“本机能力 › 发现”审阅保存；私有声明只留本机。见 `docs/fbl.md`、`docs/fbl-packs.md`。
+包内 `python3 -B -m fbl setup`；无需 Node 或协作 Agent。`fbl doctor --fix` 修受管项，`fbl logs --bundle` 导出只含固定诊断字段的 ZIP；`fbl update --dry-run` 预览空闲升级与失败回滚。Fast-browser-assist 是独立产品，连接它不改变本技能的任务授权。见 `docs/fbl.md`。

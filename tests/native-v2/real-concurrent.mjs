@@ -296,7 +296,7 @@ try {
   const daemon = await helperCall('inspect', work);
   assert.equal(daemon.pluginPath, staged.plugin);
   assert.ok(
-    ['assist_adapter.py', 'daemon.py']
+    ['core_adapter.py', 'daemon.py']
       .map((entry) =>
         path.join(staged.hermesHome, 'plugin-data/fast-browser-link-native/host-bin', entry),
       )

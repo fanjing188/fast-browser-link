@@ -4,7 +4,7 @@ The popup summarizes the current host connection. Its header dot represents loca
 
 The Local information button exposes this explanation on hover and keyboard focus. Unknown/offline state never proves usable task access, and old cached grants never prove a current connection. Cloud pairing and remote relay are not available. Nothing logs password values.
 
-Open Assist launches the browser side panel and closes the popup only after success. Its switch changes the same local collaboration setting used by the sidebar. Navigation closes the popup after successful handoff; other actions keep it open. Escape closes the popup. A confirmed live connection clears stale connection errors; other action errors stay until dismissed. A status refresh never resends the failed action.
+Navigation closes the popup after successful handoff; other actions keep it open. Escape closes the popup. A confirmed live connection clears stale connection errors; other action errors stay until dismissed. A status refresh never resends the failed action. Fast-browser-assist has its own extension UI.
 
 Task controls are scoped to the current owned page, task identity and generation. Uncertain commands are not automatically replayed. A stop receipt is shown briefly without asserting continuing ownership. The page overlay requires two stop clicks within three seconds, validates the same host receipt as before, and preserves closed-shadow isolation, first-frame preveil coverage and screenshot-time input blocking. A successful stop still tears down the blocking overlay through the existing task cleanup path. The display component supports terminal states for retained results and offline previews; it cannot keep a revoked task's blocker alive.
 

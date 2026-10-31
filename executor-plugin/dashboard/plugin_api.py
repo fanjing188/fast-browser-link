@@ -129,6 +129,20 @@ def _shared_target(runtime, task_id):
     return {"owner": matches[0], "taskId": task_id}
 
 
+def _shared_diagnostics_target(runtime, task_id):
+    # 中文注释：只用宿主登记 owner；诊断专用归属核验不能触发显式工具的任务活动。
+    matches = []
+    for owner in runtime.authority.known_owners():
+        found = runtime.call("shared.diagnostics_lookup", {"owner": owner, "taskId": task_id})
+        if type(found) is not bool:
+            raise ValueError("invalid diagnostics lookup")
+        if found:
+            matches.append(owner)
+    if len(matches) != 1:
+        raise HTTPException(404, "未找到该共享浏览器任务")
+    return {"owner": matches[0], "taskId": task_id}
+
+
 def _runtime_profile_selector_matches(selector: str) -> bool:
     """Compare a UI profile selector to Hermes' active home; never resolve client paths."""
     try:
@@ -641,7 +655,7 @@ def shared_task_diagnostics(task_id: str, query: dict = Depends(_diagnostics_que
 
     def run():
         runtime = _native_profile_runtime()
-        target = _shared_target(runtime, task_id)
+        target = _shared_diagnostics_target(runtime, task_id)
         params = {
             **target,
             "limit": query["limit"],

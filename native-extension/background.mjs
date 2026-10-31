@@ -1,6 +1,4 @@
-import { refreshOverlaySteps as refreshSteps, updateWorkflowActivity } from './overlay-logs.mjs';
-import { taskTableAdapter } from './copilot-table-job.mjs';
-import { CopilotBackground } from './copilot-background.mjs';
+import { refreshOverlaySteps as refreshSteps } from './overlay-logs.mjs';
 import { NativeWorkspaces, registerWorkspaceStartup } from './workspace-adapter.mjs';
 // 中文注释：顶层同步注册浏览器启动撤权，不能等 connect 或 ready 完成后注册。
 registerWorkspaceStartup(chrome);
@@ -10,24 +8,14 @@ import { BUILD_ID } from './build-id.mjs';
 import { reloadForInstalledBuild } from './build-reload.mjs';
 import { CookieMirror } from './cookie-mirror.mjs';
 import { ProductConnections } from './product-connections.mjs';
+import { AssistConnections } from './assist-connections.mjs';
+import { AssistController } from './assist-controller.mjs';
+import { AssistObservation } from './assist-observation.mjs';
 import {
   createApprovalNotifier,
   showPanelNotification,
   clearPanelNotification,
 } from './approval-notifier.mjs';
-const copilot = new CopilotBackground(
-  chrome,
-  (method, params) => {
-    if (!connected || !bridge) return Promise.reject(Error('本地桥未连接'));
-    return bridge.request('extension.copilot.' + method, params);
-  },
-  (id) =>
-    executor.leases.has(id) ||
-    [...executor.tasks.values()].some(
-      (task) => task.tabIds?.has?.(id) || task.tabIds?.includes?.(id) || task.agentTabs?.has(id),
-    ),
-  () => connect(),
-);
 let bridge = null,
   connected = false,
   connecting = false,
@@ -42,14 +30,6 @@ let buildStatus = { loadedBuildId: BUILD_ID, installedBuildId: BUILD_ID, pending
 function localUpdateWaitReason() {
   if (connecting) return 'connecting';
   if (accessWindow) return 'access_confirmation';
-  if (copilot.tableConfirmation) return 'table_confirmation';
-  if (copilot.tableJobs?.jobs.size) return 'table_job';
-  if (
-    [...copilot.rows.values()].some((row) =>
-      ['queued', 'executing', 'stopping'].includes(row.status),
-    )
-  )
-    return 'suggestion';
   if ([...executor.tasks.values()].some((task) => !task.revoked)) return 'browser_task';
   return null;
 }
@@ -246,7 +226,7 @@ async function performOverlayCommand({ taskId, generation, tabId, origin: site, 
     !connected ||
     !current ||
     !instanceId ||
-    !['stop', 'takeover', 'resume', 'continue', 'login', 'open-file', 'basket'].includes(kind) ||
+    !['stop', 'takeover', 'resume'].includes(kind) ||
     !Number.isInteger(tabId) ||
     !local ||
     local.revoked ||
@@ -267,7 +247,7 @@ async function performOverlayCommand({ taskId, generation, tabId, origin: site, 
       host.generation !== generation ||
       (kind === 'resume'
         ? !['paused', 'ready', 'running'].includes(host.state)
-        : ['stop', 'continue', 'login', 'open-file', 'basket'].includes(kind)
+        : kind === 'stop'
           ? !['ready', 'running', 'paused'].includes(host.state)
           : !['ready', 'running'].includes(host.state)) ||
       !host.tabIds?.includes(tabId) ||
@@ -293,54 +273,6 @@ async function performOverlayCommand({ taskId, generation, tabId, origin: site, 
       executor.leases.get(tabId) !== taskId
     )
       return unknown;
-    if (['continue', 'login', 'open-file', 'basket'].includes(kind)) {
-      // 中文注释：只用宿主绑定的协作行；网页不能提供任务 ID、文件路径或登录地址。
-      if (!local.copilotRowId || host.copilotRowId !== local.copilotRowId) return unknown;
-      const state = await copilot.request('state'),
-        row = state.suggestions?.find((item) => item.id === local.copilotRowId);
-      if (
-        !row ||
-        !['failed', 'stopped', 'completed'].includes(row.status) ||
-        bridge !== current ||
-        executor.tasks.get(taskId) !== local ||
-        local.revoked ||
-        local.generation !== generation ||
-        executor.leases.get(tabId) !== taskId
-      )
-        return unknown;
-      if (kind === 'continue') {
-        if (!row.resume_from) return unknown;
-        await copilot.request('retry', { id: row.id });
-      }
-      if (kind === 'login') {
-        if (!/login|登录/i.test(row.reason || '')) return unknown;
-        if (host.state !== 'paused') {
-          const paused = await performOverlayCommand({
-            taskId,
-            generation,
-            tabId,
-            origin: site,
-            kind: 'takeover',
-          });
-          if (paused.verified !== true) return unknown;
-        }
-        await chrome.tabs.update(tabId, { active: true });
-      }
-      if (kind === 'open-file') {
-        const full = await copilot.request('result', { id: row.id }),
-          file = full.result?.export?.files?.[0];
-        if (!file?.id) return unknown;
-        await copilot.request('table_open', { id: file.id });
-      }
-      if (kind === 'basket') {
-        const value = row.params?.object || row.params?.keyword;
-        if (!value) return unknown;
-        await copilot.request('basket_add', {
-          items: [{ type: 'keyword', value, source: tab.url }],
-        });
-      }
-      return { state: 'handled', verified: true, taskId, generation };
-    }
     if (kind === 'takeover') {
       // 中文注释：先冻结扩展后续动作并等待当前动作结束，再确认桥接任务进入暂停态。
       await Promise.all([
@@ -489,6 +421,34 @@ const cookieMirror = new CookieMirror(chrome, {
 });
 const consent = new BrowserConsent(chrome.storage.local, executor);
 const consentLoaded = consent.load();
+const assistObservation = new AssistObservation(
+  chrome,
+  (tab) =>
+    executor.leases.has(tab.id) ||
+    [...executor.tasks.values()].some(
+      (task) => task.workspaceCapability?.windowId === tab.windowId,
+    ),
+);
+const assistController = new AssistController(
+  assistObservation,
+  () => (connected ? bridge : null),
+  consent,
+);
+const assistConnections = new AssistConnections(
+  chrome,
+  (session, operation, params) => assistController.dispatch(session, operation, params),
+  async () => {
+    await consentLoaded;
+    return connected && (await consent.readStatus()) === 'enabled';
+  },
+  (session) => assistController.revoke(session),
+);
+void chrome.storage.local
+  .get('assistConnections')
+  .then(async ({ assistConnections: ids }) => {
+    if (Array.isArray(ids) && ids.length) await assistConnections.restore();
+  })
+  .catch(() => {});
 let productConnectionsInstance;
 // 中文注释：MV3 worker不支持动态import，模块静态加载、连接实例按需构造。
 const productConnections = async () =>
@@ -508,15 +468,12 @@ void chrome.storage.local
   })
   .catch(() => {});
 executor.resourceGuard = async (task, url) => {
-  if (!copilot.protectedHosts) throw Error('TOOL_POLICY_UNAVAILABLE');
-  if (!copilot.protectedHosts.includes(new URL(url).hostname)) return;
-  const result = await bridge?.request('extension.copilot.resource_check', {
-    taskId: task.id,
-    url,
-  });
-  if (!result?.allowed) throw Error('SERIAL_TOOL_REQUIRES_CAPABILITY_LANE');
+  if (task.executionLane === 'product_work') {
+    const result = await bridge?.request('extension.assist.work.guard', { taskId: task.id, url });
+    if (result?.allowed !== true) throw Error('ASSIST_RESOURCE_DENIED');
+    return;
+  }
 };
-copilot.attachTableAdapter(taskTableAdapter(chrome, executor, () => bridge, consent));
 let disconnectBarrier = Promise.resolve();
 // The host list is authoritative. Never accept a request supplied by the page,
 // model, or panel as approval scope; the panel receives only display fields.
@@ -849,14 +806,8 @@ async function dispatchAction(r, decision) {
     throw e;
   }
 }
-copilot.onActivity = (row) => updateWorkflowActivity(executor, row);
-const refreshOverlaySteps = async (current, task = null) => {
-  await refreshSteps(current, executor, () => bridge, task);
-  if (task?.copilotRowId) {
-    const row = copilot.rows.get(task.copilotRowId);
-    if (row) await updateWorkflowActivity(executor, row);
-  }
-};
+const refreshOverlaySteps = (current, task = null) =>
+  refreshSteps(current, executor, () => bridge, task);
 const changed = () => {
   chrome.runtime.sendMessage({ type: 'changed' }).catch(() => {});
   if (connected && bridge) {
@@ -899,7 +850,6 @@ async function connect() {
     await executor.workspaces.manager.reconcile();
     const port = chrome.runtime.connectNative('com.fast.browser_link');
     const current = new Bridge(port, executor, changed, {
-      onCopilot: (event) => copilot.notification(event).catch(() => {}),
       onConsentStatus: () => consent.readStatus(),
       onAccessRequest: openAccessManagementRequest,
       onCookieMirror: (method, p) => cookieMirror.handle(method, p),
@@ -912,14 +862,7 @@ async function connect() {
       if (bridge !== current) return;
       const wasConnected = connected;
       lastError = chrome.runtime.lastError?.message || '本地桥已断开；操作不会自动重放';
-      void chrome.runtime
-        .sendMessage({ type: 'copilot.connection', connected: false })
-        .catch(() => {});
       connected = false;
-      void chrome.storage.session.set({
-        copilotBridgeEnabled: copilot.enabled,
-        copilotBridgeError: { message: lastError.slice(0, 2048), disconnected_at: Date.now() },
-      });
       connectedInstanceId = null;
       connectedGeneration = null;
       if (accessWindow) accessWindow.requestId = null;
@@ -976,15 +919,6 @@ async function connect() {
           status: 'connected',
         });
       } catch {} // 中文注释：握手后按 daemon 本实例终态与本地工作区日志清理重载遗留浮层，先于恢复授权派发。
-      const prior = (await chrome.storage.session.get('copilotBridgeError')).copilotBridgeError;
-      if (prior) {
-        await current.request('extension.copilot.bridge_error', prior);
-        await chrome.storage.session.remove('copilotBridgeError');
-      }
-      await copilot.synchronize().catch(() => {});
-      void chrome.runtime
-        .sendMessage({ type: 'copilot.connection', connected: true })
-        .catch(() => {});
       await executor.cleanupOrphanOverlays(
         await current.request('extension.tasks', { includeClosed: true }),
         instanceId,
@@ -1019,17 +953,13 @@ chrome.windows?.onRemoved?.addListener((windowId) => {
   notifier?.panelClosed(windowId).catch(() => {});
 });
 chrome.tabs.onCreated.addListener((tab) => {
-  copilot.tabEvent(tab.id, '打开标签页', tab);
   return executor.tabCreated(tab).catch(() => {});
 });
 chrome.tabs.onRemoved.addListener((id) => {
-  copilot.tabEvent(id, '关闭标签页');
   return executor.tabEvent(id, 'closed').catch(() => {});
 });
 // 中文注释：完整事件信息用于区分同文档 URL 改写、加载和真正换页；下载与高级事件监听继续共存。
 chrome.tabs.onUpdated.addListener((id, change, tab) => {
-  if (change.url || change.status === 'loading') copilot.tabEvent(id, '导航到新页面', tab);
-  if (change.status === 'complete') copilot.tabEvent(id, '页面加载完成', tab);
   if (change.url || change.status === 'loading' || change.status === 'complete')
     executor
       .tabEvent(id, 'navigated', change.url || tab.url, {
@@ -1096,8 +1026,23 @@ chrome.debugger.onDetach.addListener(({ tabId }, reason) => {
     })
     .catch(() => {});
 });
-chrome.runtime.onConnect?.addListener((port) => copilot.attachPanel(port));
 chrome.runtime.onMessage.addListener((m, sender, respond) => {
+  if (['assist_connections', 'assist_pair', 'assist_unpair'].includes(m?.type)) {
+    void assistConnections.handleUi(m, sender).then(
+      (result) => respond({ result }),
+      (error) => respond({ error: error.code || 'ASSIST_REQUEST_FAILED' }),
+    );
+    return true;
+  }
+  if (assistObservation.handles(m)) {
+    void assistObservation
+      .handleEvent(m, sender, (session, event) => assistConnections.publish(session, event))
+      .then(
+        (result) => respond({ result }),
+        () => respond({ error: 'ASSIST_CONFIRMATION_FAILED' }),
+      );
+    return true;
+  }
   if (['product_connections', 'product_pair', 'product_unpair'].includes(m?.type)) {
     void productConnections()
       .then((manager) => manager.handleUi(m, sender))
@@ -1107,7 +1052,6 @@ chrome.runtime.onMessage.addListener((m, sender, respond) => {
       );
     return true;
   }
-  if (copilot.handle(m, sender, respond)) return true;
   if (m?.type === 'approval_panel_view' || m?.type === 'approval_panel_decision') {
     if (!notifier?.isSender(sender)) return false;
     (async () => {
@@ -1159,36 +1103,10 @@ chrome.runtime.onMessage.addListener((m, sender, respond) => {
         browserFullConsentStatus: await consent.readStatus(),
         browser: /Edg/.test(navigator.userAgent) ? 'Edge' : 'Chrome',
         instanceId: connectedInstanceId,
-        copilot: {
-          agent: copilot.agent,
-          board_name: copilot.boardName,
-          hermes_health: copilot.hermesHealth,
-          enabled: copilot.enabled,
-          running:
-            [...copilot.rows.values()].filter((row) =>
-              ['queued', 'executing', 'stopping'].includes(row.status),
-            ).length +
-            [...copilot.localJobs.values()].filter((row) => row.status === 'executing').length,
-          unread: copilot.unread.size,
-        },
         observedAt: Date.now(),
         version: chrome.runtime.getManifest().version,
       };
       if (!connected || !bridge) return { ...base, tasks: [], page: null };
-      try {
-        const current = await copilot.request('state', {});
-        copilot.hermesHealth = current.hermes_health;
-        copilot.boardName = current.board_name;
-        Object.assign(base.copilot, {
-          agent: current.agent,
-          hermes_health: current.hermes_health,
-          board_name: current.board_name,
-          ready: current.ready,
-          execution_health: current.execution_health,
-        });
-      } catch {
-        base.copilot.hermes_health = { state: 'error', reason: 'Local status unavailable' };
-      }
       const tasks = await bridge.request('extension.tasks');
       const active = (await chrome.tabs.query({ active: true, currentWindow: true }))[0];
       const owner = active ? executor.leases.get(active.id) : null;
@@ -1347,20 +1265,5 @@ chrome.runtime.onMessage.addListener((m, sender, respond) => {
       }),
   );
   return true;
-});
-chrome.tabs.onActivated?.addListener((info) => {
-  chrome.tabs
-    .get(info.tabId)
-    .then((tab) => copilot.tabEvent(info.tabId, '切换标签页', tab))
-    .catch(() => {});
-});
-chrome.windows.onFocusChanged?.addListener((id) => {
-  if (id < 0) return;
-  chrome.tabs
-    .query({ active: true, windowId: id })
-    .then(([tab]) => {
-      if (tab) copilot.tabEvent(tab.id, '切换标签页', tab);
-    })
-    .catch(() => {});
 });
 connect();

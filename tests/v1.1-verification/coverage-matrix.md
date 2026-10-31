@@ -23,6 +23,14 @@
 
 ## 核心 Node
 
+- `tests/native-extension/assist-connections.test.mjs`：独立协作配对、精确能力与撤销、重复请求不重放。
+- `tests/native-extension/assist-controller.test.mjs`：固定 Native 分派、consent 同步及会话清理。
+- `tests/native-extension/assist-observation.test.mjs`：原页文档身份、只读材料/表格与确认来源。
+- `tests/native-extension/assist-table-handles.test.mjs`：真实求值结果投影、工作页绑定表格句柄。
+- `tests/native-extension/assist-policy-handles.test.mjs`：冻结报告策略/查询句柄与跨会话拒绝。
+- `tests/native-extension/assist-pairing-page.test.mjs`：专项产品显式选择及独立登记入口。
+- `tests/native-v2/test_work_adapter.py`：真实 Native 账本、资源冻结、旧快照+新日志崩溃保护及 session 并发撤销；合成扩展，不是浏览器证明。
+
 - `tests/v1.1-script-lane/page-export.test.mjs`：实际固定序列化函数的运行后 DOM、控件值排除、离线禁脚本/禁导航及自有遮罩排除。
 - `tests/v1.1-script-lane/test_page_export.py`：真实隔离 Python/UDS 通道、缓存资源与 ZIP 校验、路径/字节/数量/总期限及换文档拒绝；浏览器缓存为合成回执，不代替真实导出验收。
 

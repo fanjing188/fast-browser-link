@@ -1010,8 +1010,8 @@ def verified_daemon_pid(home, env):
     candidates = [
         home / "plugins/fast-browser-link/native_bridge/daemon.py",
         data / "host-bin/daemon.py",
-        home / "plugins/fast-browser-link/native_bridge/assist_adapter.py",
-        data / "host-bin/assist_adapter.py",
+        home / "plugins/fast-browser-link/native_bridge/core_adapter.py",
+        data / "host-bin/core_adapter.py",
     ]
     if process.returncode or not any(
         process.stdout.strip().endswith(f" {path} --home {home}") for path in candidates

@@ -59,7 +59,7 @@ class FixtureProcessIdentityTests(unittest.TestCase):
                 home / "plugins/fast-browser-link/native_bridge",
                 data / "host-bin",
             ):
-                for entry in ("assist_adapter.py", "daemon.py"):
+                for entry in ("core_adapter.py", "daemon.py"):
                     with self.subTest(directory=directory, entry=entry):
                         pidfile.write_text("12345")
                         command = subprocess.CompletedProcess(
@@ -82,7 +82,7 @@ class FixtureProcessIdentityTests(unittest.TestCase):
             data.mkdir(parents=True)
             pidfile = data / "daemon.pid"
             pidfile.write_text("12345")
-            for entry in ("assist_adapter.py", "daemon.py"):
+            for entry in ("core_adapter.py", "daemon.py"):
                 exact = f"/fixture/python {BRIDGE_DIR / entry} --home {home}"
                 for command, healthy in (
                     (exact + "-other", True),
@@ -159,7 +159,7 @@ class FixtureProcessIdentityTests(unittest.TestCase):
                 directories = [plugin / "native_bridge"]
                 if area != "native-extension":
                     directories.append(data / "host-bin")
-                for entry in ("assist_adapter.py", "daemon.py"):
+                for entry in ("core_adapter.py", "daemon.py"):
                     for directory in directories:
                         directory.mkdir(parents=True, exist_ok=True)
                         (directory / entry).write_text("# fixture bridge\n")
@@ -313,7 +313,7 @@ class BridgeIntegrationTests(unittest.TestCase):
             self.assertEqual(command.returncode, 0)
             self.assertTrue(
                 command.stdout.strip().endswith(
-                    f" {BRIDGE_DIR / 'assist_adapter.py'} --home {self.home}"
+                    f" {BRIDGE_DIR / 'core_adapter.py'} --home {self.home}"
                 ),
                 command.stdout,
             )
@@ -402,7 +402,7 @@ class BridgeIntegrationTests(unittest.TestCase):
         process_list = subprocess.run(
             ["ps", "-axo", "pid=,command="], check=True, capture_output=True, text=True
         ).stdout.splitlines()
-        marker = f" {BRIDGE_DIR / 'assist_adapter.py'} --home {self.home}"
+        marker = f" {BRIDGE_DIR / 'core_adapter.py'} --home {self.home}"
         matching = [line for line in process_list if line.strip().endswith(marker)]
         self.assertEqual(len(matching), 1, matching)
         ensure_service(self.home)

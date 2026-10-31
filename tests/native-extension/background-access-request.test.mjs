@@ -1,11 +1,12 @@
-import { taskTableAdapter } from '../../native-extension/copilot-table-job.mjs';
-import { CopilotBackground } from '../../native-extension/copilot-background.mjs';
 // 中文注释：VM 夹具显式注入独立 Cookie 模块，保持生产后台模块依赖一致。
 import {
   showPanelNotification,
   clearPanelNotification,
 } from '../../native-extension/approval-notifier.mjs';
 import { CookieMirror } from '../../native-extension/cookie-mirror.mjs';
+import { AssistObservation } from '../../native-extension/assist-observation.mjs';
+import { AssistController } from '../../native-extension/assist-controller.mjs';
+import { AssistConnections } from '../../native-extension/assist-connections.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
@@ -105,11 +106,12 @@ async function loadAccessRequestHandler({
       "globalThis.openAccessManagementRequest=openAccessManagementRequest;bridge=injectedBridge;connected=true;connectedInstanceId='browser-a';connectedGeneration='generation-a';",
     );
   const context = {
-    taskTableAdapter,
-    CopilotBackground,
     showPanelNotification,
     clearPanelNotification,
     CookieMirror,
+    AssistObservation,
+    AssistController,
+    AssistConnections,
     chrome,
     Executor: function () {
       return executor;

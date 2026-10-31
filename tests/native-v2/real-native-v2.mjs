@@ -1705,7 +1705,7 @@ print('RESULT=' + json.dumps(out))`;
     assert.ok(
       bridgeDirectories
         .flatMap((directory) =>
-          ['assist_adapter.py', 'daemon.py'].map((entry) => path.join(directory, entry)),
+          ['core_adapter.py', 'daemon.py'].map((entry) => path.join(directory, entry)),
         )
         .includes(installed.daemonPath),
       installed.daemonPath,

@@ -1,12 +1,10 @@
 import { replaceDeclaration } from '../support/source-code.mjs';
-import {
-  refreshOverlaySteps as refreshSteps,
-  updateWorkflowActivity,
-} from '../../native-extension/overlay-logs.mjs';
-import { taskTableAdapter } from '../../native-extension/copilot-table-job.mjs';
-import { CopilotBackground } from '../../native-extension/copilot-background.mjs';
+import { refreshOverlaySteps as refreshSteps } from '../../native-extension/overlay-logs.mjs';
 // 中文注释：VM 夹具显式注入独立 Cookie 模块，保持生产后台模块依赖一致。
 import { CookieMirror } from '../../native-extension/cookie-mirror.mjs';
+import { AssistObservation } from '../../native-extension/assist-observation.mjs';
+import { AssistController } from '../../native-extension/assist-controller.mjs';
+import { AssistConnections } from '../../native-extension/assist-connections.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
@@ -50,6 +48,10 @@ async function background() {
   const event = (name) => ({ addListener: (fn) => (events[name] = fn) });
   // 中文注释：合成后台提供通知事件 API，不访问系统通知中心。
   const chrome = {
+    storage: {
+      local: { get: async () => ({}), set: async () => {} },
+      session: { get: async () => ({}), set: async () => {} },
+    },
     notifications: { onClicked: { addListener() {} }, clear: async () => true },
     runtime: { id: 'ext', onMessage: event('message') },
     alarms: { create() {}, onAlarm: event('alarm') },
@@ -66,10 +68,10 @@ async function background() {
     .replace(/connect\(\);\s*$/, 'bridge=injectedBridge;connected=true;');
   vm.runInNewContext(source, {
     refreshSteps,
-    updateWorkflowActivity,
-    taskTableAdapter,
-    CopilotBackground,
     CookieMirror,
+    AssistObservation,
+    AssistController,
+    AssistConnections,
     reloadForInstalledBuild: async () => false,
     BUILD_ID: '',
     registerWorkspaceStartup: () => {},
@@ -233,10 +235,10 @@ test('production onCreated preserves ambiguous concurrent children and reports u
     .replace(/connect\(\);\s*$/, '');
   vm.runInNewContext(source, {
     refreshSteps,
-    updateWorkflowActivity,
-    taskTableAdapter,
-    CopilotBackground,
     CookieMirror,
+    AssistObservation,
+    AssistController,
+    AssistConnections,
     reloadForInstalledBuild: async () => false,
     BUILD_ID: '',
     registerWorkspaceStartup: () => {},

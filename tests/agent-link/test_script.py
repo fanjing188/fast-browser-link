@@ -217,7 +217,7 @@ class ScriptTests(unittest.TestCase):
                 (host / sdk.name).is_file(), "stage must include the public browser SDK"
             )
             self.assertEqual((host / sdk.name).read_bytes(), sdk.read_bytes())
-        adapter = ROOT / "native-bridge/assist_adapter.py"
+        adapter = ROOT / "native-bridge/core_adapter.py"
         self.assertEqual((host / adapter.name).read_bytes(), adapter.read_bytes())
 
     def test_timeout_and_bounded_output(self):

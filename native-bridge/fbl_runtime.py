@@ -8,8 +8,6 @@ import os
 from pathlib import Path
 import shutil
 import sys
-from copilot_setup import setup as templates_setup, pending_templates
-from fbl_profiles import profile_plan, repair
 
 HOST = "com.fast.browser_link"
 ORIGIN = "chrome-extension://hhnljehnkmhhgjjjmnlhilfpcjhobloc/"
@@ -126,10 +124,6 @@ class Context:
         return self.runtime / "plugin-data/fast-browser-link-native"
 
     @property
-    def copilot(self):
-        return self.data / "copilot"
-
-    @property
     def support(self):
         candidates = [
             self.source / "scripts" if self.source else HERE.parent / "scripts",
@@ -170,61 +164,13 @@ def agent_roots(ctx, profiles=()):
     ]
     import re
 
-    for profile in dict.fromkeys(("fast-copilot", *profiles)):
+    for profile in dict.fromkeys(profiles):
         if not re.fullmatch(r"[a-zA-Z0-9_-]{1,80}", profile):
             raise ValueError("invalid agent profile")
         path = ctx.hermes / "profiles" / profile
         if path.is_dir() and not path.is_symlink():
             rows.append({"agent": "hermes", "path": str(path / "skills"), "detected": True})
     return rows
-
-
-def available_models(ctx, command=None):
-    from copilot_acp import ACP
-
-    config = {"inference_profile": "default", "hermes_home": str(ctx.hermes), "timeout_seconds": 15}
-    if command:
-        config["acp_command"] = command
-    runtime = ACP(config, ctx.copilot)
-    ctx.copilot.mkdir(parents=True, exist_ok=True, mode=0o700)
-    try:
-        runtime.start(catalog_only=True)
-        return runtime.model_state or {}
-    finally:
-        runtime.close()
-
-
-def choose_model(catalog):
-    rows = catalog.get("availableModels", [])
-    if not rows:
-        raise ValueError(
-            "Hermes returned no available models; configure Hermes authentication/model first"
-        )
-    import re
-
-    fast = next(
-        (
-            row
-            for row in rows
-            if row.get("speed") == "fast"
-            or re.search(
-                r"(?i)fast|mini|small|lite|flash",
-                str(row.get("name", "")) + " " + row.get("modelId", ""),
-            )
-        ),
-        None,
-    )
-    selected = (
-        fast
-        or next(
-            (row for row in rows if row.get("modelId") == catalog.get("currentModelId")), rows[0]
-        )
-    )["modelId"]
-    if ":" in selected:
-        provider, model = selected.split(":", 1)
-    else:
-        model, provider = selected, "auto"
-    return model, provider
 
 
 def daemon_version(ctx):
@@ -419,111 +365,6 @@ def doctor(ctx, fix=False, probe=None, deep=False, start=False):
         bool(packages),
         "present" if packages else "missing",
         "fbl update --dry-run",
-    )
-    command = shutil.which("hermes")
-    add(
-        "hermes",
-        bool(command),
-        "available" if command else "optional_missing",
-        "Install Hermes only for collaboration",
-    )
-    model_references = checked(ctx.copilot / "config.json")
-    profile = "fast-copilot"
-    try:
-        plan = profile_plan(ctx.hermes, profile)
-        details = plan.get("details", [])
-        policy = plan.get("fix_policy", "")
-        reference = model_references.get("inference_model")
-        selected = plan.get("config", {}).get("model", {})
-        selected = selected.get("default") if isinstance(selected, dict) else selected
-        if reference and selected and reference != selected:
-            details.insert(
-                0,
-                f"协作配置记录模型 → 当前 profile 模型：{reference} → {selected}（可能由 Hermes 迁移；--fix 保留当前模型）",
-            )
-        if fix and plan["state"] == "drift":
-            plan = repair(ctx.hermes, profile, private_write)
-            actions.append(profile)
-        add(
-            profile,
-            plan["state"] == "ready",
-            plan["state"],
-            "fbl setup" if plan["state"] == "unmanaged" else "fbl doctor --fix",
-            changes=plan.get("changes", []),
-            details=details,
-            fix_policy=policy,
-        )
-    except (OSError, ValueError):
-        add(profile, False, "missing_or_unreadable", "fbl setup")
-    config = checked(ctx.copilot / "config.json")
-    extensions = config.get("extension_dirs", [])
-    add(
-        "packages",
-        all(Path(path).is_dir() for path in extensions),
-        "present" if all(Path(path).is_dir() for path in extensions) else "missing_path",
-        "fbl packs list",
-    )
-    model_state = checked(ctx.copilot / "available-models.json")
-    model_code = "cached_unverified" if model_state.get("available") else "not_probed"
-    models_ok = False
-    if deep and command:
-        try:
-            catalog = available_models(ctx)
-            models_ok = bool(catalog.get("availableModels"))
-            model_code = "metadata_available" if models_ok else "no_available_models"
-        except (OSError, RuntimeError, ValueError):
-            model_code = "metadata_unavailable"
-    add("models", models_ok, model_code, "fbl setup")
-    if fix and (runtime_files / "copilot-templates").is_dir():
-        templates_setup(ctx.copilot, runtime_files / "copilot-templates")
-        actions.append("templates")
-    pending = pending_templates(ctx.copilot)
-    manifest = checked(ctx.copilot / "managed-templates.json")
-    expected = {
-        path.name: hashlib.sha256(path.read_bytes()).hexdigest()
-        for path in (runtime_files / "copilot-templates").rglob("*.json")
-        if path.name != "managed-history.json"
-    }
-    stale = [
-        name
-        for name, value in expected.items()
-        if manifest.get("templates", {}).get(name, {}).get("sha256") != value
-    ]
-    add(
-        "templates",
-        bool(manifest) and not pending and not stale,
-        "merge_required"
-        if pending
-        else "outdated"
-        if stale
-        else "managed"
-        if manifest
-        else "unmanaged",
-        "fbl doctor --fix",
-        pending=pending,
-    )
-    log_dir = ctx.copilot / "logs"
-    writable = any(
-        path.exists() and os.access(path, os.W_OK) for path in [log_dir, *log_dir.parents][:4]
-    )
-    add(
-        "logs",
-        writable,
-        "writable" if writable else "not_writable",
-        "Check directory ownership; no automatic permission escalation",
-    )
-    from fbl_discovery import changes
-    from fbl_browser import BrowserDiscovery
-
-    changed = changes(
-        ctx, deep=deep, browser_probe=BrowserDiscovery(ctx).page if deep and browsers else None
-    )
-    add(
-        "discovery",
-        not changed,
-        "reconfirm_required" if changed else "unchanged",
-        "fbl packs discover",
-        changed=changed,
     )
     add(
         "cloud",

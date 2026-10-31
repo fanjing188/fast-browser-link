@@ -1,6 +1,6 @@
 # Development
 
-Current integration status and remaining work: [项目工作梳理](maintenance-status.zh-CN.md).
+Fast-browser-link now contains only the browser execution core and bounded product connection. Fast-browser-assist maintains its own product status and release checks.
 
 Browser-core and work-product boundaries: [浏览器执行底座](browser-core.md). Work products use the local SDK; cloud connection is not part of the new runtime.
 

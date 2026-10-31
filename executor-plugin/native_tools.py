@@ -1198,6 +1198,7 @@ def make_tool_handler(tool_name, profile_runtime, *, host_bridge=None, backend_c
                 "frame_not_supported": "当前 frame 不支持主上下文执行。未派发。",
                 "credential_mode_conflict": "此页面发生过凭据填写，不能执行任意 JS/CDP；请在新的任务页中操作。",
                 "cdp_method_denied": "CDP 方法名称无效；未派发。",
+                "runtime_preparation_failed": "页面执行准备失败，业务求值尚未派发；请核对任务和页面状态，不会自动重试。",
                 "js_timeout": "JavaScript 超时；已终止后续执行，但已发生的页面副作用无法回滚。先读取页面核实，不要自动重试。",
                 "cdp_error": "浏览器返回了 CDP 协议错误。",
                 "no_dialog": "当前任务页没有打开的 JS 对话框。",
@@ -1334,6 +1335,8 @@ def make_tool_handler(tool_name, profile_runtime, *, host_bridge=None, backend_c
                     "not_file_input",
                 }
                 or safe_before_dispatch
+                or code == "runtime_preparation_failed"
+                and data.get("outcomeUnknown") is False
             )
             unknown = (
                 (

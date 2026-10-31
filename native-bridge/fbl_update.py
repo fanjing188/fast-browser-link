@@ -10,10 +10,7 @@ import shutil
 import tempfile
 import time
 import sys
-from fbl_runtime import HOST, ORIGIN, AGENTS, load, read, safe, manifests
-from copilot import private_write
-from copilot_setup import setup as setup_templates
-from fbl_profiles import repair
+from fbl_runtime import HOST, ORIGIN, AGENTS, load, read, safe, manifests, private_write
 
 
 TASK_REASONS = {
@@ -385,9 +382,6 @@ def plan(ctx, source=None, *, preserve_skills=False):
         *extension_targets(ctx),
         *([] if preserve_skills else skill_targets(ctx)),
     ]
-    profile = ctx.hermes / "profiles/fast-copilot"
-    if not preserve_skills and (profile / ".copilot-profile.json").is_file():
-        targets.extend(safe(profile / name) for name in ("config.yaml", ".copilot-profile.json"))
     return {
         "runtimes": list(map(str, roots)),
         "targets": list(map(str, targets)),
@@ -539,19 +533,6 @@ def update(
                 launcher = host / HOST
                 launcher.write_text(launcher.read_text().replace(str(staging), str(root)))
                 prepared.append((host, final))
-                cp = staging / "plugin-data/fast-browser-link-native/copilot"
-                shutil.rmtree(cp)
-                cp.mkdir()
-                existing = root / "plugin-data/fast-browser-link-native/copilot"
-                for relative in ("templates", "managed-templates.json", "config.json"):
-                    path = existing / relative
-                    if path.exists():
-                        _copy(safe(path), cp / relative)
-                setup_templates(cp, payload["native"] / "copilot-templates")
-                prepared.extend(
-                    (cp / relative, existing / relative)
-                    for relative in ("templates", "managed-templates.json", "config.json")
-                )
             for root in roots:
                 agent_link = root / "runtime/agent-link"
                 if agent_link.is_dir():
@@ -571,21 +552,6 @@ def update(
                 stage = transaction / ("extension-" + str(len(prepared)))
                 _copy(payload["extension"], stage)
                 prepared.append((stage, path))
-            for root in roots:
-                for target in (root / "plugin-data/fast-browser-link-native/copilot/packs").glob(
-                    "*"
-                ):
-                    if target.name not in {"general", "seo"} or not target.is_dir():
-                        continue
-                    if read(target / ".fbl-pack.json").get("sha256") != tree_digest(target):
-                        raise ValueError("managed pack modified; preserved")
-                    stage = transaction / ("pack-" + str(len(prepared)))
-                    _copy(payload["native"] / "fbl-assets/packs" / target.name, stage)
-                    private_write(
-                        stage / ".fbl-pack.json",
-                        json.dumps({"version": 1, "sha256": tree_digest(stage)}),
-                    )
-                    prepared.append((stage, target))
             history = read(payload["native"] / "fbl-assets/skill-history.json", {})
             for path in [] if preserve_skills else skill_targets(ctx):
                 record = read(path / ".fbl-skill.json")
@@ -606,24 +572,6 @@ def update(
                     json.dumps({"version": 1, "sha256": tree_digest(stage)}),
                 )
                 prepared.append((stage, path))
-            # 中文注释：运行时更新不迁移配置；完整更新也只迁移带标记的专用 profile。
-            profile = "fast-copilot"
-            target = ctx.hermes / "profiles" / profile
-            if not preserve_skills and (target / ".copilot-profile.json").is_file():
-                staged_home = transaction / ("profile-" + profile)
-                stage = staged_home / "profiles" / profile
-                from fbl_profiles import read_config
-
-                private_write(
-                    stage / "config.yaml",
-                    json.dumps(read_config(target / "config.yaml", ctx.hermes)),
-                )
-                _copy(safe(target / ".copilot-profile.json"), stage / ".copilot-profile.json")
-                repair(staged_home, profile, private_write)
-                prepared.extend(
-                    (stage / name, target / name)
-                    for name in ("config.yaml", ".copilot-profile.json")
-                )
             for manifest in manifests(ctx.user):
                 if not manifest.exists():
                     continue

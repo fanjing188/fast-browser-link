@@ -168,28 +168,3 @@ export function hermesControl(env = process.env) {
     },
   };
 }
-
-// 中文注释：必须使用同步后的真实运行时，缺入口/模板也算失败；保留有界 stderr 便于定位。
-export function initializeCopilot(
-  home,
-  pluginTarget,
-  python = process.env.BROWSER_LINK_TEST_PYTHON || 'python3',
-) {
-  const result = spawnSync(
-    python,
-    [
-      path.join(pluginTarget, 'native_bridge/copilot_setup.py'),
-      '--directory',
-      path.join(home, 'plugin-data/fast-browser-link-native/copilot'),
-    ],
-    { encoding: 'utf8', timeout: 30000 },
-  );
-  if (result.status !== 0) {
-    const detail = String(
-      result.stderr || result.error?.message || result.signal || `exit=${result.status}`,
-    )
-      .trim()
-      .slice(0, 2000);
-    throw Error(`协作配置初始化失败；保留既有配置：${detail}`);
-  }
-}

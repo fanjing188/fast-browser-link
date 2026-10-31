@@ -67,39 +67,6 @@ NODE_BOUNDARIES = (".",)
 # Explicit runner inventory: no glob expands into browser, install, or evidence suites.
 NODE_TESTS = (
     "tests/v1.1-script-lane/page-export.test.mjs",
-    "tests/copilot/r16.test.mjs",
-    "tests/copilot/r15.test.mjs",
-    "tests/copilot/r14.test.mjs",
-    "tests/copilot/template-recovery.test.mjs",
-    "tests/copilot/copilot.test.mjs",
-    "tests/copilot/ui.test.mjs",
-    "tests/copilot/results-tables.test.mjs",
-    "tests/copilot/generic-packs.test.mjs",
-    "tests/copilot/active-follow.test.mjs",
-    "tests/copilot/selection.test.mjs",
-    "tests/copilot/capabilities.test.mjs",
-    "tests/copilot/popup-overlay-brand.test.mjs",
-    "tests/copilot/r20.test.mjs",
-    "tests/copilot/r23.test.mjs",
-    "tests/copilot/r24-ui.test.mjs",
-    "tests/copilot/r25-popup.test.mjs",
-    "tests/copilot/r25-task-logs.test.mjs",
-    "tests/copilot/r25-result.test.mjs",
-    "tests/copilot/result-content.test.mjs",
-    "tests/copilot/r25-cards.test.mjs",
-    "tests/copilot/r26-capabilities.test.mjs",
-    "tests/copilot/r26-card-polish.test.mjs",
-    "tests/copilot/r26-settings.test.mjs",
-    "tests/copilot/settings-tabs.test.mjs",
-    "tests/copilot/r26-table-placement.test.mjs",
-    "tests/copilot/r27-work-context.test.mjs",
-    "tests/copilot/r28-table-suggestions.test.mjs",
-    "tests/copilot/r29-agents.test.mjs",
-    "tests/copilot/r29-status-onboarding.test.mjs",
-    "tests/copilot/r24-capture.test.mjs",
-    "tests/copilot/task-workbench.test.mjs",
-    "tests/copilot/sidebar-logs.test.mjs",
-    "tests/copilot/controls-confirmation.test.mjs",
     "tests/v1.11.0/recovery.test.mjs",
     # 中文注释：退役回归验证本机启动与重连均不创建云 Native 通道。
     "tests/native-extension/cloud-link.test.mjs",
@@ -109,6 +76,12 @@ NODE_TESTS = (
     "tests/native-extension/product-fill-controller.test.mjs",
     "tests/native-extension/product-connections.test.mjs",
     "tests/native-extension/product-connections-page.test.mjs",
+    "tests/native-extension/assist-connections.test.mjs",
+    "tests/native-extension/assist-controller.test.mjs",
+    "tests/native-extension/assist-observation.test.mjs",
+    "tests/native-extension/assist-table-handles.test.mjs",
+    "tests/native-extension/assist-policy-handles.test.mjs",
+    "tests/native-extension/assist-pairing-page.test.mjs",
     # 中文注释：诊断三契约对照只导入源码并校验合成值，纳入显式离线清单。
     "browser-diagnostics/tests/diagnostics.test.mjs",
     # 中文注释：独立工作窗口和效果观察只用合成 API/DOM。
@@ -206,7 +179,6 @@ NODE_TESTS = (
     "tests/v1.4.4/round1f.test.mjs",
 )
 PYTHON_SUITES = (
-    "tests/copilot",
     "tests/agent-link",
     # 中文注释：自动更新的网络与调度调用均由测试替换，不触碰真实安装。
     "tests/auto-update",
@@ -236,35 +208,6 @@ PYTHON_SUITES = (
 )
 # Some directories contain explicitly unsafe runners: select files by fixed name.
 PYTHON_FILES = {
-    "tests/copilot": (
-        "test_task_data.py",
-        "test_task_recommendations.py",
-        "test_declared_mcp_discovery.py",
-        "test_unified_recommendations.py",
-        "test_host_inference_context.py",
-        "test_task_integration.py",
-        "test_workbench.py",
-        "test_workbench_catalog.py",
-        "test_workbench_review.py",
-        "test_r22.py",
-        "test_r20.py",
-        "test_r19.py",
-        "test_r18.py",
-        "test_r17.py",
-        "test_r16.py",
-        "test_r15.py",
-        "test_r14.py",
-        "test_inference_diagnostics.py",
-        "test_template_upgrade.py",
-        "test_copilot.py",
-        "test_copilot_exec.py",
-        "test_copilot_results.py",
-        "test_copilot_selection.py",
-        "test_copilot_capabilities.py",
-        "test_generic_packs.py",
-        "test_copilot_journal.py",
-        "test_copilot_health.py",
-    ),
     "tests/agent-link": ("test_agent_link.py", "test_script.py"),
     "tests/auto-update": ("test_update.py",),
     # 中文注释：诊断用例只使用合成事件和临时日志目录，按名称限定运行范围。
@@ -281,6 +224,7 @@ PYTHON_FILES = {
     "tests/v1.3.6": ("test_concurrent_tabs.py",),
     # 中文注释：pure-offline；popup 使用进程内 daemon 和合成扩展/工具/Vault scope，按文件限制执行。
     "tests/native-v2": (
+        "test_work_adapter.py",
         "test_product_adapter.py",
         "test_wire_contract.py",
         "test_daemon_wire.py",
@@ -300,6 +244,7 @@ PYTHON_FILES = {
     "native-bridge/tests": (
         "test_api_v2.py",
         "test_bridge.py",
+        "test_fbl_core_cli.py",
         "test_browser_access_chain.py",
         "test_browser_access_request.py",
         "test_connection_generation.py",

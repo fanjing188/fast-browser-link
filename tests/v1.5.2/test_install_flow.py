@@ -1583,11 +1583,11 @@ mock.patch.object(socket.socket, 'connect_ex', side_effect=AssertionError('must 
                 "Bridge is running",
             ),
             (
-                f"{sys.executable} {self.plugin}/native_bridge/assist_adapter.py --home {self.hermes}",
+                f"{sys.executable} {self.plugin}/native_bridge/core_adapter.py --home {self.hermes}",
                 "Bridge is running",
             ),
             (
-                f"{sys.executable} {self.plugin}/native_bridge/not_assist_adapter.py --home {self.hermes}",
+                f"{sys.executable} {self.plugin}/native_bridge/not_core_adapter.py --home {self.hermes}",
                 "Cannot verify bridge process",
             ),
         ]:

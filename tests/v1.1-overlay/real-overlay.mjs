@@ -23,9 +23,15 @@ const browserEnv = {
   PATH: process.env.PATH || '/usr/bin:/bin:/usr/sbin:/sbin',
   LANG: process.env.LANG || 'en_US.UTF-8',
 };
-const source = await readFile(
-  new URL('../../native-extension/automation-overlay.mjs', import.meta.url),
-  'utf8',
+const moduleSources = new Map(
+  await Promise.all(
+    ['automation-overlay.mjs', 'overlay-view.mjs', 'brand.mjs', 'ui-design.mjs'].map(
+      async (name) => [
+        name === 'automation-overlay.mjs' ? '/overlay.mjs' : `/${name}`,
+        await readFile(new URL(`../../native-extension/${name}`, import.meta.url), 'utf8'),
+      ],
+    ),
+  ),
 );
 const server = createServer((req, res) => {
   if (req.url === '/preveil-only') {
@@ -35,12 +41,12 @@ const server = createServer((req, res) => {
     );
     return;
   }
-  res.setHeader('Content-Type', req.url === '/overlay.mjs' ? 'text/javascript' : 'text/html');
+  res.setHeader('Content-Type', moduleSources.has(req.url) ? 'text/javascript' : 'text/html');
   res.end(
     req.url === '/frame'
       ? '<input id=frame-input aria-label=框架输入>'
-      : req.url === '/overlay.mjs'
-        ? source
+      : moduleSources.has(req.url)
+        ? moduleSources.get(req.url)
         : `<!doctype html><style>body{min-height:4000px}#frame{position:fixed;left:400px;top:100px;width:280px;height:160px}</style><script>window.blockedAtFirstScript=!!document.querySelector('[data-fast-preveil]')</script><button id="target" style="position:fixed;left:50px;top:80px" onclick="window.clicks++">测试点击</button><iframe id="frame" src="http://localhost:${server.address().port}/frame"></iframe><dialog id="dialog"><button onclick="window.clicks++">模态按钮</button></dialog><div id="pop" popover="manual"><button onclick="window.clicks++">浮层按钮</button></div><script>window.clicks=0</script><script type="module">import {createAutomationOverlay} from '/overlay.mjs';window.overlay=createAutomationOverlay({taskId:'t',generation:1,tabId:7,origin:location.origin,onStop:async()=>({state:'stopped'}),onTakeover:async()=>({state:'paused'}),onResume:async()=>({state:'running'})});</script>`,
   );
 });

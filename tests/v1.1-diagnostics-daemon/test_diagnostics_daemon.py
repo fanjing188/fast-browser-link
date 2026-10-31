@@ -6,6 +6,7 @@ No browser, Hermes process, installed package, or personal diagnostics are used.
 from __future__ import annotations
 
 import hashlib
+from copy import deepcopy
 import importlib.util
 import json
 import os
@@ -166,19 +167,63 @@ class DiagnosticsDaemonIntegrationTests(unittest.TestCase):
         daemon._flush_tasks()
         return json.loads(daemon.tasks_path.read_text())
 
-    def assert_only_activity_changed(self, daemon, before):
-        # 中文注释：诊断查询会刷新活动时间；其他任务字段与持久化日志必须保持不变。
-        after = self.task_file_snapshot(daemon)
-        self.assertEqual(len(after["tasks"]), 1)
-        self.assertGreaterEqual(
-            after["tasks"][0]["lastActivityAt"], before["tasks"][0]["lastActivityAt"]
-        )
-        after["tasks"][0]["lastActivityAt"] = before["tasks"][0]["lastActivityAt"]
-        self.assertEqual(after, before)
+    def arm_same_owner_deadlines(self):
+        # 中文注释：同 owner 的另一个任务也必须保留宽限，不能只核查询目标。
+        second = deepcopy(self.daemon.tasks[TASK_ID])
+        second["id"] = "task-diagnostics-B"
+        self.daemon.tasks[second["id"]] = second
+        for index, task in enumerate(self.daemon.tasks.values()):
+            task["lastActivityAt"] = 100.0 + index
+            task["idleCloseAt"] = 200.0 + index
+        self.daemon._persist_tasks()
+
+    def assert_tasks_unchanged(self, daemon, before):
+        self.assertEqual(self.task_file_snapshot(daemon), before)
+
+    def test_direct_diagnostics_preserves_both_tasks_activity_and_deadlines(self):
+        self.run_snapshot("direct-read")
+        self.arm_same_owner_deadlines()
+        before = self.task_file_snapshot(self.daemon)
+        before_memory = deepcopy(self.daemon.tasks)
+        before_logs = self.event_files_snapshot()
+
+        for extra in ({}, {"requestIdHash": "f" * 64}, {"limit": True}):
+            params = {"owner": self.owner, "taskId": TASK_ID, "limit": 50, "cursor": 0}
+            params.update(extra)
+            if extra:
+                with self.assertRaises(ProtocolError):
+                    self.daemon._dispatch_client("shared.diagnostics", params)
+            else:
+                self.assertEqual(
+                    len(self.daemon._dispatch_client("shared.diagnostics", params)["events"]), 1
+                )
+            self.assertEqual(self.daemon.tasks, before_memory)
+            self.assert_tasks_unchanged(self.daemon, before)
+            self.assertEqual(self.event_files_snapshot(), before_logs)
+
+    def test_route_diagnostic_errors_preserve_both_tasks_activity_and_deadlines(self):
+        self.run_snapshot("route-errors")
+        self.arm_same_owner_deadlines()
+        before = self.task_file_snapshot(self.daemon)
+        before_memory = deepcopy(self.daemon.tasks)
+        before_logs = self.event_files_snapshot()
+        for path, status in (
+            (f"{PREFIX}/missing-task/diagnostics", 404),
+            (f"{PREFIX}/{TASK_ID}/diagnostics?requestIdHash={'f' * 64}", 503),
+            (f"{PREFIX}/{TASK_ID}/diagnostics?limit=0", 422),
+        ):
+            with self.subTest(path=path):
+                response = self.client.get(path)
+                self.assertEqual(response.status_code, status, response.text)
+                self.assertEqual(self.daemon.tasks, before_memory)
+                self.assert_tasks_unchanged(self.daemon, before)
+                self.assertEqual(self.event_files_snapshot(), before_logs)
 
     def test_route_reads_real_daemon_request_events_with_bounded_pagination(self):
         self.run_snapshot("private-request-one")
         self.run_snapshot("private-request-two")
+        self.arm_same_owner_deadlines()
+        before_memory = deepcopy(self.daemon.tasks)
         before_logs = self.event_files_snapshot()
         before_tasks = self.task_file_snapshot(self.daemon)
 
@@ -231,7 +276,8 @@ class DiagnosticsDaemonIntegrationTests(unittest.TestCase):
             )
             self.assertTrue(all(row["action"] == "snapshot" for row in response.json()["events"]))
         self.assertEqual(self.event_files_snapshot(), before_logs)
-        self.assert_only_activity_changed(self.daemon, before_tasks)
+        self.assertEqual(self.daemon.tasks, before_memory)
+        self.assert_tasks_unchanged(self.daemon, before_tasks)
 
     def test_request_hash_is_derived_and_only_registered_hash_is_queryable(self):
         request_id = "raw-request-id-must-not-be-stored"
@@ -424,7 +470,7 @@ class DiagnosticsDaemonIntegrationTests(unittest.TestCase):
         self.assertEqual([event["status"] for event in response.json()["events"]], ["succeeded"])
         self.assertIsNone(restored.diagnostics)
         self.assertEqual(self.event_files_snapshot(root), before_logs)
-        self.assert_only_activity_changed(restored, before_tasks)
+        self.assert_tasks_unchanged(restored, before_tasks)
 
 
 if __name__ == "__main__":

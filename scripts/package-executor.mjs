@@ -118,8 +118,6 @@ const inputs = [
   ...modules,
   'skills',
   'agent-link',
-  'scripts/setup-copilot-profile.py',
-  'scripts/setup-copilot-package.py',
   'CHANGELOG.md',
   'docs',
   'THIRD_PARTY_NOTICES.md',
@@ -311,8 +309,9 @@ async function verifyLayout(root) {
     'fast-browser-link/native_bridge/site_tools/tools.py',
     'fast-browser-link/native_bridge/site_tools/store.py',
     'fast-browser-link/native_bridge/browser_sdk.py',
-    'fast-browser-link/native_bridge/assist_adapter.py',
     'fast-browser-link/native_bridge/product_adapter.py',
+    'fast-browser-link/native_bridge/work_adapter.py',
+    'fast-browser-link/native_bridge/core_adapter.py',
     'fast-browser-link/native_bridge/fbl_scripts.py',
     'fast-browser-link/open_tool.py',
     'fast-browser-link/skills/fast-browser-link/SKILL.md',
@@ -419,8 +418,9 @@ try {
     'native-bridge/site_tools/tools.py',
     'native-bridge/site_tools/store.py',
     'native-bridge/browser_sdk.py',
-    'native-bridge/assist_adapter.py',
     'native-bridge/product_adapter.py',
+    'native-bridge/work_adapter.py',
+    'native-bridge/core_adapter.py',
     'native-extension/product-fill.mjs',
     'native-extension/product-fill-content.mjs',
     'native-extension/product-connections.mjs',
@@ -460,12 +460,7 @@ try {
   for (const file of ['THIRD_PARTY_NOTICES.md', 'third-party/licenses/hermes-agent-MIT.txt'])
     await copyFile(path.join(source, file), path.join(output, 'fast-browser-link', file));
   // 中文注释：自动更新组件携带相同安装器，下载新包后仍用当前可信代码校验及事务升级。
-  for (const name of [
-    'install-cli.py',
-    'install-executor.py',
-    'setup-copilot-profile.py',
-    'setup-copilot-package.py',
-  ]) {
+  for (const name of ['install-cli.py', 'install-executor.py']) {
     await copyFile(
       path.join(source, 'scripts', name),
       path.join(output, 'fast-browser-link/maintenance', name),
@@ -494,6 +489,13 @@ try {
     path.join(source, 'native-bridge'),
     path.join(output, 'fast-browser-link', 'native_bridge'),
   );
+
+  const nativeOutput = path.join(output, 'fast-browser-link/native_bridge');
+  for (const name of await readdir(nativeOutput)) {
+    if (/^(?:copilot|assist_adapter|fbl_pack|fbl_discovery|fbl_panel|fbl_profiles)/.test(name))
+      await rm(path.join(nativeOutput, name), { recursive: true });
+  }
+  await rm(path.join(nativeOutput, 'fbl-assets/packs'), { recursive: true, force: true });
 
   const diagnosticsOutput = path.join(
     output,

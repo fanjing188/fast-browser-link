@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -35,6 +36,65 @@ class RecordingClient:
 
 
 class NativeTests(unittest.TestCase):
+    def test_runtime_preparation_code_preserves_explicit_non_dispatch_only(self):
+        for unknown in (False, True):
+            error = RuntimeError("PRIVATE_PREPARATION_CANARY")
+            error.code = "runtime_preparation_failed"
+            error.data = {"outcomeUnknown": unknown, "retryable": False}
+
+            def fail_call(_method, _params):
+                raise error
+
+            self.client.call = fail_call
+            result, _ = self.invoke(
+                "fast_browser_run",
+                {
+                    "task_id": "task-1",
+                    "tab_id": 7,
+                    "request_id": "preparation",
+                    "action": "js.evaluate",
+                    "expression": "sideEffect()",
+                },
+            )
+            self.assertEqual(result["code"], "runtime_preparation_failed")
+            self.assertEqual(result["outcome_unknown"], unknown)
+            self.assertFalse(result["retryable"])
+
+    def test_diagnostics_calls_never_start_daemon_and_restore_normal_call_policy(self):
+        profile = self.runtime.NativeProfileRuntime(Path(self.tmp.name), ROOT)
+        self.addCleanup(profile.close)
+        calls = []
+
+        class Client:
+            def __init__(self, _home, timeout):
+                self.timeout = timeout
+                self.autostart = True
+
+            def call(self, method, _params):
+                calls.append((method, self.autostart))
+                return {}
+
+            def close(self):
+                pass
+
+        with patch.object(profile._client_module, "BridgeClient", Client):
+            for method in (
+                "shared.diagnostics_lookup",
+                "shared.diagnostics",
+                "shared.activity",
+                "health",
+            ):
+                profile.call(method, {})
+        self.assertEqual(
+            calls,
+            [
+                ("shared.diagnostics_lookup", False),
+                ("shared.diagnostics", False),
+                ("shared.activity", False),
+                ("health", True),
+            ],
+        )
+
     def test_read_receipt_keeps_explicit_or_transport_unknown_instead_of_claiming_certainty(self):
         for action in ("tabs", "snapshot", "screenshot", "semantic_snapshot"):
             for code, data in (

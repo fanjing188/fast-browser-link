@@ -213,6 +213,11 @@ function executionError(error, message) {
   } else if (reason === 'CREDENTIAL_MODE_CONFLICT') {
     code = 'credential_mode_conflict';
     text = 'Page execution and credential filling cannot share one task page.';
+  } else if (
+    ['RUNTIME_ATTACH_FAILED', 'JS_PREPARATION_FAILED', 'CDP_PREPARATION_FAILED'].includes(reason)
+  ) {
+    code = 'runtime_preparation_failed';
+    text = 'Page execution preparation failed before dispatch; inspect the task before continuing.';
   } else if (reason === 'CDP_METHOD_DENIED') {
     code = 'cdp_method_denied';
     text = 'CDP method name is invalid.';
@@ -577,7 +582,6 @@ export class Bridge {
             throw Error('unsupported');
           };
     // 中文注释：Cookie 请求在账本前分流，禁止缓存 Cookie 载荷、指纹或结果。
-    this.onCopilot = handlers.onCopilot;
     this.onCookieMirror = handlers.onCookieMirror;
     this.onCookieDisconnect = handlers.onCookieDisconnect;
     this.accessRequests = new Map();
@@ -683,10 +687,6 @@ export class Bridge {
           if (new TextEncoder().encode(text).length === chunk.bytes) this.receive(JSON.parse(text));
         } catch {}
       }
-      return;
-    }
-    if (m.method === 'copilot.changed') {
-      this.onCopilot?.(m.params);
       return;
     }
     if (this.closed || !m || typeof m !== 'object') return;

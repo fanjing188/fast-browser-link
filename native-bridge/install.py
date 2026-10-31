@@ -68,62 +68,20 @@ def stage(
     # 中文注释：同一清单用于预检及复制，避免安装文件与防链接检查范围不一致。
     native_files = (
         "doctor.py",
-        "copilot_annotations.py",
-        "copilot_basket.py",
-        "copilot_risk.py",
         "fbl_cli.py",
-        "fbl_pack_authoring.py",
-        "fbl_pack_test.py",
+        "fbl_redact.py",
         "fbl_runtime.py",
-        "fbl_profiles.py",
         "fbl_update.py",
-        "fbl_discovery.py",
         "fbl_browser.py",
         "fbl_scripts.py",
         "fbl_mcp.py",
-        "fbl_panel.py",
-        "copilot_diagnostics.py",
-        "copilot_health.py",
-        "copilot_journal.py",
-        "copilot.py",
-        "copilot_recommendations.py",
-        "copilot_task_catalog.py",
-        "copilot_task_data.py",
-        "copilot_task_execution.py",
-        "copilot_workbench.py",
-        "copilot_ocr.js",
-        "copilot_contracts.py",
-        "copilot_state.py",
-        "copilot_follow.py",
-        "copilot_memory.py",
-        "copilot_observation.py",
-        "copilot_inference.py",
-        "copilot_result_actions.py",
-        "copilot_acp.py",
-        "copilot_execution.py",
-        "copilot_usage.py",
-        "copilot_models.py",
-        "copilot_exec_acp.py",
-        "copilot_fetch.py",
-        "copilot_results.py",
-        "copilot_tables.py",
-        "copilot_directories.py",
-        "copilot_agents.py",
-        "copilot_adapters.py",
-        "copilot_codex.py",
-        "copilot_codex_execution.py",
-        "copilot_codex_broker.py",
-        "copilot_packages.py",
-        "copilot_pack_contracts.py",
-        "copilot_capabilities.py",
-        "copilot_tools.py",
-        "copilot_setup.py",
         "cookie_mirror.py",
         "host.py",
         "client.py",
         "browser_sdk.py",
         "daemon.py",
-        "assist_adapter.py",
+        "work_adapter.py",
+        "core_adapter.py",
         "product_adapter.py",
         "api_client.py",
         "artifacts.py",
@@ -182,40 +140,6 @@ def stage(
         shutil.copyfile(shared_root / filename, destination)
         os.chmod(destination, 0o600)
 
-    # 中文注释：随 Native 运行时复制通用模板；按受管摘要升级模板，保留用户修改和既有配置。
-    templates_source = source_dir / "copilot-templates"
-    templates_target = host_bin / "copilot-templates"
-    for origin in templates_source.rglob("*.json"):
-        target = templates_target / origin.relative_to(templates_source)
-        if any(part.is_symlink() for part in (target, *target.parents)):
-            raise ValueError("Assist template target contains symlink")
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(origin, target)
-    packages_source = source_dir / "copilot-packages"
-    for origin in packages_source.rglob("*"):
-        if not origin.is_file() or origin.suffix not in {".json", ".py"}:
-            continue
-        target = host_bin / "copilot-packages" / origin.relative_to(packages_source)
-        if any(part.is_symlink() for part in (target, *target.parents)):
-            raise ValueError("package target contains symlink")
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(origin, target)
-    import importlib.util
-
-    sys.path.insert(0, str(source_dir))
-    previous_bytecode = sys.dont_write_bytecode
-    sys.dont_write_bytecode = True
-    try:
-        spec = importlib.util.spec_from_file_location(
-            "fast_copilot_setup", source_dir / "copilot_setup.py"
-        )
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        module.setup(data_dir / "copilot", templates_source)
-    finally:
-        sys.dont_write_bytecode = previous_bytecode
-        sys.path.pop(0)
-
     # 中文注释：标准库维护入口与原安装器一起进入宿主闭包，终端运行无需 Node。
     support = source_dir.parent / "scripts"
     if not (support / "install-cli.py").is_file():
@@ -226,8 +150,6 @@ def stage(
         for name in (
             "install-cli.py",
             "install-executor.py",
-            "setup-copilot-profile.py",
-            "setup-copilot-package.py",
         ):
             if (support / name).is_file():
                 target = host_bin / "fbl-support" / name
@@ -246,26 +168,11 @@ def stage(
     assets = source_dir / "fbl-assets"
     if assets.is_dir():
         for origin in assets.rglob("*"):
-            if not origin.is_file():
+            if not origin.is_file() or "packs" in origin.relative_to(assets).parts:
                 continue
             target = host_bin / "fbl-assets" / origin.relative_to(assets)
             if origin.is_symlink() or any(part.is_symlink() for part in (target, *target.parents)):
                 raise ValueError("unsafe FBL asset")
-            target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-            shutil.copyfile(origin, target)
-            target.chmod(0o600)
-    # 中文注释：安装后的受限起草也需要同一份公开指南与合同。
-    for name in ("packs-guide.md", "design/adapter-packs.zh-CN.md", "fbl-pack.schema.json"):
-        origin = next(
-            (
-                directory / name
-                for directory in (source_dir.parent / "docs", source_dir.parent.parent / "docs")
-                if (directory / name).is_file()
-            ),
-            None,
-        )
-        if origin is not None:
-            target = host_bin / "fbl-assets/authoring" / name
             target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
             shutil.copyfile(origin, target)
             target.chmod(0o600)

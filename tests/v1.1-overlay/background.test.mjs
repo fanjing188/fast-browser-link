@@ -1,11 +1,9 @@
-import {
-  refreshOverlaySteps as refreshSteps,
-  updateWorkflowActivity,
-} from '../../native-extension/overlay-logs.mjs';
-import { taskTableAdapter } from '../../native-extension/copilot-table-job.mjs';
-import { CopilotBackground } from '../../native-extension/copilot-background.mjs';
+import { refreshOverlaySteps as refreshSteps } from '../../native-extension/overlay-logs.mjs';
 // 中文注释：VM 夹具显式注入独立 Cookie 模块，保持生产后台模块依赖一致。
 import { CookieMirror } from '../../native-extension/cookie-mirror.mjs';
+import { AssistObservation } from '../../native-extension/assist-observation.mjs';
+import { AssistController } from '../../native-extension/assist-controller.mjs';
+import { AssistConnections } from '../../native-extension/assist-connections.mjs';
 // Synthetic native port and extension event loop; never launches a browser.
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -173,10 +171,10 @@ function harness({
   };
   vm.runInNewContext(background.replace(/^import\s[^;]*;\n/gm, ''), {
     refreshSteps,
-    updateWorkflowActivity,
-    taskTableAdapter,
-    CopilotBackground,
     CookieMirror,
+    AssistObservation,
+    AssistController,
+    AssistConnections,
     reloadForInstalledBuild: async () => false,
     BUILD_ID: '',
     registerWorkspaceStartup: () => {},

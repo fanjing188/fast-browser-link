@@ -172,7 +172,7 @@ def cleanup(work: Path) -> dict:
         )
         candidates = [
             paths["installed"] / "native_bridge" / entry
-            for entry in ("assist_adapter.py", "daemon.py")
+            for entry in ("core_adapter.py", "daemon.py")
         ]
         if (
             command.returncode == 0
@@ -197,7 +197,7 @@ def inspect_install(work: Path) -> dict:
         ["ps", "-p", str(pid), "-o", "command="], capture_output=True, text=True, check=True
     )
     candidates = [
-        paths["installed"] / "native_bridge" / entry for entry in ("assist_adapter.py", "daemon.py")
+        paths["installed"] / "native_bridge" / entry for entry in ("core_adapter.py", "daemon.py")
     ]
     daemon_path = fixture_daemon_path(paths["hermes_home"], process.stdout, candidates)
     if daemon_path is None:

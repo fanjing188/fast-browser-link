@@ -254,3 +254,7 @@ node tests/native-v2/real-page-export.mjs
 ## 2.6.0 通用工作流
 
 固定离线清单包括 `tests/v1.1-script-lane/test_workflow.py`；实际脚本子进程与能力边界分别在 test_script_tool.py、test_action_session.py。手动临时浏览器验收使用 `tests/v1.1-script-lane/real-workflow.mjs`（Chrome，`--edge` 切 Edge）及 `real-workflow-routes.mjs`（SDK/CLI/MCP）。必须显式设置私有 TMPDIR，继承真实 HOME，使用完整 HERMES_SOURCE/HERMES_PYTHON 测试环境；不加入默认离线执行清单。只报告已读回的实际结果，个人安装与发布另验。
+
+## 2.6.0 执行保护验收
+
+离线门禁新增 `tests/native-extension/execution-resilience.test.mjs`，覆盖同源共享冷却、单并发、恢复节奏、人工状态、失败去重熔断、无进展停止、刷新资格与未知结果不补发；Python 工作流回归覆盖真实 helper 组合及异常边界。手动真实 runner `tests/v1.1-script-lane/real-resilience.mjs` 使用打包候选、临时 Chrome/Edge 和本地合成站，覆盖一次刷新、草稿保护、验证码停止、三次循环、定位失败熔断和跨任务 429 冷却。不连接第三方站，不升级个人安装。

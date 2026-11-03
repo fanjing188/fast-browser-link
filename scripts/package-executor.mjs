@@ -317,6 +317,7 @@ async function verifyLayout(root) {
     'fast-browser-link/open_tool.py',
     'fast-browser-link/skills/fast-browser-link/SKILL.md',
     'native-extension/manifest.json',
+    'native-extension/execution-resilience.mjs',
     // 中文注释：四尺寸扩展图标是发布必需文件，构建与包清单同时验收。
     'native-extension/icon-16.png',
     'native-extension/icon-32.png',

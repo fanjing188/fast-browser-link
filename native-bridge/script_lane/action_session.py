@@ -212,7 +212,7 @@ class ActionSession:
         self._pending_popup_scope = None
         self._popup_waiting = False
 
-    def workflow_ready(self):
+    def workflow_ready(self, *, resilience=False):
         # 中文注释：能力只从本任务绑定实例读回；旧扩展不能进入新增组合执行合同。
         if self._unknown:
             raise OutcomeUnknown("previous outcome unknown; reconcile before workflow")
@@ -230,7 +230,8 @@ class ActionSession:
             isinstance(row, dict)
             and row.get("instanceId") == self._instance_id
             and row.get("connected") is True
-            and "browser_workflow_v1" in row.get("features", [])
+            and ("execution_resilience_v1" if resilience else "browser_workflow_v1")
+            in row.get("features", [])
             for row in browsers
         ):
             raise ActionRejected("workflow_unsupported")
@@ -863,6 +864,7 @@ class ActionSession:
         "scroll": frozenset({"direction"}),
         "snapshot": frozenset(),
         "screenshot": frozenset({"selector", "binding", "snapshotId", "ref", "format"}),
+        "execution.guard": frozenset({"options"}),
         "page.observe": frozenset({"options"}),
         "page.parse": frozenset({"options"}),
         "semantic_snapshot": frozenset({"options", "binding", "noQueryRecovery", "documentEpoch"}),

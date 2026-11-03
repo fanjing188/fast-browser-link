@@ -101,6 +101,7 @@ NODE_TESTS = (
     "tests/native-extension/oauth-popup-approval.test.mjs",
     # 中文注释：核心范围/隐私回归仅用合成 API；打包回归只构建并解压到 scratch，不安装或启动浏览器。
     "tests/native-extension/core.test.mjs",
+    "tests/native-extension/execution-resilience.test.mjs",
     "tests/native-extension/package.test.mjs",
     # 中文注释：scratch-only；仅隔离构建/安装与临时 daemon/UDS，不打开或注册个人浏览器。
     "tests/native-v2/compact-scratch.test.mjs",

@@ -19,7 +19,10 @@ FEATURES = {
     "wait_for": "page_parse_v1",
     "wait_until": "browser_workflow_v1",
     "diagnose_target": "browser_workflow_v1",
-    "run_steps": "browser_workflow_v1",
+    "run_steps": "execution_resilience_v1",
+    "execution_status": "execution_resilience_v1",
+    "recover_page": "execution_resilience_v1",
+    "read_resilient": "execution_resilience_v1",
 }
 SCHEMAS = {
     "fast_browser_reference": {

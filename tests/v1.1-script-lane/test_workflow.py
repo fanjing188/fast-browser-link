@@ -49,11 +49,19 @@ class WorkflowTests(unittest.TestCase):
 
     def call(self, op, args):
         self.calls.append((op, args, child._tab_scope.get()))
-        if op == "workflow_ready":
+        if op in {"workflow_ready", "resilience_ready"}:
             return {"supported": True}
         if op == "downloads":
             return {"downloads": []}
         if op == "run":
+            if args[0] == "execution.guard":
+                return {
+                    "reason": "ready",
+                    "reloadAllowed": False,
+                    "healthId": "h",
+                    "access": {},
+                    "protection": {},
+                }
             if args[0] == "page.observe":
                 return observed()
             if args[0] == "semantic_snapshot":
@@ -61,6 +69,75 @@ class WorkflowTests(unittest.TestCase):
             if args[0] == "ref_click":
                 return {"clicked": True, "delivery": "confirmed", "effect": "observed"}
         raise AssertionError((op, args))
+
+    def test_recovery_reload_once_then_read(self):
+        operations = []
+
+        def call(op, args):
+            if op == "run" and args[0] == "execution.guard":
+                operation = args[1]["options"]["operation"]
+                operations.append(operation)
+                if operation == "recover":
+                    return {"reloaded": True}
+                return {
+                    "reason": "transient" if len(operations) == 1 else "ready",
+                    "reloadAllowed": len(operations) == 1,
+                    "healthId": "h",
+                    "access": {},
+                    "protection": {},
+                }
+            return self.call(op, args)
+
+        with patch.object(child, "_call", side_effect=call):
+            result = child.read_resilient()
+        self.assertTrue(result["completed"])
+        self.assertTrue(result["recovery"]["reloaded"])
+        self.assertEqual(operations.count("recover"), 1)
+
+    def test_malformed_health_never_permits_write(self):
+        def call(op, args):
+            if op == "run" and args[0] == "execution.guard":
+                return {}
+            return self.call(op, args)
+
+        with patch.object(child, "_call", side_effect=call):
+            with self.assertRaises(child.BrowserError):
+                child.run_steps([{"action": "click", "name": "Continue"}])
+        self.assertFalse(any(args[0] == "ref_click" for op, args, _ in self.calls if op == "run"))
+
+    def test_unknown_reload_never_retries_or_reads(self):
+        def call(op, args):
+            if op == "run" and args[0] == "execution.guard":
+                if args[1]["options"]["operation"] == "recover":
+                    raise child.BrowserError(
+                        "lost receipt", code="recovery_outcome_unknown", outcome_unknown=True
+                    )
+                return {
+                    "reason": "transient",
+                    "reloadAllowed": True,
+                    "healthId": "h",
+                    "access": {},
+                    "protection": {},
+                }
+            return self.call(op, args)
+
+        with patch.object(child, "_call", side_effect=call) as mock:
+            with self.assertRaises(child.BrowserError) as caught:
+                child.read_resilient()
+        self.assertTrue(caught.exception.outcome_unknown)
+        self.assertEqual(
+            sum(
+                1
+                for c in mock.call_args_list
+                if c.args[0] == "run"
+                and c.args[1][0] == "execution.guard"
+                and c.args[1][1]["options"]["operation"] == "recover"
+            ),
+            1,
+        )
+        self.assertFalse(
+            any(args[0] == "semantic_snapshot" for op, args, _ in self.calls if op == "run")
+        )
 
     def test_any_all_and_explicit_tab_scope(self):
         for mode in ("any", "all"):

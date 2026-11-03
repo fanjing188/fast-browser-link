@@ -1,6 +1,6 @@
 # 通用观察、组合操作与定位诊断
 
-2.6.0 候选新增三个 Python helper：`wait_until`、`run_steps`、`diagnose_target`。SDK、JSON CLI、MCP 和 Hermes 都通过原有 `script` 执行链调用；没有新增常驻工具或第二套浏览器执行器。宿主先核本任务绑定实例的 `browser_workflow_v1`，旧组件返回 `workflow_unsupported`，不切换执行方式。需要同时升级宿主和扩展。
+2.6.0 候选新增 Python helper：`wait_until`、`run_steps`、`diagnose_target`、`execution_status`、`recover_page`、`read_resilient`。SDK、JSON CLI、MCP 和 Hermes 都通过原有 `script` 执行链调用；没有新增常驻工具或第二套浏览器执行器。宿主先核本任务绑定实例的 `browser_workflow_v1`，旧组件返回 `workflow_unsupported`，不切换执行方式。恢复与执行保护另核 `execution_resilience_v1`；`run_steps` 同时要求两种能力。需要同时升级宿主和扩展。
 
 ## 统一等待
 
@@ -58,6 +58,24 @@ report = diagnose_target("Query", role="button", root="#search-form", action="cl
 
 诊断不返回写入引用或页面文本，不创建执行资格。诊断通过后实际动作仍须取得新引用并进行末端核验。引用过期、文档变化、权限变化由实际执行链保留原始错误，不能借诊断补发。没有框架、虚拟列表或遮挡层证据时不推测原因。
 
+## 故障恢复、降速与循环保护
+
+```python
+health = execution_status()
+recovery = recover_page(timeout=15)
+result = read_resilient(mode="content", timeout=15)
+```
+
+`execution_status` 返回页面原因、刷新资格、冷却时间与熔断状态；探针只回有界摘要，不回正文、标题或表单值。页面文字识别是启发式判断，不能替代调用者的业务后置条件。`recover_page` 最多观察三轮；只有当前扩展运行期间由本任务新建、无既往写入、无凭据标记、无表单/可编辑区或框架的暂时故障页才允许自动刷新。刷新前再次核对同文档、加载代次、进展摘要和十秒内的健康回执，每个任务标签最多刷新一次，派发前消耗额度。恢复不重新授权、不重放提交，刷新已派发后丢失回执保留未知。
+
+`read_resilient` 支持 content/interactive/table 和可选 root，只对明确未派发的文档变化、旧引用、页面未就绪等读取错误最多尝试三次；验证码、登录、权限、配额和未知结果停止。返回 completed/reason/attempts/page/recovery；恢复成功只代表页面重新可读，不代表原业务成功。已有写入、原有用户页面、浏览器重连恢复的旧页面均保护现场。
+
+`run_steps` 默认启用保护，单独使用旧 helper 需先调用 `execution_status` 或恢复 helper。启用后，该扩展实例内已启用任务按 HTTP(S) 同源共享访问预算，非跨浏览器全局限流；独立 API 请求不在浏览器动作节流范围。顶层同源 Document/XHR/Fetch 的 429/503 和可见频繁提示触发降速，忽略第三方、静态资源及子会话信号。遵守 Retry-After 秒数/HTTP 日期，初始间隔 500 毫秒，重复信号指数增加至 30 秒，并发从四降为一。最多排队 16 个动作；等待超过五秒返回 access_cooldown，未派发。冷却结束后每四个相关成功响应逐步减半，超长冷却要求人工处理。
+
+连续三个已知未派发失败熔断 30 秒，状态查询不清零。相同目标的点击、导航或滚动连续三次未改变摘要时，停止后续动作，返回 execution_no_progress。摘要只覆盖前 256 个可见文字节点、最多约 8000 字符和滚动位置；变化能解除停滞判定，因此它是循环保护，不能证明业务结果。步骤回执保留已执行动作，不因保护停止而改写送达事实。
+
+保护状态和同源预算有固定容量，仅在扩展内存中保存；扩展重启不持久化节流和循环计数。重启后的旧标签不再具备自动刷新资格，原有持久未知结果屏障继续生效。容量不足返回 guard_capacity，不放行绕过。
+
 ## 验证
 
 离线回归见 `tests/v1.1-script-lane/test_workflow.py`，另有实际脚本子进程与宿主、绑定实例/代次及旧能力拒绝回归。真实浏览器 runner 使用打包产物、本地合成页面、临时 profile 和显式私有 TMPDIR：
@@ -65,6 +83,8 @@ report = diagnose_target("Query", role="button", root="#search-form", action="cl
 ```sh
 node tests/v1.1-script-lane/real-workflow.mjs
 node tests/v1.1-script-lane/real-workflow.mjs --edge
+node tests/v1.1-script-lane/real-resilience.mjs
+node tests/v1.1-script-lane/real-resilience.mjs --edge
 ```
 
 同机对比分散三次脚本、原有单次批处理与一次 run_steps，保存各三轮耗时；这不是模型端到端、第三方网站或生产业务的提速证明。个人安装和公开发布另行验收。

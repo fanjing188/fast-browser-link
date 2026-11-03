@@ -65,6 +65,7 @@ for (const file of [
   'cdp-policy.mjs',
   'page-observers.mjs',
   'page-observation.mjs',
+  'execution-resilience.mjs',
   'vault.mjs',
   'oauth-popups.mjs',
   'approval-notifier.mjs',

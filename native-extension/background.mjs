@@ -890,6 +890,7 @@ async function connect() {
         features: [
           'browser_core_v1',
           'browser_workflow_v1',
+          'execution_resilience_v1',
           'page_parse_v1',
           'page_function_v1',
           'network_evidence_v1',
@@ -984,6 +985,7 @@ if (chrome.downloads && executor.downloads) {
 chrome.debugger.onEvent?.addListener?.((source, method, params) => {
   executor.pageRuntime.observe(source, method, params);
   executor.observers.observe(source, method, params);
+  executor.resilience.observe(source, method, params);
 });
 // 中文注释：主框架 DOM 就绪时立刻补完整遮罩；Page 域由预遮罩同步时开启。
 chrome.debugger.onEvent?.addListener((source, method) => {

@@ -1,5 +1,7 @@
 # 离线回归清单
 
+- `tests/native-extension/execution-resilience.test.mjs`：固定状态恢复、限速共享、Retry-After、熔断与刷新资格/未知保护；新增一个 Node 基准步骤（87），不启动真实浏览器。
+
 - `tests/v1.1-script-lane/test_workflow.py`：统一等待、事件先监听、旧事件排除、局部覆盖、步骤预检、诊断及未知动作不重放；合成回执，不启动浏览器。
 - 该文件加入既有脚本组，不增加门禁步骤；已知 runner 精确清单由 99 项增至 100 项，并断言新增路径实际登记。
 

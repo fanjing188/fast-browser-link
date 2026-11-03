@@ -59,7 +59,11 @@ class FakeRuntime:
             }
         if method == "browser.list":
             return [
-                {"instanceId": "edge-1", "connected": True, "features": ["browser_workflow_v1"]}
+                {
+                    "instanceId": "edge-1",
+                    "connected": True,
+                    "features": ["browser_workflow_v1", "execution_resilience_v1"],
+                }
             ]
         if method == "shared.operation_status":
             request_id = params["requestId"]
@@ -110,6 +114,13 @@ class FakeRuntime:
                 "items": [{"ref": "e1", "role": "button", "name": "Next"}],
             },
             "ref_click": {"clicked": True},
+            "execution.guard": {
+                "reason": "ready",
+                "reloadAllowed": False,
+                "healthId": "h",
+                "access": {},
+                "protection": {},
+            },
             "scroll": {"scrolled": True},
             "click": {"clicked": True},
             "screenshot": {"data": PNG},

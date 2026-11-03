@@ -24,6 +24,9 @@ function executionError(error, message) {
       'browser.cdp_subscribe',
     ].includes(message.method) ||
     (message.method === 'browser.execute' &&
+      message.params?.action === 'execution.guard' &&
+      ['status', 'failure'].includes(message.params?.options?.operation)) ||
+    (message.method === 'browser.execute' &&
       [
         'popup_catalog',
         'tabs',
@@ -51,7 +54,23 @@ function executionError(error, message) {
   let code = 'execution_denied',
     text = 'Browser operation could not be completed.';
   // 中文注释：并发资源冲突只拒绝当前请求，保留是否已创建页面的派发事实。
-  if (reason === 'ATTACH_AMBIGUOUS' || reason === 'ATTACH_UNAVAILABLE') {
+  if (
+    [
+      'ACCESS_COOLDOWN',
+      'EXECUTION_CIRCUIT_OPEN',
+      'EXECUTION_NO_PROGRESS',
+      'EXECUTION_HANDOFF',
+      'GUARD_INTERRUPTED',
+      'GUARD_CAPACITY',
+      'RECOVERY_STALE',
+      'RECOVERY_BLOCKED',
+      'RECOVERY_UNAVAILABLE',
+      'RECOVERY_OUTCOME_UNKNOWN',
+    ].includes(reason)
+  ) {
+    code = reason.toLowerCase();
+    text = '执行保护已停止操作，请读取 execution_status 核对状态；未知结果不得重放。';
+  } else if (reason === 'ATTACH_AMBIGUOUS' || reason === 'ATTACH_UNAVAILABLE') {
     code = reason === 'ATTACH_AMBIGUOUS' ? 'attachment_ambiguous' : 'attachment_unavailable';
     text = '已有页面没有唯一匹配或已变化；请将目标页切到前台后显式接管，不会新建或导航页面。';
   } else if (reason === 'TASK_BUSY') {

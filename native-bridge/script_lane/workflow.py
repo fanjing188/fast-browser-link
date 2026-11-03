@@ -502,6 +502,17 @@ def run_steps(api, values, timeout=60):
         if action == "wait" and "after" not in step:
             invalid(api, "wait step")
     api["ready"]()
+    api["resilience_ready"]()
+    initial = recover_page(api, min(timeout, 5))
+    if not initial["ready"]:
+        return {
+            "completed": False,
+            "failed_step": 0,
+            "reason": initial["reason"],
+            "outcome_unknown": False,
+            "steps": [],
+            "recovery": initial,
+        }
     selectors = set()
     for step in plan:
         if "root" in step:
@@ -516,7 +527,22 @@ def run_steps(api, values, timeout=60):
     for index, step in enumerate(plan):
         entry = {"index": index, "action": step["action"], "phase": "before", "dispatched": False}
         receipts.append(entry)
+        health = {}
         try:
+            health = api["guard"]()
+            reason = guard_reason(health)
+            if reason:
+                # 中文注释：只在本步尚未派发时做有界恢复，绝不回到上一步补写。
+                recovery = recover_page(api, min(5, max(0.001, deadline - time.monotonic())))
+                entry["recovery"] = recovery
+                if not recovery["ready"]:
+                    return {
+                        "completed": False,
+                        "failed_step": index,
+                        "reason": recovery["reason"],
+                        "outcome_unknown": False,
+                        "steps": receipts,
+                    }
 
             def prepare(key):
                 options = step[key]
@@ -587,9 +613,43 @@ def run_steps(api, values, timeout=60):
                         "outcome_unknown": False,
                         "steps": receipts,
                     }
+            entry["protection"] = api["guard"]()
+            if guard_reason(entry["protection"]) in {
+                "execution_no_progress",
+                "execution_circuit_open",
+                "execution_handoff",
+                "access_cooldown",
+            }:
+                return {
+                    "completed": False,
+                    "failed_step": index,
+                    "reason": guard_reason(entry["protection"]),
+                    "outcome_unknown": False,
+                    "steps": receipts,
+                }
             entry["phase"] = "complete"
         except api["BrowserError"] as error:
             unknown = error.outcome_unknown is not False
+            if (
+                not unknown
+                and health.get("healthId")
+                and error.code
+                in {
+                    "element_timeout",
+                    "ambiguous_target",
+                    "incomplete_target_scope",
+                    "target_disabled",
+                    "target_readonly",
+                    "target_occluded",
+                    "target_not_actionable",
+                    "page_not_ready",
+                }
+            ):
+                try:
+                    entry["failure_protection"] = api["failure"](error.code, health["healthId"])
+                except api["BrowserError"] as report_error:
+                    entry["protection_error"] = report_error.code
+                    unknown = report_error.outcome_unknown is not False
             entry["error"] = {"code": error.code or "browser_error", "outcome_unknown": unknown}
             if entry["phase"] == "action" and unknown:
                 entry["dispatched"] = None
@@ -607,3 +667,107 @@ def run_steps(api, values, timeout=60):
         "outcome_unknown": False,
         "steps": receipts,
     }
+
+
+def guard_reason(state):
+    """中文注释：只读取固定保护状态，不把刷新成功当成业务成功。"""
+    if state.get("protection", {}).get("stalled"):
+        return "execution_no_progress"
+    if state.get("protection", {}).get("circuitOpen"):
+        return "execution_circuit_open"
+    if state.get("reason") in ("captcha", "login", "permission", "quota"):
+        return "execution_handoff"
+    if state.get("access", {}).get("requiresUser"):
+        return "execution_handoff"
+    if state.get("access", {}).get("retryAfterMs", 0) > 5000:
+        return "access_cooldown"
+    if state.get("reason") == "rate_limit":
+        return "access_cooldown"
+    if state.get("reason") in ("loading", "transient"):
+        return "page_not_ready"
+    return None
+
+
+def recover_page(api, timeout=15):
+    duration(api, timeout)
+    api["resilience_ready"]()
+    deadline = time.monotonic() + timeout
+    reloaded = False
+    observations = 0
+    while True:
+        state = api["guard"]()
+        observations += 1
+        reason = guard_reason(state)
+        if reason is None:
+            return {
+                "recovered": reloaded,
+                "ready": True,
+                "reason": None,
+                "strategy": "reload" if reloaded else "reread",
+                "observations": observations,
+                "status": state,
+            }
+        if (
+            reason == "page_not_ready"
+            and state.get("reason") == "transient"
+            and state.get("reloadAllowed")
+            and not reloaded
+        ):
+            # 中文注释：唯一刷新在底座复核原文档、草稿/写入历史和配额；异常不补发。
+            api["reload"](state["healthId"])
+            reloaded = True
+        elif reason != "page_not_ready" or observations >= 3 or time.monotonic() >= deadline:
+            return {
+                "recovered": reloaded,
+                "ready": False,
+                "reason": reason,
+                "strategy": "pause" if reason == "execution_handoff" else "wait_or_inspect",
+                "observations": observations,
+                "status": state,
+            }
+        time.sleep(min(0.25, max(0, deadline - time.monotonic())))
+
+
+def read_resilient(api, mode="content", root=None, timeout=15):
+    duration(api, timeout)
+    if mode not in ("content", "interactive", "table") or (
+        root is not None and (not isinstance(root, str) or not 1 <= len(root) <= 512)
+    ):
+        invalid(api, "resilient read")
+    api["resilience_ready"]()
+    attempts = 0
+    reloaded = False
+    deadline = time.monotonic() + timeout
+    transient = {
+        "document_changed",
+        "stale_reference",
+        "page_not_ready",
+        "target_unavailable",
+        "runtime_preparation_failed",
+    }
+    while attempts < 3 and time.monotonic() < deadline:
+        attempts += 1
+        try:
+            recovery = recover_page(api, min(5, max(0.001, deadline - time.monotonic())))
+            reloaded = reloaded or recovery["recovered"]
+            if not recovery["ready"]:
+                return {
+                    "completed": False,
+                    "reason": recovery["reason"],
+                    "recovery": recovery,
+                    "attempts": attempts,
+                    "page": None,
+                }
+            page = api["read_page"](mode=mode, **({"root": root} if root is not None else {}))
+            return {
+                "completed": True,
+                "reason": None,
+                "attempts": attempts,
+                "recovery": {"reloaded": reloaded},
+                "page": page,
+            }
+        except api["BrowserError"] as error:
+            if error.outcome_unknown is not False or error.code not in transient or attempts >= 3:
+                raise
+            time.sleep(min(0.25, max(0, deadline - time.monotonic())))
+    return {"completed": False, "reason": "workflow_timeout", "attempts": attempts, "page": None}

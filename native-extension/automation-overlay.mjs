@@ -7,6 +7,7 @@ const interactionLabels = {
 };
 export const stepLabels = Object.freeze({
   'table.read': '读取表格',
+  'execution.guard': '检查执行保护',
   tabs: '读取标签页',
   new_tab: '打开新标签页',
   navigate: '打开网页',

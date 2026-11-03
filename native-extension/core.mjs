@@ -29,12 +29,13 @@ export function actionObservationOptions(p){
  return {root,mode,budget,composed:true,...(p.frameToken?{frameToken:p.frameToken}:{})};
 }
 // 中文注释：滚动会改变页面状态，智能审批必须按交互动作处理。
-const policyAction=action=>({'images':'snapshot','console':'snapshot','dialog':'click','scroll':'click','back':'navigate','page.observe':'snapshot','page.parse':'snapshot','semantic_snapshot':'snapshot','frame_catalog':'snapshot','interaction.capture':'screenshot','interaction.bounds':'snapshot','interaction.click':'click','interaction.drag_coordinates':'click','interaction.drag_elements':'click','official.ready_state':'snapshot','official.goto_url':'navigate','official.new_tab':'new_tab'}[action]||action);
+const policyAction=action=>({'images':'snapshot','console':'snapshot','dialog':'click','scroll':'click','back':'navigate','execution.guard':'snapshot','page.observe':'snapshot','page.parse':'snapshot','semantic_snapshot':'snapshot','frame_catalog':'snapshot','interaction.capture':'screenshot','interaction.bounds':'snapshot','interaction.click':'click','interaction.drag_coordinates':'click','interaction.drag_elements':'click','official.ready_state':'snapshot','official.goto_url':'navigate','official.new_tab':'new_tab'}[action]||action);
 import {Interactions,createChromeDebuggerAdapter} from '../browser-interactions/index.mjs';
 import {DownloadTracker} from './downloads.mjs';
 import {PageRuntime} from './page-runtime.mjs';
 import {observePage,createPageWait} from './page-observation.mjs';
 const PAGE_WAIT=Symbol('page wait');
+import {ExecutionResilience} from './execution-resilience.mjs';
 import {PageObservers,listImages} from './page-observers.mjs';
 import {VaultController} from './vault.mjs';
 import {OAuthPopups,isOAuthProvider,OAUTH_PROVIDERS} from './oauth-popups.mjs';
@@ -850,7 +851,7 @@ export function preveilSource(allowedOrigins,{taskId='',generation=0}={}){
 }catch{}})()`;
 }
 
-export const V1_ACTIONS = Object.freeze(['popup_catalog','popup_adopt','tabs','new_tab','navigate','snapshot','click','fill','press','screenshot','page.observe','page.parse','semantic_snapshot','frame_catalog','ref_click','ref_fill','ref_press','ref_set_checked','ref_select_option','files.upload','interaction.capture','interaction.bounds','interaction.click','interaction.drag_coordinates','interaction.drag_elements','official.ready_state','official.goto_url','official.new_tab','scroll','back',
+export const V1_ACTIONS = Object.freeze(['popup_catalog','popup_adopt','tabs','new_tab','navigate','snapshot','click','fill','press','screenshot','execution.guard','page.observe','page.parse','semantic_snapshot','frame_catalog','ref_click','ref_fill','ref_press','ref_set_checked','ref_select_option','files.upload','interaction.capture','interaction.bounds','interaction.click','interaction.drag_coordinates','interaction.drag_elements','official.ready_state','official.goto_url','official.new_tab','scroll','back',
  'js.evaluate','cdp.send','cdp.events','network.inspect','images','console','dialog']);
 const SCRIPT_ACTIONS=new Set(['js.evaluate','cdp.send','cdp.events','network.inspect']);
 const SITE_READ_ACTIONS=new Set(['snapshot','screenshot','page.observe','page.parse','semantic_snapshot','frame_catalog','interaction.capture','interaction.bounds','official.ready_state','images','console']);
@@ -868,7 +869,7 @@ export class Executor {
   this.api=api;this.onEvent=onEvent;this.diagnostics=new DiagnosticEventBuffer();this.diagnosticConnection=crypto.randomUUID();this.tasks=new Map();this.receipts=new WeakMap();this.leases=new Map();this.taskBarriers=new Map();this.attached=new AttachedTabs();this.semanticWorlds=this.attached.semanticWorlds;this.closingTabs=new Set();this.overlayCleanupTabs=new Set();this.docs=new Map();this.tabQueues=new Map();this.approvalQueue=Promise.resolve();this.actionGrants=new Map();this.fullGrants=new Set();this.spawnScopes=new Map();this.spawnLineage=new Map();this.pendingInteractionProbes=new Set();this.pendingInteractionCleanups=new Set();this.policy=createApprovalPolicy({verifyFullAccessGrant:g=>this.fullGrants.delete(g.grantId)});
   this.downloads=api.downloads&&typeof onDownloadEvent==='function'?new DownloadTracker(this,{report:onDownloadEvent}):null;
   this.pageRuntime=new PageRuntime(this,{pushEvents:typeof onCdpEvents==='function'?onCdpEvents:async()=>{}});
-  this.observers=new PageObservers(this);
+  this.observers=new PageObservers(this);this.resilience=new ExecutionResilience(this);
   this.vault=new VaultController(this);
   this.popups=new OAuthPopups(this);
  }
@@ -1669,11 +1670,15 @@ export class Executor {
   }
   const priorRefs=new Set(this.tasks.get(p.taskId)?.popupDiscoveries?.keys()||[]);
   return observeAction(async()=>{
+   const release=await this.resilience.enter(t,p);this.resilience.note(t,p);
+   try{
    let result=await (wait?wait.run(()=>this.executeAction(p)):this.executeAction(p));
    if(returned){
     result={...result,popupClosed:{returnedTo:sourceTabId}};
    }
+   this.resilience.finish(t,p,null,result);
    return ['click','ref_click','interaction.click'].includes(p.action)?this.popupClickResult(this.tasks.get(p.taskId),p,result,priorRefs):result;
+   }catch(error){this.resilience.finish(t,p,error);throw error;}finally{release();}
   },this.diagnostics,{component:'mv3_background',event_type:'action_state',action:p.action,request_id:crypto.randomUUID(),connection_id:this.diagnosticConnection});
  }
  async executeAction(p) {
@@ -3043,6 +3048,7 @@ export class Executor {
   }
   if(this.observers.pending(t,p.tabId)&&!['screenshot','interaction.capture'].includes(p.action))
    throw Object.assign(Error('DIALOG_OPEN'),{preDispatch:true});
+  if(p.action==='execution.guard')return this.resilience.execute(t,p,target,guard);
   if(p.action==='console')return this.observers.console(t,p,target,guard);
   if(p.action==='images'){
    const tree=await this.checkedFrameTree(target,t,guard,false);

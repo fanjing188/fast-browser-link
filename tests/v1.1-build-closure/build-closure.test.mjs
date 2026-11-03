@@ -86,6 +86,7 @@ const sourceCopies = [
   'page-runtime.mjs',
   'network-evidence.mjs',
   'target-recovery.mjs',
+  'execution-resilience.mjs',
   'password-values.mjs',
   'cdp-policy.mjs',
   'page-observers.mjs',

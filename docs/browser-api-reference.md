@@ -340,7 +340,25 @@ Wait for the same approval/manual-input request (max 300 s), without creating a 
 
 最多16步操作及前后条件；整组预检、事件先监听、首错停止，返回步骤回执，未知动作不重放。
 
-扩展能力：`browser_workflow_v1`。
+扩展能力：`execution_resilience_v1`。
+
+### `execution_status(*, tab=None)`
+
+启用并读取任务保护：页面故障、刷新资格、同站冷却/并发与循环熔断；不回传正文或输入值。
+
+扩展能力：`execution_resilience_v1`。
+
+### `recover_page(*, timeout=15, tab=None)`
+
+有界重新读取，最多一次受保护刷新；草稿、人工状态、既往写入及未知结果不刷新，不重放动作。
+
+扩展能力：`execution_resilience_v1`。
+
+### `read_resilient(*, mode='content', root=None, timeout=15, tab=None)`
+
+最多三次只读恢复，返回 page/attempts/recovery；未知结果立即停止，不恢复授权或补发写入。
+
+扩展能力：`execution_resilience_v1`。
 
 ## CDP event pagination
 

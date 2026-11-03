@@ -1484,10 +1484,49 @@ def _workflow_module():
     return module
 
 
+def _guard_status():
+    value = _call("run", ["execution.guard", {"options": {"operation": "status"}}])
+    if (
+        not isinstance(value, dict)
+        or value.get("reason")
+        not in (
+            "ready",
+            "loading",
+            "transient",
+            "rate_limit",
+            "captcha",
+            "login",
+            "permission",
+            "quota",
+        )
+        or type(value.get("reloadAllowed")) is not bool
+        or not isinstance(value.get("healthId"), str)
+        or not 1 <= len(value["healthId"]) <= 128
+        or not isinstance(value.get("access"), dict)
+        or not isinstance(value.get("protection"), dict)
+    ):
+        raise BrowserError(
+            "invalid execution guard receipt", code="invalid_receipt", outcome_unknown=False
+        )
+    return value
+
+
 def _workflow_api():
     return {
         **{name: globals()[name] for name in HELPERS},
         "ready": lambda: _call("workflow_ready", []),
+        "resilience_ready": lambda: _call("resilience_ready", []),
+        "failure": lambda code, health_id: _call(
+            "run",
+            [
+                "execution.guard",
+                {"options": {"operation": "failure", "code": code, "healthId": health_id}},
+            ],
+        ),
+        "guard": _guard_status,
+        "reload": lambda health_id: _call(
+            "run", ["execution.guard", {"options": {"operation": "recover", "healthId": health_id}}]
+        ),
         "observe": lambda selector: _call(
             "run", ["page.observe", {"options": {"selector": selector}}]
         ),
@@ -1528,6 +1567,37 @@ def run_steps(steps, *, timeout=60, tab=None):
     token = _workflow_deadline.set(time.monotonic() + timeout)
     try:
         return module.run_steps(_workflow_api(), steps, timeout)
+    finally:
+        _workflow_deadline.reset(token)
+
+
+@_tab_scoped
+def execution_status(*, tab=None):
+    """启用并读取任务保护：页面故障、刷新资格、同站冷却/并发与循环熔断；不回传正文或输入值。"""
+    _call("resilience_ready", [])
+    return _workflow_api()["guard"]()
+
+
+@_tab_scoped
+def recover_page(*, timeout=15, tab=None):
+    """有界重新读取，最多一次受保护刷新；草稿、人工状态、既往写入及未知结果不刷新，不重放动作。"""
+    module = _workflow_module()
+    module.duration(_workflow_api(), timeout)
+    token = _workflow_deadline.set(time.monotonic() + timeout)
+    try:
+        return module.recover_page(_workflow_api(), timeout)
+    finally:
+        _workflow_deadline.reset(token)
+
+
+@_tab_scoped
+def read_resilient(*, mode="content", root=None, timeout=15, tab=None):
+    """最多三次只读恢复，返回 page/attempts/recovery；未知结果立即停止，不恢复授权或补发写入。"""
+    module = _workflow_module()
+    module.duration(_workflow_api(), timeout)
+    token = _workflow_deadline.set(time.monotonic() + timeout)
+    try:
+        return module.read_resilient(_workflow_api(), mode, root, timeout)
     finally:
         _workflow_deadline.reset(token)
 
@@ -1590,6 +1660,9 @@ HELPERS = {
         "wait_until",
         "diagnose_target",
         "run_steps",
+        "execution_status",
+        "recover_page",
+        "read_resilient",
         "expect_response",
         "expect_navigation",
     )

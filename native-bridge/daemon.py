@@ -125,6 +125,7 @@ V1_ACTIONS = frozenset(
         "screenshot",
         "tabs",
         "new_tab",
+        "execution.guard",
         "page.observe",
         "page.parse",
         "semantic_snapshot",
@@ -4493,6 +4494,7 @@ class BridgeDaemon:
             "press": {"tabId", "selector", "key"},
             "screenshot": {"tabId"},
             "api_request": {"tabId", "url", "fields"},
+            "execution.guard": {"tabId", "options"},
             "page.observe": {"tabId"},
             "page.parse": {"tabId"},
             "semantic_snapshot": {"tabId"},
@@ -4846,6 +4848,42 @@ class BridgeDaemon:
             raise ProtocolError(
                 "invalid_params", "container scroll needs binding, snapshot_id and ref"
             )
+        if action == "execution.guard":
+            options = params.get("options")
+            operation = options.get("operation") if isinstance(options, dict) else None
+            allowed = (
+                {"operation", "healthId", "code"}
+                if operation == "failure"
+                else {"operation", "healthId"}
+                if operation == "recover"
+                else {"operation"}
+            )
+            if (
+                operation not in ("status", "recover", "failure")
+                or set(options) - allowed
+                or (
+                    operation != "status"
+                    and (
+                        not isinstance(options.get("healthId"), str)
+                        or not 1 <= len(options["healthId"]) <= 128
+                    )
+                )
+                or (
+                    operation == "failure"
+                    and options.get("code")
+                    not in (
+                        "element_timeout",
+                        "ambiguous_target",
+                        "incomplete_target_scope",
+                        "target_disabled",
+                        "target_readonly",
+                        "target_occluded",
+                        "target_not_actionable",
+                        "page_not_ready",
+                    )
+                )
+            ):
+                raise ProtocolError("invalid_params", "invalid execution guard options")
         if action == "page.observe":
             # 中文注释：只允许内部等待的固定选择器；不接受源码、跨框架或扩大扫描预算。
             options = params.get("options")
@@ -6502,6 +6540,7 @@ class BridgeDaemon:
                         for f in (
                             "browser_core_v1",
                             "browser_workflow_v1",
+                            "execution_resilience_v1",
                             "page_parse_v1",
                             "page_function_v1",
                             "network_evidence_v1",

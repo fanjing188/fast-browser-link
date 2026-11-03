@@ -124,6 +124,19 @@ test('interactive text remains clipped and action ref still resolves exact eleme
   }
 });
 
+test('query cannot report complete when a clipped control name may hide another match', () => {
+  const f = fixture(`<button>${'Q'.repeat(410)} Alpha</button><button>Alpha</button>`);
+  try {
+    const page = f.semantics.snapshot({ query: 'Alpha' });
+    assert.equal(page.coverage.complete, false);
+    assert.equal(page.coverage.truncated, 1);
+    assert.equal(page.items.length, 2);
+    assert.equal(page.items.filter((item) => item.truncated).length, 1);
+  } finally {
+    f.close();
+  }
+});
+
 test('fragment ref resolves the same node and rejects a changed text value', () => {
   const f = fixture(`<p id="target">${'R'.repeat(1000)}</p>`);
   try {

@@ -164,7 +164,7 @@ Wait until document.readyState reaches ``until``; returns the final state.  The 
 
 ### `wait_for_element(name, *, role=None, root=None, exact=True, timeout=10.0, tab=None, action=None)`
 
-等待可用元素，同名候选按可见性排序，返回快照和引用。
+等待同一文档当前读取范围内唯一可用元素；timeout=0 只读一次，不等待。
 
 扩展能力：`browser_core_v1`。
 
@@ -176,7 +176,7 @@ Wait until document.readyState reaches ``until``; returns the final state.  The 
 
 ### `fill_element(name, text, tab=None, *, after=None, **options)`
 
-按名称/角色定位后填写，定位失败由插件自动恢复。
+按名称/角色定位后填写；helper 动作禁用自动关闭遮挡层。
 
 扩展能力：`browser_core_v1`。
 
@@ -323,6 +323,24 @@ After BrowserError.outcome_unknown: read the page to check what happened, then c
 Wait for the same approval/manual-input request (max 300 s), without creating a new action. Sensitive-field manual input returns the original receipt. Login-window adoption runs directly without confirmation and does not need this helper. Unknown outcomes are never replayed.
 
 扩展能力：`browser_core_v1`。
+
+### `wait_until(conditions, *, mode='any', timeout=10, interval=0.25, tab=None)`
+
+统一有界等待：element/url/response/download/popup，any/all；事件仅匹配调用后新发生的证据。
+
+扩展能力：`browser_workflow_v1`。
+
+### `diagnose_target(name, *, role=None, root=None, action='click', tab=None)`
+
+只读定位诊断，返回范围完整性、歧义、遮挡、禁用/只读及建议，不创建写入资格。
+
+扩展能力：`browser_workflow_v1`。
+
+### `run_steps(steps, *, timeout=60, tab=None)`
+
+最多16步操作及前后条件；整组预检、事件先监听、首错停止，返回步骤回执，未知动作不重放。
+
+扩展能力：`browser_workflow_v1`。
 
 ## CDP event pagination
 
@@ -1317,7 +1335,7 @@ health/browsers 使用运行时已解析的 bridge_home；doctor/reference 跟�
 
 ```json
 {
-  "description": "同一页两步以上时，在本会话已就绪的任务中运行一次 Python 脚本并读回核对（填表、翻页、提取、保存）。脚本内可用 new_tab、goto_url、read_page、wait_for_element、click_element、fill_element、scroll、semantic_snapshot、screenshot、reconcile、wait_pending 等函数，连接授权后普通动作直接执行，仍校验任务归属与租约；同一页可跨站，定位失败自动恢复。page_text/read_page 返回 dict，读 elements/items 字段，不能切片 dict；wait_for timeout 上限 60 秒，先检查 satisfied。JS 用 evaluate(function, arguments) 传值。stdout 只打印目标项、coverage、计数和文件路径，大提取物保存在脚本工作区。用法与模板见技能 fast-browser-link:fast-browser-batch-scrape。",
+  "description": "确定步骤可用 run_steps 组合前后条件，wait_until 统一等待，diagnose_target 只读诊断；须检查 completed 与 outcome_unknown。同一页两步以上时，在本会话已就绪的任务中运行一次 Python 脚本并读回核对（填表、翻页、提取、保存）。脚本内可用 new_tab、goto_url、read_page、wait_for_element、click_element、fill_element、scroll、semantic_snapshot、screenshot、reconcile、wait_pending 等函数，连接授权后普通动作直接执行，仍校验任务归属与租约；同一页可跨站，定位失败自动恢复。page_text/read_page 返回 dict，读 elements/items 字段，不能切片 dict；wait_for timeout 上限 60 秒，先检查 satisfied。JS 用 evaluate(function, arguments) 传值。stdout 只打印目标项、coverage、计数和文件路径，大提取物保存在脚本工作区。用法与模板见技能 fast-browser-link:fast-browser-batch-scrape。",
   "parameters": {
     "type": "object",
     "properties": {

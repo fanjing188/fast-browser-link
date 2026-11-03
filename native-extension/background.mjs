@@ -889,6 +889,7 @@ async function connect() {
       capabilities: {
         features: [
           'browser_core_v1',
+          'browser_workflow_v1',
           'page_parse_v1',
           'page_function_v1',
           'network_evidence_v1',

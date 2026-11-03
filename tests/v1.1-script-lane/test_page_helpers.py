@@ -16,6 +16,7 @@ def snapshot(items, complete=True):
     return {
         "kind": "full",
         "binding": {"taskId": "owned"},
+        "documentEpoch": "fixture-epoch",
         "snapshotId": "fresh",
         "items": items,
         "coverage": {"complete": complete},
@@ -101,7 +102,13 @@ class PageHelpersTests(unittest.TestCase):
                     "run",
                     [
                         "ref_click",
-                        {"binding": {"taskId": "owned"}, "snapshotId": "fresh", "ref": "one"},
+                        {
+                            "binding": {"taskId": "owned"},
+                            "snapshotId": "fresh",
+                            "ref": "one",
+                            "noAutoRecovery": True,
+                            "documentEpoch": "fixture-epoch",
+                        },
                     ],
                 ),
             )
@@ -113,27 +120,36 @@ class PageHelpersTests(unittest.TestCase):
             "_call",
             side_effect=[snapshot([button(), button("two", disabled=True)]), {"clicked": True}],
         ) as call:
-            self.assertTrue(child.click_element("继续")["clicked"])
-            self.assertEqual(call.call_count, 2)
-
-    def test_incomplete_scope_allows_available_target(self):
-        with patch.object(
-            child, "_call", side_effect=[snapshot([button()], False), {"clicked": True}]
-        ) as call:
             result = child.click_element("继续")
             self.assertTrue(result["clicked"])
-            self.assertEqual(result["recovery"]["otherCandidates"], 0)
+            self.assertEqual(result["recovery"]["otherCandidates"], 1)
             self.assertEqual(call.call_count, 2)
 
-    def test_r10_unique_main_document_account_with_opaque_frame_dispatches_once(self):
+    def test_incomplete_scope_rejects_before_click(self):
+        with patch.object(child, "_call", return_value=snapshot([button()], False)) as call:
+            with self.assertRaises(child.BrowserError) as caught:
+                child.click_element("继续")
+            self.assertEqual(caught.exception.code, "incomplete_target_scope")
+            self.assertEqual(call.call_count, 1)
+        unreported = snapshot([button()])
+        unreported["coverage"].pop("complete")
+        with patch.object(child, "_call", return_value=unreported) as call:
+            with self.assertRaises(child.BrowserError) as caught:
+                child.click_element("继续")
+            self.assertEqual(caught.exception.code, "incomplete_target_scope")
+            self.assertEqual(call.call_count, 1)
+
+    def test_r10_opaque_frame_scope_rejects_before_click(self):
         page = snapshot([button(name="synthetic-target@example.test")], False)
         page["coverage"].update(coveredScopeComplete=True, contentShieldSkippedFrames=1)
         page["skippedFrames"] = [
             {"origin": "https://frame.test", "x": 500, "y": 500, "width": 1, "height": 1}
         ]
-        with patch.object(child, "_call", side_effect=[page, {"clicked": True}]) as call:
-            self.assertTrue(child.click_element("synthetic-target@example.test")["clicked"])
-            self.assertEqual(call.call_count, 2)
+        with patch.object(child, "_call", return_value=page) as call:
+            with self.assertRaises(child.BrowserError) as caught:
+                child.click_element("synthetic-target@example.test")
+            self.assertEqual(caught.exception.code, "incomplete_target_scope")
+            self.assertEqual(call.call_count, 1)
 
     def test_r10_incomplete_scope_does_not_allow_truncation_ambiguity_or_frame_targets(self):
         for covered, items in [
@@ -146,12 +162,12 @@ class PageHelpersTests(unittest.TestCase):
             page["skippedFrames"] = [{"origin": "https://frame.test", "width": 2, "height": 2}]
             with (
                 self.subTest(covered=covered, items=items),
-                patch.object(child, "_call", side_effect=[page, {"clicked": True}]) as call,
+                patch.object(child, "_call", return_value=page) as call,
             ):
-                result = child.click_element("继续")
-                self.assertTrue(result["clicked"])
-                self.assertEqual(result["recovery"]["otherCandidates"], len(items) - 1)
-                self.assertEqual(call.call_count, 2)
+                with self.assertRaises(child.BrowserError) as caught:
+                    child.click_element("继续")
+                self.assertEqual(caught.exception.code, "incomplete_target_scope")
+                self.assertEqual(call.call_count, 1)
 
     def test_dynamic_element_waits_only_on_reads(self):
         with (
@@ -172,6 +188,229 @@ class PageHelpersTests(unittest.TestCase):
             self.assertTrue(all(c.args[1][0] == "semantic_snapshot" for c in call.call_args_list))
             self.assertEqual(call.call_args.args[1][1]["options"]["root"], "#dialog")
 
+    def test_loading_occlusion_clears_before_single_click(self):
+        # 中文注释：加载层由页面自然消失；等待期间只能重读快照，不得派发点击。
+        blocked = button(blocked="occluded", actionable=False)
+        with (
+            patch.object(
+                child,
+                "_call",
+                side_effect=[snapshot([blocked]), snapshot([button()]), {"clicked": True}],
+            ) as call,
+            patch.object(child.time, "sleep"),
+        ):
+            self.assertTrue(child.click_element("继续")["clicked"])
+            actions = [row.args[1][0] for row in call.call_args_list]
+            self.assertEqual(actions, ["semantic_snapshot", "semantic_snapshot", "ref_click"])
+
+    def test_waited_for_absent_target_disables_automatic_recovery(self):
+        with (
+            patch.object(
+                child,
+                "_call",
+                side_effect=[snapshot([]), snapshot([button()]), {"clicked": True}],
+            ) as call,
+            patch.object(child.time, "sleep"),
+        ):
+            self.assertTrue(child.click_element("继续")["clicked"])
+            self.assertIs(call.call_args.args[1][1]["noAutoRecovery"], True)
+
+    def test_exact_normalized_name_checks_plain_and_required_names_in_full_scope(self):
+        candidates = [button("plain", name="Name"), button("marked", name="Name(required)")]
+
+        def filtered(_op, args):
+            if args[0] != "semantic_snapshot":
+                raise AssertionError("write dispatched despite name ambiguity")
+            query = args[1]["options"].get("query", "").casefold()
+            return snapshot([row for row in candidates if query in row["name"].casefold()])
+
+        with patch.object(child, "_call", side_effect=filtered) as call:
+            with self.assertRaises(child.BrowserError) as caught:
+                child.click_element("Name(required)", timeout=0)
+            self.assertEqual(caught.exception.code, "ambiguous_target")
+            self.assertEqual(call.call_count, 1)
+
+    def test_casefold_equivalent_names_cannot_be_filtered_into_false_uniqueness(self):
+        candidates = [button("eszett", name="Straße"), button("ascii", name="Strasse")]
+
+        def js_lower_filtered(_op, args):
+            if args[0] != "semantic_snapshot":
+                raise AssertionError("write dispatched despite name ambiguity")
+            query = args[1]["options"].get("query", "").lower()
+            return snapshot([row for row in candidates if query in row["name"].lower()])
+
+        with patch.object(child, "_call", side_effect=js_lower_filtered) as call:
+            with self.assertRaises(child.BrowserError) as caught:
+                child.click_element("Strasse", timeout=0)
+            self.assertEqual(caught.exception.code, "ambiguous_target")
+            self.assertEqual(call.call_count, 1)
+
+    def test_immediate_helper_actions_disable_obstruction_recovery(self):
+        for action in ("click", "fill"):
+            with (
+                self.subTest(action=action),
+                patch.object(
+                    child,
+                    "_call",
+                    side_effect=[
+                        snapshot([button(role="textbox" if action == "fill" else "button")]),
+                        {"clicked": True, "filled": True},
+                    ],
+                ) as call,
+            ):
+                if action == "click":
+                    child.click_element("继续", timeout=0)
+                else:
+                    child.fill_element("继续", "local value", timeout=0)
+                self.assertIs(call.call_args.args[1][1]["noAutoRecovery"], True)
+
+    def test_second_wait_snapshot_is_bound_to_original_document(self):
+        first = snapshot([])
+        first["binding"].update(documentId="doc-1", leaseId="lease-1")
+        second = snapshot([button()])
+        second["binding"].update(first["binding"])
+        with (
+            patch.object(child, "_call", side_effect=[first, second, {"clicked": True}]) as call,
+            patch.object(child.time, "sleep"),
+        ):
+            self.assertTrue(child.click_element("继续")["clicked"])
+            self.assertEqual(call.call_args_list[1].args[1][1]["binding"], first["binding"])
+            self.assertTrue(call.call_args_list[0].args[1][1]["noQueryRecovery"])
+            self.assertTrue(call.call_args_list[1].args[1][1]["noQueryRecovery"])
+            self.assertEqual(call.call_args_list[1].args[1][1]["documentEpoch"], "fixture-epoch")
+
+    def test_document_epoch_change_or_absence_refuses_helper_action(self):
+        missing = snapshot([button()])
+        missing.pop("documentEpoch")
+        with patch.object(child, "_call", return_value=missing) as call:
+            with self.assertRaises(child.BrowserError) as caught:
+                child.click_element("继续", timeout=0)
+            self.assertEqual(caught.exception.code, "invalid_receipt")
+            self.assertEqual(call.call_count, 1)
+        first = snapshot([])
+        changed = snapshot([button()])
+        changed["documentEpoch"] = "replacement-epoch"
+        with (
+            patch.object(child, "_call", side_effect=[first, changed]) as call,
+            patch.object(child.time, "sleep"),
+        ):
+            with self.assertRaises(child.BrowserError) as caught:
+                child.click_element("继续")
+            self.assertEqual(caught.exception.code, "document_changed")
+            self.assertEqual(call.call_count, 2)
+
+    def test_persistent_occlusion_times_out_without_click(self):
+        blocked = button(blocked="occluded", actionable=False)
+        with patch.object(child, "_call", return_value=snapshot([blocked])) as call:
+            with self.assertRaises(child.BrowserError) as caught:
+                child.click_element("继续", timeout=0)
+            self.assertEqual(caught.exception.code, "target_occluded")
+            self.assertFalse(caught.exception.outcome_unknown)
+            self.assertTrue(
+                all(row.args[1][0] == "semantic_snapshot" for row in call.call_args_list)
+            )
+
+    def test_loading_frame_uses_fresh_reference_after_unblock(self):
+        for change in ("documentId", "leaseId", "frameToken"):
+            with self.subTest(change=change):
+                first = snapshot([button(blocked="occluded", actionable=False)])
+                first["binding"].update(documentId="old-document", leaseId="old-lease")
+                first["frameToken"] = "owned-frame"
+                ready = snapshot([button("fresh-ref")])
+                ready["binding"].update(first["binding"])
+                ready["frameToken"] = first["frameToken"]
+                if change == "frameToken":
+                    ready["frameToken"] = "other-frame"
+                else:
+                    ready["binding"][change] = "new-" + change
+                with (
+                    patch.object(child, "_call", side_effect=[first, ready]) as call,
+                    patch.object(child.time, "sleep"),
+                ):
+                    with self.assertRaises(child.BrowserError) as caught:
+                        child.click_element("继续")
+                    self.assertEqual(caught.exception.code, "document_changed")
+                    self.assertFalse(caught.exception.outcome_unknown)
+                    self.assertEqual(
+                        [row.args[1][0] for row in call.call_args_list],
+                        ["semantic_snapshot", "semantic_snapshot"],
+                    )
+
+    def test_loading_same_document_relocates_without_replay(self):
+        first = snapshot([button(blocked="occluded", actionable=False)])
+        first["binding"].update(documentId="same-document", leaseId="same-lease")
+        first["frameToken"] = "owned-frame"
+        ready = snapshot([button("fresh-ref")])
+        ready["binding"].update(first["binding"])
+        ready["frameToken"] = "owned-frame"
+        with (
+            patch.object(child, "_call", side_effect=[first, ready, {"clicked": True}]) as call,
+            patch.object(child.time, "sleep"),
+        ):
+            self.assertTrue(child.click_element("继续")["clicked"])
+            payload = call.call_args.args[1][1]
+            self.assertEqual(payload["ref"], "fresh-ref")
+            self.assertEqual(payload["frameToken"], "owned-frame")
+            self.assertIs(payload["noAutoRecovery"], True)
+
+    def test_occluded_same_name_never_selects_other_click_or_fill_target(self):
+        for action in ("click", "fill"):
+            with self.subTest(action=action):
+                options = {"role": "textbox", "actions": ["fill"]} if action == "fill" else {}
+                items = [
+                    button("covered", blocked="occluded", actionable=False, **options),
+                    button("clear", **options),
+                ]
+                with patch.object(child, "_call", return_value=snapshot(items)) as call:
+                    with self.assertRaises(child.BrowserError) as caught:
+                        if action == "click":
+                            child.click_element("继续", timeout=0)
+                        else:
+                            child.fill_element("继续", "local value", timeout=0)
+                    self.assertEqual(caught.exception.code, "ambiguous_target")
+                    self.assertFalse(caught.exception.outcome_unknown)
+                    self.assertTrue(
+                        all(row.args[1][0] == "semantic_snapshot" for row in call.call_args_list)
+                    )
+
+    def test_slow_snapshot_cannot_dispatch_after_positive_deadline(self):
+        with (
+            patch.object(child, "_call", return_value=snapshot([button()])) as call,
+            patch.object(child.time, "monotonic", side_effect=[100.0, 111.0]),
+        ):
+            with self.assertRaises(child.BrowserError) as caught:
+                child.click_element("继续", timeout=10)
+            self.assertEqual(caught.exception.code, "element_timeout")
+            self.assertTrue(
+                all(row.args[1][0] == "semantic_snapshot" for row in call.call_args_list)
+            )
+
+    def test_zero_timeout_is_one_immediate_snapshot_even_if_read_is_slow(self):
+        with (
+            patch.object(
+                child, "_call", side_effect=[snapshot([button()]), {"clicked": True}]
+            ) as call,
+            patch.object(child.time, "monotonic", side_effect=[100.0, 111.0]),
+        ):
+            self.assertTrue(child.click_element("继续", timeout=0)["clicked"])
+            self.assertEqual(call.call_count, 2)
+
+    def test_occluded_fill_waits_but_does_not_replay_write(self):
+        field = button(role="textbox", actions=["fill"], blocked="occluded", actionable=False)
+        ready = button(role="textbox", actions=["fill"])
+        with (
+            patch.object(
+                child, "_call", side_effect=[snapshot([field]), snapshot([ready]), {"filled": True}]
+            ) as call,
+            patch.object(child.time, "sleep"),
+        ):
+            self.assertTrue(child.fill_element("继续", "local value")["filled"])
+            self.assertEqual(
+                [row.args[1][0] for row in call.call_args_list],
+                ["semantic_snapshot", "semantic_snapshot", "ref_fill"],
+            )
+            self.assertIs(call.call_args.args[1][1]["noAutoRecovery"], True)
+
     def test_uncertain_or_approval_write_is_not_retried(self):
         for error in (child.BrowserError("unknown"), child.ApprovalRequired("approval")):
             with (
@@ -187,7 +426,7 @@ class PageHelpersTests(unittest.TestCase):
             with self.assertRaises(child.BrowserError) as caught:
                 child.wait_for_element("继续", timeout=0)
             self.assertEqual(caught.exception.code, "element_timeout")
-            self.assertEqual(call.call_count, 2)
+            self.assertEqual(call.call_count, 1)
         for timeout in (float("nan"), float("inf"), -1, True, 61):
             with patch.object(child, "_call") as call:
                 with self.assertRaises(child.BrowserError):

@@ -1,6 +1,6 @@
 ---
 name: fast-browser-link
-version: 2.5.1
+version: 2.6.0
 description: 使用用户已登录的 Chrome 或 Edge 执行普通或无痕网页任务、填写表单、处理登录弹窗和上传下载。优先通过 MCP 调用本机 Fast-browser-link，无 MCP 时使用本技能 Python 入口。
 ---
 
@@ -52,3 +52,5 @@ description: 使用用户已登录的 Chrome 或 Edge 执行普通或无痕网�
 ## 初始化与维护
 
 包内 `python3 -B -m fbl setup`；无需 Node 或协作 Agent。`fbl doctor --fix` 修受管项，`fbl logs --bundle` 导出只含固定诊断字段的 ZIP；`fbl update --dry-run` 预览空闲升级与失败回滚。Fast-browser-assist 是独立产品，连接它不改变本技能的任务授权。见 `docs/fbl.md`。
+
+用 `run_steps` 组合操作和核验，`wait_until` 等待，`diagnose_target` 诊断。先查能力与签名；失败核现场，未知不重放。

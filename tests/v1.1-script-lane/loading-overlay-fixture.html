@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8"><title>Local loading overlay fixture</title>
+    <style>
+      #target { position: absolute; left: 40px; top: 40px; }
+      #loading { position: fixed; inset: 0; z-index: 2; background: white; }
+    </style>
+  </head>
+  <body>
+    <button id="target">继续</button>
+    <div id="loading" role="status" aria-busy="true">加载中...</div>
+    <script>
+      // 中文注释：夹具只模拟站点自然完成；持久模式保持遮挡供失败路径验收。
+      if (!location.search.includes('persistent')) {
+        const delay = Number(new URLSearchParams(location.search).get('delay')) || 200;
+        setTimeout(() => document.getElementById('loading')?.remove(), delay);
+      }
+    </script>
+  </body>
+</html>

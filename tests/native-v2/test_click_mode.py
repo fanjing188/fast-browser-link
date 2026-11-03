@@ -169,6 +169,96 @@ class ClickModeTests(unittest.TestCase):
         with self.assertRaises(daemon_module.ProtocolError):
             self.run_action("wrong-pointer-action", "click", selector="#link", clickMode="pointer")
 
+    def test_natural_wait_flag_is_restrictive_and_not_public_tool_input(self):
+        from test_daemon_wire import daemon_module
+
+        fields = {"binding": self.args("ref_click")["binding"], "snapshotId": "snap", "ref": "link"}
+        result = self.run_action(
+            "natural-wait-ref-click", "ref_click", noAutoRecovery=True, **fields
+        )
+        self.assertEqual(result, self.response)
+        self.assertIs(self.calls[-1][2]["noAutoRecovery"], True)
+        daemon_module.BridgeDaemon._validate_run_params(
+            "ref_fill",
+            {
+                "owner": "owner-v2",
+                "taskId": "task-v2",
+                "requestId": "natural-wait-ref-fill",
+                "action": "ref_fill",
+                "tabId": 7,
+                "text": "local value",
+                "noAutoRecovery": True,
+                **fields,
+            },
+        )
+        for value in (False, None, 0, "true"):
+            with (
+                self.subTest(value=value),
+                self.assertRaises(daemon_module.ProtocolError) as caught,
+            ):
+                self.run_action("invalid-natural-wait", "ref_click", noAutoRecovery=value, **fields)
+            self.assertEqual(caught.exception.code, "invalid_params")
+        with self.assertRaises(daemon_module.ProtocolError):
+            self.run_action("wrong-natural-wait", "click", selector="#link", noAutoRecovery=True)
+        self.assertEqual(
+            self.invoke(self.args("ref_click", noAutoRecovery=True))["code"], "invalid_fields"
+        )
+
+    def test_helper_query_recovery_opt_out_is_read_only_and_true_only(self):
+        from test_daemon_wire import daemon_module
+
+        params = {
+            "owner": "owner-v2",
+            "taskId": "task-v2",
+            "requestId": "bound-read",
+            "action": "semantic_snapshot",
+            "tabId": 7,
+            "options": {"mode": "interactive", "query": "Continue"},
+            "noQueryRecovery": True,
+        }
+        daemon_module.BridgeDaemon._validate_run_params("semantic_snapshot", params)
+        for value in (False, None, 0, "true"):
+            with (
+                self.subTest(value=value),
+                self.assertRaises(daemon_module.ProtocolError) as caught,
+            ):
+                daemon_module.BridgeDaemon._validate_run_params(
+                    "semantic_snapshot", {**params, "noQueryRecovery": value}
+                )
+            self.assertEqual(caught.exception.code, "invalid_params")
+
+    def test_helper_document_epoch_is_scoped_to_semantic_read_and_ref_actions(self):
+        from test_daemon_wire import daemon_module
+
+        base = {
+            "owner": "owner-v2",
+            "taskId": "task-v2",
+            "requestId": "epoch-read",
+            "action": "semantic_snapshot",
+            "tabId": 7,
+            "documentEpoch": "local-epoch",
+            "options": {"mode": "interactive"},
+        }
+        daemon_module.BridgeDaemon._validate_run_params("semantic_snapshot", base)
+        fields = {
+            "binding": self.args("ref_click")["binding"],
+            "snapshotId": "snap",
+            "ref": "target",
+        }
+        for action, extra in (("ref_click", {}), ("ref_fill", {"text": "local value"})):
+            ref_base = {key: value for key, value in base.items() if key != "options"}
+            daemon_module.BridgeDaemon._validate_run_params(
+                action, {**ref_base, "action": action, **fields, **extra}
+            )
+        for value in (None, "", 0, "x" * 129):
+            with (
+                self.subTest(value_type=type(value).__name__),
+                self.assertRaises(daemon_module.ProtocolError),
+            ):
+                daemon_module.BridgeDaemon._validate_run_params(
+                    "semantic_snapshot", {**base, "documentEpoch": value}
+                )
+
     def test_schema_exposes_two_explicit_modes_and_omission_is_default(self):
         schema = self.tools.TOOL_SCHEMAS["fast_browser_run"]["parameters"]
         self.assertEqual(schema["properties"]["clickMode"]["type"], "string")

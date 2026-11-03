@@ -186,7 +186,7 @@ export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
  const createPageParser=context=>globalThis.__fastSemanticLibrary.parser(context);
  const same=(a,b)=>a&&b&&a.taskId===b.taskId&&a.documentId===b.documentId&&a.leaseId===b.leaseId;
  // 中文注释：扩展重载后旧隔离世界还可能存在；实现版本变化必须撤销旧引用并重新创建语义实例。
- const make=()=>({version:11,binding:p.binding,semantics:createPageSemantics({document,...p.binding,classifyField:classifySensitiveField,
+ const make=()=>({version:12,binding:p.binding,documentEpoch:globalThis.crypto?.randomUUID?.()||Date.now().toString(36)+'-'+Math.random().toString(36).slice(2),semantics:createPageSemantics({document,...p.binding,classifyField:classifySensitiveField,
   shadowRootOf:node=>node.shadowRoot||globalThis.__fastClosedShadowRoots?.get(node)||null})});
  const classifySensitiveField=${serializedFunction(classifySensitiveField)};
  const sensitive=e=>classifySensitiveField(e)!==null;
@@ -279,8 +279,10 @@ export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
   return result;
  };
  let state=globalThis.__fastNativeSemanticsV2;
- const validState=()=>state?.version===11&&typeof state.semantics?.interactionVisibility==='function';
+ const validState=()=>state?.version===12&&typeof state.semantics?.interactionVisibility==='function';
  if(op==='semantic_snapshot'||op==='page.parse'||op==='recovery_scan'){
+  // 中文注释：当前文档代次独立于 loaderId；无绑定读取重建实例后，旧代次续读仍必须拒绝。
+  if(p.requireDocumentEpoch&&(!validState()||!same(state.binding,p.binding)||p.documentEpoch!==state.documentEpoch))throw Error('BINDING_MISMATCH');
   if(!validState()||!same(state.binding,p.binding)){try{state?.semantics.revoke();}catch{}state=make();globalThis.__fastNativeSemanticsV2=state;}
   if(op==='recovery_scan'){
    const semantics=state.semantics,rows=[];let cursor;
@@ -297,12 +299,12 @@ export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
    }
    return rows;
   }
-  try{if(op==='page.parse'){state.parser??=createPageParser(state.semantics.parsingContext());return state.parser.parse(p.options||{});}return state.semantics.snapshot(p.options||{});}catch(error){
+   try{if(op==='page.parse'){state.parser??=createPageParser(state.semantics.parsingContext());return state.parser.parse(p.options||{});}return {...state.semantics.snapshot(p.options||{}),documentEpoch:state.documentEpoch};}catch(error){
    if(error?.message!=='DOCUMENT_REPLACED'||p.requireCurrentDocument)throw error;
-   try{state.semantics.revoke();}catch{}state=make();globalThis.__fastNativeSemanticsV2=state;if(op==='page.parse'){state.parser=createPageParser(state.semantics.parsingContext());return state.parser.parse(p.options||{});}return state.semantics.snapshot(p.options||{});
+   try{state.semantics.revoke();}catch{}state=make();globalThis.__fastNativeSemanticsV2=state;if(op==='page.parse'){state.parser=createPageParser(state.semantics.parsingContext());return state.parser.parse(p.options||{});}return {...state.semantics.snapshot(p.options||{}),documentEpoch:state.documentEpoch};
   }
  }
- if(!validState()||!same(state.binding,p.binding))throw Error('BINDING_MISMATCH');
+ if(!validState()||!same(state.binding,p.binding)||p.documentEpoch&&p.documentEpoch!==state.documentEpoch)throw Error('BINDING_MISMATCH');
  const semantics=state.semantics,token={...p.binding,snapshotId:p.snapshotId,ref:p.ref},highlightBinding=p.highlightBinding;
  // 中文注释：只有宿主内部 CDP 查询使用节点对象，模型工具不会公开这两个操作。
  if(op==='recovery_hint')return semantics.recoveryHint(token);
@@ -1181,7 +1183,7 @@ export class Executor {
    // 中文注释：预审必须使用快照所在的覆盖层上下文，避免在另一隔离世界中丢失引用状态。
    const overlay=resolved?null:t.overlays?.get(p.tabId);
    const contextId=overlay?.documentId===frame.loaderId?overlay.contextId:null;
-   return this.callSemanticWorld(frameTarget,frame.id,'assess_'+action,{binding:p.binding,snapshotId:p.snapshotId,ref:p.ref},guard,contextId);
+   return this.callSemanticWorld(frameTarget,frame.id,'assess_'+action,{binding:p.binding,snapshotId:p.snapshotId,ref:p.ref,documentEpoch:p.documentEpoch},guard,contextId);
   }
   return this.callWorld(target,tree.frame.id,t,'assess_'+action,p.selector,null,p.key,guard);
  }
@@ -2506,7 +2508,7 @@ export class Executor {
   let world=executionContextId?{executionContextId}:await createWorld();guard();
   const key=()=>JSON.stringify([target.tabId,target.sessionId,world.executionContextId]);
   const install=async()=>{const installed=await this.api.debugger.sendCommand(target,'Runtime.callFunctionOn',{executionContextId:world.executionContextId,functionDeclaration:`function(){globalThis.__fastSemanticLibrary={version:1,call:(${semanticWorldDeclaration})};return true;}`,returnByValue:true});guard();if(installed.exceptionDetails||installed.result?.value!==true)throw Object.assign(Error('SEMANTIC_LIBRARY_UNAVAILABLE'),{preDispatch:true});this.semanticWorlds.add(key());};
-  const invoke=()=>this.api.debugger.sendCommand(target,'Runtime.callFunctionOn',{executionContextId:world.executionContextId,functionDeclaration:op==='page.observe'?`function(op,p){const library=globalThis.__fastSemanticLibrary;if(library?.version!==1)return {hermesSemanticMissing:true};const state=globalThis.__fastNativeSemanticsV2;if(!state||state.version!==11||typeof state.semantics?.interactionVisibility!=='function'||JSON.stringify(state.binding)!==JSON.stringify(p.binding))library.call('semantic_snapshot',{binding:p.binding,options:{root:'head',mode:'content',budget:512}});return (${observePage.toString()})(globalThis.__fastNativeSemanticsV2.semantics.parsingContext(),p.options);}`:'function(op,p){const library=globalThis.__fastSemanticLibrary;if(library?.version!==1)return {hermesSemanticMissing:true};if(op==="page.parse"&&!library.parser)return {hermesParserMissing:true};return library.call(op,p);}',arguments:[{value:op},{value:payload}],returnByValue:true,awaitPromise:true});
+  const invoke=()=>this.api.debugger.sendCommand(target,'Runtime.callFunctionOn',{executionContextId:world.executionContextId,functionDeclaration:op==='page.observe'?`function(op,p){const library=globalThis.__fastSemanticLibrary;if(library?.version!==1)return {hermesSemanticMissing:true};const state=globalThis.__fastNativeSemanticsV2;if(!state||state.version!==12||typeof state.semantics?.interactionVisibility!=='function'||JSON.stringify(state.binding)!==JSON.stringify(p.binding))library.call('semantic_snapshot',{binding:p.binding,options:{root:'head',mode:'content',budget:512}});return (${observePage.toString()})(globalThis.__fastNativeSemanticsV2.semantics.parsingContext(),p.options);}`:'function(op,p){const library=globalThis.__fastSemanticLibrary;if(library?.version!==1)return {hermesSemanticMissing:true};if(op==="page.parse"&&!library.parser)return {hermesParserMissing:true};return library.call(op,p);}',arguments:[{value:op},{value:payload}],returnByValue:true,awaitPromise:true});
   let result;
   try{if(!this.semanticWorlds.has(key()))await install();result=await invoke();}
   catch(error){
@@ -2664,7 +2666,7 @@ export class Executor {
   const after=actionObservationOptions(p),modeGeneration=t.policy.modeGeneration;
   const finish=async result=>after?{...result,observation:result?.recovery?.observation||await this.observeAfterAction(t,p,after,modeGeneration)}:result;
   // 中文注释：产品局部读取的空集是结果，不进入会扩大根、遍历与预算的目标恢复。
-  const queryRead=t.executionLane!=='product_work'&&p.action==='semantic_snapshot'&&!!(p.options?.query||p.options?.roles?.length)&&!p.options?.cursor;
+  const queryRead=t.executionLane!=='product_work'&&p.noQueryRecovery!==true&&p.action==='semantic_snapshot'&&!!(p.options?.query||p.options?.roles?.length)&&!p.options?.cursor;
   const execute=async params=>{
    this.check(t,params);
    if(t.paused||t.pauseRequested)throw Object.assign(Error('task paused'),{preDispatch:true});
@@ -2682,6 +2684,8 @@ export class Executor {
    }
    return result;
   };
+  // 中文注释：脚本已只读等待网页遮挡自然消失；这次引用动作失败后直接拒绝，不进入会发 Escape 或点击关闭按钮的恢复轮次。
+  if(p.noAutoRecovery===true&&['ref_click','ref_fill','ref_press'].includes(p.action))return finish(remember(await execute(p)));
   if(!RECOVERY_ACTIONS.has(p.action)&&!queryRead)return remember(await execute(p));
   const saved=t.recoveryRefs?.get(p.ref);
   if(saved&&(saved.tabId!==p.tabId||canonical(saved.binding)!==canonical(p.binding)))throw Object.assign(Error('BINDING_MISMATCH'),{preDispatch:true});
@@ -3202,14 +3206,14 @@ export class Executor {
     const {frameToken:_,...options}=p.options;
     const binding=this.semanticBinding(t,p.tabId,frame.loaderId,frame.id);
     const frameContext=await this.exposeClosedShadowRoots(frameTarget,frame.id,guard);
-    result=await this.callSemanticWorld(frameTarget,frame.id,p.action,{binding,options,requireCurrentDocument:!!p[OBSERVATION_FENCE]},guard,frameContext);
+    result=await this.callSemanticWorld(frameTarget,frame.id,p.action,{binding,options,documentEpoch:p.documentEpoch,requireCurrentDocument:!!p[OBSERVATION_FENCE]||!!boundSnapshot,requireDocumentEpoch:!!boundSnapshot&&p.documentEpoch!==undefined},guard,frameContext);
     result={...result,frameToken:token,items:(result.items||[]).map(item=>({...item,
      targetPath:[{kind:'frame',frameToken:token,documentId:frame.loaderId},...(item.targetPath||[])]}))};
     if(Math.ceil(JSON.stringify(result).length/4)>(options.budget??3000))throw Error('BUDGET_TOO_SMALL');
    }
    else if(['page.observe','semantic_snapshot','page.parse'].includes(p.action)){
     const context=p.options?.composed===true?await this.exposeClosedShadowRoots(target,tree.frame.id,guard,executionContextId,true):executionContextId;
-    result=await this.callSemanticWorld(target,tree.frame.id,p.action,{binding:semanticBinding,options:p.options||{},requireCurrentDocument:!!p[OBSERVATION_FENCE]||!!boundSnapshot},guard,context);
+    result=await this.callSemanticWorld(target,tree.frame.id,p.action,{binding:semanticBinding,options:p.options||{},documentEpoch:p.documentEpoch,requireCurrentDocument:!!p[OBSERVATION_FENCE]||!!boundSnapshot,requireDocumentEpoch:!!boundSnapshot&&p.documentEpoch!==undefined},guard,context);
    }
    else {
     let resolved=p.frameToken?await this.resolveFrame(t,p,tree,guard):null;
@@ -3218,7 +3222,7 @@ export class Executor {
     const entry=resolved?await this.ensureChildHighlight(t,p,resolved,guard):overlay;
     const binding=resolved?this.semanticBinding(t,p.tabId,frame.loaderId,frame.id):semanticBinding;
     if(!p.binding||p.binding.taskId!==binding.taskId||p.binding.documentId!==binding.documentId||p.binding.leaseId!==binding.leaseId)throw Object.assign(Error('BINDING_MISMATCH'),{preDispatch:true});
-    const basePayload={binding:p.binding,snapshotId:p.snapshotId,ref:p.ref,recoveryRound:p[RECOVERY_ROUND]||0};
+    const basePayload={binding:p.binding,snapshotId:p.snapshotId,ref:p.ref,recoveryRound:p[RECOVERY_ROUND]||0,documentEpoch:p.documentEpoch};
     if(p.action==='scroll')return {tabId:p.tabId,direction:p.direction,...await this.callSemanticWorld(frameTarget,frame.id,'scroll_ref',{...basePayload,direction:p.direction},guard,entry?.contextId)};
     if(p.action==='ref_click'&&p.clickMode==='open_link_in_task_tab'){
      const inspection=await this.callSemanticWorld(frameTarget,frame.id,'inspect_ref_click',basePayload,guard,entry?.contextId);

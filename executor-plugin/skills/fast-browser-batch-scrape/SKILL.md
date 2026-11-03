@@ -1,7 +1,7 @@
 ---
 name: fast-browser-batch-scrape
-version: 2.5.1
-description: Use fast_browser_script to read, locate elements by meaning and act in bulk in the user's authorized browser with Python — paging, extraction, de-duplication, saving, multi-step forms. Fewer model round trips.
+version: 2.6.0
+description: Use fast_browser_script for authorized bulk browser work with Python: paging, extraction, de-duplication, saving and multi-step forms.
 ---
 
 # Batch page work with Python
@@ -137,3 +137,5 @@ For network inspection, use `network_start`, `network_list(capture_id)`, `networ
 ## 初始化与协作
 
 包内 `python3 -B -m fbl setup`；无需 Node，核心无需 Hermes，协作需 Hermes。`fbl doctor --fix` 修受管项，`fbl logs --bundle` 导出脱敏诊断；`fbl update --dry-run` 预览空闲升级与失败回滚。`fbl packs discover` 或侧栏“本机能力 › 发现”审阅保存；私有声明只留本机。见 `docs/fbl.md`、`docs/fbl-packs.md`。
+
+用 `run_steps` 组合操作和核验，`wait_until` 等待，`diagnose_target` 诊断。先查能力与签名；失败核现场，未知不重放。

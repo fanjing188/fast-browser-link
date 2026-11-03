@@ -17,6 +17,9 @@ FEATURES = {
     "extract": "page_parse_v1",
     "page_markdown": "page_parse_v1",
     "wait_for": "page_parse_v1",
+    "wait_until": "browser_workflow_v1",
+    "diagnose_target": "browser_workflow_v1",
+    "run_steps": "browser_workflow_v1",
 }
 SCHEMAS = {
     "fast_browser_reference": {

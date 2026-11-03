@@ -250,3 +250,7 @@ node tests/native-v2/real-page-export.mjs
 `tests/native-v2/real-incognito-matrix.mjs --package --headed` 使用打包代码和临时 profile，覆盖 17 组操作；Edge 加 `--edge`。Chrome 可能出现系统保存框，需在测试任务建议的临时目录确认保存；不能用 DevTools 自动保存代替扩展下载归属验收。`--core-only` 用于单独检查非下载能力，报告明确标为 `core-without-downloads`，不能作为下载通过证据。输出位于忽略的 `tests/native-v2/evidence/`。
 
 `real-login-continuity.mjs` 单独覆盖普通/无痕 Cookie 隔离及 A→B→C→A 的同任务身份、返回页新引用和展开后的统一日志；完整边界见 [无痕矩阵](incognito.md)。
+
+## 2.6.0 通用工作流
+
+固定离线清单包括 `tests/v1.1-script-lane/test_workflow.py`；实际脚本子进程与能力边界分别在 test_script_tool.py、test_action_session.py。手动临时浏览器验收使用 `tests/v1.1-script-lane/real-workflow.mjs`（Chrome，`--edge` 切 Edge）及 `real-workflow-routes.mjs`（SDK/CLI/MCP）。必须显式设置私有 TMPDIR，继承真实 HOME，使用完整 HERMES_SOURCE/HERMES_PYTHON 测试环境；不加入默认离线执行清单。只报告已读回的实际结果，个人安装与发布另验。

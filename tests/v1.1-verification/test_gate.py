@@ -754,7 +754,10 @@ class GateNegativeControls(unittest.TestCase):
         # 中文注释：新增自动更新固定 runner 后，审阅允许清单增加一项。
         # 中文注释：version-set 回归登记后允许清单再增加一项。
         # 中文注释：导出的Node序列化和Python真实ZIP两条固定runner同时进入受审清单。
-        self.assertEqual(len(gate.known_v11_runner_paths()), 99)
+        # 中文注释：新增通用工作流 runner 后清单由99增至100，仍精确核对数量与具体路径。
+        self.assertEqual(len(gate.known_v11_runner_paths()), 100)
+        self.assertIn("tests/v1.1-script-lane/test_workflow.py", gate.known_v11_runner_paths())
+        self.assertIn("test_workflow.py", gate.PYTHON_GROUPED_FILES["tests/v1.1-script-lane"])
         self.assertTrue(
             {
                 "tests/v1.1-script-lane/page-export.test.mjs",

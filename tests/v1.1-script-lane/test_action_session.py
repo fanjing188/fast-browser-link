@@ -41,6 +41,127 @@ class RecordingRuntime:
 
 
 class ActionSessionTest(unittest.TestCase):
+    def test_workflow_capability_requires_bound_instance_and_generation(self):
+        task = {"instanceId": "instance-1", "generation": 2, "state": "ready"}
+        for browsers, accepted in (
+            (
+                [
+                    {
+                        "instanceId": "instance-1",
+                        "connected": True,
+                        "features": ["browser_workflow_v1"],
+                    }
+                ],
+                True,
+            ),
+            ([{"instanceId": "instance-1", "connected": True}], False),
+            (
+                [{"instanceId": "other", "connected": True, "features": ["browser_workflow_v1"]}],
+                False,
+            ),
+        ):
+            runtime = RecordingRuntime([task, browsers])
+            session = adapter.ActionSession(runtime, owner="trusted", task_id="task")
+            session.install_scope("instance-1", 2)
+            if accepted:
+                self.assertTrue(session.workflow_ready()["supported"])
+            else:
+                with self.assertRaises(adapter.ActionRejected) as error:
+                    session.workflow_ready()
+                self.assertEqual(error.exception.code, "workflow_unsupported")
+        runtime = RecordingRuntime([{**task, "generation": 3}])
+        session = adapter.ActionSession(runtime, owner="trusted", task_id="task")
+        session.install_scope("instance-1", 2)
+        with self.assertRaises(adapter.ActionRejected):
+            session.workflow_ready()
+        self.assertEqual(len(runtime.calls), 1)
+
+    def test_followup_semantic_read_keeps_original_binding_in_request(self):
+        binding = {"taskId": "task-1", "documentId": "doc-1", "leaseId": "lease-1"}
+        runtime = RecordingRuntime([{"kind": "full", "binding": binding, "items": []}])
+        session = adapter.ActionSession(runtime, owner="trusted-owner", task_id="task-1")
+        session.install_scope("instance-1", 2)
+        session.tab_id = 7
+        session.run(
+            "semantic_snapshot",
+            {
+                "options": {"query": "Continue"},
+                "binding": binding,
+                "noQueryRecovery": True,
+                "documentEpoch": "epoch-1",
+            },
+        )
+        self.assertEqual(runtime.calls[-1][1]["binding"], binding)
+        self.assertIs(runtime.calls[-1][1]["noQueryRecovery"], True)
+        self.assertEqual(runtime.calls[-1][1]["documentEpoch"], "epoch-1")
+
+    def test_unknown_ref_click_freezes_writes_until_readback_without_replay(self):
+        runtime = RecordingRuntime(
+            [
+                {"outcomeUnknown": True, "delivery": "partial"},
+                {"requestIdHash": "a" * 64, "state": "unknown", "dispatched": True},
+                {"text": "fixture readback"},
+                {"clicked": True, "delivery": "confirmed"},
+            ]
+        )
+        session = adapter.ActionSession(runtime, owner="trusted-owner", task_id="task-1")
+        session.install_scope("instance-1", 2)
+        session.tab_id = 7
+        target = {"binding": {"taskId": "task-1"}, "snapshotId": "s", "ref": "r"}
+        self.assertTrue(session.run("ref_click", target)["outcomeUnknown"])
+        with self.assertRaises(adapter.OutcomeUnknown):
+            session.run("ref_click", target)
+        self.assertEqual(session.operation_status()["state"], "unknown")
+        self.assertEqual(session.reconcile()["text"], "fixture readback")
+        self.assertTrue(session.run("ref_click", target)["clicked"])
+        writes = [row for row in runtime.calls if row[1].get("action") == "ref_click"]
+        self.assertEqual(len(writes), 2)
+        self.assertNotEqual(writes[0][1]["requestId"], writes[1][1]["requestId"])
+
+    def test_unknown_dom_synthetic_fill_freezes_writes_until_readback(self):
+        runtime = RecordingRuntime(
+            [
+                {"kind": "dom-synthetic", "outcomeUnknown": True, "delivery": "partial"},
+                {"requestIdHash": "a" * 64, "state": "unknown", "dispatched": True},
+                {"text": "fixture readback"},
+                {"filled": True, "delivery": "confirmed"},
+            ]
+        )
+        session = adapter.ActionSession(runtime, owner="trusted-owner", task_id="task-1")
+        session.install_scope("instance-1", 2)
+        session.tab_id = 7
+        target = {
+            "binding": {"taskId": "task-1"},
+            "snapshotId": "s",
+            "ref": "r",
+            "text": "local value",
+        }
+        self.assertTrue(session.run("ref_fill", target)["outcomeUnknown"])
+        with self.assertRaises(adapter.OutcomeUnknown):
+            session.run("ref_fill", target)
+        self.assertEqual(session.operation_status()["state"], "unknown")
+        self.assertEqual(session.reconcile()["text"], "fixture readback")
+        self.assertTrue(session.run("ref_fill", target)["filled"])
+        writes = [row for row in runtime.calls if row[1].get("action") == "ref_fill"]
+        self.assertEqual(len(writes), 2)
+        self.assertNotEqual(writes[0][1]["requestId"], writes[1][1]["requestId"])
+
+    def test_natural_wait_flag_reaches_owned_ref_action_without_widening_other_actions(self):
+        runtime = RecordingRuntime([{"clicked": True}])
+        session = adapter.ActionSession(runtime, owner="trusted-owner", task_id="task-1")
+        session.install_scope("instance-1", 2)
+        session.tab_id = 7
+        params = {
+            "binding": {"taskId": "task-1", "documentId": "doc", "leaseId": "lease"},
+            "snapshotId": "snap",
+            "ref": "target",
+            "noAutoRecovery": True,
+        }
+        self.assertTrue(session.run("ref_click", params)["clicked"])
+        self.assertIs(runtime.calls[-1][1]["noAutoRecovery"], True)
+        with self.assertRaises(adapter.ActionRejected):
+            session.run("click", {"selector": "#target", "noAutoRecovery": True})
+
     def test_attached_user_page_can_be_selected_without_creation_ownership(self):
         task = {
             "state": "ready",

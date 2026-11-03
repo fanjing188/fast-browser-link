@@ -1,6 +1,6 @@
 ---
 name: fast-browser-troubleshoot
-version: 2.5.1
+version: 2.6.0
 description: Handle browser connection errors, failed element recovery, incomplete coverage and uncertain action results while continuing the remaining task.
 ---
 

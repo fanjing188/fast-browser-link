@@ -4524,15 +4524,15 @@ class BridgeDaemon:
         }[action]
         optional = {
             "click": {"clickMode"},
-            "ref_click": {"clickMode"},
-            "ref_fill": {"frameToken"},
-            "ref_press": {"frameToken"},
+            "ref_click": {"clickMode", "noAutoRecovery", "documentEpoch"},
+            "ref_fill": {"frameToken", "noAutoRecovery", "documentEpoch"},
+            "ref_press": {"frameToken", "noAutoRecovery", "documentEpoch"},
             "ref_set_checked": {"frameToken"},
             "ref_select_option": {"frameToken"},
             "api_request": {"httpMethod"},
             "page.observe": {"options"},
             "page.parse": {"options"},
-            "semantic_snapshot": {"options", "binding"},
+            "semantic_snapshot": {"options", "binding", "noQueryRecovery", "documentEpoch"},
             "interaction.drag_coordinates": {"mode", "steps"},
             "interaction.drag_elements": {"mode", "steps"},
             "js.evaluate": {"world", "awaitPromise", "timeoutMs", "frameToken", "arguments"},
@@ -4548,6 +4548,11 @@ class BridgeDaemon:
         }.get(action, set())
         if action == "ref_click":
             optional = optional | {"frameToken"}
+        # 中文注释：自然等待路径只能要求禁用恢复，不接受 false 或其它值来扩大权限。
+        if "noAutoRecovery" in params and params["noAutoRecovery"] is not True:
+            raise ProtocolError("invalid_params", "invalid noAutoRecovery")
+        if "noQueryRecovery" in params and params["noQueryRecovery"] is not True:
+            raise ProtocolError("invalid_params", "invalid noQueryRecovery")
         if action in {
             "click",
             "fill",
@@ -4635,6 +4640,7 @@ class BridgeDaemon:
             ("snapshotId", 512),
             ("ref", 256),
             ("screenshotId", 256),
+            ("documentEpoch", 128),
             ("expectedRef", 256),
             ("source", 4096),
             ("target", 4096),
@@ -6495,6 +6501,7 @@ class BridgeDaemon:
                         f
                         for f in (
                             "browser_core_v1",
+                            "browser_workflow_v1",
                             "page_parse_v1",
                             "page_function_v1",
                             "network_evidence_v1",

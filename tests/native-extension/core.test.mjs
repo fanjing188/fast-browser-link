@@ -115,6 +115,42 @@ test('受信分页快照在读取前拒绝旧文档绑定，当前绑定仍可�
   assert.equal(reads, 1);
 });
 
+test('bound helper read forwards the original document epoch into semantic world', async () => {
+  const { Executor } = await load();
+  const { api } = workspaceFixture();
+  api.debugger.attach = async () => {};
+  const executor = new Executor(api);
+  await executor.approve(task());
+  const current = executor.tasks.get('a');
+  executor.ensurePageEvents = async () => {};
+  executor.checkedFrameTree = async () => safeTree(1).frameTree;
+  executor.ensureOverlay = async () => null;
+  const binding = executor.semanticBinding(current, 1, 'document-1');
+  const seen = [];
+  executor.callSemanticWorld = async (_target, _frame, _action, payload) => {
+    seen.push(payload);
+    return {
+      kind: 'full',
+      binding,
+      documentEpoch: 'epoch-1',
+      items: [],
+      coverage: { complete: true },
+    };
+  };
+  await executor.perform(current, {
+    taskId: 'a',
+    generation: 1,
+    tabId: 1,
+    action: 'semantic_snapshot',
+    binding,
+    documentEpoch: 'epoch-1',
+    options: { mode: 'interactive' },
+  });
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].documentEpoch, 'epoch-1');
+  assert.equal(seen[0].requireDocumentEpoch, true);
+});
+
 test('受信分页快照在等待遮罩期间换文档或引用租约时不读取正文', async () => {
   const { Executor } = await load();
   for (const change of ['document', 'binding']) {
@@ -175,6 +211,85 @@ test('产品局部快照零匹配不扩大根预算或派生恢复截图', async
     throw Error('INVALID_ROOT');
   };
   await assert.rejects(executor.performRecovering(current, command), /INVALID_ROOT/);
+});
+
+test('helper 查询空结果只读取一次，不在内部重扫到另一文档', async () => {
+  const { Executor } = await load();
+  const executor = new Executor(workspaceFixture().api);
+  await executor.approve(task());
+  const current = executor.tasks.get('a');
+  const command = {
+    taskId: 'a',
+    generation: 1,
+    tabId: 1,
+    action: 'semantic_snapshot',
+    options: { mode: 'interactive', query: 'missing' },
+    noQueryRecovery: true,
+  };
+  let reads = 0,
+    scans = 0;
+  executor.performSettled = async () => {
+    reads++;
+    return { kind: 'full', items: [], binding: { taskId: 'a' }, coverage: { complete: true } };
+  };
+  executor.checkedFrameTree = async () => {
+    scans++;
+    throw Error('unexpected internal scan');
+  };
+  const result = await executor.performRecovering(current, command);
+  assert.equal(result.items.length, 0);
+  assert.equal(reads, 1);
+  assert.equal(scans, 0);
+});
+
+test('自然等待后的引用动作被遮挡时只执行一次，不进入自动恢复或关闭遮挡层', async () => {
+  const { Executor } = await load();
+  const executor = new Executor(workspaceFixture().api);
+  await executor.approve(task());
+  const current = executor.tasks.get('a');
+  let calls = 0,
+    scans = 0;
+  executor.performSettled = async () => {
+    calls++;
+    throw Object.assign(Error('TARGET_OCCLUDED'), { preDispatch: true });
+  };
+  executor.checkedFrameTree = async () => {
+    scans++;
+    throw Error('unexpected recovery scan');
+  };
+  for (const action of ['ref_click', 'ref_fill']) {
+    calls = 0;
+    scans = 0;
+    const command = {
+      taskId: 'a',
+      generation: 1,
+      tabId: 1,
+      action,
+      binding: { taskId: 'a', documentId: 'doc', leaseId: 'lease' },
+      snapshotId: 'snap',
+      ref: 'target',
+      noAutoRecovery: true,
+      ...(action === 'ref_fill' ? { text: 'local value' } : {}),
+    };
+    await assert.rejects(executor.performRecovering(current, command), /TARGET_OCCLUDED/);
+    assert.equal(calls, 1, action);
+    assert.equal(scans, 0, action);
+  }
+  calls = 0;
+  executor.performSettled = async () => {
+    calls++;
+    return { outcomeUnknown: true, delivery: 'partial' };
+  };
+  const unknown = await executor.performRecovering(current, {
+    taskId: 'a',
+    generation: 1,
+    tabId: 1,
+    action: 'ref_click',
+    noAutoRecovery: true,
+  });
+  assert.equal(unknown.outcomeUnknown, true);
+  assert.equal(calls, 1);
+  assert.equal(scans, 0);
 });
 
 test('文档扫描在取得句柄后撤销时仍释放句柄，不再读取 DOM', async () => {

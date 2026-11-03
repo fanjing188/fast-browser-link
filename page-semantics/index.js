@@ -501,10 +501,11 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
     if('accessibility' in options&&typeof options.accessibility!=='boolean')throw Error('INVALID_OPTIONS');
     const {mode='interactive',root=null,query='',roles=[],viewport=false,budget=3000,cursor=null,baselineId=null,composed=false}=options;
     if(!selectors[mode] || typeof query!=='string' || query.length>2000 || !Array.isArray(roles) || roles.length>100 || roles.some(r=>typeof r!=='string'||r.length>100) || typeof viewport!=='boolean' || typeof composed!=='boolean' || !Number.isSafeInteger(budget) || budget<512)throw new Error('INVALID_OPTIONS');
+    const queryFolded=redact(query).toLocaleLowerCase();
     const scope=typeof root==='string'?doc.querySelector(root):root||doc.body;
     if(!scope || scope.ownerDocument!==doc || !scope.isConnected || scope.nodeType!==1)throw new Error('INVALID_ROOT');
     const view=doc.defaultView;
-    const fingerprint=JSON.stringify({mode,root:ref(scope),query:redact(query).toLocaleLowerCase(),roles:[...new Set(roles)].sort(),viewport,geometry:viewport?[view.scrollX,view.scrollY,view.innerWidth,view.innerHeight]:null,budget,...(composed?{composed:true}:{})});
+    const fingerprint=JSON.stringify({mode,root:ref(scope),query:queryFolded,roles:[...new Set(roles)].sort(),viewport,geometry:viewport?[view.scrollX,view.scrollY,view.innerWidth,view.innerHeight]:null,budget,...(composed?{composed:true}:{})});
     let offset=0,fragmentOffset=0,resync=null,seenKeys=null;
     if(cursor){
       if(cursor!==cursorState?.id || cursorState.fingerprint!==fingerprint || cursorState.epoch!==epoch&&cursorState.fragmentOffset>0)resync={reason:'cursor_invalidated'};
@@ -534,7 +535,8 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
       if(visibility?visibility.visible===false||!visible(visibility.target,viewport)||node.matches('input[type="hidden"]'):!visible(node,viewport)){output.coverage.filtered++;continue;}
       const value=mode==='interactive'?item(node,scope):fullItem(node,mode);
       if(visibility?.occluded)Object.assign(value,{blocked:'occluded',actionable:false});
-      if((roles.length && !roles.includes(value.role)) || (query && !value.name.toLocaleLowerCase().includes(redact(query).toLocaleLowerCase()))){output.coverage.filtered++;continue;}
+      // 中文注释：短展示名可能藏住查询词或同名尾部；交互候选仍保留截断项并令覆盖率不完整，禁止误报唯一。
+      if((roles.length && !roles.includes(value.role)) || (queryFolded && !value.name.toLocaleLowerCase().includes(queryFolded) && !(mode==='interactive'&&value.truncated))){output.coverage.filtered++;continue;}
       if(seenKeys?.has(stableKey(node,value)))continue;
       output.coverage.matched++;if(value.truncated)output.coverage.truncated++;
       if(output.coverage.matched<=offset || pendingFragment || candidates.length>=maxItems)continue;

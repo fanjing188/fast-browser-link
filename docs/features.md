@@ -62,3 +62,7 @@ Only stable releases qualify. GitHub pre-releases are skipped. Older updaters re
 ## 本机执行底座
 
 浏览器执行通过本机 SDK、CLI、MCP 或 Hermes 适配器调用，不提供云端配对、中转或云端 Agent 连接。业务插件与执行器的边界见 [浏览器执行底座](browser-core.md)。旧安装的升级安全检查仍保护遗留在途任务、私有数据及回滚材料。
+
+## 通用工作流（2.6.0 候选）
+
+统一等待、带前后条件的步骤及只读定位诊断见 [通用工作流](browser-workflows.md)。三个 helper 复用现有 script 执行链，要求绑定扩展声明 `browser_workflow_v1`；候选实现不代表个人安装或公开发布已更新。

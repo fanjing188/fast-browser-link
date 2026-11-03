@@ -41,20 +41,20 @@ The script uses the task's only work tab automatically. If the task has several 
 
 | Helper | Description |
 |---|---|
-| `wait_for_element(name, role=None, root=None, exact=True, timeout=10)` | Wait for exactly one enabled match (max 60 s); returns `snapshot` and `ref` |
+| `wait_for_element(name, role=None, root=None, exact=True, timeout=10)` | Read snapshots within one document until one eligible, unobstructed match is available (max 60 s). The helper reads the full current scope before matching names with Unicode case folding, so a truncated scope refuses dispatch. `timeout=0` makes one read without waiting. |
 | `click_element(name, mode='pointer', **options)` | Locate in a fresh snapshot and click once; inspect delivery for trusted or background synthetic input |
 | `fill_element(name, text, **options)` | Locate in a fresh snapshot and fill once |
 | `scroll('down' \| 'up')` | Controlled scroll; locate again afterwards |
 | `ref_click`, `ref_fill`, `ref_press`, `ref_set_checked`, `ref_select_option` | Act on a reference from a snapshot you already have |
 | `click`, `fill`, `press` | Selector-based actions |
 
-Locating is strict: the same name in scope returns `ambiguous_target`, a truncated read returns `incomplete_target_scope`. Narrow `root`, `role` or `query` and read again rather than picking the first match. A successful click only means the input was delivered — read the page to confirm the business result.
+Locating is strict within the snapshot's reported scope: multiple eligible click or fill targets, including an occluded target beside a clear one, return `ambiguous_target`. A disabled or non-editable control does not make a different eligible control ambiguous, but is counted in `recovery.otherCandidates`. Anything other than `coverage.complete=true` returns `incomplete_target_scope`; this includes a clipped control name that could hide a query match. By default the helper reads light DOM only: `complete=true` does not prove uniqueness inside frames or Shadow DOM. Inspect those with `semantic_snapshot(composed=True)` or `frame_catalog()` and narrow the target. A successful click only means input was delivered — read the page to confirm the business result.
 
 `ref_press` accepts Enter, Tab, Escape, ArrowDown and ArrowUp. `ref_set_checked` cannot uncheck a radio button. `ref_select_option(snapshot, ref, values, by='value' | 'label' | 'index')` supports native single/multi-select by exact value, trimmed Unicode label or zero-based index. Native selects set `selected` and dispatch bubbling `input`/`change`, returning `kind: native-select` and the final selected value/label pairs. Custom ARIA combobox/listbox controls retain trusted pointer input for one option. Both return `verified`; if it is `false`, read the page instead of repeating the action.
 
 When a reference action returns `relocated: true`, the original node was replaced inside the same document and exactly one target matched its non-sensitive role, name, attributes and ancestor structure. Read the resulting page before the next action. A navigation still invalidates the reference. `reference_target_missing` and `reference_target_ambiguous` mean no safe relocation was possible; take a new snapshot and narrow the target. A visual highlight timeout does not determine whether a semantic action can run; the executor separately checks the actual hit target.
 
-For `target_occluded`, inspect the page for a banner or dialog, then explicitly choose whether to close it. The executor never closes an obstruction itself. `target_out_of_viewport`, `target_zero_size`, `target_disabled` and `target_hidden` distinguish geometry and control state. Scroll or expand only when the returned state supports that action. `read_page(mode='table')` includes native rows, ARIA rows and `data-ui-name="Body.Row"` rows. `semantic_snapshot(composed=True)` traverses open Shadow DOM and accessible same-origin frames; use `frame_catalog()` and a `frameToken` for cross-origin frames. `coverage.unsupportedCanvas > 0` means canvas pixels were not parsed; use a screenshot and the existing `interaction.click` coordinate action when appropriate.
+For `target_occluded`, inspect the page for a banner or dialog. Every `click_element` or `fill_element` reference action skips automatic recovery, including when the obstruction appears after the first snapshot; these helpers do not send Escape, close or accept the obstruction. Direct reference actions retain existing recovery behavior. The `timeout` above bounds target discovery through the final snapshot; it is not a deadline for later authorization, queueing or input dispatch. Never infer that an expired lookup timeout cancels an action already sent. `target_out_of_viewport`, `target_zero_size`, `target_disabled` and `target_hidden` distinguish geometry and control state. Scroll or expand only when the returned state supports that action. `read_page(mode='table')` includes native rows, ARIA rows and `data-ui-name="Body.Row"` rows. `semantic_snapshot(composed=True)` traverses open Shadow DOM and accessible same-origin frames; use `frame_catalog()` and a `frameToken` for cross-origin frames. `coverage.unsupportedCanvas > 0` means canvas pixels were not parsed; use a screenshot and the existing `interaction.click` coordinate action when appropriate.
 
 ### Files and downloads
 
@@ -238,3 +238,7 @@ print(page["coverage"])
 `accessibility=True` 不支持分页或增量基线，最多查询 16 个复杂控件；`axEnriched`、`axOmitted` 和 `axDiscoveryComplete` 说明覆盖范围。带值控件及私密名称来源不进行 AX 查询。不要在不完整范围内推断唯一目标。
 
 虚拟表格的 `row`、`column` 使用从零开始的 ARIA 业务索引，`domRow` 保留本次 DOM 顺序；`observedRows` 与 `declaredRows/declaredColumns` 分开。声明总量不是已读取总量，仍须检查 partial 和 warnings。
+
+## 通用工作流（2.6.0 候选）
+
+统一等待、带前后条件的步骤及只读定位诊断见 [通用工作流](browser-workflows.md)。三个 helper 复用现有 script 执行链，要求绑定扩展声明 `browser_workflow_v1`；候选实现不代表个人安装或公开发布已更新。

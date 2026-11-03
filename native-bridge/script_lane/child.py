@@ -88,6 +88,8 @@ _transport_closed = False
 _call_ids = itertools.count(1)
 _tab_scope = contextvars.ContextVar("browser_tab", default=None)
 _export_deadline = contextvars.ContextVar("browser_export_deadline", default=None)
+_workflow_deadline = contextvars.ContextVar("browser_workflow_deadline", default=None)
+_workflow_transport_unknown = threading.Event()
 
 
 # 中文注释：显式 tab 参数沿复合 helper 传递，只影响本次调用和当前线程。
@@ -143,11 +145,23 @@ def _connect():
 
 
 def _call(op, args):
-    deadline = _export_deadline.get()
-    if deadline is not None and time.monotonic() >= deadline:
+    # 中文注释：子进程先到截止而宿主仍在执行时，后续动作不能排队补发；仅显式只读核对可解锁。
+    if _workflow_transport_unknown.is_set() and op not in {"operation_status", "reconcile"}:
         raise BrowserError(
-            "page export deadline exceeded", code="export_timeout", outcome_unknown=False
+            "workflow transport outcome unknown; reconcile before further actions",
+            code="workflow_reconcile_required",
         )
+    bounds = [
+        (value, code)
+        for value, code in (
+            (_export_deadline.get(), "export_timeout"),
+            (_workflow_deadline.get(), "workflow_timeout"),
+        )
+        if value is not None
+    ]
+    deadline, timeout_code = min(bounds) if bounds else (None, "export_timeout")
+    if deadline is not None and time.monotonic() >= deadline:
+        raise BrowserError("operation deadline exceeded", code=timeout_code, outcome_unknown=False)
     channel = _connect()
     request_id = next(_call_ids)
     future = Future()
@@ -221,8 +235,10 @@ def _call(op, args):
         )
     except FutureTimeout:
         # 中文注释：只终止本地等待，不声称取消已派发 CDP；保留 Future 接收迟到回执，不重放。
+        if timeout_code == "workflow_timeout":
+            _workflow_transport_unknown.set()
         raise BrowserError(
-            "page export deadline exceeded; do not replay", code="export_timeout"
+            "operation deadline exceeded; do not replay", code=timeout_code
         ) from None
     except (OSError, ValueError) as exc:
         with _pending_lock:
@@ -231,6 +247,8 @@ def _call(op, args):
             "browser transport failed; do not replay uncertain work", code="extension_disconnected"
         ) from exc
     if reply.get("ok") is True:
+        if op == "reconcile":
+            _workflow_transport_unknown.clear()
         return reply.get("value")
     code = reply.get("code")
     unknown = reply.get("outcomeUnknown", True) is not False
@@ -367,7 +385,17 @@ def page_text(*, tab=None):
 @_tab_scoped
 def semantic_snapshot(tab=None, **options):
     """中文注释：返回 dict {binding, snapshotId, items, coverage, nextCursor, ...}；读 result['items']，coverage.complete=false 时按 nextCursor 续读。"""
-    return _call("run", ["semantic_snapshot", {"options": options} if options else {}])
+    binding = options.pop("_binding", None)
+    document_epoch = options.pop("_document_epoch", None)
+    no_query_recovery = options.pop("_no_query_recovery", False)
+    params = {"options": options} if options else {}
+    if binding is not None:
+        params["binding"] = binding
+    if document_epoch is not None:
+        params["documentEpoch"] = document_epoch
+    if no_query_recovery:
+        params["noQueryRecovery"] = True
+    return _call("run", ["semantic_snapshot", params])
 
 
 @_tab_scoped
@@ -738,7 +766,7 @@ def _normalized_accessible_name(value):
 def wait_for_element(
     name, *, role=None, root=None, exact=True, timeout=10.0, tab=None, action=None
 ):
-    """等待可用元素，同名候选按可见性排序，返回快照和引用。"""
+    """等待同一文档当前读取范围内唯一可用元素；timeout=0 只读一次，不等待。"""
     if (
         not isinstance(name, str)
         or not name.strip()
@@ -752,27 +780,60 @@ def wait_for_element(
         or not 0 <= timeout <= 60
     ):
         raise BrowserError("invalid element query", code="invalid_params", outcome_unknown=False)
-    options = {"mode": "interactive", "query": name, "budget": 3000}
+    normalized = _normalized_accessible_name(name)
+    # 中文注释：JS 小写过滤不等价于 Python casefold；helper 必须在完整当前范围内判定唯一性。
+    options = {"mode": "interactive", "budget": 3000}
     if role is not None:
         options["roles"] = [role]
     if root is not None:
         options["root"] = root
-    deadline = time.monotonic() + timeout
+    deadline = time.monotonic() + timeout if timeout else None
+    initial_binding = None
+    initial_frame = None
+    initial_epoch = None
+    waited_for_target = False
     while True:
         # 中文注释：每次只轮询读取；审批、断线、失效引用均不在此处重试。
-        page = semantic_snapshot(**options)
+        page = semantic_snapshot(
+            **options,
+            _no_query_recovery=True,
+            **({"_binding": initial_binding} if initial_binding is not None else {}),
+            **({"_document_epoch": initial_epoch} if initial_epoch is not None else {}),
+        )
         if (
             not isinstance(page, dict)
             or page.get("kind") != "full"
             or not isinstance(page.get("items"), list)
             or not isinstance(page.get("binding"), dict)
+            or not isinstance(page.get("documentEpoch"), str)
+            or not page["documentEpoch"]
             or not page.get("snapshotId")
         ):
             raise BrowserError(
                 "invalid semantic snapshot", code="invalid_receipt", outcome_unknown=False
             )
+        # 中文注释：等待期间页面或租约变化时，旧意图不能绑定新文档的同名控件。
+        if initial_binding is None:
+            initial_binding = dict(page["binding"])
+            initial_frame = page.get("frameToken")
+            initial_epoch = page["documentEpoch"]
+        elif (
+            page["binding"] != initial_binding
+            or page.get("frameToken") != initial_frame
+            or page["documentEpoch"] != initial_epoch
+        ):
+            raise BrowserError(
+                "page binding changed during target wait",
+                code="document_changed",
+                outcome_unknown=False,
+            )
         coverage = page.get("coverage", {})
-        normalized = _normalized_accessible_name(name)
+        if coverage.get("complete") is not True:
+            raise BrowserError(
+                "target scope is incomplete; narrow role or root",
+                code="incomplete_target_scope",
+                outcome_unknown=False,
+            )
         candidates = [
             item
             for item in page["items"]
@@ -816,6 +877,24 @@ def wait_for_element(
                     and "click" in item["actions"]
                 )
             ]
+        # 中文注释：同名可操作候选即使只有一个无遮挡也仍有业务歧义，不能静默改选。
+        if len(matches) > 1:
+            raise BrowserError(
+                "multiple matching targets; narrow role or root",
+                code="ambiguous_target",
+                outcome_unknown=False,
+            )
+        # 中文注释：遮挡属于页面当前状态；只重读快照等待自然消失，绝不靠点击或关闭遮挡层推进。
+        occluded = [
+            item
+            for item in matches
+            if item.get("blocked") == "occluded" or item.get("occluded") is True
+        ]
+        matches = [
+            item
+            for item in matches
+            if item.get("blocked") != "occluded" and item.get("occluded") is not True
+        ]
         nearest = difflib.get_close_matches(
             normalized,
             [_normalized_accessible_name(item["name"]) for item in candidates],
@@ -837,7 +916,7 @@ def wait_for_element(
             ),
             reverse=True,
         )
-        if action == "fill" and rejected and not matches:
+        if action == "fill" and rejected and not matches and not occluded:
             reason = (
                 "target_disabled"
                 if all(item.get("disabled") or item.get("busy") for item in rejected)
@@ -852,7 +931,15 @@ def wait_for_element(
                 outcome_unknown=False,
                 candidates=suggestions,
             )
-        if matches and not matches[0].get("disabled") and not matches[0].get("busy"):
+        # 中文注释：正超时包含快照读取时间；零超时保留一次即时查询的兼容语义。
+        remaining = deadline - time.monotonic() if deadline is not None else 0
+        expired = deadline is not None and remaining <= 0
+        if (
+            matches
+            and not expired
+            and not matches[0].get("disabled")
+            and not matches[0].get("busy")
+        ):
             if not isinstance(matches[0].get("ref"), str) or not matches[0]["ref"]:
                 raise BrowserError(
                     "missing element reference", code="invalid_receipt", outcome_unknown=False
@@ -860,35 +947,17 @@ def wait_for_element(
             return {
                 "snapshot": page,
                 "ref": matches[0]["ref"],
-                "recovery": {"selected": matches[0], "otherCandidates": len(matches) - 1},
+                "recovery": {"selected": matches[0], "otherCandidates": len(rejected) - 1},
+                "waitedForTarget": waited_for_target,
             }
-        remaining = deadline - time.monotonic()
         if remaining <= 0:
-            if len(suggestions) < 3:
-                # 中文注释：精确查询失败时才扩大只读范围，给出真正相近的控件名称。
-                broader = semantic_snapshot(
-                    **{key: value for key, value in options.items() if key != "query"}
+            if occluded and not matches:
+                # 中文注释：超时只报告结构化状态，不复制网页名称、遮挡层文本或输入内容。
+                raise BrowserError(
+                    "target remains occluded before dispatch",
+                    code="target_occluded",
+                    outcome_unknown=False,
                 )
-                if isinstance(broader, dict) and isinstance(broader.get("items"), list):
-                    candidates = [
-                        item
-                        for item in broader["items"]
-                        if isinstance(item, dict)
-                        and isinstance(item.get("name"), str)
-                        and (role is None or item.get("role") == role)
-                    ]
-                    nearest = difflib.get_close_matches(
-                        normalized,
-                        [_normalized_accessible_name(item["name"]) for item in candidates],
-                        n=3,
-                        cutoff=0,
-                    )
-                    suggestions = [
-                        {"role": item.get("role", ""), "name": item["name"][:80]}
-                        for candidate in nearest
-                        for item in candidates
-                        if _normalized_accessible_name(item["name"]) == candidate
-                    ][:3]
             raise BrowserError(
                 "element not ready before deadline; candidates: "
                 + ", ".join(row["name"] for row in suggestions),
@@ -896,6 +965,7 @@ def wait_for_element(
                 outcome_unknown=False,
                 candidates=suggestions,
             )
+        waited_for_target = True
         time.sleep(min(0.25, remaining))
 
 
@@ -910,17 +980,35 @@ def click_element(name, *, mode="pointer", after=None, tab=None, **options):
     """按名称/角色点击一次；effect=observed 表示观察到效果；effect=unobserved 表示已点击但未见页面变化，先读页面核对。"""
     target = wait_for_element(name, action="click", **options)
     return _selection_result(
-        ref_click(target["snapshot"], target["ref"], mode=mode, after=after), target
+        _ref_click(
+            target["snapshot"],
+            target["ref"],
+            mode=mode,
+            after=after,
+            no_auto_recovery=True,
+            document_epoch=target["snapshot"]["documentEpoch"],
+        ),
+        target,
     )
 
 
 @_tab_scoped
 def fill_element(name, text, tab=None, *, after=None, **options):
-    """按名称/角色定位后填写，定位失败由插件自动恢复。"""
+    """按名称/角色定位后填写；helper 动作禁用自动关闭遮挡层。"""
     if not isinstance(text, str):
         raise BrowserError("text must be a string", code="invalid_params", outcome_unknown=False)
     target = wait_for_element(name, action="fill", **options)
-    return _selection_result(ref_fill(target["snapshot"], target["ref"], text, after=after), target)
+    return _selection_result(
+        _ref_fill(
+            target["snapshot"],
+            target["ref"],
+            text,
+            after=after,
+            no_auto_recovery=True,
+            document_epoch=target["snapshot"]["documentEpoch"],
+        ),
+        target,
+    )
 
 
 @_tab_scoped
@@ -963,6 +1051,12 @@ def press(selector, key, *, after=None, tab=None):
 @_tab_scoped
 def ref_click(snapshot, ref, *, mode="pointer", after=None, tab=None):
     """按语义引用点击一次；依据实际送达回执区分交付方式。"""
+    return _ref_click(snapshot, ref, mode=mode, after=after)
+
+
+def _ref_click(
+    snapshot, ref, *, mode="pointer", after=None, no_auto_recovery=False, document_epoch=None
+):
     if mode != "pointer":
         raise BrowserError("invalid click mode", code="invalid_params", outcome_unknown=False)
     params = {"binding": snapshot["binding"], "snapshotId": snapshot["snapshotId"], "ref": ref}
@@ -970,12 +1064,20 @@ def ref_click(snapshot, ref, *, mode="pointer", after=None, tab=None):
         params["after"] = after
     if snapshot.get("frameToken"):
         params["frameToken"] = snapshot["frameToken"]
+    if no_auto_recovery:
+        params["noAutoRecovery"] = True
+    if document_epoch is not None:
+        params["documentEpoch"] = document_epoch
     # 中文注释：可见页确认可信点击，后台页保持可写并报告合成点击；调用方无需额外模式参数。
     return _call("run", ["ref_click", params])
 
 
 @_tab_scoped
 def ref_fill(snapshot, ref, text, *, after=None, tab=None):
+    return _ref_fill(snapshot, ref, text, after=after)
+
+
+def _ref_fill(snapshot, ref, text, *, after=None, no_auto_recovery=False, document_epoch=None):
     params = {
         "binding": snapshot["binding"],
         "snapshotId": snapshot["snapshotId"],
@@ -986,12 +1088,20 @@ def ref_fill(snapshot, ref, text, *, after=None, tab=None):
         params["after"] = after
     if snapshot.get("frameToken"):
         params["frameToken"] = snapshot["frameToken"]
+    if no_auto_recovery:
+        params["noAutoRecovery"] = True
+    if document_epoch is not None:
+        params["documentEpoch"] = document_epoch
     return _call("run", ["ref_fill", params])
 
 
 @_tab_scoped
 def ref_press(snapshot, ref, key, *, after=None, tab=None):
     """在当前语义目标上派发按键；已派发结果未知时先回读核实。"""
+    return _ref_press(snapshot, ref, key, after=after)
+
+
+def _ref_press(snapshot, ref, key, *, after=None, no_auto_recovery=False, document_epoch=None):
     if key not in ("Enter", "Tab", "Escape", "ArrowDown", "ArrowUp"):
         raise BrowserError("invalid key", code="invalid_params", outcome_unknown=False)
     params = {
@@ -1004,6 +1114,10 @@ def ref_press(snapshot, ref, key, *, after=None, tab=None):
         params["after"] = after
     if snapshot.get("frameToken"):
         params["frameToken"] = snapshot["frameToken"]
+    if no_auto_recovery:
+        params["noAutoRecovery"] = True
+    if document_epoch is not None:
+        params["documentEpoch"] = document_epoch
     return _call("run", ["ref_press", params])
 
 
@@ -1358,6 +1472,66 @@ def wait_pending(timeout_s=20.0, *, tab=None):
             time.sleep(1.0)
 
 
+def _workflow_module():
+    import importlib.util
+
+    # 中文注释：与导出 helper 相同，隔离进程只加载当前安装的受管模块。
+    spec = importlib.util.spec_from_file_location(
+        "_fbl_workflow", Path(__file__).resolve().with_name("workflow.py")
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _workflow_api():
+    return {
+        **{name: globals()[name] for name in HELPERS},
+        "ready": lambda: _call("workflow_ready", []),
+        "observe": lambda selector: _call(
+            "run", ["page.observe", {"options": {"selector": selector}}]
+        ),
+        "normalize": _normalized_accessible_name,
+        "step_press": lambda target, key: _ref_press(
+            target["snapshot"],
+            target["ref"],
+            key,
+            no_auto_recovery=True,
+            document_epoch=target["snapshot"]["documentEpoch"],
+        ),
+    }
+
+
+@_tab_scoped
+def wait_until(conditions, *, mode="any", timeout=10, interval=0.25, tab=None):
+    """统一有界等待：element/url/response/download/popup，any/all；事件仅匹配调用后新发生的证据。"""
+    module = _workflow_module()
+    module.duration(_workflow_api(), timeout)
+    token = _workflow_deadline.set(time.monotonic() + timeout)
+    try:
+        return module.wait_until(_workflow_api(), conditions, mode, timeout, interval)
+    finally:
+        _workflow_deadline.reset(token)
+
+
+@_tab_scoped
+def diagnose_target(name, *, role=None, root=None, action="click", tab=None):
+    """只读定位诊断，返回范围完整性、歧义、遮挡、禁用/只读及建议，不创建写入资格。"""
+    return _workflow_module().diagnose_target(_workflow_api(), name, role, root, action)
+
+
+@_tab_scoped
+def run_steps(steps, *, timeout=60, tab=None):
+    """最多16步操作及前后条件；整组预检、事件先监听、首错停止，返回步骤回执，未知动作不重放。"""
+    module = _workflow_module()
+    module.duration(_workflow_api(), timeout)
+    token = _workflow_deadline.set(time.monotonic() + timeout)
+    try:
+        return module.run_steps(_workflow_api(), steps, timeout)
+    finally:
+        _workflow_deadline.reset(token)
+
+
 HELPERS = {
     name: globals()[name]
     for name in (
@@ -1413,6 +1587,9 @@ HELPERS = {
         "extract",
         "evaluate",
         "wait_for",
+        "wait_until",
+        "diagnose_target",
+        "run_steps",
         "expect_response",
         "expect_navigation",
     )

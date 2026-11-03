@@ -117,6 +117,7 @@ class PathsAndNames(unittest.TestCase):
         page = {
             "kind": "full",
             "binding": {"taskId": "t"},
+            "documentEpoch": "fixture-epoch",
             "snapshotId": "s",
             "coverage": {"complete": True},
             "items": [
@@ -131,11 +132,12 @@ class PathsAndNames(unittest.TestCase):
                 child.wait_for_element("Description", action="fill", timeout=0)
             self.assertEqual(caught.exception.code, "target_readonly")
 
-    def test_button_and_submit_input_with_same_name_select_best(self):
-        # 中文注释：同名候选自动选择，保留实际选中 ref 的断言。
+    def test_button_and_submit_input_with_same_name_rejects_ambiguity(self):
+        # 中文注释：两个同名可点击控件不能靠 DOM 顺序猜测提交目标。
         page = {
             "kind": "full",
             "binding": {"taskId": "t"},
+            "documentEpoch": "fixture-epoch",
             "snapshotId": "s",
             "coverage": {"complete": True},
             "items": [
@@ -144,8 +146,10 @@ class PathsAndNames(unittest.TestCase):
             ],
         }
         with patch.object(child, "semantic_snapshot", return_value=page):
-            result = child.wait_for_element("Submit", role="button", action="click", timeout=0)
-            self.assertEqual(result["ref"], "button")
+            with self.assertRaises(child.BrowserError) as caught:
+                child.wait_for_element("Submit", role="button", action="click", timeout=0)
+            self.assertEqual(caught.exception.code, "ambiguous_target")
+            self.assertFalse(caught.exception.outcome_unknown)
 
     def test_shared_home_env_for_other_profile(self):
         with tempfile.TemporaryDirectory() as temp:

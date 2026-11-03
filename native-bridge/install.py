@@ -100,6 +100,7 @@ def stage(
         "script_lane/host_bridge.py",
         "script_lane/action_session.py",
         "script_lane/child.py",
+        "script_lane/workflow.py",
         "script_lane/tool.py",
         "script_lane/page-request.js",
         "script_lane/page_export.py",

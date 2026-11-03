@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
+import { readFileSync } from 'node:fs';
 import { createPageSemantics } from './index.js';
 import { semanticWorldDeclaration } from '../native-extension/core.mjs';
 import { rankTargets } from '../native-extension/target-recovery.mjs';
@@ -43,6 +44,95 @@ const rect = (left, top, width = 100, height = 30) => ({
   width,
   height,
 });
+const loadingFixture = readFileSync(
+  new URL('../tests/v1.1-script-lane/loading-overlay-fixture.html', import.meta.url),
+  'utf8',
+);
+
+test('bound semantic read rejects documentElement replacement with the same binding', () => {
+  const f = fixture('<button>Continue</button>');
+  try {
+    const call = f.w.eval(`(${semanticWorldDeclaration})`);
+    const payload = { binding: f.binding, options: { mode: 'interactive' } };
+    const before = call('semantic_snapshot', payload);
+    assert.equal(before.items.length, 1);
+    const replacement = f.doc.createElement('html');
+    replacement.innerHTML = '<body><button>Continue</button></body>';
+    f.doc.replaceChild(replacement, f.doc.documentElement);
+    assert.throws(
+      () =>
+        call('semantic_snapshot', {
+          ...payload,
+          documentEpoch: before.documentEpoch,
+          requireCurrentDocument: true,
+          requireDocumentEpoch: true,
+        }),
+      /DOCUMENT_REPLACED/,
+    );
+  } finally {
+    f.close();
+  }
+});
+
+test('unbound read after documentElement replacement cannot revive an old bound read', () => {
+  const f = fixture('<button>Continue</button>');
+  try {
+    const call = f.w.eval(`(${semanticWorldDeclaration})`);
+    const payload = { binding: f.binding, options: { mode: 'interactive' } };
+    const before = call('semantic_snapshot', payload);
+    const replacement = f.doc.createElement('html');
+    replacement.innerHTML = '<body><button>Continue</button></body>';
+    f.doc.replaceChild(replacement, f.doc.documentElement);
+    const after = call('semantic_snapshot', payload);
+    assert.equal(typeof before.documentEpoch, 'string');
+    assert.notEqual(after.documentEpoch, before.documentEpoch);
+    assert.throws(
+      () =>
+        call('semantic_snapshot', {
+          ...payload,
+          documentEpoch: before.documentEpoch,
+          requireCurrentDocument: true,
+          requireDocumentEpoch: true,
+        }),
+      /BINDING_MISMATCH|DOCUMENT_REPLACED/,
+    );
+  } finally {
+    f.close();
+  }
+});
+
+for (const mode of ['delayed', 'persistent'])
+  test(`本地加载层 ${mode}：快照如实标记遮挡，只有自然消失后才恢复命中`, async () => {
+    const dom = new JSDOM(loadingFixture, {
+      url: `https://fixture.test/?${mode}`,
+      runScripts: 'dangerously',
+    });
+    const doc = dom.window.document;
+    dom.window.HTMLElement.prototype.getClientRects = function () {
+      return this.isConnected ? [this.getBoundingClientRect()] : [];
+    };
+    dom.window.HTMLElement.prototype.getBoundingClientRect = () => rect(20, 20);
+    doc.elementFromPoint = () => doc.querySelector('#loading') || doc.querySelector('#target');
+    if (mode === 'persistent')
+      Object.defineProperty(doc, 'visibilityState', { configurable: true, value: 'hidden' });
+    const semantics = createPageSemantics({
+      document: doc,
+      taskId: 'fixture',
+      documentId: 'fixture-doc',
+      leaseId: 'fixture-lease',
+    });
+    try {
+      assert.equal(semantics.snapshot().items[0].blocked, 'occluded');
+      await new Promise((resolve) => setTimeout(resolve, 240));
+      assert.equal(
+        semantics.snapshot().items[0].blocked,
+        mode === 'persistent' ? 'occluded' : undefined,
+      );
+    } finally {
+      semantics.revoke();
+      dom.window.close();
+    }
+  });
 function retained(f, name) {
   const page = f.semantics.snapshot({ composed: true }),
     item = page.items.find((item) => item.name === name);

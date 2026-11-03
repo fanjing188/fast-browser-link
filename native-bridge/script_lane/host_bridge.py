@@ -410,6 +410,8 @@ class HostBridge:
             try:
                 if op == "capabilities" and args == []:
                     value = sorted(helper_capabilities)
+                elif op == "workflow_ready" and args == []:
+                    value = selected.workflow_ready()
                 elif op == "checkpoint" and args == []:
                     # 中文注释：业务检查点由本次 Hermes 工具调用显式传入，只读返回给同一 Python 子进程。
                     value = resume_checkpoint

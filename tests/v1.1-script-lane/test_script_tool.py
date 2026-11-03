@@ -58,7 +58,9 @@ class FakeRuntime:
                 "workTabs": [{"tabId": tab} for tab in self.tab_ids],
             }
         if method == "browser.list":
-            return [{"instanceId": "edge-1", "connected": True}]
+            return [
+                {"instanceId": "edge-1", "connected": True, "features": ["browser_workflow_v1"]}
+            ]
         if method == "shared.operation_status":
             request_id = params["requestId"]
             state = self.ledger[request_id]
@@ -101,6 +103,7 @@ class FakeRuntime:
             # 中文注释：效率 helper 使用完整范围的真实快照契约，不以单条结果猜测唯一性。
             "semantic_snapshot": {
                 "binding": {"taskId": "t"},
+                "documentEpoch": "fixture-epoch",
                 "snapshotId": "s1",
                 "kind": "full",
                 "coverage": {"complete": True},
@@ -116,6 +119,16 @@ class FakeRuntime:
 
 
 class ScriptToolTests(unittest.TestCase):
+    def test_workflow_crosses_real_script_process_and_trusted_host(self):
+        self.bind()
+        self.runtime.tab_ids = [7]
+        result = self.run_script(
+            "import json\nprint(json.dumps(run_steps([{'action':'click','name':'Next'}])))"
+        )
+        self.assertEqual(result["exit_code"], 0, result)
+        self.assertTrue(json.loads(result["stdout"])["completed"])
+        self.assertEqual(sum(row["action"] == "ref_click" for row in self.runtime.runs), 1)
+
     def test_safe_execution_failure_reaches_real_script_child(self):
         self.bind()
         original = self.runtime.call
@@ -163,6 +176,7 @@ class ScriptToolTests(unittest.TestCase):
             if method == "shared.run" and params["action"] == "semantic_snapshot":
                 return {
                     "binding": {"taskId": "task-1"},
+                    "documentEpoch": "fixture-epoch",
                     "snapshotId": "s1",
                     "kind": "full",
                     "coverage": {"complete": True, "unsupportedCanvas": 1},

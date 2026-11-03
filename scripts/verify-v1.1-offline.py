@@ -269,6 +269,7 @@ PYTHON_GROUPED_FILES = {
         "test_action_session.py",
         "test_script_tool.py",
         "test_page_helpers.py",
+        "test_workflow.py",
         "test_page_export.py",
     ),
     "tests/v1.1-approval-notify": ("test_approval_notify.py",),

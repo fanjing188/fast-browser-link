@@ -212,6 +212,30 @@ class ActionSession:
         self._pending_popup_scope = None
         self._popup_waiting = False
 
+    def workflow_ready(self):
+        # 中文注释：能力只从本任务绑定实例读回；旧扩展不能进入新增组合执行合同。
+        if self._unknown:
+            raise OutcomeUnknown("previous outcome unknown; reconcile before workflow")
+        if self._pending is not None:
+            raise PendingAction("resolve the existing request before workflow")
+        task = self._runtime.call("shared.get", {"owner": self._owner, "taskId": self._task_id})
+        if (
+            task.get("generation") != self._generation
+            or task.get("instanceId") != self._instance_id
+            or task.get("state") not in {"ready", "running"}
+        ):
+            raise ActionRejected("invalid_state")
+        browsers = self._runtime.call("browser.list", {})
+        if not any(
+            isinstance(row, dict)
+            and row.get("instanceId") == self._instance_id
+            and row.get("connected") is True
+            and "browser_workflow_v1" in row.get("features", [])
+            for row in browsers
+        ):
+            raise ActionRejected("workflow_unsupported")
+        return {"supported": True}
+
     def _wait_for_resume(self):
         # 中文注释：暂停仅轮询同一任务状态，不重放已派发动作；代次或终态变化立即退出。
         timeout = int(os.environ.get("FAST_BROWSER_PAUSE_TIMEOUT_S", "600"))
@@ -751,11 +775,8 @@ class ActionSession:
             value = receipt
         self._pending = None
         self._pending_kind = None
-        if (
-            kind == "ref_fill"
-            and receipt.get("kind") == "trusted-input"
-            and receipt.get("outcomeUnknown") is True
-        ):
+        if kind in ("ref_click", "ref_fill") and receipt.get("outcomeUnknown") is True:
+            # 中文注释：结果未知的引用写入不能开启下一次写入；状态查询和只读 reconcile 仍可用。
             self._unknown = True
         return value
 
@@ -844,17 +865,48 @@ class ActionSession:
         "screenshot": frozenset({"selector", "binding", "snapshotId", "ref", "format"}),
         "page.observe": frozenset({"options"}),
         "page.parse": frozenset({"options"}),
-        "semantic_snapshot": frozenset({"options"}),
+        "semantic_snapshot": frozenset({"options", "binding", "noQueryRecovery", "documentEpoch"}),
         "frame_catalog": frozenset(),
         "click": frozenset({"selector", "after"}),
         "fill": frozenset({"selector", "text", "after"}),
         "press": frozenset({"selector", "key", "after"}),
         "ref_click": frozenset(
-            {"binding", "snapshotId", "ref", "clickMode", "frameToken", "after"}
+            {
+                "binding",
+                "snapshotId",
+                "ref",
+                "clickMode",
+                "frameToken",
+                "after",
+                "noAutoRecovery",
+                "documentEpoch",
+            }
         ),
-        "ref_fill": frozenset({"binding", "snapshotId", "ref", "text", "frameToken", "after"}),
+        "ref_fill": frozenset(
+            {
+                "binding",
+                "snapshotId",
+                "ref",
+                "text",
+                "frameToken",
+                "after",
+                "noAutoRecovery",
+                "documentEpoch",
+            }
+        ),
         # 中文注释：脚本只传最新快照引用及固定按键，任务页仍由宿主绑定。
-        "ref_press": frozenset({"binding", "snapshotId", "ref", "key", "frameToken", "after"}),
+        "ref_press": frozenset(
+            {
+                "binding",
+                "snapshotId",
+                "ref",
+                "key",
+                "frameToken",
+                "after",
+                "noAutoRecovery",
+                "documentEpoch",
+            }
+        ),
         # 中文注释：文件路径只由 daemon 从用户登记 ID 解析，脚本只能提交 ID 和目标选择器。
         "files.upload": frozenset({"selector", "artifactIds", "paths"}),
         "ref_set_checked": frozenset(

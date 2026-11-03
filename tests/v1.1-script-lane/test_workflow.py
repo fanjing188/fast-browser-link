@@ -261,6 +261,26 @@ class WorkflowTests(unittest.TestCase):
         )
         self.assertIsNone(child._workflow_deadline.get())
 
+    def test_popup_policy_pause_preserves_dispatched_receipt_and_stops_next_step(self):
+        def call(op, args):
+            result = self.call(op, args)
+            if op == "run" and args[0] == "ref_click":
+                return {
+                    **result,
+                    "popupPolicy": {"paused": True, "reason": "window_relationship_required"},
+                }
+            return result
+
+        with patch.object(child, "_call", side_effect=call):
+            result = child.run_steps(
+                [{"action": "click", "name": "Continue"}, {"action": "click", "name": "Continue"}]
+            )
+        self.assertEqual(result["reason"], "popup_policy_paused")
+        self.assertTrue(result["steps"][0]["dispatched"])
+        self.assertEqual(result["steps"][0]["receipt"]["delivery"], "confirmed")
+        self.assertEqual(len(result["steps"]), 1)
+        self.assertFalse(result["outcome_unknown"])
+
     def test_postcondition_failure_preserves_delivery_and_stops(self):
         def call(op, args):
             return observed(0) if op == "run" and args[0] == "page.observe" else self.call(op, args)
@@ -639,6 +659,58 @@ class DurableWorkflowTests(unittest.TestCase):
             patch.object(child, "_save_workflow_report", side_effect=lambda x: x),
         ):
             return child.run_batch(*args, **kwargs)
+
+    def test_host_reconciliation_calls_original_read_only_contract(self):
+        from types import SimpleNamespace
+
+        spec = importlib.util.spec_from_file_location(
+            "workflow_proof_host", ROOT / "native-bridge/script_lane/host_bridge.py"
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        host = object.__new__(module.HostBridge)
+        host._guard = threading.RLock()
+        host._workflow_store = self.store
+        calls = []
+
+        def run(action, params):
+            calls.append(action)
+            self.assertEqual(action, "page.observe")
+            self.assertEqual(params, {"options": {"selector": "#status"}})
+            return observed()
+
+        selected = SimpleNamespace(
+            _owner="owner",
+            _task_id="task",
+            _instance_id="instance",
+            _generation=1,
+            tab_id=1,
+            _runtime=SimpleNamespace(
+                call=lambda *a: {"instanceId": "instance", "generation": 1, "tabIds": [1]}
+            ),
+            workflow_ready=lambda **kw: None,
+            run=run,
+        )
+        plan = [
+            {
+                "id": "one",
+                "steps": [
+                    {
+                        "action": "click",
+                        "name": "Save",
+                        "after": {"conditions": [{"kind": "element", "selector": "#status"}]},
+                    }
+                ],
+            }
+        ]
+        scope = host._workflow_scope(selected)
+        opened = self.store.call(scope, "begin", {"name": "proof", "plan": plan})
+        self.store.call(scope, "arm", {"name": "proof", "token": opened["token"], "index": "0:0"})
+        self.store._release(scope)
+        row = host._workflow(selected, ["resolve", {"name": "proof", "plan": plan, "timeout": 0.1}])
+        self.assertEqual(calls, ["page.observe"])
+        self.assertIsNone(row["inflight"])
+        self.assertTrue(row["entries"]["0:0"]["verified"])
 
     def test_host_cleanup_and_debit_require_own_launch_token(self):
         from types import SimpleNamespace

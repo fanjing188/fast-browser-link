@@ -865,6 +865,7 @@ class ActionSession:
         "snapshot": frozenset(),
         "screenshot": frozenset({"selector", "binding", "snapshotId", "ref", "format"}),
         "execution.guard": frozenset({"options"}),
+        "popup.policy": frozenset({"options"}),
         "page.observe": frozenset({"options"}),
         "page.parse": frozenset({"options"}),
         "semantic_snapshot": frozenset({"options", "binding", "noQueryRecovery", "documentEpoch"}),

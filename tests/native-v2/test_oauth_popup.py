@@ -531,6 +531,69 @@ class PopupTests(unittest.TestCase):
         self.assertEqual(self.daemon.tab_leases[("instance", 2)], "task")
         self.assertEqual(self.task["adoptedPopupTabIds"], [2])
 
+    def test_popup_policy_requires_current_extension_capability(self):
+        self.assertNotIn("popupPolicy", self.daemon._public_task(self.task))
+        legacy = dict(self.task)
+        legacy.pop("instanceId")
+        self.assertNotIn("popupPolicy", self.daemon._public_task(legacy))
+        self.daemon.extensions["instance"] = object()
+        self.assertNotIn("popupPolicy", self.daemon._public_task(self.task))
+        self.daemon.extensions["instance"] = {"features": []}
+        self.daemon.extensions["instance"]["features"] = ["popup_policy_v1"]
+        self.assertEqual(self.daemon._public_task(self.task)["popupPolicy"], "background")
+        self.daemon.extensions["instance"]["features"] = ["browser_core_v1"]
+        self.assertNotIn("popupPolicy", self.daemon._public_task(self.task))
+
+    def test_new_tab_startup_pause_is_saved_after_lease_and_before_receipt(self):
+        flushes = []
+        self.daemon._flush_tasks = lambda: flushes.append(self.task.get("popupPolicyPause"))
+
+        def opened(ext, method, params, timeout=15):
+            self.calls.append((method, params))
+            return {
+                "tabId": 2,
+                "url": "https://example.com/new",
+                "popupPolicy": {"mode": "background", "paused": True, "reason": "outside_action"},
+            }
+
+        self.daemon._extension_call = opened
+        request = {
+            "owner": "owner",
+            "taskId": "task",
+            "requestId": "startup-tab",
+            "action": "new_tab",
+            "url": "https://example.com/new",
+        }
+        receipt = self.daemon._run_task(request)
+        self.assertEqual(receipt["tabId"], 2)
+        self.assertEqual(self.daemon.tab_leases[("instance", 2)], "task")
+        self.assertEqual(self.task["popupPolicyPause"], "outside_action")
+        self.assertTrue(self.daemon._pending_human(self.task))
+        self.assertEqual(flushes, ["outside_action"])
+        calls = len(self.calls)
+        self.assertEqual(self.daemon._run_task(request), receipt)
+        self.assertEqual(len(self.calls), calls)
+        self.assertEqual(flushes, ["outside_action"])
+        with self.assertRaises(m.ProtocolError) as error:
+            self.daemon._run_task(self.params("click", selector="button"))
+        self.assertEqual(error.exception.code, "popup_policy_paused")
+        self.assertEqual(len(self.calls), calls)
+        self.daemon.inflight_requests[("task", "settling")] = "digest"
+        with self.assertRaises(m.ProtocolError) as busy:
+            self.daemon._popup_policy_event(
+                "instance",
+                {
+                    "taskId": "task",
+                    "generation": 1,
+                    "modeGeneration": 2,
+                    "tabId": 1,
+                    "operation": "clear",
+                },
+            )
+        self.assertEqual(busy.exception.code, "task_busy")
+        self.assertEqual(self.task["popupPolicyPause"], "outside_action")
+        self.daemon.inflight_requests.pop(("task", "settling"))
+
     def test_revocation_drops_adopted_popup_authority(self):
         self.task["adoptedPopupTabIds"] = [2]
         self.task["tabIds"].append(2)
@@ -671,6 +734,64 @@ class PopupTests(unittest.TestCase):
                     self.assertEqual(len(fixture.calls), calls)
                 finally:
                     fixture.doCleanups()
+
+    def test_popup_pause_protects_idle_and_preserves_cached_receipts(self):
+        params = self.params("click", selector="#go")
+        first = self.daemon._run_task(params)
+        event = {
+            "taskId": "task",
+            "generation": 1,
+            "modeGeneration": 2,
+            "tabId": 1,
+            "operation": "pause",
+            "reason": "window_relationship_required",
+        }
+        self.daemon._popup_policy_event("instance", event)
+        self.assertTrue(self.daemon._pending_human(self.task))
+        self.task["idleCloseAt"] = time.time() - 10
+        self.assertFalse(self.daemon._idle_due(self.task, time.time()))
+        before = len(self.calls)
+        self.assertEqual(self.daemon._run_task(params), first)
+        self.assertEqual(len(self.calls), before)
+        with self.assertRaises(m.ProtocolError) as e:
+            self.daemon._run_task(self.params("click", selector="#go", requestId="new"))
+        self.assertEqual(e.exception.code, "popup_policy_paused")
+        self.assertFalse(e.exception.data["outcomeUnknown"])
+        self.daemon._run_task(self.params("popup_catalog", requestId="read-paused"))
+        for changes in [
+            {"tabId": 99},
+            {"generation": 2},
+            {"modeGeneration": 1},
+            {"reason": "private page text"},
+        ]:
+            with self.assertRaises(m.ProtocolError):
+                self.daemon._popup_policy_event("instance", {**event, **changes})
+        cleared = {k: v for k, v in event.items() if k != "reason"}
+        self.daemon._popup_policy_event("instance", {**cleared, "operation": "clear"})
+        self.assertNotIn("popupPolicyPause", self.task)
+        self.assertFalse(self.daemon._pending_human(self.task))
+
+    def test_background_creation_requires_current_leased_source_and_mode_then_registers_target(
+        self,
+    ):
+        event = {
+            "taskId": "task",
+            "generation": 1,
+            "modeGeneration": 2,
+            "tabId": 2,
+            "openerTabId": 1,
+            "event": "background_created",
+        }
+        for change in [{"generation": 2}, {"modeGeneration": 1}, {"openerTabId": 99}]:
+            with self.assertRaises(m.ProtocolError):
+                self.daemon._handle_tab_event("instance", {**event, **change})
+        self.assertNotIn(("instance", 2), self.daemon.tab_leases)
+        self.daemon._handle_tab_event("instance", event)
+        self.assertEqual(self.daemon.tab_leases[("instance", 2)], "task")
+        self.assertIn(2, self.task["tabIds"])
+        self.assertIn(2, self.task["agentTabIds"])
+        with self.assertRaises(m.ProtocolError):
+            self.daemon._handle_tab_event("instance", event)
 
     def test_catalog_needs_no_page_read_or_write_approval(self):
         self.task["activeMode"] = "smart"

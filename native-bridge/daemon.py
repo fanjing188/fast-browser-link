@@ -126,6 +126,7 @@ V1_ACTIONS = frozenset(
         "tabs",
         "new_tab",
         "execution.guard",
+        "popup.policy",
         "page.observe",
         "page.parse",
         "semantic_snapshot",
@@ -163,6 +164,7 @@ SCRIPT_ACTIONS = frozenset({"js.evaluate", "cdp.send", "cdp.events", "network.in
 # 中文注释：这些动作可能返回当前任务页内容；tabs 只列任务租约页，单独保留直接读取。
 SITE_READ_ACTIONS = frozenset(
     {
+        "popup.policy",
         "snapshot",
         "screenshot",
         "page.observe",
@@ -184,6 +186,24 @@ _DEFAULT_REQUEST_HISTORY_LIMIT = 4096
 _TASK_LOG_PRUNE_INTERVAL_SECONDS = 60
 _DIAGNOSTIC_ROTATED_RE = re.compile(r"^events\.(\d{6})\.jsonl$")
 _MAX_DIAGNOSTIC_CURSOR = 10**20 - 1
+
+
+POPUP_POLICY_REASONS = frozenset(
+    {
+        "capacity",
+        "unsupported_url",
+        "cross_origin_requires_confirmation",
+        "outside_action",
+        "window_relationship_required",
+        "strict_mode",
+        "target_link_requires_confirmation",
+        "target_form_requires_confirmation",
+        "unprotected_document",
+        "unsupported_frames",
+        "raw_context_unsupported",
+        "mode_unconfirmed",
+    }
+)
 
 
 class ProtocolError(Exception):
@@ -500,6 +520,7 @@ class BridgeDaemon:
         # 中文注释：暂停状态和仍有效的人工批准/敏感填写请求均不能被空闲扫描关闭。
         return (
             task["state"] == "paused"
+            or bool(task.get("popupPolicyPause"))
             or task.get("idleRecoveryState") == "paused"
             or any(
                 key[0] == task["id"]
@@ -2739,6 +2760,7 @@ class BridgeDaemon:
                         {"outcomeUnknown": False, "retryable": False},
                     )
                 return cached[2]
+            self._assert_popup_policy(task, action, params)
             if (
                 len(task.get("requestHistory", [])) >= self.request_history_limit
                 and (task_id, request_hash) not in self.action_approvals
@@ -2958,6 +2980,7 @@ class BridgeDaemon:
                     and (task_id, request_hash) not in self.action_approvals
                 ):
                     raise ProtocolError("request_history_full", "task requestId history is full")
+                self._assert_popup_policy(task, action, params)
                 if task["state"] == "paused" or task.get("controlEpoch", 0) != control_epoch:
                     raise ProtocolError(
                         "task_paused",
@@ -3190,6 +3213,7 @@ class BridgeDaemon:
             command_params["allowedOrigins"] = list(task["allowedOrigins"])
             if artifact_payload is not None:
                 command_params.update(artifact_payload)
+            popup_pause_adopted = False
             execution_stage = "dispatch_journal"
             try:
                 with _outside_task_lock(lock):
@@ -3603,6 +3627,15 @@ class BridgeDaemon:
                                         task["workspaceState"] = "ready"
                     if post_error is None:
                         if opened_task_tab and isinstance(result, dict):
+                            pause = result.get("popupPolicy")
+                            if isinstance(pause, dict) and pause.get("paused") is True:
+                                reason = pause.get("reason")
+                                task["popupPolicyPause"] = (
+                                    reason
+                                    if isinstance(reason, str) and reason in POPUP_POLICY_REASONS
+                                    else "unprotected_document"
+                                )
+                                popup_pause_adopted = True
                             result["open_tabs"] = self._public_task(task)["open_tabs"]
                             if result["open_tabs"] > 6:
                                 result["tab_hint"] = "不再用的网站先 fast_browser_close"
@@ -3705,6 +3738,8 @@ class BridgeDaemon:
                     "task authority changed while action was running",
                     {"outcomeUnknown": True, "retryable": False},
                 )
+            if popup_pause_adopted:
+                self._flush_tasks()
             return result
 
     def _forget_agent_tab_locked(self, task, tab_id):
@@ -4495,6 +4530,7 @@ class BridgeDaemon:
             "screenshot": {"tabId"},
             "api_request": {"tabId", "url", "fields"},
             "execution.guard": {"tabId", "options"},
+            "popup.policy": {"tabId", "options"},
             "page.observe": {"tabId"},
             "page.parse": {"tabId"},
             "semantic_snapshot": {"tabId"},
@@ -4848,6 +4884,8 @@ class BridgeDaemon:
             raise ProtocolError(
                 "invalid_params", "container scroll needs binding, snapshot_id and ref"
             )
+        if action == "popup.policy" and params.get("options") != {"operation": "status"}:
+            raise ProtocolError("invalid_params", "invalid popup policy options")
         if action == "execution.guard":
             options = params.get("options")
             operation = options.get("operation") if isinstance(options, dict) else None
@@ -5233,6 +5271,11 @@ class BridgeDaemon:
             if self.tab_leases.get((row["instanceId"], tab_id)) == row["id"]
         )
         # 中文注释：恢复旧任务也使用当前 daemon 配置。
+        extension = self.extensions.get(task.get("instanceId"))
+        if isinstance(extension, dict) and "popup_policy_v1" in extension.get("features", []):
+            result["popupPolicy"] = "background"
+        else:
+            result.pop("popupPolicy", None)
         result["workWindowMode"] = "separate" if task.get("silent") else self.work_window_mode
         fields = {
             "action",
@@ -5865,6 +5908,8 @@ class BridgeDaemon:
                     self.cleanup_proofs.pop(task_id, None)
                 self._persist_tasks()
                 return self._public_task(task)
+        if method == "extension.popup_policy":
+            return self._popup_policy_event(instance_id, params)
         if method == "extension.tab_event":
             return self._handle_tab_event(instance_id, params)
         if method == "extension.download_event":
@@ -6273,6 +6318,73 @@ class BridgeDaemon:
             self._persist_tasks()
             return {"adopted": True, "tabId": tab_id}
 
+    def _popup_policy_event(self, instance_id, params):
+        if set(params) - {"taskId", "generation", "modeGeneration", "tabId", "operation", "reason"}:
+            raise ProtocolError("invalid_params", "invalid popup policy event")
+        operation = params.get("operation")
+
+        if (
+            operation not in {"pause", "clear"}
+            or operation == "pause"
+            and (
+                not isinstance(params.get("reason"), str)
+                or params["reason"] not in POPUP_POLICY_REASONS
+            )
+            or operation == "clear"
+            and "reason" in params
+        ):
+            raise ProtocolError("invalid_params", "invalid popup policy state")
+        with self.state_lock:
+            task = self.tasks.get(params.get("taskId"))
+            if (
+                not task
+                or task["instanceId"] != instance_id
+                or type(params.get("generation")) is not int
+                or params["generation"] != task["generation"]
+                or type(params.get("modeGeneration")) is not int
+                or params["modeGeneration"] != task.get("modeGeneration", 1)
+                or type(params.get("tabId")) is not int
+                or self.tab_leases.get((instance_id, params["tabId"])) != task["id"]
+                or task["state"] not in {"ready", "running", "paused"}
+            ):
+                raise ProtocolError("approval_stale", "popup policy scope changed")
+            if operation == "clear" and any(key[0] == task["id"] for key in self.inflight_requests):
+                raise ProtocolError(
+                    "task_busy",
+                    "任务动作回执尚未结算，暂不能解除弹窗暂停。",
+                    {"outcomeUnknown": False, "retryable": False},
+                )
+            if operation == "pause":
+                task["popupPolicyPause"] = params["reason"]
+            else:
+                task.pop("popupPolicyPause", None)
+            task["updatedAt"] = time.time()
+            self._persist_tasks()
+            return {
+                "verified": True,
+                "generation": task["generation"],
+                "paused": operation == "pause",
+            }
+
+    @staticmethod
+    def _assert_popup_policy(task, action, params):
+        if not task.get("popupPolicyPause"):
+            return
+        read = (
+            action in SITE_READ_ACTIONS
+            or action in {"tabs", "popup_catalog", "cdp.events", "network.inspect"}
+            or action == "execution.guard"
+            and params.get("options", {}).get("operation") in {"status", "failure"}
+            or action == "cdp.send"
+            and params.get("method") in {"Page.getFrameTree", "Runtime.getProperties"}
+        )
+        if not read:
+            raise ProtocolError(
+                "popup_policy_paused",
+                "弹窗策略已暂停写操作；请在扩展界面核验后处理，不要重放已送达动作。",
+                {"outcomeUnknown": False, "retryable": False},
+            )
+
     def _handle_tab_event(self, instance_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
         task_id = self._required_string(params, "taskId")
         tab_id = params.get("tabId")
@@ -6280,9 +6392,9 @@ class BridgeDaemon:
         document_generation = params.get("documentGeneration")
         if not isinstance(tab_id, int) or isinstance(tab_id, bool) or tab_id < 0:
             raise ProtocolError("invalid_params", "tabId must be a non-negative integer")
-        if event not in {"closed", "navigated", "created"}:
+        if event not in {"closed", "navigated", "created", "background_created"}:
             raise ProtocolError("invalid_params", "unknown tab event")
-        if event != "created" and (
+        if event not in {"created", "background_created"} and (
             not isinstance(document_generation, int)
             or isinstance(document_generation, bool)
             or document_generation < 0
@@ -6300,7 +6412,7 @@ class BridgeDaemon:
                 or params["generation"] != task["generation"]
             ):
                 raise ProtocolError("approval_stale", "tab event task generation changed")
-            if event == "created":
+            if event in {"created", "background_created"}:
                 opener = params.get("openerTabId")
                 if (
                     type(params.get("generation")) is not int
@@ -6318,6 +6430,15 @@ class BridgeDaemon:
                     or (instance_id, tab_id) in self.tab_leases
                 ):
                     raise ProtocolError("foreign_tab", "popup opener is not owned by this task")
+                if event == "background_created":
+                    if type(params.get("modeGeneration")) is not int or params[
+                        "modeGeneration"
+                    ] != task.get("modeGeneration", 1):
+                        raise ProtocolError("approval_stale", "background popup mode changed")
+                    if self.tab_leases.get((instance_id, opener)) != task_id:
+                        raise ProtocolError("foreign_tab", "background popup source is not leased")
+                    self.tab_leases[(instance_id, tab_id)] = task_id
+                    task["tabIds"].append(tab_id)
                 task.setdefault("spawnedTabIds", []).append(tab_id)
                 task["agentTabIds"].append(tab_id)
                 task["spawnedTabCount"] = len(task["spawnedTabIds"])
@@ -6566,6 +6687,7 @@ class BridgeDaemon:
                             "browser_workflow_v1",
                             "execution_resilience_v1",
                             "durable_workflow_v1",
+                            "popup_policy_v1",
                             "page_parse_v1",
                             "page_function_v1",
                             "network_evidence_v1",
@@ -6618,6 +6740,7 @@ class BridgeDaemon:
                             "extension.reject",
                             "extension.revoke_access",
                             "extension.popup_adopted",
+                            "extension.popup_policy",
                         }:
                             self._flush_tasks()
                         response = {"id": request_id, "result": result}
@@ -6635,7 +6758,11 @@ class BridgeDaemon:
                         }
                     self._send_extension(extension, response)
                 method = request.get("method")
-                if method in {"extension.tab_event", "extension.popup_adopted"} or (
+                if method in {
+                    "extension.tab_event",
+                    "extension.popup_adopted",
+                    "extension.popup_policy",
+                } or (
                     method
                     in {
                         "extension.approve",

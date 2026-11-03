@@ -357,7 +357,7 @@ export function createWorkspaces({ chrome, authority }) {
     }
     return null;
   }
-  async function open(cap, { requestId, url, title }) {
+  async function open(cap, { requestId, url, title, prepareTab }) {
     const { id, key } = identity(cap);
     if (typeof requestId !== 'string' || !requestId || requestId.length > 128)
       throw Error('INVALID_REQUEST');
@@ -380,7 +380,11 @@ export function createWorkspaces({ chrome, authority }) {
       t.requests.set(requestId, r);
       await save(); // Persist intent before any browser side effect.
       try {
-        const tab = await chrome.tabs.create({ url, windowId: id.windowId, active: false });
+        const tab = await chrome.tabs.create({
+          url: prepareTab ? 'about:blank' : url,
+          windowId: id.windowId,
+          active: false,
+        });
         r.tabId = tab.id;
         // A returned ID that existed at startup is not proof of creation, even if
         // unleased or subsequently regrouped. Never upgrade it to execution ownership.
@@ -447,6 +451,23 @@ export function createWorkspaces({ chrome, authority }) {
           r.status = 'released';
           r.disposition = 'moved';
           throw Error('RELEASED');
+        }
+        if (prepareTab) {
+          identity(cap);
+          if (cancelled.has(key)) throw Error('CANCELLED');
+          await prepareTab(tab.id);
+          identity(cap);
+          const checked = await inspectTab(tab.id);
+          if (
+            cancelled.has(key) ||
+            !checked.tab ||
+            checked.tab?.windowId !== id.windowId ||
+            checked.tab?.groupId !== r.groupId
+          )
+            throw Error('RELEASED');
+          await chrome.tabs.update(tab.id, { url });
+          identity(cap);
+          if (cancelled.has(key)) throw Error('CANCELLED');
         }
         t.groupId = r.groupId;
         t.lastGroupId = r.groupId;

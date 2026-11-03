@@ -38,7 +38,7 @@ const PAGE_WAIT=Symbol('page wait');
 import {ExecutionResilience} from './execution-resilience.mjs';
 import {PageObservers,listImages} from './page-observers.mjs';
 import {VaultController} from './vault.mjs';
-import {OAuthPopups,isOAuthProvider,OAUTH_PROVIDERS} from './oauth-popups.mjs';
+import {OAuthPopups,PopupPolicy,isOAuthProvider,OAUTH_PROVIDERS} from './oauth-popups.mjs';
 import {ProductFill} from './product-fill.mjs';
 import {installProductFillAuthority} from './product-fill-content.mjs';
 
@@ -851,7 +851,7 @@ export function preveilSource(allowedOrigins,{taskId='',generation=0}={}){
 }catch{}})()`;
 }
 
-export const V1_ACTIONS = Object.freeze(['popup_catalog','popup_adopt','tabs','new_tab','navigate','snapshot','click','fill','press','screenshot','execution.guard','page.observe','page.parse','semantic_snapshot','frame_catalog','ref_click','ref_fill','ref_press','ref_set_checked','ref_select_option','files.upload','interaction.capture','interaction.bounds','interaction.click','interaction.drag_coordinates','interaction.drag_elements','official.ready_state','official.goto_url','official.new_tab','scroll','back',
+export const V1_ACTIONS = Object.freeze(['popup.policy','popup_catalog','popup_adopt','tabs','new_tab','navigate','snapshot','click','fill','press','screenshot','execution.guard','page.observe','page.parse','semantic_snapshot','frame_catalog','ref_click','ref_fill','ref_press','ref_set_checked','ref_select_option','files.upload','interaction.capture','interaction.bounds','interaction.click','interaction.drag_coordinates','interaction.drag_elements','official.ready_state','official.goto_url','official.new_tab','scroll','back',
  'js.evaluate','cdp.send','cdp.events','network.inspect','images','console','dialog']);
 const SCRIPT_ACTIONS=new Set(['js.evaluate','cdp.send','cdp.events','network.inspect']);
 const SITE_READ_ACTIONS=new Set(['snapshot','screenshot','page.observe','page.parse','semantic_snapshot','frame_catalog','interaction.capture','interaction.bounds','official.ready_state','images','console']);
@@ -859,8 +859,8 @@ function assertV1Action(action) { if(!V1_ACTIONS.includes(action))throw Error('V
 
 const SILENT_WINDOW_METHODS=new Set(['Page.bringToFront','Browser.setWindowBounds','Browser.close','Browser.crash','Target.activateTarget','Target.createTarget','Target.createBrowserContext','Target.disposeBrowserContext','Target.sendMessageToTarget']);
 export class Executor {
- constructor(api,onEvent=()=>{},{beforeLeaseRelease=async()=>{},onOverlayCommand=null,releaseDeadlineMs=RELEASE_DEADLINE_MS,onDownloadEvent=null,onCdpEvents=null,onSignInRedirect=null,onPopupAdopt=async()=>{},onOverlayReady=null,oauthProviders=OAUTH_PROVIDERS}={}) {
-  this.onOverlayReady=onOverlayReady;this.onPopupAdopt=onPopupAdopt;this.oauthProviders=oauthProviders;this.onSignInRedirect=onSignInRedirect;
+ constructor(api,onEvent=()=>{},{beforeLeaseRelease=async()=>{},onOverlayCommand=null,releaseDeadlineMs=RELEASE_DEADLINE_MS,onDownloadEvent=null,onCdpEvents=null,onSignInRedirect=null,onPopupAdopt=async()=>{},onBackgroundPopup=async()=>null,onPopupPolicyState=null,onOverlayReady=null,oauthProviders=OAUTH_PROVIDERS}={}) {
+  this.onPopupPolicyState=onPopupPolicyState;this.onBackgroundPopup=onBackgroundPopup;this.onOverlayReady=onOverlayReady;this.onPopupAdopt=onPopupAdopt;this.oauthProviders=oauthProviders;this.onSignInRedirect=onSignInRedirect;
   this.beforeLeaseRelease=beforeLeaseRelease;
   this.releaseDeadlineMs=Number.isFinite(releaseDeadlineMs)&&releaseDeadlineMs>0?Math.min(releaseDeadlineMs,RELEASE_DEADLINE_MS):RELEASE_DEADLINE_MS;
   // Only trusted extension background code may supply this callback. It must
@@ -871,7 +871,7 @@ export class Executor {
   this.pageRuntime=new PageRuntime(this,{pushEvents:typeof onCdpEvents==='function'?onCdpEvents:async()=>{}});
   this.observers=new PageObservers(this);this.resilience=new ExecutionResilience(this);
   this.vault=new VaultController(this);
-  this.popups=new OAuthPopups(this);
+  this.popups=new OAuthPopups(this);this.popupPolicy=new PopupPolicy(this);
  }
  async assertSilentTarget(task,tabId){
   if(!task.silent||!Number.isInteger(tabId))return;
@@ -934,7 +934,7 @@ export class Executor {
   const target={tabId:p.tabId};
   if(!this.attached.has(p.tabId)){await this.api.debugger.attach(target,'1.3');guard();this.attached.add(p.tabId);}
   // 中文注释：原始命令也加入任务读屏障，接管等待已派发命令收尾后才交出页面。
-  return this.taskBarrier(t.id,false,async()=>{guard();await this.collectPasswords(t,p);const result=await this.pageRuntime.send(t,p,guard,{gateway:true,filesVerified:p.filesVerified===true});return result;});
+  return this.taskBarrier(t.id,false,async()=>{guard();await this.collectPasswords(t,p);const policyParams={...p,action:'cdp.send'},lease=await this.popupPolicy.before(t,policyParams);try{const result=await this.pageRuntime.send(t,p,guard,{gateway:true,filesVerified:p.filesVerified===true});return await this.popupPolicy.after(t,policyParams,lease,result);}catch(error){await this.popupPolicy.abort(t,lease,error);throw error;}});
  }
  // 中文注释：下载归属与 JS 对话框跟踪依赖任务页 Page 事件；每次附加调试会话后开启一次。
  async ensurePageEvents(target,guard){
@@ -999,6 +999,7 @@ export class Executor {
    for(const id of ids)for(const prior of this.tasks.values())if(prior.revoked){prior.agentTabs.delete(id);prior.tabIds.delete(id);}
    const t={...task,displayStartedAt:Number.isFinite(task.createdAt)&&task.createdAt>0?task.createdAt*1000:Date.now(),workspaceTabs:tabs,tabIds:new Set(ids),agentTabs:new Set(),revoked:false,releasing:0,semanticBindings:new Map(),frameSessions:new Map(),frameRefs:new Map(),childHighlights:new Map(),interactions:new Map(),interactionRefs:new Map(),interactionOperations:new Set(),pendingInteractionProbes:new Set(),pendingInteractionCleanups:new Set()};
    // 中文注释：保留原批准来源；实际 www 来源由扩展核实后加入本任务。
+   t.popupPolicyPaused=task.popupPolicyPause||null;
    t.approvedOrigins=[...task.allowedOrigins];t.allowedOrigins=[...task.allowedOrigins];
    t.policy=this.policy.createState({browserInstanceId:task.instanceId||task.id,taskId:task.id,ownerId:task.approvalScope||task.id,sessionId:task.approvalScope||task.id,taskGeneration:task.generation,connectionGeneration:task.generation});
    if(!Number.isSafeInteger(task.modeGeneration??1)||(task.modeGeneration??1)<1||(task.modeGeneration??1)>100000)throw Error('invalid mode generation');
@@ -1403,7 +1404,7 @@ export class Executor {
       return {expired:true};
      }
      let resources;
-     try{resources=await this.closeTabResources(t,id,deadline);}catch{resources={cleanupState:'unknown'};}
+     try{await this.popupPolicy.clear(t,id,!closeAgentTabs||!t.agentTabs.has(id));resources=await this.closeTabResources(t,id,deadline);}catch{resources={cleanupState:'unknown'};}
      if(resources?.cleanupState==='unknown')markUnknown('tab_resource_cleanup_unknown',[id]);
      if(!current()||this.leases.get(id)!==taskId)return {stale:true};
      if(Date.now()>=deadline){
@@ -1478,6 +1479,7 @@ export class Executor {
  }
  async disconnect() {await Promise.all([...this.tasks.values()].map(t=>this.release({taskId:t.id,generation:t.generation,closeAgentTabs:false})));}
  async tabEvent(tabId,event,url,{status=null,urlChanged=true}={}) {
+  if(event==='closed')this.popupPolicy.forget(tabId);
   // 中文注释：导航/关闭先同步撤销候选，异步资源清理期间旧审批也不能继续授予租约。
   if(event!=='navigated'||urlChanged||!['complete','dom_ready'].includes(status))this.popups.invalidate(tabId,event);
   if(event==='navigated')this.schedulePopupAdoption(tabId);
@@ -1500,6 +1502,7 @@ export class Executor {
    const documentGeneration=(this.docs.get(tabId)||0)+1;this.docs.set(tabId,documentGeneration);return documentGeneration;
   };
   if(event==='closed') {
+   this.popupPolicy.forget(tabId);
    const sourceTabId=t.popupSources?.get(tabId);
    t.popupSources?.delete(tabId);
    const popupClosed=Number.isInteger(sourceTabId)&&this.leases.get(sourceTabId)===t.id?{returnedTo:sourceTabId}:null;
@@ -1671,15 +1674,17 @@ export class Executor {
   }
   const priorRefs=new Set(this.tasks.get(p.taskId)?.popupDiscoveries?.keys()||[]);
   return observeAction(async()=>{
-   const release=await this.resilience.enter(t,p);this.resilience.note(t,p);
+   const release=await this.resilience.enter(t,p);this.resilience.note(t,p);let popupLease;
    try{
+   popupLease=await this.popupPolicy.before(t,p);
    let result=await (wait?wait.run(()=>this.executeAction(p)):this.executeAction(p));
+   result=await this.popupPolicy.after(t,p,popupLease,result);popupLease=null;
    if(returned){
     result={...result,popupClosed:{returnedTo:sourceTabId}};
    }
    this.resilience.finish(t,p,null,result);
    return ['click','ref_click','interaction.click'].includes(p.action)?this.popupClickResult(this.tasks.get(p.taskId),p,result,priorRefs):result;
-   }catch(error){this.resilience.finish(t,p,error);throw error;}finally{release();}
+   }catch(error){await this.popupPolicy.abort(t,popupLease,error);this.resilience.finish(t,p,error);throw error;}finally{release();}
   },this.diagnostics,{component:'mv3_background',event_type:'action_state',action:p.action,request_id:crypto.randomUUID(),connection_id:this.diagnosticConnection});
  }
  async executeAction(p) {
@@ -1701,7 +1706,8 @@ export class Executor {
    const passwords=await this.collectPasswords(t,p);guard();
    return omitPasswordValues(result,passwords);
   });
-  if(p.action==='popup_catalog')return this.taskBarrier(t.id,false,()=>this.lock(p.tabId,()=>this.popupReceipt(t,p,()=>this.popups.catalog(t,p,this.popupGuard(t,p)))));
+  if(p.action==='popup.policy'){this.check(t,p);if(this.leases.get(p.tabId)!==t.id)throw Error('tab lease denied');return this.popupPolicy.status(t,p.tabId);}
+  if(p.action==='popup_catalog')return this.taskBarrier(t.id,false,()=>this.lock(p.tabId,()=>this.popupReceipt(t,p,async()=>({...await this.popups.catalog(t,p,this.popupGuard(t,p)),backgroundTabs:this.popupPolicy.catalog(t,p.tabId)}))));
   if(p.action==='popup_adopt')return this.popupReceipt(t,p,()=>this.adoptPopup(t,p));
   p={...p,[OVERLAY_ACTION_TOKEN]:crypto.randomUUID()};
   const queuedAt=performance.now();
@@ -2833,7 +2839,7 @@ export class Executor {
   while(true){
    guard();
    // 中文注释：导航期间 tabs.get 可能仍是旧页；只检查已提交的新网址。
-   if(tab.url&&(!previousUrl||tab.url!==previousUrl||tab.status==='complete')){
+   if(tab.url&&!(t&&requested&&/^https?:/.test(requested)&&tab.url==='about:blank')&&(!previousUrl||tab.url!==previousUrl||tab.status==='complete')){
     seenCommit=true;if(t&&requested)this.acceptCommittedOrigin(t,requested,tab.url);
    }
    if(seenCommit&&tab.status==='complete')return {tab,ready:'complete'};
@@ -2907,13 +2913,13 @@ export class Executor {
     });
    }
    guard();
-   const work=await this.workspaces.open(t.workspaceCapability,{requestId:p.action==='new_tab'?p.requestId:(p.requestId||crypto.randomUUID()),url,title:t.title});
+   const work=await this.workspaces.open(t.workspaceCapability,{requestId:p.action==='new_tab'?p.requestId:(p.requestId||crypto.randomUUID()),url,title:t.title,...(this.popupPolicy.enabled(t)?{prepareTab:id=>this.popupPolicy.install(t,id,guard)}:{})});
    const tab=await this.api.tabs.get(work.tabId);guard();
    if(!Number.isInteger(tab.id))throw Error('invalid new tab');
    const windowId=this.workspaces.authority.resolve(t.workspaceCapability).windowId;
    if(tab.windowId!==windowId||tab.groupId!==work.groupId)throw Error('RELEASED');
    if(this.leases.has(tab.id))throw Object.assign(Error('TASK_BUSY'),{code:'TASK_BUSY',preDispatch:false});
-   this.acceptCommittedOrigin(t,url,tab.url||url);
+   if(tab.url!=='about:blank')this.acceptCommittedOrigin(t,url,tab.url||url);
    t.tabIds.add(tab.id);t.agentTabs.add(tab.id);this.leases.set(tab.id,t.id);
    // 中文注释：记录模型页创建时的组，用于回收前核对用户是否移走页面。
    (t.agentTabGroups??=new Map()).set(tab.id,work.groupId);
@@ -2934,8 +2940,9 @@ export class Executor {
   t.tabOpenQueue=registration;
   const {settled}=await registration;
   const opened=await settled;
+  const receipt=await this.popupPolicy.createdReceipt(t,opened.tabId,opened);guard();
   void this.restoreOverlay(t,opened.tabId);
-  return opened;
+  return receipt;
  }
  async openSafeLink(t,p,guard,inspection){
   if(inspection?.kind!=='blank_anchor'||typeof inspection.url!=='string')return {unsupported:true,code:'CHILD_CREATION_UNSUPPORTED',clicked:false};
@@ -3049,7 +3056,7 @@ export class Executor {
   }
   if(this.observers.pending(t,p.tabId)&&!['screenshot','interaction.capture'].includes(p.action))
    throw Object.assign(Error('DIALOG_OPEN'),{preDispatch:true});
-  if(p.action==='execution.guard')return this.resilience.execute(t,p,target,guard);
+  if(p.action==='execution.guard'){const health=await this.resilience.execute(t,p,target,guard);if(this.popupPolicy.enabled(t)){const popup=await this.popupPolicy.status(t,p.tabId);return {...health,protection:{...health.protection,popupPaused:popup.paused},popupPolicy:popup};}return health;}
   if(p.action==='console')return this.observers.console(t,p,target,guard);
   if(p.action==='images'){
    const tree=await this.checkedFrameTree(target,t,guard,false);

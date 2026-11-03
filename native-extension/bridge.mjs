@@ -28,6 +28,7 @@ function executionError(error, message) {
       ['status', 'failure'].includes(message.params?.options?.operation)) ||
     (message.method === 'browser.execute' &&
       [
+        'popup.policy',
         'popup_catalog',
         'tabs',
         'snapshot',
@@ -55,6 +56,19 @@ function executionError(error, message) {
     text = 'Browser operation could not be completed.';
   // 中文注释：并发资源冲突只拒绝当前请求，保留是否已创建页面的派发事实。
   if (
+    [
+      'POPUP_POLICY_PAUSED',
+      'POPUP_POLICY_BUSY',
+      'POPUP_POLICY_UNPROTECTED',
+      'POPUP_POLICY_UNAVAILABLE',
+      'POPUP_POLICY_STALE',
+      'POPUP_POLICY_STATE_UNCONFIRMED',
+      'POPUP_POLICY_OUTCOME_UNKNOWN',
+    ].includes(reason)
+  ) {
+    code = reason.toLowerCase();
+    text = '弹窗策略已暂停后续操作；请查看扩展中的弹窗模式，不要重放已送达动作。';
+  } else if (
     [
       'ACCESS_COOLDOWN',
       'EXECUTION_CIRCUIT_OPEN',

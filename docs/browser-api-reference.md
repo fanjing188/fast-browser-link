@@ -324,6 +324,12 @@ Wait for the same approval/manual-input request (max 300 s), without creating a 
 
 扩展能力：`browser_core_v1`。
 
+### `popup_status(*, tab=None)`
+
+只读查询弹窗模式、保护覆盖与暂停原因；切兼容模式仅允许用户在扩展界面操作，不重放被拦动作。
+
+扩展能力：`popup_policy_v1`。
+
 ### `business_progress(selectors=None, *, tab=None)`
 
 绑定业务进度选择器（最多8个，可选 data-* / id / aria-rowindex 属性）；只回摘要，配置不可中途替换。

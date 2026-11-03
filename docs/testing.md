@@ -268,6 +268,6 @@ node tests/native-v2/real-page-export.mjs
 
 新能力范围见 [持久工作流](workflow-tools.md)。`test_workflow.py` 覆盖 durable Store、真实子进程退出、预算和文件校验；原有执行保护和下载测试覆盖业务摘要与安全下载计数。真实临时浏览器执行 `node tests/v1.1-script-lane/real-workflow-tools.mjs`（Edge 加 `--edge`）；桌面专项 `node tests/v1.6.0/real-background-focus.mjs --headed` 必须先获用户同意，默认仍无头。使用明确私有 TMPDIR、保留真实 HOME，完成后清理所属临时进程和 profile。
 
-桌面结果须同时记录 macOS 前台应用采样与 Chrome 窗口状态；不以无头测试替代。网页独立弹窗实测仍可能切走前台，报告必须标为未解决，不能把基础六组通过写成全部静默通过。下载校验的 PDF/图片仅签名级、XLSX 仅缓存值；合成文件不证明真实业务导出完整。
+桌面结果须同时记录 macOS 前台应用采样与 Chrome 窗口状态；不以无头测试替代。旧策略的独立弹窗失败保留历史证据，新策略只报告已验证范围；兼容模式仍可能切前台，不能把基础场景通过写成全部静默通过。下载校验的 PDF/图片仅签名级、XLSX 仅缓存值；合成文件不证明真实业务导出完整。
 
-独立弹窗已知失败复现：`node tests/v1.6.0/real-desktop-download-popup.mjs --headed`（Edge 加 `--edge`），检测到提升前台即失败，不恢复旧焦点、不将失败标绿；默认拒绝启动可见窗口。
+新弹窗策略专项：`node tests/v1.6.0/real-desktop-download-popup.mjs` 默认无头；Edge 加 `--edge`，获用户同意后加 `--headed` 采样真实前台。默认/严格与显式兼容分开结算，不恢复旧焦点。覆盖和边界见 [网页弹窗策略](popup-policy.md)。

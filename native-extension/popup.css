@@ -24,3 +24,7 @@ body button{min-height:44px;min-width:44px}
 .tooltip{max-height:calc(100dvh - 80px);overflow:auto;line-height:1.6}
 .row-label{overflow-wrap:anywhere}
 .connection-row .status-component{margin-left:auto}
+
+#popup-policy-row { flex-wrap: wrap; gap: 6px; }
+#popup-policy { max-width: 220px; font: inherit; font-size: 12px; }
+#popup-policy-note { flex-basis: 100%; }

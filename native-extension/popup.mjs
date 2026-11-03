@@ -200,6 +200,20 @@ function renderWork() {
   $('#page-task').dataset.taskId = task?.id || '';
   $('#page-task').dataset.tabId = task ? String(page.tabId) : '';
   $('#page-task').hidden = !task && !receipt;
+  const popupPolicy = task?.popupPolicy;
+  $('#popup-policy-row').hidden = !popupPolicy?.supported;
+  $('#popup-policy').value = popupPolicy?.mode || 'background';
+  $('#popup-policy').disabled = busy || !task || task.state === 'pausing';
+  $('#popup-policy-resume').hidden = !popupPolicy?.paused;
+  $('#popup-policy-resume').disabled = busy || !task || task.state === 'pausing';
+  $('#popup-policy-note').textContent = popupPolicy?.paused
+    ? t('已拦截，等待你处理', 'Blocked; user action needed')
+    : popupPolicy?.mode === 'compatible'
+      ? t('允许原生弹窗，可能切走焦点', 'Native popups may take focus')
+      : popupPolicy?.protected === false
+        ? t('此页尚未保护，写操作会暂停', 'Page unprotected; writes will pause')
+        : t('不兼容时暂停，不重放', 'Pause if unsupported; no replay');
+
   $('#task-title').textContent = task?.title || page?.title || t('当前页任务', 'Current task');
   $('#task-title').title = $('#task-title').textContent;
   $('#operation').textContent = receipt
@@ -379,3 +393,34 @@ chrome.runtime.onMessage.addListener((message) => {
 });
 void refresh();
 setInterval(refresh, 1500);
+
+async function applyPopupMode(event) {
+  const task = statusData?.tasks?.find((x) => x.id === statusData?.page?.taskId),
+    page = statusData?.page;
+  if (!task || !page || busy) return;
+  const mode = event.target.value;
+  busy = true;
+  ++revision;
+  render();
+  try {
+    const r = await call({
+      type: 'popup_action',
+      kind: 'popup_policy',
+      mode,
+      taskId: task.id,
+      generation: task.generation,
+      tabId: page.tabId,
+    });
+    if (r.verified !== true || r.mode !== mode)
+      throw Error(t('弹窗模式未确认', 'Popup mode unconfirmed'));
+  } catch (e) {
+    error(e.message || t('弹窗模式未确认', 'Popup mode unconfirmed'));
+  } finally {
+    busy = false;
+    await refresh();
+  }
+}
+$('#popup-policy').addEventListener('change', applyPopupMode);
+$('#popup-policy-resume').addEventListener('click', () =>
+  applyPopupMode({ target: $('#popup-policy') }),
+);

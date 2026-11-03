@@ -296,6 +296,7 @@ class HostBridge:
             "workflow_ready",
             "resilience_ready",
             "workflow_tools_ready",
+            "popup_policy_ready",
             "reconcile",
             "operation_status",
             "reconnect",
@@ -306,6 +307,7 @@ class HostBridge:
                 "semantic_snapshot",
                 "page.parse",
                 "page.observe",
+                "popup.policy",
                 "screenshot",
                 "tabs",
                 "cdp.events",
@@ -631,6 +633,8 @@ class HostBridge:
                         ]
                 elif op == "capabilities" and args == []:
                     value = sorted(helper_capabilities)
+                elif op == "popup_policy_ready" and args == []:
+                    value = selected.workflow_ready(feature="popup_policy_v1")
                 elif op == "workflow_tools_ready" and args == []:
                     value = selected.workflow_ready(feature="durable_workflow_v1")
                 elif op == "resilience_ready" and args == []:
@@ -834,6 +838,13 @@ class HostBridge:
                     "execution_circuit_open",
                     "execution_no_progress",
                     "execution_progress_incomplete",
+                    "popup_policy_paused",
+                    "popup_policy_busy",
+                    "popup_policy_unprotected",
+                    "popup_policy_unavailable",
+                    "popup_policy_stale",
+                    "popup_policy_state_unconfirmed",
+                    "popup_policy_outcome_unknown",
                     "execution_handoff",
                     "guard_interrupted",
                     "guard_capacity",

@@ -156,7 +156,10 @@ class Observer:
             }
         if "popup" in kinds:
             self.seen_popups = {
-                row["candidateRef"] for row in self.api["popup_catalog"]().get("candidates", [])
+                row["candidateRef"]
+                for row in (lambda x: x.get("candidates", []) + x.get("backgroundTabs", []))(
+                    self.api["popup_catalog"]()
+                )
             }
         self.check()
 
@@ -261,7 +264,7 @@ class Observer:
             elif kind == "popup":
                 rows = [
                     value
-                    for value in popups.get("candidates", [])
+                    for value in popups.get("candidates", []) + popups.get("backgroundTabs", [])
                     if value.get("candidateRef") not in self.seen_popups
                     and ("origin" not in row or value.get("origin") == row["origin"])
                 ]
@@ -609,6 +612,19 @@ def run_steps(api, values, timeout=60):
                 result.get("outcomeUnknown") is True or result.get("outcome_unknown") is True
             ):
                 raise api["BrowserError"]("unknown action outcome", code="outcome_unknown")
+            if isinstance(result, dict) and result.get("popupPolicy", {}).get("paused") is True:
+                entry["phase"] = "popup_policy"
+                entry["popup_policy"] = {
+                    "paused": True,
+                    "reason": result["popupPolicy"].get("reason"),
+                }
+                return {
+                    "completed": False,
+                    "failed_step": index,
+                    "reason": "popup_policy_paused",
+                    "outcome_unknown": False,
+                    "steps": receipts,
+                }
             if watch:
                 entry["phase"] = "after"
                 entry["after"] = watch.wait()
@@ -623,6 +639,7 @@ def run_steps(api, values, timeout=60):
             entry["protection"] = api["guard"]()
             if guard_reason(entry["protection"]) in {
                 "execution_no_progress",
+                "popup_policy_paused",
                 "execution_circuit_open",
                 "execution_handoff",
                 "access_cooldown",
@@ -678,6 +695,8 @@ def run_steps(api, values, timeout=60):
 
 def guard_reason(state):
     """中文注释：只读取固定保护状态，不把刷新成功当成业务成功。"""
+    if state.get("protection", {}).get("popupPaused"):
+        return "popup_policy_paused"
     if state.get("protection", {}).get("progressIncomplete"):
         return "execution_progress_incomplete"
     if state.get("protection", {}).get("stalled"):

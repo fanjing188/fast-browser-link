@@ -280,6 +280,7 @@ export async function openRealSession({
       ],
       { stdio: ['ignore', 'ignore', 'pipe'], detached: true, cwd: work, env: browserEnv },
     );
+    session.browserPid = proc.pid;
     proc.stderr.on('data', (chunk) => {
       session.logs += String(chunk);
     });

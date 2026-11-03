@@ -1581,6 +1581,13 @@ def _save_workflow_report(report):
 
 
 @_tab_scoped
+def popup_status(*, tab=None):
+    """只读查询弹窗模式、保护覆盖与暂停原因；切兼容模式仅允许用户在扩展界面操作，不重放被拦动作。"""
+    _call("popup_policy_ready", [])
+    return _call("run", ["popup.policy", {"options": {"operation": "status"}}])
+
+
+@_tab_scoped
 @_tool_errors
 def business_progress(selectors=None, *, tab=None):
     """绑定业务进度选择器（最多8个，可选 data-* / id / aria-rowindex 属性）；只回摘要，配置不可中途替换。"""
@@ -1943,6 +1950,7 @@ HELPERS = {
         "diagnose_target",
         "run_steps",
         "business_progress",
+        "popup_status",
         "run_workflow",
         "run_batch",
         "workflow_report",

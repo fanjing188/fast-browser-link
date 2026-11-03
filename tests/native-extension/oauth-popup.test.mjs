@@ -1523,3 +1523,423 @@ test('无痕状态只读查询使用浏览器授权，异常和缺失能力都�
     bridge.close();
   }
 });
+
+// 中文注释：真实 MAIN bootstrap 合同；只替换浏览器原生边界，不模拟策略实现。
+import { installPopupGuard, PopupPolicy } from '../../native-extension/oauth-popups.mjs';
+function popupGuardFixture(mode = 'background') {
+  const dom = new JSDOM('<a target="_blank" href="/next">Link</a><form target="_blank"></form>', {
+    url: 'https://example.com/',
+    runScripts: 'outside-only',
+  });
+  const calls = [],
+    proxy = {
+      closed: false,
+      postMessage() {},
+      close() {
+        this.closed = true;
+      },
+    };
+  dom.window.open = (...args) => {
+    calls.push(['open', ...args]);
+    return proxy;
+  };
+  dom.window.focus = () => calls.push(['focus']);
+  dom.window.HTMLFormElement.prototype.submit = () => calls.push(['submit']);
+  dom.window.eval(
+    `(${installPopupGuard.toString()})('private-test-token',${JSON.stringify(mode)})`,
+  );
+  const control = dom.window.open('private-test-token');
+  return { dom, calls, proxy, control };
+}
+test('popup guard installs without opening anything, hides token and seals entrypoints', () => {
+  const f = popupGuardFixture();
+  try {
+    assert.equal(f.calls.length, 0);
+    assert.equal(f.control('status').mode, 'background');
+    assert.equal(Object.getOwnPropertyDescriptor(f.dom.window, 'open').configurable, false);
+    assert.doesNotMatch(f.dom.window.open.toString(), /private-test-token/);
+    f.dom.window.focus();
+    assert.equal(f.calls.length, 0);
+  } finally {
+    f.dom.window.close();
+  }
+});
+test('explicit same-origin noopener is queued once and returns native null semantics', () => {
+  const f = popupGuardFixture();
+  try {
+    f.control('arm', 'nonce');
+    assert.equal(f.dom.window.open('/next', '_blank', 'noopener,width=450'), null);
+    const done = f.control('finish', 'nonce');
+    assert.deepEqual(JSON.parse(JSON.stringify(done.requests)), [
+      { url: 'https://example.com/next', nonce: 'nonce' },
+    ]);
+    assert.equal(f.control('finish', 'nonce').requests.length, 0);
+    assert.equal(f.calls.length, 0);
+  } finally {
+    f.dom.window.close();
+  }
+});
+test('referenceful, cross-origin, autonomous and strict popups pause without native opening', () => {
+  for (const [mode, url, features, arm] of [
+    ['background', '/next', 'width=450', true],
+    ['background', 'https://login.test/', 'noopener', true],
+    ['background', '/next', 'noopener', false],
+    ['strict', '/next', 'noopener', true],
+  ]) {
+    const f = popupGuardFixture(mode);
+    try {
+      if (arm) f.control('arm', 'nonce');
+      f.dom.window.open(url, '_blank', features);
+      assert.equal(f.control('status').paused, true);
+      assert.equal(f.control('finish', 'nonce').requests.length, 0);
+      assert.equal(f.calls.length, 0);
+    } finally {
+      f.dom.window.close();
+    }
+  }
+});
+test('target links and forms are blocked, compatible mode preserves actual window proxy', () => {
+  const f = popupGuardFixture();
+  try {
+    const event = new f.dom.window.MouseEvent('click', { bubbles: true, cancelable: true });
+    f.dom.window.document.querySelector('a').dispatchEvent(event);
+    assert.equal(event.defaultPrevented, true);
+    f.dom.window.document.querySelector('form').submit();
+    assert.equal(f.calls.length, 0);
+    f.control('mode', 'compatible');
+    const returned = f.dom.window.open('/login', 'named', 'width=450');
+    assert.equal(returned, f.proxy);
+    returned.postMessage('done');
+    returned.close();
+    assert.equal(returned.closed, true);
+    assert.equal(f.calls.length, 1);
+    f.control('mode', 'background');
+    assert.equal(f.calls.length, 1, 'mode change does not replay');
+  } finally {
+    f.dom.window.close();
+  }
+});
+test('popup policy rejects old documents and child frames before writes', async () => {
+  const task = { id: 'one', generation: 1, popupPolicy: 'background' },
+    executor = {
+      leases: new Map([[1, 'one']]),
+      check() {},
+      api: { debugger: { sendCommand: async () => ({ frameTree: { childFrames: [{}] } }) } },
+    };
+  const policy = new PopupPolicy(executor),
+    p = { taskId: 'one', generation: 1, tabId: 1, action: 'ref_click' };
+  await assert.rejects(policy.before(task, p), /POPUP_POLICY_UNPROTECTED/);
+  assert.equal(task.popupPolicyPaused, 'unprotected_document');
+  await assert.rejects(policy.before(task, p), /POPUP_POLICY_PAUSED/);
+  // 独立验收新文档含框架的拒绝，不借第一次失败清除实际运行保护。
+  const fresh = { ...task, popupPolicyPaused: null };
+  policy.rows.set(1, { task: fresh, token: 't', scripts: [] });
+  await assert.rejects(policy.before(fresh, p), /POPUP_POLICY_UNPROTECTED/);
+});
+
+test('isolated execution guard queues through native ownership callback; mode switch waits for active lease', async () => {
+  const main = popupGuardFixture(),
+    isolated = popupGuardFixture();
+  const task = {
+    id: 'task',
+    generation: 1,
+    popupPolicy: 'background',
+    policy: { modeGeneration: 2 },
+    agentTabs: new Set([1]),
+  };
+  const calls = [],
+    executor = {
+      leases: new Map([[1, 'task']]),
+      check() {},
+      api: {
+        debugger: {
+          sendCommand: async (target, method, p) => {
+            if (method === 'Page.getFrameTree')
+              return {
+                frameTree: { frame: { id: 'frame', loaderId: 'doc', url: 'https://example.com/' } },
+              };
+            if (method === 'Runtime.evaluate')
+              return {
+                result: { value: (p.contextId ? isolated : main).dom.window.eval(p.expression) },
+              };
+            if (method === 'Runtime.callFunctionOn') {
+              isolated.dom.window.eval(
+                `(${p.functionDeclaration})(...${JSON.stringify(p.arguments.map((x) => x.value))})`,
+              );
+              return { result: {} };
+            }
+            if (method === 'Page.addScriptToEvaluateOnNewDocument')
+              return { identifier: 'new-script' };
+            return {};
+          },
+        },
+      },
+      openOwnedTab: async () => {
+        calls.push('create');
+        executor.leases.set(2, 'task');
+        return { tabId: 2 };
+      },
+      onBackgroundPopup: async (p) => {
+        calls.push(p);
+        return { generation: 1, tabIds: [1, 2] };
+      },
+    };
+  const policy = new PopupPolicy(executor);
+  policy.rows.set(1, { task, token: 'private-test-token', scripts: [] });
+  const p = { action: 'js.evaluate', tabId: 1, generation: 1, modeGeneration: 2 };
+  try {
+    const lease = await policy.before(task, p);
+    await policy.guardWorld(task, p, { tabId: 1 }, { id: 'frame', loaderId: 'doc' }, 2, () => {});
+    await assert.rejects(policy.setMode(task, 'compatible'), /POPUP_POLICY_BUSY/);
+    isolated.dom.window.open('/child', '_blank', 'noopener');
+    const result = await policy.after(task, p, lease, { ok: true });
+    assert.equal(result.popupPolicy.opened.length, 1);
+    assert.equal(calls[0], 'create');
+    assert.equal(calls[1].event, 'background_created');
+    assert.equal(calls[1].modeGeneration, 2);
+    assert.equal(task.popupPolicyActive.size, 0);
+    assert.equal(main.calls.length + isolated.calls.length, 0);
+    assert.equal(
+      await policy.before(task, {
+        ...p,
+        action: 'execution.guard',
+        options: { operation: 'recover', healthId: 'h' },
+      }),
+      null,
+    );
+    assert.equal(
+      task.popupPolicyActive.size,
+      0,
+      'reload validates protection without carrying an action nonce into a new document',
+    );
+    task.agentTabs = new Set([1, 2, 3, 4]);
+    const fullLease = await policy.before(task, p);
+    main.dom.window.open('/child', '_blank', 'noopener');
+    const full = await policy.after(task, p, fullLease, { ok: true });
+    assert.equal(full.popupPolicy.reason, 'capacity');
+    assert.equal(task.popupPolicyPaused, 'capacity');
+    assert.equal(calls.length, 2, 'capacity never opens or recycles a page');
+    await policy.setMode(task, 'compatible');
+    assert.equal(isolated.control('status').mode, 'compatible');
+    assert.equal(main.control('status').mode, 'compatible');
+    assert.equal(calls.length, 2, 'mode change never replays queued URL');
+  } finally {
+    main.dom.window.close();
+    isolated.dom.window.close();
+  }
+});
+
+test('autonomous popup pause notifications are bounded, scoped and reject stale mode epochs', async () => {
+  const listeners = new Set(),
+    notifications = [];
+  const task = {
+    id: 'task',
+    generation: 1,
+    popupPolicy: 'background',
+    policy: { modeGeneration: 2 },
+  };
+  const executor = {
+    attached: new Set(),
+    leases: new Map([[1, 'task']]),
+    api: {
+      debugger: {
+        onEvent: {
+          addListener: (f) => listeners.add(f),
+          removeListener: (f) => listeners.delete(f),
+        },
+        attach: async () => {},
+        sendCommand: async (t, method) =>
+          method === 'Page.addScriptToEvaluateOnNewDocument' ? { identifier: 'script' } : {},
+      },
+    },
+    onPopupPolicyState: async (p) => {
+      notifications.push(p);
+      return { verified: true, generation: 1 };
+    },
+  };
+  const policy = new PopupPolicy(executor);
+  await policy.install(task, 1, () => {});
+  assert.ok(
+    !policy.rows.get(1).binding.includes(policy.rows.get(1).token.replaceAll('-', '')),
+    'page-visible notification identifier never discloses the mode-control secret',
+  );
+  const row = policy.rows.get(1),
+    listener = [...listeners][0];
+  const message = (epoch, reason) => ({
+    name: row.binding,
+    payload: JSON.stringify({ epoch, reason }),
+  });
+  listener({ tabId: 2 }, 'Runtime.bindingCalled', message(0, 'outside_action'));
+  listener({ tabId: 1 }, 'Runtime.bindingCalled', message(0, 'PRIVATE_CANARY'));
+  assert.equal(notifications.length, 0);
+  listener({ tabId: 1 }, 'Runtime.bindingCalled', message(0, 'outside_action'));
+  await row.pendingNotice;
+  listener({ tabId: 1 }, 'Runtime.bindingCalled', message(0, 'outside_action'));
+  assert.equal(notifications.length, 1);
+  assert.equal(notifications[0].operation, 'pause');
+  assert.equal(task.popupPolicyPaused, 'outside_action');
+  row.epoch = 1;
+  row.noticed = false;
+  listener({ tabId: 1 }, 'Runtime.bindingCalled', message(0, 'outside_action'));
+  assert.equal(notifications.length, 1);
+  listener({ tabId: 1 }, 'Runtime.bindingCalled', message(1, 'outside_action'));
+  await row.pendingNotice;
+  assert.equal(notifications.length, 2);
+  policy.forget(1);
+  assert.equal(listeners.size, 0);
+});
+
+// 中文注释：策略暂停阻止写入，但宿主核实仍可读取框架树。
+test('policy pause retains reads and blocks compatible writes until explicit clear', async () => {
+  const task = { id: 't', popupPolicy: 'compatible', popupPolicyPaused: 'mode_unconfirmed' };
+  const policy = new PopupPolicy({});
+  await assert.rejects(
+    policy.before(task, { action: 'ref_click', tabId: 1 }),
+    /POPUP_POLICY_PAUSED/,
+  );
+  assert.equal(
+    await policy.before(task, { action: 'cdp.send', method: 'Page.getFrameTree', tabId: 1 }),
+    null,
+  );
+  task.popupPolicy = 'background';
+  task.popupPolicyPaused = null;
+  await assert.rejects(
+    policy.before(task, { action: 'cdp.send', method: 'Runtime.callFunctionOn', tabId: 1 }),
+    /POPUP_POLICY_UNPROTECTED/,
+  );
+  assert.equal(task.popupPolicyPaused, 'raw_context_unsupported');
+  const legacyDocument = { id: 'old-document', popupPolicy: 'background' };
+  assert.equal(
+    await policy.before(legacyDocument, {
+      action: 'execution.guard',
+      tabId: 1,
+      options: { operation: 'status' },
+    }),
+    null,
+  );
+  await assert.rejects(
+    policy.before(legacyDocument, {
+      action: 'execution.guard',
+      tabId: 1,
+      options: { operation: 'recover', healthId: 'h' },
+    }),
+    /POPUP_POLICY_UNPROTECTED/,
+  );
+  assert.equal(legacyDocument.popupPolicyPaused, 'unprotected_document');
+});
+
+test('ambiguous or conflicting relationship features never become a detached background page', () => {
+  for (const features of [
+    'noopener,noopener=0',
+    'noopener = no',
+    'noopener,noopener = 0',
+    'noopener=1 noopener=0',
+    'noreferrer=0,noopener',
+  ]) {
+    const f = popupGuardFixture();
+    try {
+      f.control('arm', 'nonce');
+      f.dom.window.open('/next', '_blank', features);
+      const done = f.control('finish', 'nonce');
+      assert.equal(done.paused, true, features);
+      assert.equal(done.requests.length, 0, features);
+      assert.equal(f.calls.length, 0, features);
+    } finally {
+      f.dom.window.close();
+    }
+  }
+});
+
+test('startup pause is handed off with a created tab receipt before native lease notification', async () => {
+  for (const blocked of [false, true]) {
+    const f = popupGuardFixture();
+    const task = { id: 'startup', popupPolicy: 'background' };
+    const executor = {
+      api: {
+        debugger: {
+          sendCommand: async (target, method, p) =>
+            method === 'Runtime.evaluate'
+              ? { result: { value: f.dom.window.eval(p.expression) } }
+              : { frameTree: { frame: { id: 'main' } } },
+        },
+      },
+      onPopupPolicyState: async () => {
+        throw Error('native lease is not registered yet');
+      },
+    };
+    const policy = new PopupPolicy(executor);
+    policy.rows.set(2, { task, token: 'private-test-token', scripts: [] });
+    const original = { tabId: 2, url: 'https://example.com/' };
+    try {
+      if (blocked) f.dom.window.open('/startup', '_blank', 'noopener');
+      const result = await policy.createdReceipt(task, 2, original);
+      assert.equal(result.tabId, 2);
+      if (blocked) {
+        assert.equal(result.popupPolicy.paused, true);
+        assert.equal(result.popupPolicy.reason, 'outside_action');
+        assert.equal(task.popupPolicyPaused, 'outside_action');
+      } else assert.equal(result, original);
+      assert.equal(f.calls.length, 0);
+    } finally {
+      f.dom.window.close();
+    }
+  }
+});
+
+test('safe-link startup pause survives the source receipt and clear retains new-mode autonomous pauses', async () => {
+  const f = popupGuardFixture();
+  const task = {
+    id: 'mode-order',
+    generation: 1,
+    popupPolicy: 'background',
+    policy: { modeGeneration: 1 },
+    agentTabs: new Set([1]),
+  };
+  const notices = [];
+  const executor = {
+    leases: new Map([[1, task.id]]),
+    check() {},
+    api: {
+      debugger: {
+        sendCommand: async (target, method, p) => {
+          if (method === 'Runtime.evaluate')
+            return { result: { value: f.dom.window.eval(p.expression) } };
+          if (method === 'Page.getFrameTree')
+            return { frameTree: { frame: { id: 'main', loaderId: 'doc' } } };
+          if (method === 'Page.addScriptToEvaluateOnNewDocument') return { identifier: 'script' };
+          return {};
+        },
+      },
+    },
+    onPopupPolicyState: async (p) => {
+      notices.push(p);
+      if (p.operation === 'clear') f.dom.window.open('/timer', '_blank', 'noopener');
+      return { verified: true, generation: 1 };
+    },
+  };
+  const policy = new PopupPolicy(executor);
+  policy.rows.set(1, { task, token: 'private-test-token', scripts: [] });
+  try {
+    const p = { action: 'ref_click', tabId: 1 };
+    const lease = await policy.before(task, p);
+    const receipt = await policy.after(task, p, lease, {
+      clicked: false,
+      tabId: 2,
+      openedVia: 'safe_link_navigation',
+      popupPolicy: { paused: true, reason: 'outside_action' },
+    });
+    assert.equal(receipt.popupPolicy.paused, true);
+    assert.equal(receipt.tabId, 2);
+    assert.equal(receipt.openedVia, 'safe_link_navigation');
+    await policy.setMode(task, 'background', 1);
+    assert.deepEqual(
+      notices.map((x) => x.operation),
+      ['pause', 'clear', 'pause'],
+    );
+    assert.equal(task.popupPolicyPaused, 'outside_action');
+    assert.equal((await policy.status(task, 1)).paused, true);
+    assert.equal(f.calls.length, 0);
+  } finally {
+    f.dom.window.close();
+  }
+});

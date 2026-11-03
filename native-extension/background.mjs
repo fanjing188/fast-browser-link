@@ -378,6 +378,14 @@ const executor = new Executor(
   chrome,
   (p) => bridge?.request('extension.tab_event', p).catch(() => {}),
   {
+    onPopupPolicyState: async (p) => {
+      if (!bridge || !connected) throw Error('POPUP_POLICY_STATE_UNCONFIRMED');
+      return bridge.request('extension.popup_policy', p);
+    },
+    onBackgroundPopup: async (p) => {
+      if (!bridge || !connected) throw Error('POPUP_POLICY_STALE');
+      return bridge.request('extension.tab_event', p);
+    },
     onPopupAdopt: async (p) => {
       const current = bridge;
       if (!current || !connected) throw Error('POPUP_STALE');
@@ -892,6 +900,7 @@ async function connect() {
           'browser_workflow_v1',
           'execution_resilience_v1',
           'durable_workflow_v1',
+          'popup_policy_v1',
           'page_parse_v1',
           'page_function_v1',
           'network_evidence_v1',
@@ -1134,6 +1143,7 @@ chrome.runtime.onMessage.addListener((m, sender, respond) => {
                   state,
                   generation: task.generation,
                   activeMode: local?.policy.activeMode || 'smart',
+                  popupPolicy: local ? await executor.popupPolicy.status(local, active.id) : null,
                   pendingInteraction: task.pendingInteraction
                     ? { kind: task.pendingInteraction.kind }
                     : null,
@@ -1150,6 +1160,18 @@ chrome.runtime.onMessage.addListener((m, sender, respond) => {
       const tab = await chrome.tabs.get(m.tabId);
       const site = origin(tab.url);
       executor.allowed(t, tab.url);
+      if (m.kind === 'popup_policy') {
+        if (t.silent && m.mode === 'compatible') throw Error('静默任务不能开启兼容弹窗');
+        return executor.taskBarrier(t.id, true, () =>
+          executor.withLocks(
+            [...t.tabIds].sort((a, b) => a - b),
+            () => {
+              executor.check(t, { generation: m.generation });
+              return executor.popupPolicy.setMode(t, m.mode, m.tabId);
+            },
+          ),
+        );
+      }
       if (m.kind === 'focus') {
         await chrome.tabs.update(m.tabId, { active: true });
         await chrome.windows.update(tab.windowId, { focused: true });

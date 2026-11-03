@@ -186,6 +186,10 @@ try {
     });
   });
   await check('弹窗仅观察不接管', async () => {
+    const changed = await session.ui.evaluate(
+      `chrome.runtime.sendMessage({type:'popup_action',kind:'popup_policy',taskId:${JSON.stringify(task.task.id)},generation:${task.task.generation},tabId:${task.tabId},mode:'compatible'})`,
+    );
+    assert.equal(changed.result?.verified, true, JSON.stringify(changed));
     const result = await script(
       "print(json.dumps(run_steps([{'action':'click','name':'Popup','after':{'conditions':[{'kind':'popup'}]}}])))",
     );

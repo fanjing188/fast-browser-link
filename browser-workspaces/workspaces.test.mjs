@@ -1030,3 +1030,37 @@ test('可信空任务可确认回收，缺失创建日志仍报告未知', async
   assert.equal(cleanup.cleanupState, 'succeeded');
   assert.equal(f.calls.filter((c) => c[0] === 'remove').length, 0);
 });
+
+test('prepared work tab remains blank until policy is installed, failure never navigates or retries', async () => {
+  for (const fail of [false, true]) {
+    const f = fixture(),
+      cap = f.grant();
+    let prepared = 0,
+      navigated = 0;
+    f.api.tabs.update = async (id, p) => {
+      navigated++;
+      f.tabs.get(id).url = p.url;
+      return { ...f.tabs.get(id) };
+    };
+    const options = {
+      requestId: 'prepared',
+      url: 'https://example.test/',
+      prepareTab: async (id) => {
+        prepared++;
+        assert.equal(f.tabs.get(id).url, 'about:blank');
+        assert.notEqual(f.tabs.get(id).groupId, -1);
+        if (fail) throw Error('policy unavailable');
+      },
+    };
+    if (fail) {
+      await assert.rejects(f.manager.open(cap, options), /policy unavailable/);
+      await assert.rejects(f.manager.open(cap, options), /UNKNOWN/);
+      assert.equal(navigated, 0);
+    } else {
+      await f.manager.open(cap, options);
+      assert.equal(navigated, 1);
+    }
+    assert.equal(prepared, 1);
+    assert.equal(f.calls.find((x) => x[0] === 'create')[1].active, false);
+  }
+});

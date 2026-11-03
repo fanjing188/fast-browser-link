@@ -21,6 +21,7 @@ export class NativeWorkspaces {
       tabs: {
         query: (p) => api.tabs.query(p),
         get: (id) => api.tabs.get(id),
+        update: (id, p) => api.tabs.update(id, p),
         remove: (id) => api.tabs.remove(id),
         ungroup: (id) => api.tabs.ungroup(id),
         group: (p) => api.tabs.group(p),
@@ -108,7 +109,12 @@ export class NativeWorkspaces {
   }
   async open(cap, p) {
     try {
-      return await this.manager.open(cap, { requestId: p.requestId, url: p.url, title: p.title });
+      return await this.manager.open(cap, {
+        requestId: p.requestId,
+        url: p.url,
+        title: p.title,
+        prepareTab: p.prepareTab,
+      });
     } catch (error) {
       // 中文注释：创建回执撞上已有租约只拒绝该请求，不将整个任务标成工作区未知。
       if (error?.message === 'new tab lease conflict')

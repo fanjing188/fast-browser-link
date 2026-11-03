@@ -156,6 +156,7 @@ export class PageRuntime {
           resources.worlds.set(key, contextId);
         }
       } else if (frame.parentId && !target.sessionId) throw fail('MAIN_WORLD_FRAME_UNSUPPORTED');
+      await this.executor.popupPolicy?.guardWorld(t, p, target, frame, contextId, guard);
       guard();
     } catch (error) {
       // 中文注释：此区间只准备框架与执行世界，尚未求值；保留已知拒绝，不制造未知写入。

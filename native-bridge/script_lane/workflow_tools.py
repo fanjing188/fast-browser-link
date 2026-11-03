@@ -565,6 +565,8 @@ def execute(api, module, name, items, resume=False, budget=None, progress=None):
                         "access_cooldown",
                         "execution_no_progress",
                         "execution_progress_incomplete",
+                        "popup_policy_paused",
+                        "popup_policy_unprotected",
                     }:
                         raise StopIteration
                     break

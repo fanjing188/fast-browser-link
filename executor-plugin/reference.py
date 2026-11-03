@@ -7,6 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 FEATURES = {
+    "popup_status": "popup_policy_v1",
     "network_start": "network_evidence_v1",
     "network_list": "network_evidence_v1",
     "network_detail": "network_evidence_v1",

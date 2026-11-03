@@ -255,15 +255,17 @@ function harness({
   };
 }
 
-test('host pending action produces one centered trusted panel and dedupes changed snapshots', async () => {
+test('host pending action produces one background trusted panel without focus and dedupes changed snapshots', async () => {
   const h = harness();
   await h.tick();
-  assert.equal(h.focusCalls.length, 1);
+  assert.equal(h.focusCalls.length, 0);
+  assert.equal(h.windowCalls[0].focused, false);
   assert.equal(h.windowCalls[0].url, 'chrome-extension://ext-123/approval-panel.html');
   h.changed();
   h.changed();
   await h.tick();
-  assert.equal(h.focusCalls.length, 1);
+  assert.equal(h.focusCalls.length, 0);
+  assert.equal(h.windowCalls[0].focused, false);
   const view = await h.message({ type: 'approval_panel_view' });
   assert.equal(view.result.origin, 'https://example.test');
   assert.equal(view.result.scope, '本次操作');
@@ -403,7 +405,7 @@ test('host revocation removes the panel; a closed panel never auto-refocuses', a
   await closed.tick();
   closed.changed();
   await closed.tick();
-  assert.equal(closed.focusCalls.length, 1);
+  assert.equal(closed.focusCalls.length, 0);
 });
 test('approval panel cannot take over stop or persistent-mode permissions', async () => {
   const h = harness();

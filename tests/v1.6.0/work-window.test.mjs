@@ -266,7 +266,7 @@ test('持久编号指向用户页面时不采用该窗口', async () => {
   tab.url = 'https://fixture.test';
   assert.notEqual(await w.ensure(), id);
 });
-test('同窗口切前台加输入串行，独立窗口和只读不阻塞，不聚焦窗口', async () => {
+test('同窗口后台输入串行且活动标签不变，独立窗口和只读不阻塞', async () => {
   const f = fixture(),
     w = new WorkWindow(f.api),
     windowId = await w.ensure();
@@ -313,11 +313,9 @@ test('同窗口切前台加输入串行，独立窗口和只读不阻塞，不�
   release();
   await Promise.all([a, b]);
   assert.deepEqual(events, ['a', 'independent', 'read', 'a-end', 'b']);
-  assert.ok(
-    f.calls
-      .filter((c) => c[0] === 'tabs.update')
-      .every((c) => JSON.stringify(c[2]) === '{"active":true}'),
-  );
+  assert.equal(f.calls.filter((c) => c[0] === 'tabs.update').length, 0);
+  assert.equal(f.tabs.get(1).active, false);
+  assert.equal(f.tabs.get(2).active, false);
 });
 test('current 配置不切前台；拖走的页不在原工作窗口切前台', async () => {
   const f = fixture(),
@@ -382,7 +380,8 @@ test('原始 CDP 输入进入窗口队列，非输入命令不切前台', async 
     () => {},
     async () => {},
   );
-  assert.equal(f.calls.filter((c) => c[0] === 'tabs.update').length, 1);
+  assert.equal(f.calls.filter((c) => c[0] === 'tabs.update').length, 0);
+  assert.equal(f.tabs.get(2).active, false);
 });
 test('隐藏语义目标先派发真实输入，页面核验后不依赖不可用的 CDP 命中接口', async () => {
   const events = [];

@@ -76,6 +76,12 @@ result = read_resilient(mode="content", timeout=15)
 
 保护状态和同源预算有固定容量，仅在扩展内存中保存；扩展重启不持久化节流和循环计数。重启后的旧标签不再具备自动刷新资格，原有持久未知结果屏障继续生效。容量不足返回 guard_capacity，不放行绕过。
 
+## 后台执行
+
+普通任务的输入队列只串行执行，不自动切换活动标签、不恢复或聚焦工作窗口。键盘、编辑器及原始 CDP 键盘/文本输入通过目标页焦点模拟交付，不使用系统前台。SDK/CDP 的 Page.bringToFront 和 Target.activateTarget 只验证并选择已授权逻辑目标，不提升窗口；Target 激活仍核目标归属。原始 Browser.setWindowBounds、Target.createTarget 和 Target.sendMessageToTarget 在自动执行链拒绝，创建工作页改用 new_tab/goto_url 等原有接口。不会因后台输入不可靠而把用户窗口切走或重放未知动作。
+
+自动审批提示使用不聚焦的扩展面板和通知，任务仍等待真实批准；用户点击通知、主动打开待确认或查看任务页时可以聚焦。连接时显式请求的浏览器授权管理窗口保留原有确认流程。网页自己的弹窗、浏览器或操作系统的原生对话框不属于插件主动聚焦指令，不能用无头测试承诺全部第三方界面的桌面行为。
+
 ## 验证
 
 离线回归见 `tests/v1.1-script-lane/test_workflow.py`，另有实际脚本子进程与宿主、绑定实例/代次及旧能力拒绝回归。真实浏览器 runner 使用打包产物、本地合成页面、临时 profile 和显式私有 TMPDIR：

@@ -87,7 +87,7 @@ export class NativeWorkspaces {
     }
     return cap;
   }
-  // 中文注释：只在本扩展工作窗口内切前台；用户拖走的工作页继续遵循既有所有权规则。
+  // 中文注释：工作窗口内只串行输入，不自动切换用户活动标签或窗口；拖走页面沿用既有归属规则。
   async withInput(task, p, guard, work) {
     if (task.silent) return work();
     if (

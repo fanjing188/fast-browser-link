@@ -142,7 +142,7 @@ export class WorkWindow {
       await this.api.storage.local.set({ [this.key]: null });
     });
   }
-  // 中文注释：窗口内切标签与输入一起排队；只读动作从不进入该队列，也不改变活动标签。
+  // 中文注释：同窗口输入串行，但不切活动标签、不恢复窗口；后台输入由目标页 CDP/焦点模拟交付。
   async input(windowId, tabId, guard, work) {
     const previous = this.tails.get(windowId) || Promise.resolve();
     const next = previous
@@ -151,8 +151,8 @@ export class WorkWindow {
         guard();
         const tab = await this.api.tabs.get(tabId);
         guard();
-        if (tab.windowId === windowId && !tab.active)
-          await this.api.tabs.update(tabId, { active: true });
+        if (tab.windowId !== windowId)
+          throw Object.assign(Error('WORK_WINDOW_CHANGED'), { preDispatch: true });
         guard();
         return work();
       });

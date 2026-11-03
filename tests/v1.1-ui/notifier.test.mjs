@@ -72,14 +72,16 @@ function fixture({
   return { chrome, calls, removed, notifier, req };
 }
 
-test('one validated request focuses target once and centers extension-owned panel', async () => {
+test('自动审批提示后台建面板，不聚焦目标或切标签，并发出通知', async () => {
   const { calls, notifier, req } = fixture();
   await notifier.sync([req()]);
   await notifier.sync([req()]);
-  assert.equal(calls.filter((c) => c[0] === 'focus').length, 1);
+  assert.equal(calls.filter((c) => c[0] === 'focus').length, 0);
   const p = calls.find((c) => c[0] === 'create')[1];
   assert.equal(p.url, 'chrome-extension://ext-123/approval-panel.html');
   assert.equal(p.type, 'popup');
+  assert.equal(p.focused, false);
+  assert.ok(calls.some((c) => c[0] === 'notify'));
   assert.equal(p.left, 100 + (1000 - p.width) / 2);
   assert.equal(p.top, 50 + (800 - p.height) / 2);
   assert.equal(notifier.view().id, 'r1');
@@ -100,7 +102,7 @@ test('deduplicates and queues, while later closes the panel without granting', a
   assert.equal(notifier.pending().length, 2);
   await notifier.sync([req(), req('r2')]);
   assert.equal(notifier.view().id, 'r2');
-  assert.equal(calls.filter((c) => c[0] === 'focus').length, 2);
+  assert.equal(calls.filter((c) => c[0] === 'focus').length, 0);
 });
 
 test('rejects invalid scope, conflicting IDs, and stale or forged decisions', async () => {
@@ -184,7 +186,7 @@ test('popup creation failure retains a pending badge without claiming a panel', 
   assert.equal(notifier.pending().length, 1);
   assert(calls.some((c) => c[0] === 'badge' && c[1] === '1'));
   await notifier.sync([req()]);
-  assert.equal(calls.filter((c) => c[0] === 'focus').length, 1);
+  assert.equal(calls.filter((c) => c[0] === 'focus').length, 0);
 });
 
 test('expired requests disappear on reconciliation; mode full cannot request repeat approval', async () => {
@@ -202,9 +204,10 @@ test('closed panel does not replay focus; explicit reopen can show deferred requ
   await notifier.panelClosed(notifier.panel().windowId);
   await notifier.sync([req()]);
   assert.equal(notifier.panel(), null);
-  assert.equal(calls.filter((x) => x[0] === 'focus').length, 1);
+  assert.equal(calls.filter((x) => x[0] === 'focus').length, 0);
   await notifier.openPending('r1');
   assert.equal(notifier.view().id, 'r1');
+  assert.equal(calls.filter((x) => x[0] === 'focus').length, 1);
 });
 
 test('tab origin or window drift prevents focus and retains a pending fallback', async () => {
@@ -284,4 +287,18 @@ test('mode generation drift invalidates the visible decision panel', async () =>
   await notifier.sync([req('r1', { modeGeneration: 2 })]);
   assert.deepEqual(removed, [91]);
   assert.equal(notifier.pending()[0].modeGeneration, 2);
+});
+
+test('人工输入仅在用户点击通知后切到绑定页，原来源改变时拒绝', async () => {
+  for (const drift of [false, true]) {
+    const { notifier, req, calls, chrome } = fixture();
+    chrome.tabs.update = async (id, p) => calls.push(['activate', id, p]);
+    await notifier.sync([req('manual', { kind: 'manual_input', fieldKind: 'password' })]);
+    assert.equal(calls.filter((c) => ['focus', 'activate'].includes(c[0])).length, 0);
+    if (drift) chrome.tabs.get = async () => ({ id: 7, windowId: 12, url: 'https://other.test/' });
+    if (drift) await assert.rejects(notifier.notificationClicked('fast-browser-approval'), /scope/);
+    else await notifier.notificationClicked('fast-browser-approval');
+    assert.equal(calls.filter((c) => c[0] === 'activate').length, drift ? 0 : 1);
+    assert.equal(notifier.pending().length, 1);
+  }
 });

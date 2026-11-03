@@ -86,7 +86,8 @@ test('smart adopted popup write projects a request and opens a sender-bound pane
     'chrome-extension://ext/approval-panel.html',
   );
   assert.equal(f.notifier.viewFor(f.sender()).scope, '本次操作');
-  assert.equal(f.calls.filter((row) => row[0] === 'focus').length, 1);
+  assert.equal(f.calls.filter((row) => row[0] === 'focus').length, 0);
+  assert.equal(f.calls.find((row) => row[0] === 'create')[1].focused, false);
 });
 
 test('first site read in a leased popup also opens the normal readOrigin approval panel', async () => {

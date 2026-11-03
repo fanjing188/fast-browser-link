@@ -920,7 +920,8 @@ export class Executor {
   if(method==='browser.cdp_activate'){
    if(t.silent)throw Error('SILENT_TASK_FOCUS_DENIED');
    const tabId=await tabByTarget(p.targetId);this.pageRuntime.assert(t,{...p,tabId});
-   await this.api.tabs.update(tabId,{active:true});return {};
+   // 中文注释：兼容工具的逻辑目标选择，不将任务页切到前台。
+   guard();return {};
   }
   if(!Number.isInteger(p.tabId)||this.leases.get(p.tabId)!==t.id)throw Error('tab lease denied');
   if(method==='browser.cdp_subscribe'){

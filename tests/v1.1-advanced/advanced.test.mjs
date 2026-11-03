@@ -1348,3 +1348,90 @@ test('event reads finish while a long command holds the same tab lock, with task
     await long;
   }
 });
+
+// 中文注释：后台执行兼容逻辑激活，但绝不派发提升窗口的命令。
+test('任务原始 CDP 激活页面不切前台，拒绝创建/恢复系统窗口', async () => {
+  const f = fixture();
+  for (const method of ['Page.bringToFront', 'Target.activateTarget']) {
+    await f.controller.send(
+      f.task,
+      { tabId: 7, method, params: method.startsWith('Target.') ? { targetId: 'T7' } : {} },
+      guard,
+    );
+    assert.equal(
+      f.sent.some((row) => row.method === method),
+      false,
+    );
+  }
+  await assert.rejects(
+    f.controller.send(
+      f.task,
+      { tabId: 7, method: 'Target.activateTarget', params: { targetId: 'foreign' } },
+      guard,
+    ),
+    /TARGET_NOT_OWNED/,
+  );
+  for (const method of [
+    'Browser.setWindowBounds',
+    'Target.createTarget',
+    'Target.sendMessageToTarget',
+  ]) {
+    await assert.rejects(
+      f.controller.send(f.task, { tabId: 7, method, params: {} }, guard),
+      (e) => e.message === 'CDP_METHOD_DENIED' && e.preDispatch === true,
+    );
+    assert.equal(
+      f.sent.some((row) => row.method === method),
+      false,
+    );
+  }
+});
+test('键盘/文本后台焦点模拟在成功和失败后释放且不重放输入', async () => {
+  for (const failed of [false, true]) {
+    const f = fixture();
+    f.task.overlays = new Map([[7, { contextId: 1 }]]);
+    f.executor.overlayCall = async () => true;
+    if (failed)
+      f.replies['Input.insertText'] = () => {
+        throw Error('lost receipt');
+      };
+    const request = f.controller.send(
+      f.task,
+      { tabId: 7, method: 'Input.insertText', params: { text: 'synthetic' } },
+      guard,
+    );
+    if (failed) await assert.rejects(request, /lost receipt/);
+    else await request;
+    assert.deepEqual(
+      f.sent
+        .filter((row) => row.method === 'Emulation.setFocusEmulationEnabled')
+        .map((row) => row.params.enabled),
+      [true, false],
+    );
+    assert.equal(f.sent.filter((row) => row.method === 'Input.insertText').length, 1);
+  }
+});
+test('网关逻辑激活仍核任务和目标，但不调用 tabs.update', async () => {
+  const f = fixture();
+  f.task.policy.modeGeneration = 1;
+  f.executor.pageRuntime = f.controller;
+  f.executor.check = (t, p) => {
+    if (t !== f.task || p.generation !== 3) throw Error('stale generation');
+  };
+  f.executor.assertSilentTarget = async () => {};
+  f.executor.api.tabs.update = () => {
+    throw Error('focus forbidden');
+  };
+  const request = { taskId: 't1', generation: 3, modeGeneration: 1, targetId: 'T7' };
+  assert.deepEqual(
+    await Executor.prototype.gateway.call(f.executor, 'browser.cdp_activate', request),
+    {},
+  );
+  await assert.rejects(
+    Executor.prototype.gateway.call(f.executor, 'browser.cdp_activate', {
+      ...request,
+      targetId: 'foreign',
+    }),
+    /TARGET_UNAVAILABLE/,
+  );
+});

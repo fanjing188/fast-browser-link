@@ -367,3 +367,22 @@ test('冷却排队期间新增人工状态/熔断/无进展不得迟到派发', 
     assert.equal(f.engine.site('https://example.test').queued, 0);
   }
 });
+
+test('逻辑选页不污染刷新资格或清除失败熔断', async () => {
+  const f = fixture();
+  await f.status();
+  for (let i = 0; i < 3; i++) {
+    f.engine.finish(
+      f.a,
+      { ...f.params(), action: 'click' },
+      Object.assign(Error('TARGET_HIDDEN'), { preDispatch: true }),
+    );
+    for (const method of ['Page.bringToFront', 'Target.activateTarget']) {
+      const p = { ...f.params(), action: 'cdp.send', method };
+      f.engine.note(f.a, p);
+      f.engine.finish(f.a, p, null, {});
+    }
+  }
+  assert.equal((await f.status()).protection.circuitOpen, true);
+  assert.equal(f.engine.state(f.a).dirty.size, 0);
+});

@@ -364,6 +364,12 @@ export class PageRuntime {
     };
     const verdict = cdpMethodAllowed(p.method, { gateway });
     if (!verdict.allowed) throw fail('CDP_METHOD_DENIED', { category: verdict.category });
+    if (
+      ['Browser.setWindowBounds', 'Target.createTarget', 'Target.sendMessageToTarget'].includes(
+        p.method,
+      )
+    )
+      throw fail('CDP_METHOD_DENIED', { category: 'foreground_window' });
     const params = p.params === undefined ? {} : p.params;
     if (
       !params ||
@@ -413,11 +419,30 @@ export class PageRuntime {
       }
       this.executor.allowed(t, url);
     }
-    let inputWindow;
+    let inputWindow,
+      emulatedFocus = false;
     try {
       if (p.method.startsWith('Input.'))
         inputWindow = await this.openInputWindow(t, p.tabId, p.method, params, guard, { gateway });
       await this.assertTargetScope(t, p, guard, target, { allFrames: true });
+      // 中文注释：工具的页面激活只作为逻辑目标选择，绝不提升系统窗口或切活动标签。
+      if (p.method === 'Page.bringToFront') return {};
+      if (p.method === 'Target.activateTarget') {
+        const rows = await this.executor.api.debugger.getTargets();
+        guard();
+        if (!rows.some((row) => debuggerTargetId(row) === params.targetId && row.tabId === p.tabId))
+          throw fail('TARGET_NOT_OWNED');
+        return {};
+      }
+      if (
+        ['Input.dispatchKeyEvent', 'Input.insertText', 'Input.imeSetComposition'].includes(p.method)
+      ) {
+        await this.executor.api.debugger.sendCommand(target, 'Emulation.setFocusEmulationEnabled', {
+          enabled: true,
+        });
+        emulatedFocus = true;
+        guard();
+      }
       // 中文注释：enable 可在响应前同步发上下文/脚本事件；先登记现有授权页的缓冲，避免首批丢失。
       if (!gateway) this.subscribe(t, p.tabId, target.sessionId || null, 'buffer');
       const result = await bounded(
@@ -449,6 +474,14 @@ export class PageRuntime {
         : omitPasswordValues(result, await this.executor.collectPasswords(t, p));
       return this.maybeChunk(safe, t);
     } finally {
+      if (emulatedFocus)
+        await boundedCleanup(
+          Promise.resolve().then(() =>
+            this.executor.api.debugger.sendCommand(target, 'Emulation.setFocusEmulationEnabled', {
+              enabled: false,
+            }),
+          ),
+        );
       // 中文注释：只关闭本次派发的窗口；并发新窗口不会被迟到的 finally 收回。
       if (inputWindow) {
         let timer;

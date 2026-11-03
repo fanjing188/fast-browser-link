@@ -258,3 +258,7 @@ node tests/native-v2/real-page-export.mjs
 ## 2.6.0 执行保护验收
 
 离线门禁新增 `tests/native-extension/execution-resilience.test.mjs`，覆盖同源共享冷却、单并发、恢复节奏、人工状态、失败去重熔断、无进展停止、刷新资格与未知结果不补发；Python 工作流回归覆盖真实 helper 组合及异常边界。手动真实 runner `tests/v1.1-script-lane/real-resilience.mjs` 使用打包候选、临时 Chrome/Edge 和本地合成站，覆盖一次刷新、草稿保护、验证码停止、三次循环、定位失败熔断和跨任务 429 冷却。不连接第三方站，不升级个人安装。
+
+## 2.6.0 后台焦点回归
+
+`tests/v1.6.0/real-background-focus.mjs` 使用打包候选、临时独立 Chrome/Edge 和本地合成站，默认无头并要求私有 TMPDIR。覆盖建页、窗口未聚焦、同窗非活动标签、最小化窗口、点击/表单填写/编辑器/按键、原始 CDP 激活及实际次数；核每阶段窗口 focused、state 和活动标签保持不变。无头浏览器标志不证明 macOS 跨应用实际桌面焦点；不操作个人浏览器，不以自动恢复焦点掩盖抢焦点。

@@ -71,13 +71,14 @@ function fixture({ focusThrows = false, createFocused = false, notificationFails
   };
 }
 
-test('聚焦返回 false 或抛错仍建窗口、记录未聚焦并发送无敏感信息通知', async () => {
+test('自动提示不尝试聚焦，后台建窗口并发送无敏感信息通知', async () => {
   for (const focusThrows of [false, true]) {
     const h = fixture({ focusThrows, createFocused: true });
     await h.notifier.sync([h.request]);
     assert.deepEqual(h.notifier.panel(), { windowId: 20, tabId: 21, focusConfirmed: false });
     assert.equal(h.calls.find((c) => c[0] === 'create')[1].type, 'popup');
-    assert.equal(h.calls.find((c) => c[0] === 'create')[1].focused, true);
+    assert.equal(h.calls.find((c) => c[0] === 'create')[1].focused, false);
+    assert.equal(h.calls.filter((c) => c[0] === 'focus').length, 0);
     assert.equal(h.calls.filter((c) => c[0] === 'notification').length, 1);
     const notice = h.calls.find((c) => c[0] === 'notification');
     assert.match(notice[2].message, /网站访问/);

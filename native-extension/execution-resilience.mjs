@@ -25,9 +25,15 @@ const paced = new Set([
   'scroll',
   'back',
 ]);
+// 中文注释：页面激活已是受限逻辑选择，不算写入，不清除循环/失败计数。
+const harmlessCdp = new Set([
+  'Network.enable',
+  'Page.getFrameTree',
+  'Page.bringToFront',
+  'Target.activateTarget',
+]);
 const isPaced = (p) =>
-  paced.has(p.action) &&
-  !(p.action === 'cdp.send' && ['Network.enable', 'Page.getFrameTree'].includes(p.method));
+  paced.has(p.action) && !(p.action === 'cdp.send' && harmlessCdp.has(p.method));
 const fail = (code) => Object.assign(Error(code), { preDispatch: true });
 const origin = (value) => {
   try {
@@ -219,8 +225,7 @@ export class ExecutionResilience {
     }
   }
   note(t, p) {
-    if (p.action === 'cdp.send' && ['Network.enable', 'Page.getFrameTree'].includes(p.method))
-      return;
+    if (p.action === 'cdp.send' && harmlessCdp.has(p.method)) return;
     if (t && mutation.has(p.action)) {
       const s = this.state(t);
       if (s.dirty.size >= 256) s.allDirty = true;

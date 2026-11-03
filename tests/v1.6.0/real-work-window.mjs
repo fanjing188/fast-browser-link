@@ -6,7 +6,10 @@ import { fixture } from './real-background-input.mjs';
 const server = createServer((req, res) => {
   res.setHeader('Content-Type', 'text/html');
   res.end(
-    fixture.replace('<output', '<button id="quiet" aria-label="Quiet">Quiet</button><output'),
+    fixture.replace(
+      '<output',
+      '<button id="quiet" aria-label="Quiet" onclick="window.quietCount=(window.quietCount||0)+1">Quiet</button><output',
+    ),
   );
 });
 await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -16,7 +19,8 @@ try {
   session = await openRealSession({
     browser: process.argv.includes('--edge') ? 'edge' : 'chrome',
     headed: process.argv.includes('--headed'),
-    label: 'work160',
+    label: 'wk',
+    compactScratch: true,
   });
   await session.enableFullAccess();
   const tabs = await Promise.all(
@@ -57,21 +61,26 @@ try {
   const quiet = await tabs[0].ref('Quiet', ['button']);
   await tabs[0].read(`document.getElementById('quiet').focus()`);
   const noEffect = await tabs[0].act('ref_click', quiet);
-  assert.equal(noEffect.code, 'click_no_effect', JSON.stringify(noEffect));
+  // 中文注释：正式 2.5.1 已将已送达但无可见变化报告为 unobserved，不恢复旧错误语义。
+  assert.equal(noEffect.error, undefined, JSON.stringify(noEffect));
+  assert.equal(noEffect.delivery, 'confirmed');
   assert.equal(noEffect.effect, 'unobserved');
-  assert.match(noEffect.suggestion, /核对/);
-  console.log('PASS click_no_effect 工具通道', JSON.stringify(noEffect));
+  assert.equal(await tabs[0].read('window.quietCount'), 1);
+  console.log('PASS 无可见效果保留送达且只执行一次', JSON.stringify(noEffect));
   const script = await helperCall(
     'script',
     session.work,
     tabs[0].owner,
     tabs[0].task.id,
-    `try:\n    click_element('Quiet',role='button')\nexcept BrowserError as e:\n    print(e.code,e.effect,e.suggestion)\nelse:\n    raise RuntimeError('quiet click incorrectly succeeded')`,
+    `import json\nprint(json.dumps(click_element('Quiet',role='button')))`,
   );
   assert.equal(script.exit_code, 0, JSON.stringify(script));
-  assert.match(script.stdout, /click_no_effect unobserved/);
-  console.log('PASS click_no_effect 脚本通道', script.stdout.trim());
-  // 中文注释：后台截图及 bounds 为只读，点击时才切前台，原引用仍可确认可信交付。
+  const quietReceipt = JSON.parse(script.stdout);
+  assert.equal(quietReceipt.effect, 'unobserved');
+  assert.equal(quietReceipt.delivery, 'confirmed');
+  assert.equal(await tabs[0].read('window.quietCount'), 2);
+  console.log('PASS 脚本无可见效果保留送达且不补发', script.stdout.trim());
+  // 中文注释：后台截图、bounds 和点击均不切活动标签，原引用仍可确认可信交付。
   const activeBeforeRead = await session.ui.evaluate(
     `chrome.tabs.query({windowId:${windows[0]},active:true}).then(t=>t[0].id)`,
   );
@@ -106,7 +115,13 @@ try {
     );
   assert.equal(coordinate.effect, 'observed', JSON.stringify(coordinate));
   assert.equal(await tabs[1].read('hits.trusted'), 2);
-  console.log('PASS 后台截图读取不切标签，切前台后坐标点击引用仍有效');
+  assert.equal(
+    await session.ui.evaluate(
+      `chrome.tabs.query({windowId:${windows[0]},active:true}).then(t=>t[0].id)`,
+    ),
+    activeBeforeRead,
+  );
+  console.log('PASS 后台截图和坐标点击均不切标签，引用仍有效');
   // 中文注释：最小化仍走真实输入；不恢复窗口或聚焦用户窗口。
   await session.ui.evaluate(
     `chrome.windows.update(${windows[0]},{state:'minimized'}).then(()=>true)`,

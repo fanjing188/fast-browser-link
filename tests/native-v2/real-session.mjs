@@ -586,7 +586,7 @@ function requireBridgeResult(value) {
 
 export async function openTask(
   session,
-  { owner = 'session-a', origins, url, title = 'matrix', incognito = false },
+  { owner = 'session-a', origins, url, title = 'matrix', incognito = false, activate = true },
 ) {
   const instance = await session.instance();
   const task = requireBridgeResult(
@@ -614,7 +614,8 @@ export async function openTask(
       bridgeCode: opened.bridgeCode,
       _diagnostic: opened._diagnostic,
     });
-  await session.ui.evaluate(`chrome.tabs.update(${opened.tabId},{active:true}).then(()=>true)`);
+  if (activate)
+    await session.ui.evaluate(`chrome.tabs.update(${opened.tabId},{active:true}).then(()=>true)`);
   let sequence = 0;
   const handle = { task, owner, tabId: opened.tabId, instance, opened };
   handle.nextId = () => `${task.id.slice(0, 8)}-${++sequence}`;

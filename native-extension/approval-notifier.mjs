@@ -150,7 +150,7 @@ export function createApprovalNotifier({
       } catch {}
     }
   };
-  async function display() {
+  async function display(foreground = false) {
     if (disposed || active || panel) return;
     const r = [...requests.values()].find((x) => !x.later && !attempted.has(x.id));
     if (!r) return;
@@ -171,19 +171,21 @@ export function createApprovalNotifier({
         (target.type === 'popup' && r.tabId === null)
       )
         throw Error('wrong target window');
-      // 中文注释：后台应用可能无法抢前台；聚焦失败仍建面板，只记录未确认状态。
+      // 中文注释：自动审批提示只建后台面板并通知；仅用户主动打开时才聚焦。
       let targetFocused = false;
-      try {
-        const focused = await chrome.windows.update(r.windowId, { focused: true });
-        targetFocused = focused?.id === r.windowId && focused.focused === true;
-      } catch {}
+      if (foreground)
+        try {
+          const focused = await chrome.windows.update(r.windowId, { focused: true });
+          targetFocused = focused?.id === r.windowId && focused.focused === true;
+        } catch {}
       const manual = r.kind === 'manual_input';
       // The person must type into the page: show that tab and keep the field visible.
-      if (manual && r.tabId !== null) await chrome.tabs.update(r.tabId, { active: true });
+      if (foreground && manual && r.tabId !== null)
+        await chrome.tabs.update(r.tabId, { active: true });
       const created = await chrome.windows.create({
         url: chrome.runtime.getURL(PANEL),
         type: 'popup',
-        focused: true,
+        focused: foreground,
         width: WIDTH,
         height: HEIGHT,
         left: Math.round(
@@ -203,7 +205,7 @@ export function createApprovalNotifier({
       panel = {
         windowId: created.id,
         tabId: created.tabs[0].id,
-        focusConfirmed: targetFocused && created.focused === true,
+        focusConfirmed: foreground && targetFocused && created.focused === true,
       };
       if (!targetFocused || !panel.focusConfirmed)
         await showPanelNotification(
@@ -359,6 +361,13 @@ export function createApprovalNotifier({
       return run(async () => {
         const r = requests.get(active);
         if (id !== NOTIFICATION || !panel || !r || r.expiresAt <= now() || r.unknown) return;
+        if (r.kind === 'manual_input' && r.tabId !== null) {
+          const tab = await chrome.tabs.get(r.tabId);
+          if (tab.windowId !== r.windowId || new URL(tab.url).origin !== r.origin)
+            throw Error('tab scope changed');
+          await chrome.windows.update(r.windowId, { focused: true });
+          await chrome.tabs.update(r.tabId, { active: true });
+        }
         const focused = await chrome.windows.update(panel.windowId, { focused: true });
         panel.focusConfirmed = focused?.id === panel.windowId && focused.focused === true;
         if (panel.focusConfirmed) await clearPanelNotification(chrome, NOTIFICATION);
@@ -384,7 +393,7 @@ export function createApprovalNotifier({
           await close();
           active = null;
         }
-        await display();
+        await display(true);
       });
     },
     dispose() {

@@ -373,7 +373,7 @@ def wait_for_load(timeout=15.0, *, until="interactive", tab=None):
                 return state["readyState"]
         if time.monotonic() >= deadline:
             return state.get("readyState")
-        time.sleep(0.25)
+        _budget_sleep(0.25)
 
 
 @_tab_scoped
@@ -700,7 +700,7 @@ class _ExpectedEvent:
                 raise BrowserError(
                     "expected event not observed; do not repeat action", code="event_timeout"
                 )
-            time.sleep(0.1)
+            _budget_sleep(0.1)
 
 
 @_tab_scoped
@@ -966,7 +966,7 @@ def wait_for_element(
                 candidates=suggestions,
             )
         waited_for_target = True
-        time.sleep(min(0.25, remaining))
+        _budget_sleep(min(0.25, remaining))
 
 
 def _selection_result(result, target):
@@ -1250,7 +1250,7 @@ def wait_for_download(timeout=30.0, *, ignore=()):
                 code="download_timeout",
                 outcome_unknown=False,
             )
-        time.sleep(0.25)
+        _budget_sleep(0.25)
 
 
 def claim_download(download_id, dest=None):
@@ -1440,7 +1440,7 @@ def reconnect(timeout_s=30.0):
         state = _call("reconnect", [])
         if state.get("state") != "disconnected" or time.monotonic() >= deadline:
             return state
-        time.sleep(min(0.5, max(0, deadline - time.monotonic())))
+        _budget_sleep(min(0.5, max(0, deadline - time.monotonic())))
 
 
 def load_checkpoint():
@@ -1469,7 +1469,269 @@ def wait_pending(timeout_s=20.0, *, tab=None):
         except ApprovalRequired:
             if time.monotonic() >= deadline:
                 raise
-            time.sleep(1.0)
+            _budget_sleep(1.0)
+
+
+_managed_flow = contextvars.ContextVar("managed_workflow", default=False)
+_tools_module = None
+_ordinary_sleep = time.sleep
+
+
+def _budget_sleep(seconds):
+    if _managed_flow.get():
+        _call("workflow_state", ["wait", {"seconds": seconds}])
+    _ordinary_sleep(seconds)
+
+
+def _workflow_tools():
+    global _tools_module
+    if _tools_module is None:
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "_fbl_workflow_tools", Path(__file__).with_name("workflow_tools.py")
+        )
+        _tools_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(_tools_module)
+    return _tools_module
+
+
+def _tool_errors(fn):
+    @functools.wraps(fn)
+    def wrapped(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except _workflow_tools().WorkflowError as error:
+            raise BrowserError(
+                "工作流未派发新操作", code=error.code, outcome_unknown=False
+            ) from None
+
+    return wrapped
+
+
+def _state_call(op, data):
+    token = _workflow_deadline.set(
+        time.monotonic()
+        + (
+            min(30, data.get("timeout", 10)) + 5
+            if op == "resolve" and type(data.get("timeout", 10)) in (int, float)
+            else 5
+        )
+    )
+    try:
+        return _call("workflow_state", [op, data])
+    finally:
+        _workflow_deadline.reset(token)
+
+
+def _limit_workflow_deadline(seconds):
+    current = _workflow_deadline.get()
+    _workflow_deadline.set(
+        min(current, time.monotonic() + seconds)
+        if current is not None
+        else time.monotonic() + seconds
+    )
+
+
+def _save_workflow_report(report):
+    import tempfile
+
+    directory = Path.cwd() / ".fbl-reports"
+    try:
+        if directory.is_symlink():
+            raise OSError("report directory")
+        directory.mkdir(mode=0o700, exist_ok=True)
+        for suffix, body in [
+            ("json", json.dumps(report, ensure_ascii=False, indent=2)),
+            (
+                "md",
+                "# 任务验收报告\n\n"
+                + "\n".join(
+                    [
+                        "状态：" + str(report.get("status")),
+                        "原因：" + str(report.get("reason")),
+                        "操作次数：" + str(report.get("operations")),
+                        "\n| 项目 | 状态 | 已确认 | 剩余 |",
+                        "|---|---|---:|---:|",
+                        *[
+                            "| {id} | {state} | {confirmed} | {remaining} |".format(**x)
+                            for x in report.get("items", [])
+                        ],
+                        "\n结果未知的步骤不得重放。步骤完成不等于未声明的业务结果已验证。\n",
+                    ]
+                ),
+            ),
+        ]:
+            fd, temp = tempfile.mkstemp(dir=directory, prefix=".report-")
+            try:
+                with os.fdopen(fd, "w") as stream:
+                    stream.write(body)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                os.replace(temp, directory / (report["name"] + "." + suffix))
+            finally:
+                Path(temp).unlink(missing_ok=True)
+        report["files"] = {
+            "json": str((directory / (report["name"] + ".json")).relative_to(Path.cwd())),
+            "markdown": str((directory / (report["name"] + ".md")).relative_to(Path.cwd())),
+        }
+    except OSError:
+        report["report_error"] = "report_unavailable"
+    return report
+
+
+@_tab_scoped
+@_tool_errors
+def business_progress(selectors=None, *, tab=None):
+    """绑定业务进度选择器（最多8个，可选 data-* / id / aria-rowindex 属性）；只回摘要，配置不可中途替换。"""
+    _call("workflow_tools_ready", [])
+    state = _guard_status()
+    if selectors is None:
+        return state
+    return _call(
+        "run",
+        [
+            "execution.guard",
+            {
+                "options": {
+                    "operation": "progress",
+                    "healthId": state["healthId"],
+                    "selectors": selectors,
+                }
+            },
+        ],
+    )
+
+
+@_tab_scoped
+@_tool_errors
+def run_workflow(name, steps, *, resume=False, budget=None, progress=None, tab=None):
+    """持久检查点与预算执行；同任务/实例/代次/标签恢复，已确认步骤跳过，在途或未知步骤冻结；自动保存JSON/Markdown报告。"""
+    return run_batch(
+        name, [{"id": "task", "steps": steps}], resume=resume, budget=budget, progress=progress
+    )
+
+
+@_tab_scoped
+@_tool_errors
+def run_batch(name, items, *, resume=False, budget=None, progress=None, tab=None):
+    """最多100条独立项目，每项最多16步；仅已知未派发失败可继续其他项，未知/人工/熔断停止，续做跳过已确认步骤。"""
+    _call("workflow_tools_ready", [])
+    token = _managed_flow.set(True)
+    deadline_token = _workflow_deadline.set(_workflow_deadline.get())
+    try:
+        result = _workflow_tools().execute(
+            _workflow_api(), _workflow_module(), name, items, resume, budget, progress
+        )
+        return _save_workflow_report(result)
+    finally:
+        _managed_flow.reset(token)
+        _workflow_deadline.reset(deadline_token)
+
+
+@_tab_scoped
+@_tool_errors
+def workflow_report(name, *, tab=None):
+    """读取当前绑定任务的持久验收报告和待核实位置；不恢复授权，不发送浏览器动作。"""
+    record = _call("workflow_state", ["get", {"name": name}])
+    report = _workflow_tools().summary(record)
+    return _save_workflow_report(report) if record else report
+
+
+@_tab_scoped
+@_tool_errors
+def extend_workflow_budget(name, budget, *, tab=None):
+    """显式调整已停止流程的预算；不清除已花费次数/耗时，不解除在途或未知步骤。续做时传相同新预算。"""
+    row = _call("workflow_state", ["extend", {"name": name, "budget": budget}])
+    return _save_workflow_report(_workflow_tools().summary(row))
+
+
+@_tab_scoped
+@_tool_errors
+def reconcile_workflow(name, items, *, timeout=10, tab=None):
+    """显式只读澄清原在途步骤；先完成原生请求reconcile，再用原计划的all后置条件验证，不补发动作。items格式与run_batch一致。"""
+    _call("workflow_tools_ready", [])
+    row = _call("workflow_state", ["get", {"name": name}])
+    if not row or row["inflight"] is None:
+        return workflow_report(name)
+    i, j = map(int, row["inflight"].split(":"))
+    try:
+        after = items[i]["steps"][j]["after"]
+    except (IndexError, KeyError, TypeError):
+        raise BrowserError(
+            "缺少原后置条件", code="workflow_reconciliation_required", outcome_unknown=False
+        )
+    if after.get("mode", "all") != "all" or not after.get("conditions"):
+        raise BrowserError(
+            "需要明确all后置条件", code="workflow_reconciliation_required", outcome_unknown=False
+        )
+    try:
+        result = _state_call("resolve", {"name": name, "plan": items, "timeout": timeout})
+    except BrowserError as error:
+        if error.code == "workflow_postcondition_failed":
+            return {"resolved": False, "reason": "postcondition_failed"}
+        raise
+    return {"resolved": True, "report": _save_workflow_report(_workflow_tools().summary(result))}
+
+
+@_tab_scoped
+@_tool_errors
+def save_site_recipe(name, steps, *, tab=None):
+    """记住当前同源已完整读取的定位模板；fill只存value_key，不存填写值、页面引用或业务正文。"""
+    _call("workflow_tools_ready", [])
+    fingerprint = _workflow_tools().surface(_workflow_api(), steps)
+    return _call(
+        "workflow_state",
+        ["recipe_save", {"name": name, "value": {"steps": steps, "surface": fingerprint}}],
+    )
+
+
+@_tab_scoped
+@_tool_errors
+def run_site_recipe(name, values=None, *, workflow_name=None, resume=False, budget=None, tab=None):
+    """复用当前同源模板前重核页面结构和定位；结构变化拒绝，填写值本次传入，所有写入取得新引用。"""
+    _call("workflow_tools_ready", [])
+    recipe = _call("workflow_state", ["recipe_get", {"name": name}])
+    if not recipe or recipe["surface"] != _workflow_tools().surface(
+        _workflow_api(), recipe["steps"]
+    ):
+        raise BrowserError(
+            "站点结构已变化或模板不存在", code="workflow_recipe_stale", outcome_unknown=False
+        )
+    if values is None:
+        values = {}
+    if not isinstance(values, dict):
+        raise BrowserError("模板参数无效", code="invalid_params", outcome_unknown=False)
+    import copy
+
+    steps = copy.deepcopy(recipe["steps"])
+    used = set()
+    for step in steps:
+        if step["action"] == "fill":
+            key = step.pop("value_key")
+            used.add(key)
+            if key not in values or not isinstance(values[key], str):
+                raise BrowserError("缺少模板参数", code="invalid_params", outcome_unknown=False)
+            step["text"] = values[key]
+    if set(values) != used:
+        raise BrowserError("模板参数不匹配", code="invalid_params", outcome_unknown=False)
+    return run_workflow(workflow_name or name, steps, resume=resume, budget=budget)
+
+
+@_tool_errors
+def verify_download(download_id, *, expected=None, dest=None):
+    """领取本任务下载后核大小/摘要、CSV/JSON记录数/列/ISO日期范围；ZIP检查CRC，PDF/图片仅校验签名，失败保留文件。"""
+    _call("workflow_tools_ready", [])
+    _workflow_tools().expected_options(expected)
+    info = claim_download(download_id, dest)
+    try:
+        result = _workflow_tools().verify_file(
+            Path.cwd() / info["path"],
+            {**(expected or {}), "sha256": (expected or {}).get("sha256") or info.get("sha256")},
+        )
+    except OSError:
+        result = {"valid": False, "reason": "file_unavailable"}
+    return {**result, "download_id": download_id, "path": info["path"]}
 
 
 def _workflow_module():
@@ -1524,6 +1786,10 @@ def _workflow_api():
             ],
         ),
         "guard": _guard_status,
+        "state": _state_call,
+        "limit_deadline": _limit_workflow_deadline,
+        "business_progress": business_progress,
+        "sleep": _budget_sleep,
         "reload": lambda health_id: _call(
             "run", ["execution.guard", {"options": {"operation": "recover", "healthId": health_id}}]
         ),
@@ -1546,7 +1812,11 @@ def wait_until(conditions, *, mode="any", timeout=10, interval=0.25, tab=None):
     """统一有界等待：element/url/response/download/popup，any/all；事件仅匹配调用后新发生的证据。"""
     module = _workflow_module()
     module.duration(_workflow_api(), timeout)
-    token = _workflow_deadline.set(time.monotonic() + timeout)
+    token = _workflow_deadline.set(
+        min(_workflow_deadline.get(), time.monotonic() + timeout)
+        if _workflow_deadline.get() is not None
+        else time.monotonic() + timeout
+    )
     try:
         return module.wait_until(_workflow_api(), conditions, mode, timeout, interval)
     finally:
@@ -1564,7 +1834,11 @@ def run_steps(steps, *, timeout=60, tab=None):
     """最多16步操作及前后条件；整组预检、事件先监听、首错停止，返回步骤回执，未知动作不重放。"""
     module = _workflow_module()
     module.duration(_workflow_api(), timeout)
-    token = _workflow_deadline.set(time.monotonic() + timeout)
+    token = _workflow_deadline.set(
+        min(_workflow_deadline.get(), time.monotonic() + timeout)
+        if _workflow_deadline.get() is not None
+        else time.monotonic() + timeout
+    )
     try:
         return module.run_steps(_workflow_api(), steps, timeout)
     finally:
@@ -1583,7 +1857,11 @@ def recover_page(*, timeout=15, tab=None):
     """有界重新读取，最多一次受保护刷新；草稿、人工状态、既往写入及未知结果不刷新，不重放动作。"""
     module = _workflow_module()
     module.duration(_workflow_api(), timeout)
-    token = _workflow_deadline.set(time.monotonic() + timeout)
+    token = _workflow_deadline.set(
+        min(_workflow_deadline.get(), time.monotonic() + timeout)
+        if _workflow_deadline.get() is not None
+        else time.monotonic() + timeout
+    )
     try:
         return module.recover_page(_workflow_api(), timeout)
     finally:
@@ -1595,7 +1873,11 @@ def read_resilient(*, mode="content", root=None, timeout=15, tab=None):
     """最多三次只读恢复，返回 page/attempts/recovery；未知结果立即停止，不恢复授权或补发写入。"""
     module = _workflow_module()
     module.duration(_workflow_api(), timeout)
-    token = _workflow_deadline.set(time.monotonic() + timeout)
+    token = _workflow_deadline.set(
+        min(_workflow_deadline.get(), time.monotonic() + timeout)
+        if _workflow_deadline.get() is not None
+        else time.monotonic() + timeout
+    )
     try:
         return module.read_resilient(_workflow_api(), mode, root, timeout)
     finally:
@@ -1660,6 +1942,15 @@ HELPERS = {
         "wait_until",
         "diagnose_target",
         "run_steps",
+        "business_progress",
+        "run_workflow",
+        "run_batch",
+        "workflow_report",
+        "reconcile_workflow",
+        "extend_workflow_budget",
+        "save_site_recipe",
+        "run_site_recipe",
+        "verify_download",
         "execution_status",
         "recover_page",
         "read_resilient",

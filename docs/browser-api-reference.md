@@ -324,6 +324,60 @@ Wait for the same approval/manual-input request (max 300 s), without creating a 
 
 扩展能力：`browser_core_v1`。
 
+### `business_progress(selectors=None, *, tab=None)`
+
+绑定业务进度选择器（最多8个，可选 data-* / id / aria-rowindex 属性）；只回摘要，配置不可中途替换。
+
+扩展能力：`durable_workflow_v1`。
+
+### `run_workflow(name, steps, *, resume=False, budget=None, progress=None, tab=None)`
+
+持久检查点与预算执行；同任务/实例/代次/标签恢复，已确认步骤跳过，在途或未知步骤冻结；自动保存JSON/Markdown报告。
+
+扩展能力：`durable_workflow_v1`。
+
+### `run_batch(name, items, *, resume=False, budget=None, progress=None, tab=None)`
+
+最多100条独立项目，每项最多16步；仅已知未派发失败可继续其他项，未知/人工/熔断停止，续做跳过已确认步骤。
+
+扩展能力：`durable_workflow_v1`。
+
+### `workflow_report(name, *, tab=None)`
+
+读取当前绑定任务的持久验收报告和待核实位置；不恢复授权，不发送浏览器动作。
+
+扩展能力：`durable_workflow_v1`。
+
+### `extend_workflow_budget(name, budget, *, tab=None)`
+
+显式调整已停止流程的预算；不清除已花费次数/耗时，不解除在途或未知步骤。续做时传相同新预算。
+
+扩展能力：`durable_workflow_v1`。
+
+### `reconcile_workflow(name, items, *, timeout=10, tab=None)`
+
+显式只读澄清原在途步骤；先完成原生请求reconcile，再用原计划的all后置条件验证，不补发动作。items格式与run_batch一致。
+
+扩展能力：`durable_workflow_v1`。
+
+### `save_site_recipe(name, steps, *, tab=None)`
+
+记住当前同源已完整读取的定位模板；fill只存value_key，不存填写值、页面引用或业务正文。
+
+扩展能力：`durable_workflow_v1`。
+
+### `run_site_recipe(name, values=None, *, workflow_name=None, resume=False, budget=None, tab=None)`
+
+复用当前同源模板前重核页面结构和定位；结构变化拒绝，填写值本次传入，所有写入取得新引用。
+
+扩展能力：`durable_workflow_v1`。
+
+### `verify_download(download_id, *, expected=None, dest=None)`
+
+领取本任务下载后核大小/摘要、CSV/JSON记录数/列/ISO日期范围；ZIP检查CRC，PDF/图片仅校验签名，失败保留文件。
+
+扩展能力：`durable_workflow_v1`。
+
 ### `wait_until(conditions, *, mode='any', timeout=10, interval=0.25, tab=None)`
 
 统一有界等待：element/url/response/download/popup，any/all；事件仅匹配调用后新发生的证据。

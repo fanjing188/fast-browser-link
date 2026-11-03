@@ -262,3 +262,12 @@ node tests/native-v2/real-page-export.mjs
 ## 2.6.0 后台焦点回归
 
 `tests/v1.6.0/real-background-focus.mjs` 使用打包候选、临时独立 Chrome/Edge 和本地合成站，默认无头并要求私有 TMPDIR。覆盖建页、窗口未聚焦、同窗非活动标签、最小化窗口、点击/表单填写/编辑器/按键、原始 CDP 激活及实际次数；核每阶段窗口 focused、state 和活动标签保持不变。无头浏览器标志不证明 macOS 跨应用实际桌面焦点；不操作个人浏览器，不以自动恢复焦点掩盖抢焦点。
+
+
+## 2.6.0 持久工作流与桌面补验
+
+新能力范围见 [持久工作流](workflow-tools.md)。`test_workflow.py` 覆盖 durable Store、真实子进程退出、预算和文件校验；原有执行保护和下载测试覆盖业务摘要与安全下载计数。真实临时浏览器执行 `node tests/v1.1-script-lane/real-workflow-tools.mjs`（Edge 加 `--edge`）；桌面专项 `node tests/v1.6.0/real-background-focus.mjs --headed` 必须先获用户同意，默认仍无头。使用明确私有 TMPDIR、保留真实 HOME，完成后清理所属临时进程和 profile。
+
+桌面结果须同时记录 macOS 前台应用采样与 Chrome 窗口状态；不以无头测试替代。网页独立弹窗实测仍可能切走前台，报告必须标为未解决，不能把基础六组通过写成全部静默通过。下载校验的 PDF/图片仅签名级、XLSX 仅缓存值；合成文件不证明真实业务导出完整。
+
+独立弹窗已知失败复现：`node tests/v1.6.0/real-desktop-download-popup.mjs --headed`（Edge 加 `--edge`），检测到提升前台即失败，不恢复旧焦点、不将失败标绿；默认拒绝启动可见窗口。

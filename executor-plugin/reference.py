@@ -20,6 +20,20 @@ FEATURES = {
     "wait_until": "browser_workflow_v1",
     "diagnose_target": "browser_workflow_v1",
     "run_steps": "execution_resilience_v1",
+    **{
+        name: "durable_workflow_v1"
+        for name in [
+            "business_progress",
+            "run_workflow",
+            "run_batch",
+            "workflow_report",
+            "reconcile_workflow",
+            "extend_workflow_budget",
+            "save_site_recipe",
+            "run_site_recipe",
+            "verify_download",
+        ]
+    },
     "execution_status": "execution_resilience_v1",
     "recover_page": "execution_resilience_v1",
     "read_resilient": "execution_resilience_v1",

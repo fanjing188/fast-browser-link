@@ -569,5 +569,371 @@ except BrowserError as error:
         self.assertEqual(len(requests), 1)
 
 
+# 中文注释：真正的SQLite提交、宿主边界及helper组合；不启动个人浏览器。
+import tempfile
+import hashlib
+import io
+import zipfile
+
+_tools_spec = importlib.util.spec_from_file_location(
+    "workflow_tools_test", ROOT / "native-bridge/script_lane/workflow_tools.py"
+)
+_tools = importlib.util.module_from_spec(_tools_spec)
+_tools_spec.loader.exec_module(_tools)
+
+
+class DurableWorkflowTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.store = _tools.Store(Path(self.temp.name))
+        self.base = WorkflowTests()
+        self.base.setUp()
+        self.writes = 0
+        self.unknown = False
+        self.ambiguous = False
+        self.surface_changed = False
+        self.plan = [{"id": "one", "steps": [{"action": "click", "name": "Continue"}]}]
+
+    def tearDown(self):
+        self.store.close()
+        self.temp.cleanup()
+
+    def call(self, op, args):
+        if op == "workflow_tools_ready":
+            return {"supported": True}
+        if op == "workflow_state":
+            operation, data = args
+            try:
+                if operation == "wait":
+                    self.store.debit("scope", wait=data["seconds"], operation=False)
+                    return {"reserved": True}
+                scope = "recipe" if operation.startswith("recipe_") else "scope"
+                return self.store.call(
+                    scope, "get" if operation == "recipe_get" else operation, data
+                )
+            except _tools.WorkflowError as e:
+                raise child.BrowserError("denied", code=e.code, outcome_unknown=False)
+        if op == "run":
+            self.store.debit("scope", write=args[0] == "ref_click")
+            if args[0] == "semantic_snapshot" and self.ambiguous:
+                return page([button(), button(ref="r2")])
+            if args[0] == "semantic_snapshot" and self.surface_changed:
+                return page([button(name="Other")])
+            if args[0] == "ref_click":
+                self.writes += 1
+                if self.unknown:
+                    raise child.BrowserError(
+                        "lost", code="extension_disconnected", outcome_unknown=True
+                    )
+        return self.base.call(op, args)
+
+    def run_flow(self, *args, **kwargs):
+        def call(op, args):
+            try:
+                return self.call(op, args)
+            except _tools.WorkflowError as e:
+                raise child.BrowserError("denied", code=e.code, outcome_unknown=False)
+
+        with (
+            patch.object(child, "_call", side_effect=call),
+            patch.object(child, "_save_workflow_report", side_effect=lambda x: x),
+        ):
+            return child.run_batch(*args, **kwargs)
+
+    def test_host_cleanup_and_debit_require_own_launch_token(self):
+        from types import SimpleNamespace
+
+        spec = importlib.util.spec_from_file_location(
+            "workflow_ownership_host", ROOT / "native-bridge/script_lane/host_bridge.py"
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        host = object.__new__(module.HostBridge)
+        host._workflow_store = self.store
+        selected = SimpleNamespace(
+            _owner="owner", _task_id="task", _instance_id="instance", _generation=1, tab_id=1
+        )
+        scope = host._workflow_scope(selected)
+        data = {"name": "ownership", "plan": self.plan}
+        first = self.store.call(scope, "begin", data)
+        host._workflow_finish({"workflow_tokens": {}})
+        self.assertIn(scope, self.store.active)
+        with self.assertRaises(module.WorkflowConditionError) as e:
+            host._workflow_debit(selected, "run", ["semantic_snapshot", {}], {})
+        self.assertEqual(e.exception.code, "workflow_busy")
+        host._workflow_debit(selected, "workflow_state", ["get", {"name": "ownership"}], {})
+        self.assertEqual(self.store.call(scope, "get", {"name": "ownership"})["operations"], 0)
+        old = {"workflow_tokens": {scope: first["token"]}}
+        host._workflow_finish(old)
+        second = self.store.call(scope, "begin", {**data, "resume": True})
+        host._workflow_finish(old)
+        self.assertEqual(self.store.active[scope]["token"], second["token"])
+        with self.assertRaises(module.WorkflowConditionError):
+            host._workflow_debit(selected, "run", ["semantic_snapshot", {}], old["workflow_tokens"])
+        host._workflow_debit(selected, "run", ["semantic_snapshot", {}], {scope: second["token"]})
+        self.assertEqual(self.store.call(scope, "get", {"name": "ownership"})["operations"], 1)
+        host._workflow_finish({"workflow_tokens": {scope: second["token"]}})
+        self.assertNotIn(scope, self.store.active)
+
+    def test_completed_steps_survive_new_store_and_are_never_replayed(self):
+        self.assertTrue(self.run_flow("flow", self.plan)["completed"])
+        self.store.close()
+        self.store = _tools.Store(Path(self.temp.name))
+        result = self.run_flow("flow", self.plan, resume=True)
+        self.assertTrue(result["completed"])
+        self.assertEqual(result["skipped_confirmed_steps"], 1)
+        self.assertEqual(self.writes, 1)
+        with self.assertRaises(child.BrowserError):
+            self.run_flow(
+                "flow",
+                [{"id": "one", "steps": [{"action": "click", "name": "Different"}]}],
+                resume=True,
+            )
+
+    def test_confirmed_without_after_does_not_claim_business_verification(self):
+        r = self.run_flow("unverified", self.plan)
+        self.assertEqual(r["verified_steps"], 0)
+        self.assertEqual(r["unverified_confirmed_steps"], 1)
+
+    def test_elapsed_is_cumulative_and_not_double_counted(self):
+        with patch.object(_tools.time, "monotonic", return_value=100):
+            r = self.store.call(
+                "scope",
+                "begin",
+                {"name": "elapsed", "plan": self.plan, "budget": {"max_seconds": 10}},
+            )
+        for now in [101, 102, 103]:
+            with patch.object(_tools.time, "monotonic", return_value=now):
+                self.store.debit("scope")
+        self.assertEqual(self.store.call("scope", "get", {"name": "elapsed"})["elapsed"], 3)
+        with patch.object(_tools.time, "monotonic", return_value=111):
+            with self.assertRaises(_tools.WorkflowError) as e:
+                self.store.debit("scope", write=True)
+        self.assertEqual(e.exception.code, "workflow_time_budget")
+
+    def test_unknown_write_freezes_resume_and_report_retains_delivery_uncertainty(self):
+        self.unknown = True
+        r = self.run_flow("unknown", self.plan)
+        self.assertEqual(r["status"], "blocked")
+        self.assertTrue(r["outcome_unknown"])
+        self.assertEqual(self.writes, 1)
+        with self.assertRaises(child.BrowserError) as e:
+            self.run_flow("unknown", self.plan, resume=True)
+        self.assertEqual(e.exception.code, "workflow_reconciliation_required")
+        self.assertEqual(self.writes, 1)
+
+    def test_flock_excludes_second_process_and_crash_does_not_clear_inflight(self):
+        data = {"name": "crash", "plan": self.plan}
+        opened = self.store.call("scope", "begin", data)
+        second = _tools.Store(Path(self.temp.name))
+        try:
+            with self.assertRaises(_tools.WorkflowError):
+                second.call("scope", "begin", {**data, "resume": True})
+            self.store.call(
+                "scope", "arm", {"name": "crash", "token": opened["token"], "index": "0:0"}
+            )
+            self.store.close()
+            with self.assertRaises(_tools.WorkflowError):
+                second.call("scope", "begin", {**data, "resume": True})
+            self.assertEqual(second.call("scope", "get", {"name": "crash"})["inflight"], "0:0")
+        finally:
+            second.close()
+
+    def test_real_process_exit_keeps_durable_inflight(self):
+        code = """import importlib.util,os
+from pathlib import Path
+s=importlib.util.spec_from_file_location('tools',%r);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
+w=m.Store(Path(%r));r=w.call('process','begin',{'name':'crash','plan':%r});w.call('process','arm',{'name':'crash','token':r['token'],'index':'0:0'});os._exit(0)
+""" % (str(ROOT / "native-bridge/script_lane/workflow_tools.py"), self.temp.name, self.plan)
+        subprocess.run([sys.executable, "-I", "-c", code], check=True, timeout=5)
+        with self.assertRaises(_tools.WorkflowError):
+            self.store.call(
+                "process", "begin", {"name": "crash", "plan": self.plan, "resume": True}
+            )
+
+    def test_budget_persists_then_explicit_extension_resumes_without_reset(self):
+        limits = {"max_operations": 1}
+        result = self.run_flow("limited", self.plan, budget=limits)
+        self.assertFalse(result["completed"])
+        self.assertEqual(result["operations"], 1)
+        self.assertEqual(self.writes, 0)
+        row = self.store.call("scope", "get", {"name": "limited"})
+        self.assertIsNone(row["inflight"])
+        updated = {"max_operations": 100}
+        self.store.call("scope", "extend", {"name": "limited", "budget": updated})
+        self.assertTrue(
+            self.run_flow("limited", self.plan, budget=updated, resume=True)["completed"]
+        )
+        self.assertEqual(self.writes, 1)
+
+    def test_wait_budget_stops_before_sleep_or_write(self):
+        items = [
+            {
+                "id": "wait",
+                "steps": [
+                    {
+                        "action": "wait",
+                        "after": {
+                            "conditions": [
+                                {
+                                    "kind": "element",
+                                    "selector": "#x",
+                                    "state": "text",
+                                    "text": "missing",
+                                }
+                            ]
+                        },
+                    }
+                ],
+            }
+        ]
+        r = self.run_flow("wait", items, budget={"max_wait_seconds": 0.01})
+        self.assertFalse(r["completed"])
+        self.assertEqual(r["reason"], "workflow_wait_budget")
+        self.assertEqual(self.writes, 0)
+
+    def test_batch_prevalidates_all_items_and_css_before_any_write(self):
+        with self.assertRaises(child.BrowserError):
+            self.run_flow(
+                "invalid",
+                self.plan
+                + [{"id": "bad", "steps": [{"action": "fill", "name": "Search", "text": False}]}],
+            )
+        self.assertEqual(self.writes, 0)
+
+        def broken(op, args):
+            if op == "run" and args[0] == "page.observe" and args[1]["options"]["selector"] == "[":
+                raise child.BrowserError("bad CSS", code="invalid_params", outcome_unknown=False)
+            return self.call(op, args)
+
+        with (
+            patch.object(child, "_call", side_effect=broken),
+            patch.object(child, "_save_workflow_report", side_effect=lambda x: x),
+        ):
+            r = child.run_batch(
+                "css",
+                self.plan
+                + [{"id": "bad", "steps": [{"action": "click", "name": "Continue", "root": "["}]}],
+            )
+        self.assertFalse(r["completed"])
+        self.assertEqual(self.writes, 0)
+
+    def test_plan_inputs_are_hmac_only_not_persisted_in_database(self):
+        plan = [
+            {
+                "id": "private",
+                "steps": [{"action": "fill", "name": "Search", "text": "PRIVATE_INPUT_489"}],
+            }
+        ]
+        r = self.store.call("scope", "begin", {"name": "private", "plan": plan})
+        self.store.call("scope", "finish", {"name": "private", "token": r["token"]})
+        self.assertNotIn(b"PRIVATE_INPUT_489", self.store.path.read_bytes())
+
+    def test_cross_scope_cannot_read_or_resume_another_task(self):
+        r = self.store.call("scope", "begin", {"name": "isolation", "plan": self.plan})
+        self.assertIsNone(self.store.call("other", "get", {"name": "isolation"}))
+        with self.assertRaises(_tools.WorkflowError):
+            self.store.call("other", "finish", {"name": "isolation", "token": r["token"]})
+
+    def test_recipe_revalidates_surface_and_never_saves_text_values(self):
+        with (
+            patch.object(child, "_call", side_effect=self.call),
+            patch.object(child, "_save_workflow_report", side_effect=lambda x: x),
+        ):
+            self.assertTrue(
+                child.save_site_recipe("recipe", [{"action": "click", "name": "Continue"}])["saved"]
+            )
+            self.assertTrue(child.run_site_recipe("recipe", workflow_name="first")["completed"])
+            self.surface_changed = True
+            with self.assertRaises(child.BrowserError) as e:
+                child.run_site_recipe("recipe", workflow_name="second")
+            self.assertEqual(e.exception.code, "workflow_recipe_stale")
+            with self.assertRaises(child.BrowserError):
+                child.save_site_recipe(
+                    "bad", [{"action": "fill", "name": "Search", "text": "PRIVATE"}]
+                )
+        self.assertEqual(self.writes, 1)
+
+    def test_report_aggregates_failed_unstarted_confirmed_and_blocked(self):
+        row = {
+            "name": "r",
+            "layout": [
+                {"id": "done", "count": 1},
+                {"id": "failed", "count": 1},
+                {"id": "unknown", "count": 1},
+                {"id": "later", "count": 1},
+            ],
+            "entries": {
+                "0:0": {"state": "confirmed"},
+                "1:0": {"state": "pending", "reason": "ambiguous_target"},
+            },
+            "inflight": "2:0",
+            "status": "blocked",
+            "elapsed": 1,
+            "operations": 3,
+            "wait_seconds": 0,
+            "budget": {},
+        }
+        result = _tools.summary(row)
+        self.assertEqual(
+            result["counts"], {"completed": 1, "failed": 1, "blocked": 1, "pending": 1}
+        )
+
+    def test_download_csv_dates_headers_digest_and_html_masquerade(self):
+        p = Path(self.temp.name) / "rows.csv"
+        p.write_text("id,date\n1,2026-11-03\n")
+        expected = {
+            "required_columns": ["id", "date"],
+            "min_rows": 1,
+            "max_rows": 1,
+            "date_column": "date",
+            "date_from": "2026-11-01",
+            "date_to": "2026-11-30",
+        }
+        self.assertTrue(_tools.verify_file(p, expected)["valid"])
+        self.assertFalse(_tools.verify_file(p, {**expected, "date_to": "2026-11-02"})["valid"])
+        self.assertEqual(_tools.verify_file(p, {"sha256": "0" * 64})["reason"], "digest_mismatch")
+        p.write_text("<html>Login expired</html>")
+        self.assertFalse(_tools.verify_file(p)["valid"])
+
+    def test_xlsx_cached_values_dates_and_record_counts(self):
+        p = Path(self.temp.name) / "rows.xlsx"
+        with zipfile.ZipFile(p, "w") as z:
+            z.writestr(
+                "xl/workbook.xml",
+                '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets></workbook>',
+            )
+            z.writestr(
+                "xl/_rels/workbook.xml.rels",
+                '<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>',
+            )
+            z.writestr(
+                "xl/worksheets/sheet1.xml",
+                '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row><c r="A1" t="inlineStr"><is><t>id</t></is></c><c r="B1" t="inlineStr"><is><t>date</t></is></c></row><row><c r="A2"><v>1</v></c><c r="B2" t="inlineStr"><is><t>2026-11-03</t></is></c></row></sheetData></worksheet>',
+            )
+        r = _tools.verify_file(
+            p,
+            {
+                "min_rows": 1,
+                "required_columns": ["id", "date"],
+                "date_column": "date",
+                "date_from": "2026-11-01",
+            },
+        )
+        self.assertTrue(r["valid"])
+        self.assertEqual(r["rows"], 1)
+
+    def test_file_rejects_empty_truncated_and_symlink(self):
+        p = Path(self.temp.name) / "rows.json"
+        p.write_bytes(b"")
+        self.assertFalse(_tools.verify_file(p)["valid"])
+        p.write_bytes(b'[{"id":')
+        self.assertFalse(_tools.verify_file(p)["valid"])
+        link = p.with_name("link.json")
+        link.symlink_to(p)
+        with self.assertRaises(OSError):
+            _tools.verify_file(link)
+
+
 if __name__ == "__main__":
     unittest.main()

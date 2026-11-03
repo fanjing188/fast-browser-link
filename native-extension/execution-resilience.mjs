@@ -51,7 +51,7 @@ export function retryDelay(value, now = Date.now()) {
   return Number.isFinite(seconds) ? Math.min(86400000, Math.max(0, seconds)) : 0;
 }
 // 中文注释：固定隔离世界探针；不读控件当前值，不回传标题/正文。任何可编辑区/框架均禁止自动刷新。
-export function inspectExecutionSurface(seed = String(Date.now()) + Math.random()) {
+export function inspectExecutionSurface(seed = String(Date.now()) + Math.random(), selectors = []) {
   const root = document.documentElement;
   const prior = globalThis.__fblExecutionSurface;
   if (!prior || prior.root !== root) globalThis.__fblExecutionSurface = { root, epoch: seed };
@@ -108,7 +108,34 @@ export function inspectExecutionSurface(seed = String(Date.now()) + Math.random(
               : document.readyState === 'loading'
                 ? 'loading'
                 : 'ready';
+  let business = null;
+  if (selectors.length) {
+    let value = '',
+      matched = 0,
+      complete = true;
+    for (const spec of selectors) {
+      const nodes = document.querySelectorAll(spec.selector);
+      if (nodes.length > 256) complete = false;
+      value += '|' + nodes.length;
+      matched += nodes.length;
+      for (const node of [...nodes].slice(0, 256)) {
+        const raw = spec.attribute ? node.getAttribute(spec.attribute) : node.textContent;
+        if (raw === null || (raw || '').length > 1000) complete = false;
+        value += ':' + (raw || '').slice(0, 1000);
+        if (value.length > 16000) {
+          complete = false;
+          break;
+        }
+      }
+      if (value.length > 16000) break;
+    }
+    let digest = 2166136261;
+    for (let i = 0; i < value.length; i++)
+      digest = Math.imul(digest ^ value.charCodeAt(i), 16777619);
+    business = { digest: (digest >>> 0).toString(16), complete, matched };
+  }
   return {
+    business,
     reason,
     editable,
     frames,
@@ -143,6 +170,8 @@ export class ExecutionResilience {
         allDirty: false,
         blocked: null,
         network: new Set(),
+        progressSelectors: new Map(),
+        completedDownloads: new Map(),
         reports: new Set(),
         lastFailureHealth: null,
       };
@@ -224,6 +253,19 @@ export class ExecutionResilience {
       }
     }
   }
+  downloadCompleted(record) {
+    const t = this.executor.tasks.get(record.taskId);
+    if (
+      !t ||
+      t.revoked ||
+      t.generation !== record.generation ||
+      this.executor.leases.get(record.tabId) !== t.id
+    )
+      return;
+    const s = this.state(t);
+    if (!s.completedDownloads.has(record.tabId) && s.completedDownloads.size >= 64) return;
+    s.completedDownloads.set(record.tabId, (s.completedDownloads.get(record.tabId) || 0) + 1);
+  }
   note(t, p) {
     if (p.action === 'cdp.send' && harmlessCdp.has(p.method)) return;
     if (t && mutation.has(p.action)) {
@@ -250,6 +292,8 @@ export class ExecutionResilience {
     };
     check();
     if (s.blocked) throw fail('EXECUTION_HANDOFF');
+    if (s.progressSelectors.has(p.tabId) && s.health.get(p.tabId)?.business?.complete !== true)
+      throw fail('EXECUTION_PROGRESS_INCOMPLETE');
     if (this.loop(s, p.tabId).stalls >= 3) throw fail('EXECUTION_NO_PROGRESS');
     if (s.circuitUntil > this.now()) throw fail('EXECUTION_CIRCUIT_OPEN');
     const tab = Number.isInteger(p.tabId) ? await this.executor.api.tabs.get(p.tabId) : null;
@@ -264,6 +308,8 @@ export class ExecutionResilience {
       while (true) {
         check();
         if (s.blocked || b.manual) throw fail('EXECUTION_HANDOFF');
+        if (s.progressSelectors.has(p.tabId) && s.health.get(p.tabId)?.business?.complete !== true)
+          throw fail('EXECUTION_PROGRESS_INCOMPLETE');
         if (s.circuitUntil > this.now()) throw fail('EXECUTION_CIRCUIT_OPEN');
         if (this.loop(s, p.tabId).stalls >= 3) throw fail('EXECUTION_NO_PROGRESS');
         const wait = Math.max(0, b.until - this.now(), b.next - this.now());
@@ -306,6 +352,7 @@ export class ExecutionResilience {
           'ACCESS_COOLDOWN',
           'EXECUTION_CIRCUIT_OPEN',
           'EXECUTION_NO_PROGRESS',
+          'EXECUTION_PROGRESS_INCOMPLETE',
           'EXECUTION_HANDOFF',
           'GUARD_INTERRUPTED',
           'GUARD_CAPACITY',
@@ -339,18 +386,26 @@ export class ExecutionResilience {
     const r = await this.executor.api.debugger.sendCommand(target, 'Runtime.callFunctionOn', {
       executionContextId: world.executionContextId,
       functionDeclaration: inspectExecutionSurface.toString(),
-      arguments: [{ value: crypto.randomUUID() }],
+      arguments: [
+        { value: crypto.randomUUID() },
+        { value: this.state(t).progressSelectors.get(p.tabId) || [] },
+      ],
       returnByValue: true,
     });
     guard();
     if ((this.executor.docs.get(p.tabId) || 0) !== doc) throw fail('RECOVERY_STALE');
     if (r.exceptionDetails || !r.result?.value?.epoch) throw fail('RECOVERY_UNAVAILABLE');
-    return {
+    const value = {
       ...r.result.value,
       origin: site,
       loaderId: frame.loaderId,
       doc: this.executor.docs.get(p.tabId) || 0,
     };
+    value.loopProgress =
+      (value.business?.complete ? value.business.digest : value.progress) +
+      ':' +
+      (this.state(t).completedDownloads.get(p.tabId) || 0);
+    return value;
   }
   status(s, h, tabId) {
     const b = this.site(h.origin);
@@ -360,6 +415,7 @@ export class ExecutionResilience {
       reloadAllowed: h.reason === 'transient' && !unsafe && !s.reloads.has(tabId),
       reloadBlocked: unsafe ? 'page_state_protected' : s.reloads.has(tabId) ? 'reload_limit' : null,
       progress: h.progress,
+      businessProgress: h.business,
       documentEpoch: h.epoch,
       healthId: h.id,
       access: {
@@ -374,6 +430,7 @@ export class ExecutionResilience {
         circuitOpen: s.circuitUntil > this.now(),
         retryAfterMs: Math.max(0, s.circuitUntil - this.now()),
         stalled: this.loop(s, tabId).stalls >= 3,
+        progressIncomplete: !!s.progressSelectors.get(tabId) && h.business?.complete !== true,
       },
     };
   }
@@ -383,13 +440,15 @@ export class ExecutionResilience {
     s.enabled = true;
     const op = p.options?.operation;
     const allowed =
-      op === 'recover'
-        ? ['operation', 'healthId']
-        : op === 'failure'
-          ? ['operation', 'healthId', 'code']
-          : ['operation'];
+      op === 'progress'
+        ? ['operation', 'healthId', 'selectors']
+        : op === 'recover'
+          ? ['operation', 'healthId']
+          : op === 'failure'
+            ? ['operation', 'healthId', 'code']
+            : ['operation'];
     if (
-      !['status', 'recover', 'failure'].includes(op) ||
+      !['status', 'recover', 'failure', 'progress'].includes(op) ||
       Object.keys(p.options).some((k) => !allowed.includes(k)) ||
       (op !== 'status' &&
         (typeof p.options.healthId !== 'string' ||
@@ -448,12 +507,21 @@ export class ExecutionResilience {
         ['click', 'ref_click', 'scroll', 'navigate', 'official.goto_url'].includes(last.action)
       ) {
         const signature = JSON.stringify(last);
-        if (prior && prior.progress === h.progress && prior.epoch === h.epoch)
+        if (
+          prior &&
+          (h.business?.complete && prior.business?.complete
+            ? prior.loopProgress === h.loopProgress
+            : prior.loopProgress === h.loopProgress && prior.epoch === h.epoch)
+        )
           loop.stalls = loop.baseline?.action === signature ? loop.stalls + 1 : 1;
         else loop.stalls = 0;
-        loop.baseline = { action: signature, progress: h.progress, epoch: h.epoch };
+        loop.baseline = {
+          action: signature,
+          progress: h.loopProgress,
+          epoch: h.epoch,
+        };
         loop.lastAction = null;
-      } else if (last || (loop.baseline && loop.baseline.progress !== h.progress)) {
+      } else if (last || (loop.baseline && loop.baseline.progress !== h.loopProgress)) {
         loop.stalls = 0;
         loop.baseline = null;
         loop.lastAction = null;
@@ -482,6 +550,47 @@ export class ExecutionResilience {
       prior.origin !== h.origin
     )
       throw fail('RECOVERY_STALE');
+    if (op === 'progress') {
+      const selectors = p.options.selectors;
+      if (
+        !Array.isArray(selectors) ||
+        selectors.length < 1 ||
+        selectors.length > 8 ||
+        selectors.some(
+          (x) =>
+            !x ||
+            typeof x !== 'object' ||
+            Array.isArray(x) ||
+            Object.keys(x).some((k) => !['selector', 'attribute'].includes(k)) ||
+            typeof x.selector !== 'string' ||
+            !x.selector ||
+            x.selector.length > 512 ||
+            (x.attribute !== undefined &&
+              (typeof x.attribute !== 'string' ||
+                !/^(data-[a-z0-9_-]{1,48}|aria-rowindex|id)$/.test(x.attribute))),
+        )
+      )
+        throw fail('INVALID_OPTIONS');
+      const existing = s.progressSelectors.get(p.tabId),
+        loop = this.loop(s, p.tabId);
+      if (
+        (existing && JSON.stringify(existing) !== JSON.stringify(selectors)) ||
+        (!existing && (loop.baseline || loop.lastAction || loop.stalls))
+      )
+        throw fail('RECOVERY_BLOCKED');
+      if (!existing && s.progressSelectors.size >= 64) throw fail('GUARD_CAPACITY');
+      s.progressSelectors.set(p.tabId, structuredClone(selectors));
+      try {
+        const current = await this.inspect(t, p, target, guard);
+        current.id = crypto.randomUUID();
+        current.at = this.now();
+        s.health.set(p.tabId, current);
+        return this.status(s, current, p.tabId);
+      } catch (error) {
+        if (!existing) s.progressSelectors.delete(p.tabId);
+        throw error;
+      }
+    }
     const status = this.status(s, h, p.tabId);
     if (
       !status.reloadAllowed ||

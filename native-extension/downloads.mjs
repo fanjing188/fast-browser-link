@@ -223,6 +223,15 @@ export class DownloadTracker {
     if (!item) return;
     if (item.state === 'complete' && record.state === 'in_progress') {
       record.state = 'complete';
+      const size = Number.isSafeInteger(item.fileSize) ? item.fileSize : item.bytesReceived;
+      if (
+        ['safe', 'accepted'].includes(item.danger) &&
+        item.exists !== false &&
+        Number.isSafeInteger(size) &&
+        size >= 0 &&
+        size <= MAX_DOWNLOAD_BYTES
+      )
+        this.executor.resilience?.downloadCompleted(record);
       await this.send(record, {
         event: 'complete',
         downloadRef: id,

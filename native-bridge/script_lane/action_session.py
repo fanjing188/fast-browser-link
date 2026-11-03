@@ -212,7 +212,7 @@ class ActionSession:
         self._pending_popup_scope = None
         self._popup_waiting = False
 
-    def workflow_ready(self, *, resilience=False):
+    def workflow_ready(self, *, resilience=False, feature=None):
         # 中文注释：能力只从本任务绑定实例读回；旧扩展不能进入新增组合执行合同。
         if self._unknown:
             raise OutcomeUnknown("previous outcome unknown; reconcile before workflow")
@@ -230,7 +230,7 @@ class ActionSession:
             isinstance(row, dict)
             and row.get("instanceId") == self._instance_id
             and row.get("connected") is True
-            and ("execution_resilience_v1" if resilience else "browser_workflow_v1")
+            and (feature or ("execution_resilience_v1" if resilience else "browser_workflow_v1"))
             in row.get("features", [])
             for row in browsers
         ):

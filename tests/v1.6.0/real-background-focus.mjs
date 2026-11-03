@@ -1,5 +1,67 @@
-// 中文注释：真实临时 Chrome/Edge、本地合成站；不切用户个人浏览器或实际桌面焦点。
+// 中文注释：临时profile；有头准备阶段显式设置前台基线，测量阶段绝不恢复焦点掩盖抢前台。
 import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+const exec = promisify(execFile);
+const headed = process.argv.includes('--headed');
+const desktopFocus = async () =>
+  JSON.parse(
+    (
+      await exec('/usr/bin/osascript', [
+        '-l',
+        'JavaScript',
+        '-e',
+        'ObjC.import("AppKit"); var a=$.NSWorkspace.sharedWorkspace.frontmostApplication; JSON.stringify({pid:Number(a.processIdentifier),bundle:ObjC.unwrap(a.bundleIdentifier)})',
+      ])
+    ).stdout,
+  );
+const originalDesktop = headed ? await desktopFocus() : null;
+const restoreTestBaseline = async () => {
+  if (!headed) return;
+  await exec('/usr/bin/osascript', [
+    '-l',
+    'JavaScript',
+    '-e',
+    `ObjC.import("AppKit"); var a=$.NSRunningApplication.runningApplicationWithProcessIdentifier(${originalDesktop.pid}); if(!a.activateWithOptions(2)) throw Error('baseline app unavailable');`,
+  ]);
+  let stable = 0;
+  for (let i = 0; i < 50; i++) {
+    const current = await desktopFocus();
+    const focused = await session.ui.evaluate(
+      'chrome.windows.getAll().then(ws=>ws.some(w=>w.focused))',
+    );
+    stable = current.pid === originalDesktop.pid && !focused ? stable + 1 : 0;
+    if (stable >= 3) return;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  throw Error('desktop baseline did not settle');
+};
+const guardDesktop = async (before, work) => {
+  if (!headed) return work();
+  const events = [];
+  let pending = Promise.resolve(),
+    busy = false;
+  const timer = setInterval(() => {
+    if (!busy) {
+      busy = true;
+      pending = desktopFocus()
+        .then((x) => events.push(x))
+        .finally(() => {
+          busy = false;
+        });
+    }
+  }, 100);
+  try {
+    return await work();
+  } finally {
+    clearInterval(timer);
+    await pending;
+    assert.ok(
+      events.every((x) => x.pid === before.desktop.pid),
+      'Desktop focus changed during execution: ' + JSON.stringify(events),
+    );
+  }
+};
 import { createServer } from 'node:http';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -15,13 +77,17 @@ const server = createServer((req, res) => {
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const origin = `http://127.0.0.1:${server.address().port}`;
 const browser = process.argv.includes('--edge') ? 'edge' : 'chrome';
-const output = path.join(process.env.TMPDIR, `background-focus-${browser}`);
+const output = path.join(
+  process.env.TMPDIR,
+  `background-focus-${browser}${headed ? '-desktop' : ''}`,
+);
 await mkdir(output, { recursive: true });
 let session, failure;
 const checks = [];
 try {
   session = await openRealSession({
     browser,
+    headed,
     packageMode: true,
     label: 'bg',
     compactScratch: true,
@@ -30,27 +96,35 @@ try {
   const user = await session.ui.evaluate(
     `chrome.windows.create({url:'about:blank',focused:true,type:'normal'}).then(w=>({windowId:w.id,tabId:w.tabs[0].id}))`,
   );
-  const focus = () =>
-    session.ui.evaluate(
+  const focus = async () => {
+    const result = await session.ui.evaluate(
       `chrome.windows.getAll({populate:true}).then(ws=>({focused:ws.find(w=>w.focused)?.id??null,windows:ws.map(w=>({id:w.id,state:w.state,active:w.tabs.find(t=>t.active)?.id??null})).sort((a,b)=>a.id-b.id)}))`,
     );
+    if (headed) result.desktop = await desktopFocus();
+    return result;
+  };
+  await restoreTestBaseline();
   const baseline = await focus();
-  const a = await openTask(session, {
-    owner: 'bg-a',
-    origins: [origin],
-    url: origin + '/a',
-    title: '后台输入验收',
-    activate: false,
-  });
-  const b = await openTask(session, {
-    owner: 'bg-b',
-    origins: [origin],
-    url: origin + '/b',
-    title: '后台输入验收',
-    activate: false,
+  let a, b;
+  await guardDesktop(baseline, async () => {
+    a = await openTask(session, {
+      owner: 'bg-a',
+      origins: [origin],
+      url: origin + '/a',
+      title: '后台输入验收',
+      activate: false,
+    });
+    b = await openTask(session, {
+      owner: 'bg-b',
+      origins: [origin],
+      url: origin + '/b',
+      title: '后台输入验收',
+      activate: false,
+    });
   });
   const workWindow = await session.ui.evaluate(`chrome.tabs.get(${a.tabId}).then(t=>t.windowId)`);
   assert.equal((await focus()).focused, baseline.focused);
+  if (headed) assert.deepEqual(await desktopFocus(), originalDesktop);
   assert.equal(
     await session.ui.evaluate(
       `chrome.tabs.query({windowId:${user.windowId},active:true}).then(t=>t[0].id)`,
@@ -88,23 +162,29 @@ try {
       if (state === 'minimized-window')
         await session.ui.evaluate(`chrome.windows.update(${workWindow},{state:'minimized'})`);
       await session.ui.evaluate(`chrome.windows.update(${user.windowId},{focused:true})`);
+      await restoreTestBaseline();
     }
+    if (headed) await new Promise((r) => setTimeout(r, 400));
     const before = await focus();
-    await interact(a);
-    await interact(b);
+    await guardDesktop(before, async () => {
+      await interact(a);
+      await interact(b);
+    });
     const after = await focus();
     assert.deepEqual(after, before, state + ' changed focus/window/active tab');
     checks.push({ name: state + ' 点击填写编辑器按键均送达且焦点不变', ok: true, before, after });
   }
   const before = await focus();
-  await script(a, "print(json.dumps(cdp('Page.bringToFront')))");
-  const target = await session.ui.evaluate(
-    `chrome.debugger.getTargets().then(rows=>rows.find(t=>t.tabId===${a.tabId}).id)`,
-  );
-  await script(
-    a,
-    `print(json.dumps(cdp('Target.activateTarget',targetId=${JSON.stringify(target)})))`,
-  );
+  await guardDesktop(before, async () => {
+    await script(a, "print(json.dumps(cdp('Page.bringToFront')))");
+    const target = await session.ui.evaluate(
+      `chrome.debugger.getTargets().then(rows=>rows.find(t=>t.tabId===${a.tabId}).id)`,
+    );
+    await script(
+      a,
+      `print(json.dumps(cdp('Target.activateTarget',targetId=${JSON.stringify(target)})))`,
+    );
+  });
   assert.deepEqual(await focus(), before);
   checks.push({ name: '原始CDP激活请求不提升窗口或切标签', ok: true });
   const counts = await a.read('({hits:window.hits,enters:window.enters})');
@@ -114,11 +194,26 @@ try {
   failure = String(e.stack || e);
   process.exitCode = 1;
 } finally {
-  await writeFile(
-    path.join(output, 'result.json'),
-    JSON.stringify({ browser, headless: true, checks, failure: failure || null }, null, 2),
-  );
   await session?.close();
   await new Promise((r) => server.close(r));
+  if (headed && (await desktopFocus()).pid !== originalDesktop.pid) {
+    failure = failure || 'Desktop foreground changed during cleanup';
+    process.exitCode = 1;
+  }
+  await writeFile(
+    path.join(output, 'result.json'),
+    JSON.stringify(
+      {
+        browser,
+        headless: !headed,
+        originalDesktop,
+        desktopAfterCleanup: headed ? await desktopFocus() : null,
+        checks,
+        failure: failure || null,
+      },
+      null,
+      2,
+    ),
+  );
 }
 console.log(JSON.stringify({ browser, output, passed: checks.length, failure: failure || null }));

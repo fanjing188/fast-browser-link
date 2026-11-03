@@ -386,3 +386,93 @@ test('逻辑选页不污染刷新资格或清除失败熔断', async () => {
   assert.equal((await f.status()).protection.circuitOpen, true);
   assert.equal(f.engine.state(f.a).dirty.size, 0);
 });
+
+test('业务记录ID变化驱动进展，跨文档相同游标仍识别循环', async () => {
+  const f = fixture();
+  f.setHealth({ business: { complete: true, digest: 'same', matched: 1 } });
+  const h = await f.status();
+  await f.engine.execute(
+    f.a,
+    f.params(1, 'progress', {
+      healthId: h.healthId,
+      selectors: [{ selector: '[data-record-id]', attribute: 'data-record-id' }],
+    }),
+    { tabId: 1 },
+    () => {},
+  );
+  for (let i = 0; i < 3; i++) {
+    f.engine.finish(
+      f.a,
+      { ...f.params(), action: 'navigate', url: 'https://example.test/page' },
+      null,
+    );
+    f.setHealth({ epoch: 'document' + i });
+    await f.status();
+  }
+  assert.equal((await f.status()).protection.stalled, true);
+  f.setHealth({ business: { complete: true, digest: 'new-record', matched: 1 } });
+  assert.equal((await f.status()).protection.stalled, false);
+});
+test('业务范围不完整拒绝写入，不允许更换配置绕过已有循环', async () => {
+  const f = fixture();
+  f.setHealth({ business: { complete: false, digest: 'partial', matched: 300 } });
+  const h = await f.status();
+  await f.engine.execute(
+    f.a,
+    f.params(1, 'progress', { healthId: h.healthId, selectors: [{ selector: '.row' }] }),
+    { tabId: 1 },
+    () => {},
+  );
+  assert.equal((await f.status()).protection.progressIncomplete, true);
+  await assert.rejects(
+    f.engine.enter(f.a, { ...f.params(), action: 'click' }),
+    /EXECUTION_PROGRESS_INCOMPLETE/,
+  );
+  const next = await f.status();
+  await assert.rejects(
+    f.engine.execute(
+      f.a,
+      f.params(1, 'progress', { healthId: next.healthId, selectors: [{ selector: '.different' }] }),
+      { tabId: 1 },
+      () => {},
+    ),
+    /RECOVERY_BLOCKED/,
+  );
+});
+test('业务探针读取指定属性但只返回摘要，节点过量明确不完整', () => {
+  const d = new JSDOM(
+    '<h1>Ready</h1><div class="row" data-record-id="PRIVATE_RECORD_1">same</div>',
+    { pretendToBeVisual: true, runScripts: 'outside-only' },
+  );
+  d.window.HTMLElement.prototype.getClientRects = () => [{ width: 10, height: 10 }];
+  const inspect = () =>
+    d.window.eval(
+      '(' +
+        inspectExecutionSurface.toString() +
+        ') ("seed",[{selector:".row",attribute:"data-record-id"}])',
+    );
+  const first = inspect();
+  assert.equal(first.business.complete, true);
+  assert.doesNotMatch(JSON.stringify(first), /PRIVATE_RECORD/);
+  d.window.document.querySelector('.row').setAttribute('data-record-id', 'PRIVATE_RECORD_2');
+  assert.notEqual(inspect().business.digest, first.business.digest);
+  for (let i = 0; i < 256; i++)
+    d.window.document.body.append(d.window.document.querySelector('.row').cloneNode(true));
+  assert.equal(inspect().business.complete, false);
+  d.window.close();
+});
+
+test('本任务已完成下载构成真实进展，其他任务/代次不解除循环', async () => {
+  const f = fixture();
+  await f.status();
+  for (let i = 0; i < 3; i++) {
+    f.engine.finish(f.a, { ...f.params(), action: 'ref_click', ref: 'download' }, null);
+    f.engine.downloadCompleted({ taskId: 'a', generation: 99, tabId: 1 });
+    await f.status();
+  }
+  assert.equal((await f.status()).protection.stalled, true);
+  f.engine.downloadCompleted({ taskId: 'b', generation: 1, tabId: 1 });
+  assert.equal((await f.status()).protection.stalled, true);
+  f.engine.downloadCompleted({ taskId: 'a', generation: 1, tabId: 1 });
+  assert.equal((await f.status()).protection.stalled, false);
+});

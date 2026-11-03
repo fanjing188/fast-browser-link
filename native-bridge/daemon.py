@@ -4852,20 +4852,44 @@ class BridgeDaemon:
             options = params.get("options")
             operation = options.get("operation") if isinstance(options, dict) else None
             allowed = (
-                {"operation", "healthId", "code"}
+                {"operation", "healthId", "selectors"}
+                if operation == "progress"
+                else {"operation", "healthId", "code"}
                 if operation == "failure"
                 else {"operation", "healthId"}
                 if operation == "recover"
                 else {"operation"}
             )
             if (
-                operation not in ("status", "recover", "failure")
+                operation not in ("status", "recover", "failure", "progress")
                 or set(options) - allowed
                 or (
                     operation != "status"
                     and (
                         not isinstance(options.get("healthId"), str)
                         or not 1 <= len(options["healthId"]) <= 128
+                    )
+                )
+                or (
+                    operation == "progress"
+                    and (
+                        not isinstance(options.get("selectors"), list)
+                        or not 1 <= len(options["selectors"]) <= 8
+                        or any(
+                            not isinstance(x, dict)
+                            or set(x) - {"selector", "attribute"}
+                            or not isinstance(x.get("selector"), str)
+                            or not 1 <= len(x["selector"]) <= 512
+                            or "attribute" in x
+                            and (
+                                not isinstance(x["attribute"], str)
+                                or re.fullmatch(
+                                    r"(?:data-[a-z0-9_-]{1,48}|aria-rowindex|id)", x["attribute"]
+                                )
+                                is None
+                            )
+                            for x in options["selectors"]
+                        )
                     )
                 )
                 or (
@@ -6541,6 +6565,7 @@ class BridgeDaemon:
                             "browser_core_v1",
                             "browser_workflow_v1",
                             "execution_resilience_v1",
+                            "durable_workflow_v1",
                             "page_parse_v1",
                             "page_function_v1",
                             "network_evidence_v1",

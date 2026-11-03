@@ -891,6 +891,7 @@ async function connect() {
           'browser_core_v1',
           'browser_workflow_v1',
           'execution_resilience_v1',
+          'durable_workflow_v1',
           'page_parse_v1',
           'page_function_v1',
           'network_evidence_v1',

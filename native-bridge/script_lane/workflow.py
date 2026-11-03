@@ -307,7 +307,9 @@ class Observer:
                     "conditions": results,
                     "reason": None,
                 }
-            time.sleep(min(self.interval, max(0, self.deadline - time.monotonic())))
+            self.api.get("sleep", time.sleep)(
+                min(self.interval, max(0, self.deadline - time.monotonic()))
+            )
         return {
             "satisfied": False,
             "timed_out": True,
@@ -432,8 +434,7 @@ def diagnose_target(api, name, role=None, root=None, action="click"):
     }
 
 
-def run_steps(api, values, timeout=60):
-    duration(api, timeout)
+def validate_steps(api, values):
     if not isinstance(values, list) or not 1 <= len(values) <= 16:
         invalid(api, "steps")
     plan = copy.deepcopy(values)
@@ -501,6 +502,12 @@ def run_steps(api, values, timeout=60):
                 )
         if action == "wait" and "after" not in step:
             invalid(api, "wait step")
+    return plan
+
+
+def run_steps(api, values, timeout=60):
+    duration(api, timeout)
+    plan = validate_steps(api, values)
     api["ready"]()
     api["resilience_ready"]()
     initial = recover_page(api, min(timeout, 5))
@@ -671,6 +678,8 @@ def run_steps(api, values, timeout=60):
 
 def guard_reason(state):
     """中文注释：只读取固定保护状态，不把刷新成功当成业务成功。"""
+    if state.get("protection", {}).get("progressIncomplete"):
+        return "execution_progress_incomplete"
     if state.get("protection", {}).get("stalled"):
         return "execution_no_progress"
     if state.get("protection", {}).get("circuitOpen"):
@@ -725,7 +734,7 @@ def recover_page(api, timeout=15):
                 "observations": observations,
                 "status": state,
             }
-        time.sleep(min(0.25, max(0, deadline - time.monotonic())))
+        api.get("sleep", time.sleep)(min(0.25, max(0, deadline - time.monotonic())))
 
 
 def read_resilient(api, mode="content", root=None, timeout=15):
@@ -769,5 +778,5 @@ def read_resilient(api, mode="content", root=None, timeout=15):
         except api["BrowserError"] as error:
             if error.outcome_unknown is not False or error.code not in transient or attempts >= 3:
                 raise
-            time.sleep(min(0.25, max(0, deadline - time.monotonic())))
+            api.get("sleep", time.sleep)(min(0.25, max(0, deadline - time.monotonic())))
     return {"completed": False, "reason": "workflow_timeout", "attempts": attempts, "page": None}

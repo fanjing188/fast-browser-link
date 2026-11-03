@@ -80,6 +80,7 @@ def verify_package_layout(package, files):
         "fast-browser-link/native_bridge/script_lane/action_session.py",
         "fast-browser-link/native_bridge/script_lane/child.py",
         "fast-browser-link/native_bridge/script_lane/workflow.py",
+        "fast-browser-link/native_bridge/script_lane/workflow_tools.py",
         "fast-browser-link/native_bridge/script_lane/tool.py",
         "fast-browser-link/native_bridge/script_lane/page-request.js",
         "fast-browser-link/native_bridge/script_lane/page_export.py",

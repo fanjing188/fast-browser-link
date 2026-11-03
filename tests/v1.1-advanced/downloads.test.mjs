@@ -305,3 +305,37 @@ test('下载跟踪回收撤销任务和过多的已结束记录', async () => {
   assert.equal(f.tracker.pollTimer, null);
   assert.deepEqual(f.cancelled, []);
 });
+
+test('only safe bounded existing completed downloads advance business progress', async () => {
+  for (const change of [
+    {},
+    { danger: 'dangerous' },
+    { exists: false },
+    { fileSize: MAX_DOWNLOAD_BYTES + 1 },
+    { fileSize: -1 },
+  ]) {
+    const f = fixture(),
+      progress = [];
+    f.executor.resilience = { downloadCompleted: (r) => progress.push(r) };
+    begin(f, 11, 'https://site.test/progress');
+    f.tracker.created({ id: 40, url: 'https://site.test/progress' });
+    f.tracker.determine(
+      { id: 40, url: 'https://site.test/progress', filename: 'file.csv' },
+      () => {},
+    );
+    await f.advance(300);
+    f.items.set(40, {
+      id: 40,
+      state: 'complete',
+      filename: '/tmp/file.csv',
+      fileSize: 4,
+      bytesReceived: 4,
+      danger: 'safe',
+      exists: true,
+      ...change,
+    });
+    await f.tracker.changed({ id: 40, state: { current: 'complete' } });
+    await f.tracker.changed({ id: 40, state: { current: 'complete' } });
+    assert.equal(progress.length, Object.keys(change).length ? 0 : 1, JSON.stringify(change));
+  }
+});

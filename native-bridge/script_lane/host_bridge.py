@@ -7,6 +7,7 @@ daemon's task, origin and approval checks. bind() is not a public tool.
 """
 
 from __future__ import annotations
+import hashlib
 import importlib.util
 import json
 import math
@@ -20,6 +21,15 @@ from concurrent.futures import ThreadPoolExecutor
 
 class BridgeDenied(RuntimeError):
     pass
+
+
+class WorkflowConditionError(BridgeDenied):
+    outcomeUnknown = False
+    outcome_unknown = False
+
+    def __init__(self, message, code=None, outcome_unknown=False):
+        self.code = code or "workflow_invalid"
+        super().__init__("workflow verification failed")
 
 
 # 中文注释：暂停使用固定原因，脚本入口不得误导用户新建任务或自动重试。
@@ -62,7 +72,11 @@ class _Launch:
             # 中文注释：保留会话锁直到实际在途处理退出，退出后释放，避免永久锁死会话。
             def release_after_drain():
                 self._thread.join()
-                self._lock.release()
+                try:
+                    if hasattr(self._actions, "release"):
+                        self._actions.release()
+                finally:
+                    self._lock.release()
 
             threading.Thread(target=release_after_drain, daemon=True).start()
         else:
@@ -81,7 +95,12 @@ class _BatchReceipt:
     def __init__(self, state):
         self.state = state
 
+    def release(self):
+        if self.state.get("workflow_finish"):
+            self.state["workflow_finish"]()
+
     def completion(self):
+        self.release()
         roots = list(self.state["roots"].values())
         receipts = [root.completion() for root in roots]
         latest = max(
@@ -130,6 +149,194 @@ class HostBridge:
         self._closed = False
         # 中文注释：插件卸载独立于单任务撤销；允许其他绑定任务继续使用同一脚本。
         self._shutdown = threading.Event()
+        self._workflow_store = None
+
+    @staticmethod
+    def _workflow_scope(selected):
+        return hashlib.sha256(
+            json.dumps(
+                [
+                    selected._owner,
+                    selected._task_id,
+                    selected._instance_id,
+                    selected._generation,
+                    selected.tab_id,
+                ]
+            ).encode()
+        ).hexdigest()
+
+    def _workflow(self, selected, args):
+        if len(args) != 2 or not isinstance(args[0], str) or not isinstance(args[1], dict):
+            raise BridgeDenied("invalid workflow request")
+        op, data = args
+        task = selected._runtime.call(
+            "shared.get", {"owner": selected._owner, "taskId": selected._task_id}
+        )
+        if (
+            task.get("instanceId") != selected._instance_id
+            or task.get("generation") != selected._generation
+            or selected.tab_id not in task.get("tabIds", [])
+        ):
+            raise BridgeDenied("workflow binding changed")
+        with self._guard:
+            if self._workflow_store is None:
+                home = getattr(self.runtime, "hermes_home", None) or getattr(
+                    self.runtime, "home", None
+                )
+                if home is None:
+                    raise BridgeDenied("workflow storage unavailable")
+                spec = importlib.util.spec_from_file_location(
+                    "fbl_workflow_tools", Path(__file__).with_name("workflow_tools.py")
+                )
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+                self._workflow_store = module.Store(home)
+        scope = self._workflow_scope(selected)
+        if op == "wait":
+            value = data.get("seconds")
+            if (
+                set(data) != {"seconds"}
+                or type(value) not in (int, float)
+                or not math.isfinite(value)
+                or not 0 <= value <= 60
+            ):
+                raise BridgeDenied("invalid workflow wait")
+            self._workflow_store.debit(scope, wait=value, operation=False)
+            return {"reserved": value}
+        if op.startswith("recipe_"):
+            selected.workflow_ready(feature="durable_workflow_v1")
+            from urllib.parse import urlsplit
+
+            page = selected.run("cdp.send", {"method": "Page.getFrameTree", "params": {}})
+            url = urlsplit(page["frameTree"]["frame"]["url"])
+            if (
+                url.scheme not in {"http", "https"}
+                or not url.hostname
+                or url.username
+                or url.password
+            ):
+                raise BridgeDenied("invalid recipe origin")
+            scope = (
+                "recipe:"
+                + hashlib.sha256(
+                    json.dumps([selected._owner, url.scheme + "://" + url.netloc]).encode()
+                ).hexdigest()
+            )
+            op = "get" if op == "recipe_get" else op
+        if op in {"begin", "resolve"}:
+            selected.workflow_ready(feature="durable_workflow_v1")
+        if op == "resolve":
+            row = self._workflow_store.call(scope, "get", {"name": data.get("name")})
+            if (
+                not row
+                or row["inflight"] is None
+                or row["digest"] != self._workflow_store.digest(data.get("plan"))
+            ):
+                raise WorkflowConditionError("invalid proof", code="workflow_plan_changed")
+            i, j = map(int, row["inflight"].split(":"))
+            try:
+                after = data["plan"][i]["steps"][j]["after"]
+            except (IndexError, KeyError, TypeError):
+                raise WorkflowConditionError(
+                    "missing proof", code="workflow_reconciliation_required"
+                ) from None
+            if (
+                not isinstance(after, dict)
+                or after.get("mode", "all") != "all"
+                or not isinstance(after.get("conditions"), list)
+                or not after["conditions"]
+                or any(
+                    not isinstance(x, dict) or x.get("kind") not in {"element", "url"}
+                    for x in after["conditions"]
+                )
+            ):
+                raise WorkflowConditionError(
+                    "unsupported proof", code="workflow_reconciliation_required"
+                )
+            spec = importlib.util.spec_from_file_location(
+                "fbl_workflow_observer", Path(__file__).with_name("workflow.py")
+            )
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            timeout = data.get("timeout", 10)
+            module.duration({"BrowserError": WorkflowConditionError}, timeout, 30)
+            api = {
+                "BrowserError": WorkflowConditionError,
+                "observe": lambda selector: selected.run(
+                    "page.observe", {"options": {"selector": selector}}
+                ),
+                "cdp": lambda method, **params: selected.run(
+                    "cdp.send", {"method": method, "params": params}
+                ),
+            }
+            observer = module.observer(api, after["conditions"], "all", timeout, 0.25)
+            observer.arm()
+            if not observer.wait()["satisfied"]:
+                raise WorkflowConditionError("not verified", code="workflow_postcondition_failed")
+            data = {k: v for k, v in data.items() if k != "timeout"}
+        return self._workflow_store.call(scope, op, data)
+
+    def _workflow_debit(self, selected, op, args, tokens=None):
+        # 中文注释：只让持有本次运行令牌的脚本消耗预算或派发动作；其他脚本仅可读报告。
+        if self._workflow_store is not None:
+            scope = self._workflow_scope(selected)
+            with self._workflow_store.guard:
+                active = self._workflow_store.active.get(scope)
+                if active and (tokens or {}).get(scope) != active["token"]:
+                    if op != "workflow_state" or not args or args[0] not in {"get", "recipe_get"}:
+                        raise WorkflowConditionError(
+                            "another workflow owns this scope", code="workflow_busy"
+                        )
+        if self._workflow_store is not None and op not in {
+            "workflow_state",
+            "capabilities",
+            "checkpoint",
+            "current_tab",
+            "use_tab",
+            "workflow_ready",
+            "resilience_ready",
+            "workflow_tools_ready",
+            "reconcile",
+            "operation_status",
+            "reconnect",
+            "wait_pending",
+        }:
+            safe = {
+                "snapshot",
+                "semantic_snapshot",
+                "page.parse",
+                "page.observe",
+                "screenshot",
+                "tabs",
+                "cdp.events",
+                "network.inspect",
+                "frame_catalog",
+                "official.ready_state",
+                "images",
+                "console",
+            }
+            write = op not in {"downloads"}
+            if op == "run" and len(args) == 2:
+                action, params = args
+                write = action not in safe
+                if action == "execution.guard":
+                    write = params.get("options", {}).get("operation") == "recover"
+                if action == "cdp.send":
+                    write = params.get("method") not in {
+                        "Page.getFrameTree",
+                        "Network.enable",
+                        "Page.bringToFront",
+                        "Target.activateTarget",
+                    }
+            self._workflow_store.debit(self._workflow_scope(selected), write=write)
+
+    def _workflow_finish(self, state):
+        if self._workflow_store:
+            with self._workflow_store.guard:
+                for scope, token in state["workflow_tokens"].items():
+                    active = self._workflow_store.active.get(scope)
+                    if active and active["token"] == token:
+                        self._workflow_store._release(scope)
 
     def _verified_task(self, owner, task_id, instance_id=None):
         try:
@@ -328,6 +535,12 @@ class HostBridge:
                 "guard": threading.RLock(),
                 "revocations": {native_task: revoked},
             }
+            state["workflow_tokens"] = {}
+            state["workflow_finish"] = lambda: self._workflow_finish(state)
+            state["workflow_call"] = self._workflow
+            state["workflow_debit"] = lambda selected, op, args: self._workflow_debit(
+                selected, op, args, state["workflow_tokens"]
+            )
             resolver = lambda tab_id: self._resolve_bound_tab(session_id, tab_id)
             thread = threading.Thread(
                 target=self._serve,
@@ -408,8 +621,18 @@ class HostBridge:
                         selected = actions
             selected._rpc_lock.acquire()
             try:
-                if op == "capabilities" and args == []:
+                if state.get("workflow_debit"):
+                    state["workflow_debit"](selected, op, args)
+                if op == "workflow_state" and isinstance(args, list) and len(args) == 2:
+                    value = state["workflow_call"](selected, args)
+                    if args[0] == "begin":
+                        state["workflow_tokens"][HostBridge._workflow_scope(selected)] = value[
+                            "token"
+                        ]
+                elif op == "capabilities" and args == []:
                     value = sorted(helper_capabilities)
+                elif op == "workflow_tools_ready" and args == []:
+                    value = selected.workflow_ready(feature="durable_workflow_v1")
                 elif op == "resilience_ready" and args == []:
                     value = selected.workflow_ready(resilience=True)
                 elif op == "workflow_ready" and args == []:
@@ -607,6 +830,17 @@ class HostBridge:
                     "cross_origin_frame_unavailable",
                     "tab_out_of_scope",
                     "execution_denied",
+                    "access_cooldown",
+                    "execution_circuit_open",
+                    "execution_no_progress",
+                    "execution_progress_incomplete",
+                    "execution_handoff",
+                    "guard_interrupted",
+                    "guard_capacity",
+                    "recovery_stale",
+                    "recovery_blocked",
+                    "recovery_unavailable",
+                    "recovery_outcome_unknown",
                     "bridge_execution_failed",
                     "redirected_out_of_scope",
                     "permission_denied",
@@ -669,7 +903,7 @@ class HostBridge:
                     "click_no_effect",
                 }
                 or (
-                    code.startswith("interaction_highlight_")
+                    code.startswith(("interaction_highlight_", "workflow_"))
                     and len(code) <= 62
                     and all(char in "abcdefghijklmnopqrstuvwxyz_" for char in code)
                 )

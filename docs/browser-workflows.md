@@ -2,6 +2,8 @@
 
 2.6.0 候选新增 Python helper：`wait_until`、`run_steps`、`diagnose_target`、`execution_status`、`recover_page`、`read_resilient`。SDK、JSON CLI、MCP 和 Hermes 都通过原有 `script` 执行链调用；没有新增常驻工具或第二套浏览器执行器。宿主先核本任务绑定实例的 `browser_workflow_v1`，旧组件返回 `workflow_unsupported`，不切换执行方式。恢复与执行保护另核 `execution_resilience_v1`；`run_steps` 同时要求两种能力。需要同时升级宿主和扩展。
 
+持久检查点、逐项批量结算、报告、业务进展、站点模板、下载校验与执行预算见 [持久工作流](workflow-tools.md)。
+
 ## 统一等待
 
 ```python
@@ -80,7 +82,7 @@ result = read_resilient(mode="content", timeout=15)
 
 普通任务的输入队列只串行执行，不自动切换活动标签、不恢复或聚焦工作窗口。键盘、编辑器及原始 CDP 键盘/文本输入通过目标页焦点模拟交付，不使用系统前台。SDK/CDP 的 Page.bringToFront 和 Target.activateTarget 只验证并选择已授权逻辑目标，不提升窗口；Target 激活仍核目标归属。原始 Browser.setWindowBounds、Target.createTarget 和 Target.sendMessageToTarget 在自动执行链拒绝，创建工作页改用 new_tab/goto_url 等原有接口。不会因后台输入不可靠而把用户窗口切走或重放未知动作。
 
-自动审批提示使用不聚焦的扩展面板和通知，任务仍等待真实批准；用户点击通知、主动打开待确认或查看任务页时可以聚焦。连接时显式请求的浏览器授权管理窗口保留原有确认流程。网页自己的弹窗、浏览器或操作系统的原生对话框不属于插件主动聚焦指令，不能用无头测试承诺全部第三方界面的桌面行为。
+自动审批提示使用不聚焦的扩展面板和通知，任务仍等待真实批准；用户点击通知、主动打开待确认或查看任务页时可以聚焦。连接时显式请求的浏览器授权管理窗口保留原有确认流程。真实 macOS 桌面补测已确认：网页 window.open 创建独立窗口仍会提升浏览器前台。普通建页、输入和下载已通过静默验收，但独立网页弹窗及浏览器/系统原生对话框未保证静默；不能用无头测试或事后抢回焦点掩盖这一限制。
 
 ## 验证
 

@@ -59,6 +59,7 @@ function executionError(error, message) {
       'ACCESS_COOLDOWN',
       'EXECUTION_CIRCUIT_OPEN',
       'EXECUTION_NO_PROGRESS',
+      'EXECUTION_PROGRESS_INCOMPLETE',
       'EXECUTION_HANDOFF',
       'GUARD_INTERRUPTED',
       'GUARD_CAPACITY',

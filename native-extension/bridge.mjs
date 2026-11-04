@@ -68,6 +68,9 @@ function executionError(error, message) {
   ) {
     code = reason.toLowerCase();
     text = '弹窗策略已暂停后续操作；请查看扩展中的弹窗模式，不要重放已送达动作。';
+    if (code === 'popup_policy_unprotected' && error?.reason === 'unprotected_document')
+      text =
+        '当前文档未安装弹窗保护，本次写操作未执行。请在本任务 new_tab 后 navigate 到该 URL，或对当前页 URL 重新 navigate，再读取快照操作。';
   } else if (
     [
       'ACCESS_COOLDOWN',
@@ -508,6 +511,13 @@ function executionError(error, message) {
           'overlay_injection_failed',
         ].includes(code),
       ...stage,
+      ...(code === 'popup_policy_unprotected' && error?.reason === 'unprotected_document'
+        ? {
+            reason: 'unprotected_document',
+            suggestion:
+              '在本任务 new_tab 后 navigate 到该 URL，或对当前页 URL 重新 navigate；导航后重新读取快照再写入。',
+          }
+        : {}),
       ...(error?.recovery ? { recovery: error.recovery } : {}),
       ...(code === 'click_no_effect'
         ? {

@@ -22,6 +22,22 @@ SPEC.loader.exec_module(m)
 
 
 class PopupTests(unittest.TestCase):
+    def test_unprotected_hint_survives_client_without_page_data(self):
+        error = BridgeError(
+            "popup_policy_unprotected",
+            "fixed",
+            {
+                "reason": "unprotected_document",
+                "suggestion": "PRIVATE_CANARY",
+                "url": "https://private.test/?secret=value",
+                "outcomeUnknown": False,
+            },
+        )
+        self.assertEqual(error.data["reason"], "unprotected_document")
+        self.assertIn("new_tab", error.data["suggestion"])
+        self.assertEqual(error.data["outcomeUnknown"], False)
+        self.assertNotIn("PRIVATE_CANARY", str(error.data))
+
     def test_inventory_diagnostics_survive_daemon_and_client_without_exception_text(self):
         for reason in (
             "inventory_exception",

@@ -1621,16 +1621,45 @@ test('target links and forms are blocked, compatible mode preserves actual windo
 });
 test('popup policy rejects old documents before writes', async () => {
   const task = { id: 'one', generation: 1, popupPolicy: 'background' },
+    notices = [],
     executor = {
       leases: new Map([[1, 'one']]),
       check() {},
-      api: { debugger: { sendCommand: async () => ({ frameTree: { childFrames: [{}] } }) } },
+      onPopupPolicyState: async (notice) => notices.push(notice),
+      api: {
+        debugger: {
+          sendCommand: async () => ({ frameTree: { frame: { id: 'main', loaderId: 'fresh' } } }),
+        },
+      },
     };
   const policy = new PopupPolicy(executor),
     p = { taskId: 'one', generation: 1, tabId: 1, action: 'ref_click' };
-  await assert.rejects(policy.before(task, p), /POPUP_POLICY_UNPROTECTED/);
-  assert.equal(task.popupPolicyPaused, 'unprotected_document');
-  await assert.rejects(policy.before(task, p), /POPUP_POLICY_PAUSED/);
+  for (const action of ['ref_fill', 'ref_click', 'js.evaluate']) {
+    await assert.rejects(policy.before(task, { ...p, action }), (error) => {
+      assert.equal(error.code, 'POPUP_POLICY_UNPROTECTED');
+      assert.equal(error.reason, 'unprotected_document');
+      assert.equal(error.preDispatch, true);
+      return true;
+    });
+  }
+  assert.equal(task.popupPolicyPaused, undefined);
+  assert.deepEqual(notices, []);
+  assert.equal(await policy.before(task, { ...p, action: 'new_tab' }), null);
+  executor.leases.set(2, 'one');
+  policy.install = async (_task, tabId) => {
+    policy.rows.set(tabId, { task, loader: 'fresh', worlds: new Map(), sessions: new Map() });
+  };
+  policy.control = async (_task, _tabId, operation) => ({
+    paused: false,
+    mode: 'background',
+    requests: [],
+    operation,
+  });
+  await policy.before(task, { ...p, action: 'navigate', tabId: 2 });
+  const lease = await policy.before(task, { ...p, action: 'ref_fill', tabId: 2 });
+  assert.ok(lease);
+  assert.equal(task.popupPolicyPaused, undefined);
+  assert.deepEqual(notices, []);
 });
 
 test('same-process and OOPIF frames allow managed evaluate until an actual unsafe popup', async () => {
@@ -1970,7 +1999,7 @@ test('policy pause retains reads and blocks compatible writes until explicit cle
     }),
     /POPUP_POLICY_UNPROTECTED/,
   );
-  assert.equal(legacyDocument.popupPolicyPaused, 'unprotected_document');
+  assert.equal(legacyDocument.popupPolicyPaused, undefined);
 });
 
 test('ambiguous or conflicting relationship features never become a detached background page', () => {

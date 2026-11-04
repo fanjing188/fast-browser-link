@@ -675,6 +675,8 @@ def run_steps(api, values, timeout=60):
                     entry["protection_error"] = report_error.code
                     unknown = report_error.outcome_unknown is not False
             entry["error"] = {"code": error.code or "browser_error", "outcome_unknown": unknown}
+            if error.code == "popup_policy_unprotected" and error.reason == "unprotected_document":
+                entry["error"].update(reason=error.reason, suggestion=error.suggestion)
             if entry["phase"] == "action" and unknown:
                 entry["dispatched"] = None
             return {
@@ -683,6 +685,12 @@ def run_steps(api, values, timeout=60):
                 "reason": error.code or "browser_error",
                 "outcome_unknown": unknown,
                 "steps": receipts,
+                **(
+                    {"policy_reason": error.reason, "suggestion": error.suggestion}
+                    if error.code == "popup_policy_unprotected"
+                    and error.reason == "unprotected_document"
+                    else {}
+                ),
             }
     return {
         "completed": True,

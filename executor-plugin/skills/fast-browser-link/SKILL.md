@@ -8,6 +8,8 @@ description: Standard workflow and safety rules for working in the user's own lo
 
 Regular mode shares logins. Connection permits reads/navigation/writes/JS/CDP/Python; leases, takeover and stop remain. Offline/unknown grants nothing.
 
+默认/严格弹窗模式：写入前在本任务 `new_tab` 后 `navigate`。已有页可只读；`popup_policy_unprotected`（`unprotected_document`）表示未写入、未暂停。重新导航当前 URL，重读快照再写；先保存草稿。真实开窗暂停仍需人工解除。
+
 Local only: no cloud fallback. SDK/CLI/MCP/Hermes share one core; `ref_fill` does not enforce product approval, manual-edit or final-submit rules.
 
 ## Page output and recovery
@@ -84,7 +86,7 @@ Errors: `fast-browser-link:fast-browser-troubleshoot`. Product tasks allow only 
 
 ## 显式选择工作页
 
-`new_tab(url)` 返回 tab id，并将它设为当前页。使用 `current_tab()` 查看、`use_tab(tab_id)` 切换；页面 helper 支持关键字 `tab=`，只作用于指定页，不改变当前页。多页脚本推荐始终传 `tab=`。官方工具使用 `fast_browser_use_tab(tab_id)` 选择当前页；`fast_browser_open` 成功后自动选择刚打开或复用的页。不同网站的任务同时保留，撤销一个任务不撤销其他任务。
+`new_tab(url)` 返回并选中 tab id；用 `current_tab()` 查看、`use_tab(tab_id)` 切换。页面 helper 的 `tab=` 仅影响本次调用；多页脚本始终显式传入。
 
 读动作只等待 DOM 的 `interactive`/`complete`，上限 1.5 秒。导航和新建页最多等待 8 秒；正文已解析且稳定时可提前返回 `partial`。摘要可用 `summary=false` 关闭。
 

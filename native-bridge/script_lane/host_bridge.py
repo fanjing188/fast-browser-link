@@ -940,6 +940,7 @@ class HostBridge:
                                 "reasonCode",
                                 "effect",
                                 "suggestion",
+                                "reason",
                                 "skippedFrame",
                                 "recovery",
                             )

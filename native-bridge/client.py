@@ -141,6 +141,13 @@ class BridgeError(RuntimeError):
             for key in ("outcomeUnknown", "retryable")
             if isinstance(data, dict) and type(data.get(key)) is bool
         }
+        if code == "popup_policy_unprotected" and isinstance(data, dict) and data.get(
+            "reason"
+        ) == "unprotected_document":
+            self.data["reason"] = "unprotected_document"
+            self.data["suggestion"] = (
+                "在本任务 new_tab 后 navigate 到该 URL，或对当前页 URL 重新 navigate；导航后重新读取快照再写入。"
+            )
         if (
             code == "invalid_params"
             and isinstance(data, dict)

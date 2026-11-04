@@ -1,5 +1,29 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+test('unprotected document error carries safe navigation guidance without dispatch', async () => {
+  const { Bridge } = await import('../../native-extension/bridge.mjs');
+  const listeners = [],
+    sent = [];
+  const port = {
+    postMessage: (value) => sent.push(value),
+    onMessage: { addListener: (fn) => listeners.push(fn) },
+  };
+  new Bridge(port, {
+    execute: async () => {
+      throw Object.assign(Error('POPUP_POLICY_UNPROTECTED'), {
+        code: 'POPUP_POLICY_UNPROTECTED',
+        preDispatch: true,
+        reason: 'unprotected_document',
+      });
+    },
+  });
+  listeners[0]({ id: 'write', method: 'browser.execute', params: { action: 'ref_fill' } });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(sent[0].error.code, 'popup_policy_unprotected');
+  assert.equal(sent[0].error.data.reason, 'unprotected_document');
+  assert.match(sent[0].error.data.suggestion, /new_tab.*navigate/);
+  assert.equal(sent[0].error.data.outcomeUnknown, false);
+});
 test('only own UI can approve; approval installed before next native command', async () => {
   const { Bridge, isUiSender } = await import('../../native-extension/bridge.mjs');
   assert.equal(isUiSender({ id: 'x', url: 'https://evil.test' }, 'x'), false);

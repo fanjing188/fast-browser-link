@@ -777,8 +777,10 @@ export class PopupPolicy {
     }
     const row = this.rows.get(p.tabId);
     if (!row || row.task !== t) {
-      await this.notify(t, p.tabId, 'pause', 'unprotected_document');
-      throw policyFail('POPUP_POLICY_UNPROTECTED');
+      // 旧文档可能已缓存原生 window.open；只拒绝本次写入，导航后再安装保护。
+      throw Object.assign(policyFail('POPUP_POLICY_UNPROTECTED'), {
+        reason: 'unprotected_document',
+      });
     }
     if (row.blocked) throw policyFail('POPUP_POLICY_PAUSED');
     const tree = await this.executor.api.debugger.sendCommand(

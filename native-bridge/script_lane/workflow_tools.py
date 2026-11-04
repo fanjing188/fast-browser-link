@@ -502,6 +502,7 @@ def execute(api, module, name, items, resume=False, budget=None, progress=None):
         api["limit_deadline"](max(0.001, row["budget"]["max_seconds"] - row["elapsed"]))
     skipped = 0
     stopped = None
+    policy_hint = None
     outcome_unknown = False
     try:
         # 中文注释：所有 CSS 先由既有可信观察接口校验，整批预检在首次写入前完成。
@@ -556,6 +557,11 @@ def execute(api, module, name, items, resume=False, budget=None, progress=None):
                 )
                 if state != "confirmed":
                     stopped = result.get("reason")
+                    if stopped == "popup_policy_unprotected":
+                        policy_hint = {
+                            "policy_reason": result.get("policy_reason"),
+                            "suggestion": result.get("suggestion"),
+                        }
                     if state == "blocked" or stopped in {
                         "workflow_time_budget",
                         "workflow_operation_budget",
@@ -574,6 +580,8 @@ def execute(api, module, name, items, resume=False, budget=None, progress=None):
         pass
     except api["BrowserError"] as error:
         stopped = error.code or "browser_error"
+        if stopped == "popup_policy_unprotected" and error.reason == "unprotected_document":
+            policy_hint = {"policy_reason": error.reason, "suggestion": error.suggestion}
         outcome_unknown = error.outcome_unknown is not False
         if not outcome_unknown:
             try:
@@ -595,6 +603,8 @@ def execute(api, module, name, items, resume=False, budget=None, progress=None):
         report["status"] = "completed"
     report["completed"] = report["status"] == "completed"
     report["reason"] = stopped
+    if policy_hint:
+        report.update(policy_hint)
     report["skipped_confirmed_steps"] = skipped
     report["outcome_unknown"] = outcome_unknown
     return report

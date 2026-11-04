@@ -40,6 +40,7 @@ class BrowserError(RuntimeError):
         reason_code=None,
         effect=None,
         suggestion=None,
+        reason=None,
         skipped_frame=None,
         recovery=None,
     ):
@@ -53,6 +54,7 @@ class BrowserError(RuntimeError):
         self.current_origin, self.stage, self.reason_code = current_origin, stage, reason_code
         # 中文注释：无效果错误向脚本公开固定字段。
         self.effect, self.suggestion = effect, suggestion
+        self.reason = reason
         self.skipped_frame = skipped_frame
         self.recovery = recovery
 
@@ -65,6 +67,8 @@ class BrowserError(RuntimeError):
             message += f" 当前来源：{self.current_origin or 'unavailable'}；同站用 goto_url，新站用 fast_browser_open。"
         if self.reason_code:
             message += f" 原因：{self.reason_code}。"
+        if self.code == "popup_policy_unprotected" and self.reason == "unprotected_document":
+            message += f" 原因：{self.reason}。{self.suggestion or ''}"
         if self.recovery:
             message += " 恢复详情：" + json.dumps(self.recovery, ensure_ascii=False)
         return f"BrowserError[{self.code}]: {message}" if self.code else message
@@ -269,6 +273,7 @@ def _call(op, args):
         reason_code=reply.get("reasonCode"),
         effect=reply.get("effect"),
         suggestion=reply.get("suggestion"),
+        reason=reply.get("reason") if code == "popup_policy_unprotected" else None,
         skipped_frame=reply.get("skippedFrame"),
         recovery=reply.get("recovery"),
     )

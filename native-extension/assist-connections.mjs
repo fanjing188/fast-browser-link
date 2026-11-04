@@ -32,6 +32,8 @@ const shapes = {
   'work.snapshot': [['workHandle'], ['options', 'continuation', 'baseline']],
   'work.click': [['workHandle', 'selector', 'requestId'], []],
   'work.fill': [['workHandle', 'selector', 'text', 'requestId'], []],
+  'work.press': [['workHandle', 'selector', 'key', 'requestId'], []],
+  'work.scroll': [['workHandle', 'direction', 'requestId'], []],
   'work.status': [['workHandle'], ['requestId']],
   'work.close': [['workHandle', 'requestId'], []],
 };
@@ -248,6 +250,13 @@ export class AssistConnections {
     if (Object.hasOwn(params, 'all') && typeof params.all !== 'boolean')
       throw fail('ASSIST_INVALID_REQUEST');
     if (Object.hasOwn(params, 'selector') && !text(params.selector, 1000))
+      throw fail('ASSIST_INVALID_REQUEST');
+    if (
+      Object.hasOwn(params, 'key') &&
+      !['Enter', 'Tab', 'Escape', 'ArrowDown', 'ArrowUp'].includes(params.key)
+    )
+      throw fail('ASSIST_INVALID_REQUEST');
+    if (Object.hasOwn(params, 'direction') && !['up', 'down'].includes(params.direction))
       throw fail('ASSIST_INVALID_REQUEST');
     if (
       Object.hasOwn(params, 'text') &&

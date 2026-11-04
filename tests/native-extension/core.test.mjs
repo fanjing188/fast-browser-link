@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { runInNewContext } from 'node:vm';
 import { createHash, randomUUID } from 'node:crypto';
 const load = () => import(process.env.CORE_UNDER_TEST || '../../native-extension/core.mjs');
 import { trustedTask as task, workspaceFixture } from './workspace-fixture.mjs';
@@ -360,6 +361,399 @@ test('任务动作默认允许，仍拒绝未知动作和缺失标签身份', as
     e.execute({ taskId: 'a', generation: 1, tabId: 9, action: 'snapshot' }),
     /tab lease denied/,
   );
+});
+
+test('product work inputs recheck frozen host after asynchronous preparation', async () => {
+  const { Executor } = await load();
+  for (const [action, changeAt] of [
+    ['press', 'overlay'],
+    ['press', 'press_check'],
+    ['scroll', 'scroll-world'],
+    ['press', 'none'],
+    ['scroll', 'none'],
+  ]) {
+    let url = 'https://example.com/',
+      inputCount = 0,
+      focusCount = 0;
+    const api = {
+      tabs: { get: async (id) => ({ id, url, windowId: 7, groupId: 2, active: false }) },
+      debugger: {
+        attach: async () => {},
+        detach: async () => {},
+        onEvent: { addListener() {}, removeListener() {} },
+        sendCommand: async (_target, method, params) => {
+          if (method === 'Page.getFrameTree') return safeTree(1);
+          if (method === 'Page.getLayoutMetrics') {
+            return { cssLayoutViewport: { clientWidth: 800, clientHeight: 600 } };
+          }
+          if (method === 'Page.createIsolatedWorld') {
+            if (changeAt === 'scroll-world') url = 'https://foreign.test/';
+            return { executionContextId: 7 };
+          }
+          if (
+            method === 'Runtime.callFunctionOn' &&
+            params.functionDeclaration.startsWith('function productPageScroll(')
+          ) {
+            inputCount++;
+            return { result: { value: { scrolled: true, scrollTop: 480 } } };
+          }
+          if (method === 'Runtime.callFunctionOn') return { result: { value: true } };
+          if (method === 'Input.dispatchKeyEvent' || method === 'Input.dispatchMouseEvent')
+            inputCount++;
+          return {};
+        },
+      },
+    };
+    const e = new Executor(api);
+    await e.approve(task());
+    const t = e.tasks.get('a');
+    t.executionLane = 'product_work';
+    // 中文注释：仅替代遮罩与框架准备；实际performAuthorized输入分支保持真实。
+    e.assertSilentTarget = async (current) => {
+      await e.resourceGuard(current, url);
+    };
+    e.resourceGuard = async (_task, candidate) => {
+      if (candidate !== 'https://example.com/') throw Error('ASSIST_RESOURCE_DENIED');
+    };
+    e.ensurePageEvents = async () => {};
+    e.checkedFrameTree = async () => safeTree(1).frameTree;
+    e.ensureOverlay = async () => {
+      if (changeAt === 'overlay') url = 'https://foreign.test/';
+      return null;
+    };
+    e.authorize = async () => {};
+    e.callWorld = async (_target, _frame, _task, op) => {
+      if (op === 'press') focusCount++;
+      if (changeAt === 'press_check' && op === 'press_check') url = 'https://foreign.test/';
+      return { ok: true };
+    };
+    e.observers.pending = () => false;
+    const run = () =>
+      e.perform(t, {
+        taskId: 'a',
+        generation: 1,
+        tabId: 1,
+        action,
+        selector: '#query',
+        key: 'Enter',
+        direction: 'down',
+      });
+    if (changeAt === 'none') {
+      await run();
+      assert.equal(
+        inputCount,
+        action === 'press' ? 2 : 1,
+        'same-host positive must reach actual input branch',
+      );
+    } else {
+      await assert.rejects(run, /ASSIST_RESOURCE/, `${action} ${changeAt}`);
+      assert.equal(inputCount, 0, `${action} dispatched to foreign page`);
+      if (changeAt === 'overlay')
+        assert.equal(focusCount, 0, 'focus preceded final resource guard');
+    }
+  }
+});
+
+test('product input fence rejects document, lease and URL changes during Native check', async () => {
+  const { Executor } = await load();
+  for (const change of ['none', 'url', 'document', 'lease', 'pending', 'missing-guard']) {
+    let url = 'https://example.com/',
+      pendingUrl;
+    const e = new Executor({ tabs: { get: async (id) => ({ id, url, pendingUrl }) } });
+    await e.approve(task());
+    const t = e.tasks.get('a');
+    t.executionLane = 'product_work';
+    e.assertSilentTarget = async () => {};
+    e.resourceGuard =
+      change === 'missing-guard'
+        ? undefined
+        : async () => {
+            if (change === 'url') url = 'https://foreign.test/';
+            if (change === 'document') e.docs.set(1, 1);
+            if (change === 'lease') e.leases.delete(1);
+            if (change === 'pending') pendingUrl = 'https://foreign.test/';
+          };
+    const guard = () => {
+      if (e.leases.get(1) !== t.id) throw Error('tab lease denied');
+    };
+    const run = () => e.assertProductWorkInput(t, { tabId: 1 }, guard);
+    if (change === 'none') await run();
+    else await assert.rejects(run, /ASSIST_RESOURCE|tab lease denied/, change);
+  }
+});
+
+test('product press world creation cannot move focus after a foreign navigation', async () => {
+  const { Executor } = await load();
+  for (const navigate of ['none', 'foreign', 'same-url']) {
+    let url = 'https://example.com/',
+      focusCalls = 0;
+    const e = new Executor({
+      tabs: { get: async (id) => ({ id, url }) },
+      debugger: {
+        sendCommand: async (_target, method) => {
+          if (method === 'Page.createIsolatedWorld') {
+            if (navigate === 'foreign') url = 'https://foreign.test/';
+            if (navigate === 'same-url') e.docs.set(1, (e.docs.get(1) || 0) + 1);
+            return { executionContextId: 7 };
+          }
+          if (method === 'Runtime.callFunctionOn') {
+            focusCalls++;
+            return { result: { value: { ok: true } } };
+          }
+          throw Error(method);
+        },
+      },
+    });
+    await e.approve(task());
+    const t = e.tasks.get('a');
+    t.executionLane = 'product_work';
+    e.assertSilentTarget = async () => {};
+    e.resourceGuard = async (_task, candidate) => {
+      if (candidate !== 'https://example.com/') throw Error('ASSIST_RESOURCE_DENIED');
+    };
+    const run = () =>
+      e.callWorld({ tabId: 1 }, 'main-1', t, 'press', '#query', null, 'Enter', () => {});
+    if (navigate !== 'none') await assert.rejects(run, /ASSIST_RESOURCE_DENIED|document changed/);
+    else assert.deepEqual(await run(), { ok: true });
+    assert.equal(focusCalls, navigate === 'none' ? 1 : 0);
+  }
+});
+
+test('product scroll uses its serialized fixed primitive without native wheel or focus changes', async () => {
+  const { Executor } = await load();
+  for (const change of ['none', 'world-navigation', 'world-document', 'world-cancel']) {
+    let url = 'https://example.com/',
+      cancelled = false;
+    const commands = [],
+      positions = [];
+    const scroller = {
+      scrollTop: 0,
+      scrollHeight: 1800,
+      clientHeight: 600,
+      scrollTo({ top, behavior }) {
+        assert.equal(behavior, 'instant');
+        this.scrollTop = Math.min(1200, Math.max(0, top));
+        positions.push(this.scrollTop);
+      },
+    };
+    const api = {
+      tabs: { get: async (id) => ({ id, url, active: false }) },
+      debugger: {
+        attach: async () => {},
+        detach: async () => {},
+        onEvent: { addListener() {}, removeListener() {} },
+        sendCommand: async (_target, method, params) => {
+          commands.push(method);
+          if (method === 'Page.getLayoutMetrics')
+            return { cssLayoutViewport: { clientHeight: 600, clientWidth: 800 } };
+          if (method === 'Page.getFrameTree') return safeTree(1);
+          if (method === 'Page.createIsolatedWorld') {
+            if (change === 'world-navigation') url = 'https://foreign.test/';
+            if (change === 'world-document') executor.docs.set(1, (executor.docs.get(1) || 0) + 1);
+            if (change === 'world-cancel') cancelled = true;
+            return { executionContextId: 7 };
+          }
+          if (method === 'Runtime.callFunctionOn') {
+            assert.equal(params.executionContextId, 7);
+            const value = runInNewContext(`(${params.functionDeclaration})(...args)`, {
+              args: params.arguments.map((row) => row.value),
+              location: { href: url, origin: new URL(url).origin },
+              document: { scrollingElement: scroller, documentElement: { clientHeight: 600 } },
+            });
+            return fixtureResult(value);
+          }
+          throw Error(`unexpected method ${method}`);
+        },
+      },
+    };
+    const executor = new Executor(api);
+    await executor.approve(task());
+    const current = executor.tasks.get('a');
+    current.executionLane = 'product_work';
+    executor.ensurePageEvents = async () => {};
+    executor.assertSilentTarget = async () => {
+      if (cancelled) throw Error('cancelled');
+    };
+    executor.resourceGuard = async (_task, value) => {
+      if (value !== 'https://example.com/') throw Error('ASSIST_RESOURCE_DENIED');
+    };
+    executor.authorize = async () => {};
+    const run = (direction) =>
+      executor.perform(current, {
+        taskId: 'a',
+        generation: 1,
+        tabId: 1,
+        action: 'scroll',
+        direction,
+      });
+    if (change === 'none') {
+      assert.equal((await run('down')).scrollTop, 480);
+      assert.equal((await run('up')).scrollTop, 0);
+      assert.deepEqual(positions, [480, 0]);
+    } else {
+      await assert.rejects(run('down'), /ASSIST_RESOURCE|cancelled/);
+      assert.deepEqual(positions, []);
+    }
+    assert.equal(
+      commands.some((method) => method.startsWith('Input.') || method.startsWith('Emulation.')),
+      false,
+    );
+  }
+});
+
+test('product press retains its original document across final tab and Native awaits', async () => {
+  const { Executor } = await load();
+  for (const changeAt of ['tab-read', 'native-check', 'none']) {
+    let checked = false,
+      changed = false;
+    const inputs = [];
+    const changeDocument = () => {
+      changed = true;
+      executor.docs.set(1, (executor.docs.get(1) || 0) + 1);
+    };
+    const executor = new Executor({
+      tabs: {
+        get: async (id) => {
+          if (checked && !changed && changeAt === 'tab-read') changeDocument();
+          return { id, url: 'https://example.com/', active: false };
+        },
+      },
+      debugger: {
+        attach: async () => {},
+        detach: async () => {},
+        onEvent: { addListener() {}, removeListener() {} },
+        sendCommand: async (_target, method, params) => {
+          if (method === 'Page.getFrameTree') return safeTree(1);
+          if (method === 'Runtime.callFunctionOn') return fixtureResult(true);
+          if (method === 'Input.dispatchKeyEvent')
+            inputs.push({ type: params.type, doc: executor.docs.get(1) || 0 });
+          return {};
+        },
+      },
+    });
+    await executor.approve(task());
+    const current = executor.tasks.get('a');
+    current.executionLane = 'product_work';
+    executor.assertSilentTarget = async () => {};
+    executor.resourceGuard = async () => {
+      if (checked && !changed && changeAt === 'native-check') changeDocument();
+    };
+    executor.ensurePageEvents = async () => {};
+    executor.checkedFrameTree = async () => safeTree(1).frameTree;
+    executor.ensureOverlay = async () => null;
+    executor.authorize = async () => {};
+    executor.callWorld = async (_target, _frame, _task, op) => {
+      if (op === 'press_check') checked = true;
+      return { ok: true };
+    };
+    const run = () =>
+      executor.perform(current, {
+        taskId: 'a',
+        generation: 1,
+        tabId: 1,
+        action: 'press',
+        selector: '#query',
+        key: 'Enter',
+      });
+    if (changeAt === 'none') {
+      await run();
+      assert.deepEqual(
+        inputs.map((row) => row.type),
+        ['keyDown', 'keyUp'],
+      );
+    } else {
+      await assert.rejects(run, /document changed|ASSIST_RESOURCE/, changeAt);
+      assert.deepEqual(inputs, [], `input dispatched after ${changeAt} replaced original document`);
+    }
+  }
+});
+
+test('document navigation fences product press before old overlay cleanup completes', async () => {
+  const { Executor } = await load();
+  let checked = false,
+    navigation,
+    loader = 'document-1',
+    releaseCleanup,
+    cleanupStarted;
+  const cleanupGate = new Promise((resolve) => {
+    releaseCleanup = resolve;
+  });
+  const cleanupReady = new Promise((resolve) => {
+    cleanupStarted = resolve;
+  });
+  const inputs = [];
+  const executor = new Executor({
+    tabs: {
+      get: async (id) => {
+        if (checked && !navigation) {
+          loader = 'document-2';
+          navigation = executor.tabEvent(1, 'navigated', 'https://example.com/', {
+            urlChanged: false,
+          });
+          await cleanupReady;
+        }
+        return { id, url: 'https://example.com/', active: false };
+      },
+    },
+    debugger: {
+      attach: async () => {},
+      detach: async () => {},
+      onEvent: { addListener() {}, removeListener() {} },
+      sendCommand: async (_target, method, params) => {
+        if (method === 'Page.getFrameTree')
+          return {
+            frameTree: { frame: { id: 'main-1', loaderId: loader, url: 'https://example.com/' } },
+          };
+        if (method === 'Runtime.callFunctionOn') {
+          if (params.arguments?.[0]?.value === 'remove') {
+            cleanupStarted();
+            await cleanupGate;
+          }
+          return fixtureResult(true);
+        }
+        if (method === 'Input.dispatchKeyEvent') inputs.push({ type: params.type, loader });
+        return {};
+      },
+    },
+  });
+  await executor.approve(task());
+  const current = executor.tasks.get('a');
+  current.executionLane = 'product_work';
+  executor.assertSilentTarget = async () => {};
+  executor.resourceGuard = async () => {};
+  executor.ensurePageEvents = async () => {};
+  executor.ensureOverlay = async () => null;
+  executor.authorize = async () => {};
+  executor.callWorld = async (_target, _frame, _task, op) => {
+    if (op === 'press_check') {
+      checked = true;
+      current.overlays.set(1, {
+        documentId: 'document-1',
+        contextId: 7,
+        nonce: 'old',
+        listener() {},
+      });
+    }
+    return { ok: true };
+  };
+  try {
+    await assert.rejects(
+      executor.perform(current, {
+        taskId: 'a',
+        generation: 1,
+        tabId: 1,
+        action: 'press',
+        selector: '#query',
+        key: 'Enter',
+      }),
+      /document changed|ASSIST_RESOURCE/,
+    );
+    assert.deepEqual(inputs, [], 'old overlay cleanup must not postpone document invalidation');
+    assert.ok((executor.docs.get(1) || 0) > 0);
+  } finally {
+    releaseCleanup();
+    await navigation;
+  }
 });
 
 test('接管等待当前动作结束并使旧页面引用失效', async () => {

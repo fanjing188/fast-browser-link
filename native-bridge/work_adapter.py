@@ -449,6 +449,8 @@ class WorkAdapter:
                 "ref_click",
                 "click",
                 "fill",
+                "press",
+                "scroll",
             }:
                 raise self.denied("execution_lane_denied")
             if (
@@ -693,6 +695,8 @@ class WorkAdapter:
             "navigate": {"url"},
             "click": {"selector"},
             "fill": {"selector", "text"},
+            "press": {"selector", "key"},
+            "scroll": {"direction"},
             "query_submit": {"selector", "text", "submitSelector"},
         }
         tab = self._tab(task)
@@ -757,6 +761,17 @@ class WorkAdapter:
                 },
             )
         elif operation in shapes and set(args) == shapes[operation]:
+            # 按键与滚动只进入既有任务执行器，固定值在派发前校验，模型不能指定页面资格。
+            if operation == "press" and (
+                not text(args["selector"], 1000)
+                or not isinstance(args["key"], str)
+                or args["key"] not in {"Enter", "Tab", "Escape", "ArrowDown", "ArrowUp"}
+            ):
+                raise self.denied("invalid_params")
+            if operation == "scroll" and (
+                not isinstance(args["direction"], str) or args["direction"] not in {"up", "down"}
+            ):
+                raise self.denied("invalid_params")
             if operation == "query_submit":
                 if (
                     not text(args["selector"], 4096)

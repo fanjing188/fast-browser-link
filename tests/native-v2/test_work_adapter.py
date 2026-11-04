@@ -108,6 +108,25 @@ class WorkAdapterTests(unittest.TestCase):
             arguments={} if arguments is None else arguments,
         )
 
+    def test_named_press_scroll_use_owned_page_and_existing_native_ledger(self):
+        opened, _ = self.open_work()
+        task = self.daemon.tasks[opened["taskId"]]
+        for request, operation, arguments in (
+            ("press-once", "press", {"selector": "#query", "key": "Enter"}),
+            ("scroll-once", "scroll", {"direction": "down"}),
+        ):
+            with self.subTest(operation=operation):
+                self.work_run(opened, request, operation, arguments)
+                command = self.calls[-1][1]
+                self.assertEqual(command["action"], operation)
+                self.assertEqual(command["tabId"], 17)
+                self.assertTrue(all(command[key] == value for key, value in arguments.items()))
+                history = task["requestHistory"][-1]
+                self.assertEqual(history["action"], operation)
+                dispatched = len(self.calls)
+                self.work_run(opened, request, operation, arguments)
+                self.assertEqual(len(self.calls), dispatched, "duplicate action redispatched")
+
     def test_local_snapshot_options_reach_existing_semantic_executor_unchanged(self):
         opened, _ = self.open_work()
         options = {
@@ -800,6 +819,46 @@ class WorkAdapterTests(unittest.TestCase):
                     "snapshotContinuation",
                     self.daemon.optional_service.work.works[opened["workHandle"]],
                 )
+
+    def test_named_input_unknown_latches_all_further_actions_and_keeps_ledger(self):
+        opened, _ = self.open_work()
+        original = self.daemon._extension_call
+
+        def lost(extension, method, params, **kwargs):
+            if method == "browser.execute":
+                raise ProtocolError("extension_timeout", "synthetic lost input receipt")
+            return original(extension, method, params, **kwargs)
+
+        self.daemon._extension_call = lost
+        with self.assertRaises(ProtocolError):
+            self.work_run(opened, "press-lost", "press", {"selector": "#query", "key": "Enter"})
+        task = self.daemon.tasks[opened["taskId"]]
+        self.assertTrue(task["workOutcomeUnknown"])
+        self.assertEqual(task["requestHistory"][-1]["action"], "press")
+        self.assertEqual(task["requestHistory"][-1]["state"], "unknown")
+        self.daemon._extension_call = original
+        before = len(self.calls)
+        with self.assertRaises(ProtocolError):
+            self.work_run(opened, "scroll-new-id", "scroll", {"direction": "down"})
+        self.assertEqual(len(self.calls), before)
+
+    def test_named_press_scroll_reject_invalid_or_foreign_authority_before_dispatch(self):
+        opened, _ = self.open_work()
+        for index, (operation, arguments) in enumerate(
+            [
+                ("press", {"selector": "#query", "key": "Delete"}),
+                ("press", {"selector": "#query", "key": {"code": "Enter"}}),
+                ("press", {"selector": "#query", "key": "Enter", "tabId": 999}),
+                ("scroll", {"direction": "sideways"}),
+                ("scroll", {"direction": ["down"]}),
+                ("scroll", {"direction": "down", "expression": "evil()"}),
+            ]
+        ):
+            with self.subTest(operation=operation, arguments=arguments):
+                before = len(self.calls)
+                with self.assertRaises(ProtocolError):
+                    self.work_run(opened, "invalid-" + str(index), operation, arguments)
+                self.assertEqual(len(self.calls), before)
 
     def test_open_private_silent_full_consent_and_native_ledger_initial_tab(self):
         opened, _ = self.open_work(ready=False)

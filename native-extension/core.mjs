@@ -785,6 +785,16 @@ export function pageAction(action,selector,text,key,allowedOrigins,highlightBind
  return {ok:true};
 }
 
+// 中文注释：隐藏产品工作页不派发可能挂起后迟到的滚轮；只允许整页上下滚动，不接收页面脚本。
+export function productPageScroll(direction,allowedOrigins){
+ if(!['up','down'].includes(direction)||!allowedOrigins.includes(location.origin))throw Error('ASSIST_RESOURCE_DENIED');
+ const page=document.scrollingElement;
+ if(!page||!Number.isFinite(page.clientHeight)||page.clientHeight<=0)throw Error('SCROLL_TARGET_UNAVAILABLE');
+ const before=page.scrollTop;
+ page.scrollTo({top:before+(direction==='up'?-1:1)*Math.round(page.clientHeight*0.8),behavior:'instant'});
+ return {scrolled:page.scrollTop!==before,scrollTop:page.scrollTop,atStart:page.scrollTop<=0,atEnd:page.scrollTop+page.clientHeight>=page.scrollHeight};
+}
+
 export function inspectPage(allowedOrigins) {
  const sensitive=e=>classifySensitiveField(e)!==null;
  const fields=[...document.querySelectorAll('input,textarea,select,[contenteditable="true"]')];
@@ -880,6 +890,18 @@ export class Executor {
   if(this.resourceGuard)await this.resourceGuard(task,tab.url);
   const window=await this.api.windows.get(tab.windowId);
   if(tab.active&&window.focused)throw Object.assign(Error('用户正在查看工作页，后台操作已暂停'),{preDispatch:true});
+ }
+ async assertProductWorkInput(t,p,guard){
+  if(t.executionLane!=='product_work')return;
+  // 中文注释：异步准备及Native回查都可能跨导航，输入前重核实际工作页与同一文档。
+  const doc=this.docs.get(p.tabId)||0;
+  await this.assertSilentTarget(t,p.tabId);guard();
+  const tab=await this.api.tabs.get(p.tabId);guard();
+  if(!this.resourceGuard)throw Object.assign(Error('ASSIST_RESOURCE_DENIED'),{preDispatch:true});
+  await this.resourceGuard(t,tab.url);guard();
+  const current=await this.api.tabs.get(p.tabId);guard();
+  if(doc!==(this.docs.get(p.tabId)||0)||current.url!==tab.url||current.pendingUrl)
+   throw Object.assign(Error('ASSIST_RESOURCE_CHANGED'),{preDispatch:true});
  }
  // 中文注释：网关请求不进入普通动作队列，但每一步都重新核实任务、代次、租约与浏览器访问。
  async gateway(method,p){
@@ -1497,9 +1519,11 @@ export class Executor {
   }
   const bump=async(keepNetwork=false)=>{
    if(!current())return null;
+   // 中文注释：先失效旧文档；旧遮罩清理可能挂起，不能让其延后输入围栏。
+   const documentGeneration=(this.docs.get(tabId)||0)+1;this.docs.set(tabId,documentGeneration);
    await this.closeTabResources(t,tabId,null,{keepNetwork});
    if(!current())return null;
-   const documentGeneration=(this.docs.get(tabId)||0)+1;this.docs.set(tabId,documentGeneration);return documentGeneration;
+   return documentGeneration;
   };
   if(event==='closed') {
    this.popupPolicy.forget(tabId);
@@ -2465,7 +2489,12 @@ export class Executor {
   return tree.frameTree;
  }
  async callWorld(target,frameId,t,action,selector,text,key,guard,executionContextId=null,highlightBinding=null) {
+  const doc=this.docs.get(target.tabId)||0;
   const world=executionContextId?{executionContextId}:await this.api.debugger.sendCommand(target,'Page.createIsolatedWorld',{frameId,worldName:'fast-native',grantUniveralAccess:false});guard();
+  if(action==='press'){
+   await this.assertProductWorkInput(t,{tabId:target.tabId},guard);guard();
+   if(doc!==(this.docs.get(target.tabId)||0))throw Error('document changed');
+  }
   const fn=action==='inspect'?inspectPage:pageAction;
   const args=action==='inspect'?[t.allowedOrigins]:[action,selector??null,text??null,key??null,t.allowedOrigins,highlightBinding??null];
   const result=await this.api.debugger.sendCommand(target,'Runtime.callFunctionOn',{executionContextId:world.executionContextId,functionDeclaration:withSensitiveClassifier(fn),arguments:args.map(value=>({value})),returnByValue:true});
@@ -3137,9 +3166,23 @@ export class Executor {
     const scrollOverlay=t.overlays?.get(p.tabId);
     if(scrollOverlay)await this.overlayCall(p.tabId,scrollOverlay,'update',{actionToken:p[OVERLAY_ACTION_TOKEN],update:{state:'running',step:'scroll',scrollDirection:p.direction}}).catch(()=>{});
     check();
+    if(t.executionLane==='product_work'){
+     const doc=this.docs.get(p.tabId)||0;
+     const tree=await this.checkedFrameTree(target,t,check,false);check();
+     const world=await this.api.debugger.sendCommand(target,'Page.createIsolatedWorld',{frameId:tree.frame.id,worldName:'fast-product-scroll',grantUniveralAccess:false});check();
+     const current=await this.checkedFrameTree(target,t,check,false);check();
+     if(current.frame.id!==tree.frame.id||current.frame.loaderId!==tree.frame.loaderId)throw Object.assign(Error('ASSIST_RESOURCE_CHANGED'),{preDispatch:true});
+     await this.assertProductWorkInput(t,p,check);check();
+     if(doc!==(this.docs.get(p.tabId)||0))throw Object.assign(Error('ASSIST_RESOURCE_CHANGED'),{preDispatch:true});
+     const response=await this.api.debugger.sendCommand(target,'Runtime.callFunctionOn',{executionContextId:world.executionContextId,
+      functionDeclaration:productPageScroll.toString(),arguments:[{value:p.direction},{value:t.allowedOrigins}],returnByValue:true});check();
+     if(response.exceptionDetails||typeof response.result?.value?.scrolled!=='boolean'||!Number.isFinite(response.result?.value?.scrollTop))throw Object.assign(Error('SCROLL_OUTCOME_UNKNOWN'),{outcomeUnknown:true});
+     return {tabId:p.tabId,direction:p.direction,...response.result.value};
+    }
     const metrics=await this.api.debugger.sendCommand(target,'Page.getLayoutMetrics');check();
     const view=metrics?.cssLayoutViewport||metrics?.layoutViewport||{};
     const width=Number.isFinite(view.clientWidth)?view.clientWidth:800,height=Number.isFinite(view.clientHeight)?view.clientHeight:600;
+    await this.assertProductWorkInput(t,p,check);check();
     await this.api.debugger.sendCommand(target,'Input.dispatchMouseEvent',{type:'mouseWheel',x:Math.round(width/2),y:Math.round(height/2),
      deltaX:0,deltaY:(p.direction==='up'?-1:1)*Math.round(height*0.8)});check();
     return {tabId:p.tabId,scrolled:true,direction:p.direction};
@@ -3466,13 +3509,22 @@ export class Executor {
       verify:()=>this.callWorld(target,tree.frame.id,t,`confirm_${p.action}`,p.selector,null,null,guard,executionContextId),
       dispatch:binding=>p.action==='click'?this.observeClickEffect(t,p,{api:this.api,target,contextId:executionContextId,guard,work:async()=>({...await this.withSpawnScope(t,p.tabId,()=>dispatch(binding)),kind:'dom-synthetic',effect:'unverified'})}):dispatch(binding),
      });
-    }else result=await dispatch(null);
+    }else {
+     if(p.action==='press'){
+      await this.assertProductWorkInput(t,p,guard);guard();
+      if(doc!==(this.docs.get(p.tabId)||0))throw Error('document changed');
+     }
+     result=await dispatch(null);
+    }
     if(p.action==='press'){
      result=await observeInputEffect({api:this.api,target,contextId:executionContextId,guard,work:async()=>{
 
      await this.callWorld(target,tree.frame.id,t,'press_check',p.selector,null,p.key,guard);
      if(doc!==(this.docs.get(p.tabId)||0))throw Error('document changed');await get(p.tabId);
      const keyCode={Enter:13,Tab:9,Escape:27,ArrowDown:40,ArrowUp:38}[p.key];if(!keyCode)throw Error('unsupported key');
+     await this.assertProductWorkInput(t,p,guard);guard();
+     // 中文注释：末端回查不能采纳同URL新文档；仍以本次按键开始时的文档为准。
+     if(doc!==(this.docs.get(p.tabId)||0))throw Error('document changed');
      await this.api.debugger.sendCommand(target,'Input.dispatchKeyEvent',{type:'keyDown',key:p.key,code:p.key,...(p.key==='Enter'?{text:'\r',unmodifiedText:'\r'}:{}),windowsVirtualKeyCode:keyCode,nativeVirtualKeyCode:keyCode});guard();
      // 中文注释：Tab 会转移焦点，Enter 可能导航；派发后只核对任务权限，不再要求旧焦点或旧文档存在。
      await this.api.debugger.sendCommand(target,'Input.dispatchKeyEvent',{type:'keyUp',key:p.key,code:p.key,windowsVirtualKeyCode:keyCode,nativeVirtualKeyCode:keyCode});

@@ -10,6 +10,8 @@ const workOperations = new Set([
   'snapshot',
   'click',
   'fill',
+  'press',
+  'scroll',
 ]);
 const observationMethods = {
   list_pages: 'listPages',

@@ -781,7 +781,7 @@ def wait_for_element(
     ):
         raise BrowserError("invalid element query", code="invalid_params", outcome_unknown=False)
     normalized = _normalized_accessible_name(name)
-    # 中文注释：引擎保留 Unicode 折叠不确定候选及截断名，查询可压缩普通大页面而不误报唯一。
+    # 中文注释：引擎按 Unicode 大小写折叠过滤并保留截断名，查询可压缩普通大页面而不误报唯一。
     options = {"mode": "interactive", "query": normalized if exact else name, "budget": 3000}
     if role is not None:
         options["roles"] = [role]

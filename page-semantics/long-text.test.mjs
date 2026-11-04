@@ -364,3 +364,26 @@ test('raw full-text reads share one bound across redacted row name and cells', (
     f.close();
   }
 });
+
+test('casefold 查询保留等价名称但不扩大普通中文目标范围', () => {
+  const f = fixture(
+    '<button>继续</button><button>取消</button><button>ς</button><button>σ</button><button>ﬃ</button><button>ffi</button><button>Ꭰ</button><button>ꭰ</button>',
+  );
+  try {
+    for (const [query, names] of [
+      ['继续', ['继续']],
+      ['σ', ['ς', 'σ']],
+      ['ffi', ['ﬃ', 'ffi']],
+      ['Ꭰ', ['Ꭰ', 'ꭰ']],
+    ]) {
+      const page = f.semantics.snapshot({ query, budget: 3000 });
+      assert.equal(page.coverage.complete, true);
+      assert.deepEqual(
+        page.items.map((item) => item.name),
+        names,
+      );
+    }
+  } finally {
+    f.close();
+  }
+});

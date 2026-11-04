@@ -41,7 +41,7 @@ The script uses the task's only work tab automatically. If the task has several 
 
 | Helper | Description |
 |---|---|
-| `wait_for_element(name, role=None, root=None, exact=True, timeout=10)` | Read snapshots within one document until one eligible, unobstructed match is available (max 60 s). The query prunes ordinary ASCII mismatches; uncertain Unicode names and clipped names remain in scope before Python case folding checks uniqueness. An incomplete scope refuses dispatch. `timeout=0` makes one read without waiting. |
+| `wait_for_element(name, role=None, root=None, exact=True, timeout=10)` | Read snapshots within one document until one eligible, unobstructed match is available (max 60 s). The query uses Unicode case folding to retain equivalent names; clipped names remain in scope before the helper checks uniqueness. An incomplete scope refuses dispatch. `timeout=0` makes one read without waiting. |
 | `click_element(name, mode='pointer', **options)` | Locate in a fresh snapshot and click once; inspect delivery for trusted or background synthetic input |
 | `fill_element(name, text, **options)` | Locate in a fresh snapshot and fill once |
 | `scroll('down' \| 'up')` | Controlled scroll; locate again afterwards |

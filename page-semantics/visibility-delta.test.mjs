@@ -569,6 +569,41 @@ for (const blocked of [true, false])
       f.close();
     }
   });
+test('S1 引用动作预检穿过任务遮罩与高亮，仍拒绝真实网页遮挡', () => {
+  const f = fixture(
+    '<button>创建</button><div data-fast-automation-overlay><span></span></div><div data-fast-interaction-highlight></div><div class="el-overlay"></div>',
+  );
+  try {
+    const button = f.doc.querySelector('button');
+    const overlayChild = f.doc.querySelector('[data-fast-automation-overlay] span');
+    const highlight = f.doc.querySelector('[data-fast-interaction-highlight]');
+    const mask = f.doc.querySelector('.el-overlay');
+    let realMask = false;
+    f.doc.elementFromPoint = () => overlayChild;
+    f.doc.elementsFromPoint = () => [overlayChild, highlight, ...(realMask ? [mask] : []), button];
+    const call = f.w.eval(`(${semanticWorldDeclaration})`);
+    const snap = call('semantic_snapshot', {
+      binding: f.binding,
+      options: { mode: 'interactive' },
+    });
+    const item = snap.items.find((entry) => entry.name === '创建');
+    assert.ok(item);
+    assert.equal(item.blocked, undefined);
+    const target = { binding: f.binding, snapshotId: snap.snapshotId, ref: item.ref };
+    assert.equal(call('confirm_ref', target).confirmed, true);
+    realMask = true;
+    assert.throws(() => call('confirm_ref', target), /TARGET_OCCLUDED/);
+    assert.match(
+      call('semantic_snapshot', {
+        binding: f.binding,
+        options: { mode: 'interactive' },
+      }).items.find((entry) => entry.name === '创建').blocked,
+      /occluded/,
+    );
+  } finally {
+    f.close();
+  }
+});
 test('S1 ShadowRoot 只有 elementsFromPoint 时跳过浮层并复查网页遮挡', () => {
   const f = fixture('<div id="host"></div>');
   try {

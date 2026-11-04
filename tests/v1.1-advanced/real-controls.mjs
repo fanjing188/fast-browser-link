@@ -224,6 +224,43 @@ async function run(name, binary) {
     );
     assert.equal(pointerResult.kind, 'pointer-click');
     assert.deepEqual(await evaluate('globalThis.pointerResult'), { trusted: true, count: 1 });
+    // 中文注释：真实命中测试中，全屏任务遮罩保护人工点击；引用预检穿透，派发窗口放行后再恢复。
+    await evaluate(
+      `(()=>{const host=document.createElement('div');host.setAttribute('data-fast-automation-overlay','');host.style.cssText='position:fixed;inset:0;z-index:2147483647;pointer-events:auto';document.body.append(host);return true})()`,
+    );
+    snap = await snapshot();
+    const coveredPointer = snap.items.find((item) => item.name === '指针');
+    assert.equal(coveredPointer?.blocked, undefined);
+    const coveredRef = { binding, snapshotId: snap.snapshotId, ref: coveredPointer.ref };
+    assert.deepEqual(await call('confirm_ref', coveredRef), { confirmed: true });
+    const overlayPoint = await call('pointer_target', coveredRef);
+    assert.equal(
+      await evaluate(
+        `document.elementFromPoint(${overlayPoint.x},${overlayPoint.y})?.hasAttribute('data-fast-automation-overlay')`,
+      ),
+      true,
+    );
+    await evaluate(
+      `document.querySelector('[data-fast-automation-overlay]').style.pointerEvents='none'`,
+    );
+    try {
+      await interactions.clickBoundTarget(
+        { taskId: binding.taskId, generation: 1 },
+        { readTarget: () => call('pointer_target', coveredRef) },
+      );
+      assert.deepEqual(await evaluate('globalThis.pointerResult'), { trusted: true, count: 2 });
+    } finally {
+      await evaluate(
+        `document.querySelector('[data-fast-automation-overlay]').style.pointerEvents='auto'`,
+      );
+    }
+    assert.equal(
+      await evaluate(
+        `document.querySelector('[data-fast-automation-overlay]').style.pointerEvents`,
+      ),
+      'auto',
+    );
+    await evaluate(`document.querySelector('[data-fast-automation-overlay]').remove()`);
     snap = await snapshot();
     const distant = snap.items.find((item) => item.name === '远处');
     assert.ok(distant);

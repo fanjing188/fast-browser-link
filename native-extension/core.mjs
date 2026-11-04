@@ -192,6 +192,9 @@ export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
  const classifySensitiveField=${serializedFunction(classifySensitiveField)};
  const sensitive=e=>classifySensitiveField(e)!==null;
  const fieldKind=e=>classifySensitiveField(e)||'sensitive';
+ const overlayHit=e=>{for(let n=e;n;n=n.parentNode||n.host)if(n.nodeType===1&&(n.hasAttribute?.('data-fast-automation-overlay')||n.hasAttribute?.('data-fast-interaction-highlight')))return true;return false;};
+ // 中文注释：准备阶段遮罩仍拦截人工输入；仅在命中测试中穿过本插件层，实际派发窗口另行放行。
+ const pageHit=(root,x,y)=>root.elementsFromPoint?root.elementsFromPoint(x,y).find(hit=>!overlayHit(hit)):root.elementFromPoint(x,y);
  // 中文注释：遮挡时改点关联 label。
  const controlVisual=e=>{
   if(e.tagName!=='INPUT'||!['checkbox','radio'].includes(e.type))return e;
@@ -231,9 +234,9 @@ export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
    const boxlessHost=current!==e&&style.display==='contents';
    if(style.display==='none'||style.visibility!=='visible'||Number(style.opacity)===0||!boxlessHost&&(!current.getClientRects().length||r.width<=0||r.height<=0))throw Error('TARGET_ZERO_SIZE');
    if(point.x<0||point.y<0||point.x>=view.innerWidth||point.y>=view.innerHeight)throw Error('TARGET_OUT_OF_VIEWPORT');
-   const hit=(root.host?root:doc).elementFromPoint(point.x,point.y);
+   const hit=pageHit(root.host?root:doc,point.x,point.y);
    // 中文注释：隐藏页合成点击容许空命中。
-   if(hit?.closest?.('[data-fast-automation-overlay]')||(!hit&&!(p.syntheticHidden&&doc.visibilityState==='hidden'))||hit&&(hit!==current&&!current.contains(hit))){
+   if(overlayHit(hit)||(!hit&&!(p.syntheticHidden&&doc.visibilityState==='hidden'))||hit&&(hit!==current&&!current.contains(hit))){
     // 中文注释：遮挡摘要只取脱敏名称。
     let obstruction={role:hit?.getAttribute?.('role')||hit?.localName||'unknown',name:'',closeButton:null};
     if(hit?.ownerDocument===document&&state?.semantics){
@@ -413,7 +416,7 @@ export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
  if(op==='rect_ref')return rectOf();
  if(p.recoveryRound&&op==='reveal_ref'){
   node.scrollIntoView?.({behavior:'instant',block:'center',inline:'nearest'});
-  const r=node.getBoundingClientRect(),hit=doc.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
+  const r=node.getBoundingClientRect(),hit=pageHit(node.getRootNode().host?node.getRootNode():doc,r.left+r.width/2,r.top+r.height/2);
   if(hit&&hit!==node&&!node.contains(hit)){
    doc.activeElement?.dispatchEvent(new doc.defaultView.KeyboardEvent('keydown',{key:'Escape',code:'Escape',bubbles:true}));
    doc.activeElement?.dispatchEvent(new doc.defaultView.KeyboardEvent('keyup',{key:'Escape',code:'Escape',bubbles:true}));

@@ -24,7 +24,7 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
   const parentOf=node=>node.assignedSlot||node.parentElement||node.getRootNode().host||node.ownerDocument.defaultView?.frameElement;
   const docRoot=doc.documentElement;
   const isOverlay=node=>{
-    for(let n=node;n;n=n.parentNode || n.host){if(n.nodeType===1 && n.hasAttribute?.('data-fast-automation-overlay'))return true;}
+    for(let n=node;n;n=n.parentNode || n.host){if(n.nodeType===1 && (n.hasAttribute?.('data-fast-automation-overlay')||n.hasAttribute?.('data-fast-interaction-highlight')))return true;}
     return false;
   };
   const realMutation=record=>{
@@ -321,7 +321,7 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
         if(ctx.elementsFromPoint||ctx.elementFromPoint){
           // 中文注释：穿过插件浮层检查首个网页元素，避免浮层掩盖网页自身的遮挡。
           const hit=ctx.elementsFromPoint?ctx.elementsFromPoint(p.x,p.y).find(hit=>!isOverlay(hit)):ctx.elementFromPoint(p.x,p.y);
-          if(!isOverlay(hit)&&(!hit||!cur.contains(hit)&&!hit.contains(cur)))oc=true;
+          if(!hit||isOverlay(hit)||!cur.contains(hit)&&!hit.contains(cur))oc=true;
         }
       }
       if(rt.host){cur=rt.host;continue;}

@@ -58,6 +58,17 @@ const holdingInput = (method, params) =>
 const fail = (code, extra = {}) =>
   Object.assign(Error(code), { preDispatch: !extra.outcomeUnknown }, extra);
 
+function looksLikeJsFunction(expression) {
+  const source = expression.trim();
+  if (source.startsWith('function ') || source.startsWith('function(')) return true;
+  if (source.startsWith('async function ') || source.startsWith('async function(')) return true;
+  const arrow = source.indexOf('=>');
+  if (arrow < 0) return false;
+  let params = source.slice(0, arrow).trim();
+  if (params.startsWith('async ')) params = params.slice(6).trim();
+  return (params.startsWith('(') && params.endsWith(')')) || /^[A-Za-z_$][\w$]*$/.test(params);
+}
+
 export class PageRuntime {
   constructor(executor, { pushEvents = async () => {}, now = () => Date.now() } = {}) {
     this.network = new NetworkEvidence(executor);
@@ -171,6 +182,25 @@ export class PageRuntime {
     // 中文注释：函数参数作为 CDP 值传递，不插入可执行源码。
     const evaluation = (async () => {
       const callable = Object.hasOwn(p, 'arguments');
+      // 中文注释：evaluate(function, arguments) 只接受函数字面量；普通表达式在派发前拒绝，
+      // 避免把确定的用法错误记成未知页面写入。无 arguments 的底层 js() 保留原始表达式语义。
+      if (callable && !looksLikeJsFunction(p.expression)) throw fail('INVALID_JS_FUNCTION');
+      if (callable) {
+        // CDP 编译阶段不运行网页代码；语法错误可确定没有派发函数体。
+        let compiled;
+        try {
+          compiled = await api.sendCommand(target, 'Runtime.compileScript', {
+            expression: `(${p.expression})`,
+            sourceURL: 'fast-browser-evaluate',
+            persistScript: false,
+            ...(contextId ? { executionContextId: contextId } : {}),
+          });
+        } catch {
+          throw fail('JS_PREPARATION_FAILED');
+        }
+        check();
+        if (compiled.exceptionDetails) throw fail('INVALID_JS_FUNCTION');
+      }
       const value = await api.sendCommand(target, 'Runtime.evaluate', {
         expression: callable ? `(${p.expression})` : p.expression,
         ...(contextId ? { contextId } : {}),
@@ -210,10 +240,6 @@ export class PageRuntime {
         const details = response.exceptionDetails;
         // 中文注释：SyntaxError也可能由已执行代码抛出；异常类型只能分类，不能证明没有副作用。
         const type = String(details.exception?.className || 'Error').slice(0, 80);
-        const raw = String(details.exception?.description || details.text || 'Uncaught')
-          .split(/\r?\n/, 1)[0]
-          .slice(0, 200);
-        const text = raw;
         const syntax = type === 'SyntaxError';
         return {
           ok: false,
@@ -221,7 +247,6 @@ export class PageRuntime {
           outcomeUnknown: true,
           exception: {
             type,
-            text,
             lineNumber: details.lineNumber,
             columnNumber: details.columnNumber,
           },

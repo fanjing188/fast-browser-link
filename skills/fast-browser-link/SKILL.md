@@ -22,6 +22,8 @@ description: 使用用户已登录的 Chrome 或 Edge 执行普通或无痕网�
 
 所有任务操作共用同一个 `--session`。JSON 参数使用 Native 协议的 camelCase。`run` 自动生成请求 ID，也可提供 `requestId` 查询同一次待人工处理的请求。不要指定 owner。
 
+`evaluate` 传 JavaScript 函数表达式，例如 `evaluate('()=>document.title')`；不能传 `evaluate('document.title')`。MCP `js.evaluate` 的 `expression` 也传 `()=>document.title`，无参数时可省略 `arguments`。普通表达式返回 `invalid_expression` 且未执行，改正后可在同一任务继续。
+
 - `outcome_unknown` / `request_outcome_unavailable`：动作可能已执行，先读取核实；若已保存原 `requestId`，可用 `operation_status {"taskId":"id","requestId":"原编号"}` 查询原操作账本。查询不重放，不生成新编号重复写入，也不切到旧 DOM/CDP 通道补写。
 - `task_paused`：用户接管，等待用户恢复后读取新快照。
 - `user_input_required`：请用户在浏览器填写敏感字段，不读取或代填密码、支付信息和验证码。

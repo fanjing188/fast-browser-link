@@ -133,10 +133,11 @@ test('截图遮罩失败与目标缺失使用具体码且候选不含字段值',
 });
 test('解析类读取的页面脚本异常归为解析出错，不回传异常正文；写入动作不改分类', async () => {
   const canary = "TypeError: Cannot read properties of null (reading 'secret-page-text')";
-  for (const action of ['semantic_snapshot', 'page.parse']) {
+  for (const action of ['semantic_snapshot', 'page.parse', 'js.evaluate']) {
     const result = await wire(action, canary);
     assert.equal(result.error.code, 'page_script_error');
     assert.doesNotMatch(JSON.stringify(result), /secret-page-text/);
+    assert.equal(result.error.data.outcomeUnknown, action === 'js.evaluate');
   }
   assert.equal((await wire('ref_click', canary)).error.code, 'execution_denied');
   assert.equal(

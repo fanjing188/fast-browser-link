@@ -36,6 +36,24 @@ class RecordingClient:
 
 
 class NativeTests(unittest.TestCase):
+    def test_mcp_evaluate_requires_function_even_without_arguments(self):
+        self.invoke(
+            "fast_browser_run",
+            {"task_id": "task-1", "tab_id": 7, "action": "js.evaluate", "expression": "location.pathname"},
+        )
+        self.assertEqual(self.client.calls[-1][1]["arguments"], None)
+        error = RuntimeError("PRIVATE_PAGE_CANARY")
+        error.code = "invalid_expression"
+        error.data = {"outcomeUnknown": False, "retryable": False}
+        self.client.call = lambda *_: (_ for _ in ()).throw(error)
+        result, _ = self.invoke(
+            "fast_browser_run",
+            {"task_id": "task-1", "tab_id": 7, "action": "js.evaluate", "expression": "location.pathname"},
+        )
+        self.assertEqual(result["code"], "invalid_expression")
+        self.assertFalse(result["outcome_unknown"])
+        self.assertNotIn("PRIVATE_PAGE_CANARY", json.dumps(result))
+
     def test_runtime_preparation_code_preserves_explicit_non_dispatch_only(self):
         for unknown in (False, True):
             error = RuntimeError("PRIVATE_PREPARATION_CANARY")

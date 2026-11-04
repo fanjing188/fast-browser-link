@@ -93,6 +93,68 @@ function runtimeRequest(f, params, check = guard) {
   return bridge.executeRequest({ id: 'runtime-probe', method: 'browser.execute', params });
 }
 
+test('evaluate rejects a non-function before page evaluation and accepts the next function', async () => {
+  const f = fixture();
+  let reply = await runtimeRequest(f, {
+    action: 'js.evaluate',
+    tabId: 7,
+    expression: 'location.pathname',
+    arguments: null,
+  });
+  assert.equal(reply.error.code, 'invalid_expression');
+  assert.equal(reply.error.data.outcomeUnknown, false);
+  assert.match(reply.error.message, /\(\)=>document\.title/);
+  assert.equal(f.sent.filter((row) => row.method === 'Runtime.evaluate').length, 0);
+  f.replies['Runtime.evaluate'] = () => ({ result: { type: 'function', objectId: 'fn' } });
+  f.replies['Runtime.callFunctionOn'] = () => ({ result: { type: 'string', value: '/a' } });
+  reply = await runtimeRequest(f, {
+    action: 'js.evaluate',
+    tabId: 7,
+    expression: '()=>location.pathname',
+    arguments: null,
+  });
+  assert.equal(reply.result.ok, true);
+  assert.equal(reply.result.value, '/a');
+});
+
+test('evaluate syntax failure is classified before page execution', async () => {
+  const f = fixture();
+  f.replies['Runtime.compileScript'] = () => ({
+    exceptionDetails: {
+      exception: { className: 'SyntaxError', description: 'SyntaxError: PRIVATE_PAGE_CANARY' },
+    },
+  });
+  const reply = await runtimeRequest(f, {
+    action: 'js.evaluate',
+    tabId: 7,
+    expression: '()=>{',
+    arguments: null,
+  });
+  assert.equal(reply.error.code, 'invalid_expression');
+  assert.equal(reply.error.data.outcomeUnknown, false);
+  assert.equal(f.sent.filter((row) => row.method === 'Runtime.evaluate').length, 0);
+  assert.doesNotMatch(JSON.stringify(reply), /PRIVATE_PAGE_CANARY/);
+});
+
+test('evaluated page exception exposes its type but not page text', async () => {
+  const f = fixture();
+  f.replies['Runtime.evaluate'] = () => ({ result: { type: 'function', objectId: 'fn' } });
+  f.replies['Runtime.callFunctionOn'] = () => ({
+    exceptionDetails: {
+      exception: { className: 'TypeError', description: 'TypeError: PRIVATE_PAGE_CANARY' },
+    },
+  });
+  const reply = await runtimeRequest(f, {
+    action: 'js.evaluate',
+    tabId: 7,
+    expression: '()=>{throw new TypeError("PRIVATE_PAGE_CANARY")}',
+    arguments: null,
+  });
+  assert.equal(reply.result.code, 'js_exception');
+  assert.equal(reply.result.exception.type, 'TypeError');
+  assert.doesNotMatch(JSON.stringify(reply), /PRIVATE_PAGE_CANARY/);
+});
+
 // 中文注释：经真实 PageRuntime→Bridge 核对前置失败，不能只在桥接替身手填 preDispatch。
 for (const stage of ['frame tree', 'frame resolution', 'isolated world', 'world guard'])
   test(`JS preparation failure before ${stage} is known not dispatched`, async () => {
@@ -345,7 +407,8 @@ test('non-serializable, circular and oversize values become bounded descriptions
     guard,
   );
   assert.equal(result.ok, false);
-  assert.equal(result.exception.text, 'Error: boom');
+  assert.equal(result.exception.type, 'Error');
+  assert.equal(Object.hasOwn(result.exception, 'text'), false);
 });
 
 test('result inspection skips page toJSON and refuses getters without invoking them', async () => {
@@ -419,7 +482,7 @@ test('JavaScript syntax and runtime errors carry stable codes and bounded first 
   assert.equal(result.code, 'js_exception');
   assert.equal(result.outcomeUnknown, true);
   assert.equal(result.exception.type, 'TypeError');
-  assert.ok(result.exception.text.length <= 200);
+  assert.equal(Object.hasOwn(result.exception, 'text'), false);
 });
 
 test('document replacement during evaluation is reported in coverage', async () => {
@@ -1178,7 +1241,7 @@ test('non-function result after evaluating a callable expression remains uncerta
       action: 'js.evaluate',
       tabId: 7,
       world: 'main',
-      expression: '(sideEffect(),1)',
+      expression: '()=>{}, sideEffect()',
       arguments: {},
     },
   });

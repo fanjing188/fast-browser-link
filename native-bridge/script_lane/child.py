@@ -445,7 +445,7 @@ def extract(schema, tab=None, **options):
 def _js_error_text(detail):
     """中文注释：异常文本通常已带类型前缀，只在缺少时补上，截断到 200 字符。"""
     kind, text = str(detail.get("type") or "Error"), str(detail.get("text") or "")
-    return (text if text.startswith(kind) else f"{kind}: {text}")[:200]
+    return (text if text.startswith(kind) else f"{kind}: {text}").rstrip(": ")[:200]
 
 
 @_tab_scoped

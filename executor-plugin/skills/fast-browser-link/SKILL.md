@@ -80,6 +80,8 @@ Multi-step: locate → act → check in the same script via `fast_browser_script
 
 Browser connection authorization permits page JavaScript, raw CDP, CDP event reads and `browser_exec` directly; no per-action approval is needed. Use `fast_browser_run` actions `js.evaluate`, `cdp.send`, `cdp.events` (or `browser_console`, `browser_cdp`, `browser_exec`). A page where a credential was filled cannot run arbitrary scripts/CDP. Raw CDP events include other frame origins; credential headers and Bearer values are removed.
 
+`evaluate` 和 MCP `js.evaluate` 的 `expression` 都要传 JavaScript 函数表达式，例如 `()=>document.title`，不能传 `document.title`；无参数时可省略 `arguments`。普通表达式返回 `invalid_expression` 且未执行，可在同一任务改正后继续。函数体可能有副作用，执行后结果未知时仍先回读。
+
 Independent script/Vault calls need new `request_id`; unknown results never replay. Vault requires its optional capability, manager unlock, official masked prompts, exact origin and private channel. Connection grants no secrets or substitute for manual entry.
 
 Errors: `fast-browser-link:fast-browser-troubleshoot`. Product tasks allow only FBL's paired guarded lane, not JS/CDP/Vault fallback; unknown writes or revocation never replay. Pause/switch/unpair require confirmed revocation; resume needs fresh observation/grant.

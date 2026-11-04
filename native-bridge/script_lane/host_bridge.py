@@ -794,6 +794,7 @@ class HostBridge:
                 in {
                     "invalid_action",
                     "invalid_params",
+                    "invalid_expression",
                     "foreign_tab",
                     "origin_denied",
                     "invalid_url",
@@ -922,6 +923,8 @@ class HostBridge:
                 reply["code"] = code
                 if code == "task_paused":
                     reply["error"] = "用户已接管，任务已暂停；请等待用户继续，不会自动重试。"
+                if code == "invalid_expression" and not unknown:
+                    reply["error"] = "evaluate 需要函数表达式，例如 ()=>document.title。"
                 if code == "redirected_out_of_scope" and isinstance(
                     getattr(exc, "finalOrigin", None), str
                 ):

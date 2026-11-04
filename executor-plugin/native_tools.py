@@ -375,7 +375,7 @@ TOOL_SCHEMAS["fast_browser_run"]["description"] += (
     " 页面执行：连接授权后 js.evaluate / cdp.send / cdp.events 直接执行，不逐项确认。"
     "发生过凭据填写的页面不能运行任意 JS/CDP。原始脚本结果不做字段级脱敏。"
     ' read_page/page_text 返回 dict：读 page["items"] / page["elements"]，不能切片 dict；wait_for timeout 上限 60 秒。'
-    ' JS 用 evaluate("(selector)=>document.querySelector(selector)?.textContent", "#result") 传值；isolated 共享 DOM，不共享网站 JS 全局变量，main 需明确理由且不自动切换。'
+    ' evaluate 和 js.evaluate 的 expression 必须是函数，例如 ()=>document.title；不可传 document.title。JS 用 evaluate("(selector)=>document.querySelector(selector)?.textContent", "#result") 传值；isolated 共享 DOM，不共享网站 JS 全局变量，main 需明确理由且不自动切换。'
     " 上传：files.upload 传 selector 与 paths（用户在对话中给出的本地文件路径，可用 ~）。"
 )
 _run_schema["properties"]["action"]["enum"] = sorted(PUBLIC_ACTIONS)
@@ -922,6 +922,9 @@ def make_tool_handler(tool_name, profile_runtime, *, host_bridge=None, backend_c
             for key, wire in mapping.items():
                 if key in args:
                     params[wire] = args[key]
+            if tool_name == "fast_browser_run" and params.get("action") == "js.evaluate":
+                # MCP evaluate 与脚本 evaluate 共用函数契约；无实参也要显式传 null。
+                params.setdefault("arguments", None)
             if isinstance(params.get("paths"), list):
                 params["paths"] = [
                     os.path.abspath(os.path.expanduser(item)) if isinstance(item, str) else item
@@ -1130,6 +1133,7 @@ def make_tool_handler(tool_name, profile_runtime, *, host_bridge=None, backend_c
                 "capture_frame_uninspectable": "框架遮罩位置无法确认；请移开该框架或让用户手动截图。",
                 "task_paused": "用户正在接管浏览器页面。请等待用户退出接管，再继续此任务。",
                 "execution_denied": "浏览器拒绝执行，原因未分类；请查看任务和扩展状态，先读取页面核实结果。不要自动重试。",
+                "invalid_expression": "evaluate 需要函数表达式，例如 ()=>document.title。",
                 "invalid_semantic_options": "semantic_snapshot 的 options 不支持所列字段；sections/maxScan/schema 请使用 page.parse。",
                 "outcome_unknown": "执行结果不确定，请先检查页面；禁止自动重试。",
                 "bridge_execution_failed": "浏览器执行链异常；请核对原请求及执行阶段，不要重放。",
@@ -1272,6 +1276,7 @@ def make_tool_handler(tool_name, profile_runtime, *, host_bridge=None, backend_c
                     "site_changed",
                     "cdp_method_denied",
                     "invalid_params",
+                    "invalid_expression",
                     "invalid_semantic_options",
                     "task_busy",
                     "target_not_owned",

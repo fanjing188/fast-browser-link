@@ -258,6 +258,9 @@ function executionError(error, message) {
   } else if (reason === 'CDP_METHOD_DENIED') {
     code = 'cdp_method_denied';
     text = 'CDP method name is invalid.';
+  } else if (reason === 'INVALID_JS_FUNCTION') {
+    code = 'invalid_expression';
+    text = 'evaluate 需要函数表达式，例如 ()=>document.title。';
   } else if (
     [
       'INVALID_JS_EXPRESSION',
@@ -406,9 +409,14 @@ function executionError(error, message) {
   if (
     code === 'execution_denied' &&
     message.method === 'browser.execute' &&
-    ['semantic_snapshot', 'page.parse', 'page.observe', 'snapshot', 'frame_catalog'].includes(
-      message.params?.action,
-    ) &&
+    [
+      'semantic_snapshot',
+      'page.parse',
+      'page.observe',
+      'snapshot',
+      'frame_catalog',
+      'js.evaluate',
+    ].includes(message.params?.action) &&
     /^(?:TypeError|RangeError|ReferenceError|SyntaxError|DOMException|InvalidStateError|NotSupportedError|SecurityError)\b/.test(
       detail,
     )

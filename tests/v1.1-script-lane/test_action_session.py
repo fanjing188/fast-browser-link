@@ -41,6 +41,21 @@ class RecordingRuntime:
 
 
 class ActionSessionTest(unittest.TestCase):
+    def test_invalid_evaluate_does_not_freeze_followup(self):
+        error = RuntimeError("private page text")
+        error.code = "invalid_expression"
+        error.data = {"outcomeUnknown": False}
+        runtime = RecordingRuntime([{"tabId": 7}, error, {"ok": True, "value": "title"}])
+        session = adapter.ActionSession(runtime, owner="trusted-owner", task_id="task-1")
+        session.new_tab("https://example.test/")
+        with self.assertRaises(adapter.ActionRejected) as caught:
+            session.run("js.evaluate", {"expression": "document.title", "arguments": None})
+        self.assertEqual(caught.exception.code, "invalid_expression")
+        self.assertEqual(
+            session.run("js.evaluate", {"expression": "()=>document.title", "arguments": None})["value"],
+            "title",
+        )
+
     def test_workflow_capability_requires_bound_instance_and_generation(self):
         task = {"instanceId": "instance-1", "generation": 2, "state": "ready"}
         for browsers, accepted in (

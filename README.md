@@ -98,7 +98,7 @@ You can take over or stop a task from the extension. Use [combined steps](docs/b
 ## Background execution and limits
 
 - Normal tasks use work tabs. Explicitly attaching an existing page preserves it without reloading or opening a replacement. Normal mode reuses your login; incognito needs separate extension permission.
-- Ordinary operations aim to stay in the background. Popups have background-first, block, and explicit compatibility modes. **On macOS, Edge can still take focus when navigating to local HTTP addresses such as localhost or 127.0.0.1.** These remain allowed, with a visible warning. [Popup policies and limits](docs/popup-policy.md).
+- Ordinary operations aim to stay in the background. Popups have background-first, block, and explicit compatibility modes. **On macOS, Edge can still take focus when navigating to local HTTP addresses such as localhost.** These remain allowed, with a visible warning. [Popup policies and limits](docs/popup-policy.md).
 - Passwords, payment details, and verification codes are handled by the user. Complete required human login or verification steps yourself, and tell your agent which submissions or data changes are authorized.
 - A timeout does not prove that an action did not happen. Unknown writes require verification rather than automatic replay. Reports establish the checks you declared, not every aspect of a website's business outcome.
 - Page content is returned to the agent you choose and is subject to that agent's data policies. [Security](SECURITY.md).

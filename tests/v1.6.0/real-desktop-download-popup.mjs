@@ -25,6 +25,17 @@ const desktop = async () =>
 const original = await desktop(),
   events = [],
   checks = [];
+// 锁屏会阻止浏览器进入前台；这种样本不能证明桌面静默。
+const assertDesktopAvailable = (state) => {
+  assert.ok(
+    Number.isInteger(state?.pid) &&
+      state.pid > 0 &&
+      state.bundle &&
+      state.bundle !== 'com.apple.loginwindow' &&
+      state.bundle !== 'com.apple.ScreenSaver.Engine',
+    'Desktop unavailable or locked; silent acceptance is invalid',
+  );
+};
 let session,
   timer,
   pending = Promise.resolve(),
@@ -72,6 +83,7 @@ const origin = `http://127.0.0.1:${server.address().port}`;
 const output = path.join(process.env.TMPDIR, `popup-policy-${browser}${headed ? '-desktop' : ''}`);
 await mkdir(output, { recursive: true });
 try {
+  if (headed) assertDesktopAvailable(original);
   session = await openRealSession({
     browser,
     headed,
@@ -121,7 +133,9 @@ try {
   const browserInFront = (state) => state.pid === session.browserPid;
   const quiet = async () => {
     if (!headed) return;
-    assert.equal(browserInFront(await desktop()), false, 'Browser took OS focus');
+    const current = await desktop();
+    assertDesktopAvailable(current);
+    assert.equal(browserInFront(current), false, 'Browser took OS focus');
     assert.equal(
       await session.ui.evaluate('chrome.windows.getAll().then(ws=>ws.every(w=>!w.focused))'),
       true,
@@ -314,6 +328,7 @@ try {
     clearInterval(timer);
     timer = null;
     await pending;
+    for (const state of events) assertDesktopAvailable(state);
     assert.ok(
       events.every((x) => !browserInFront(x)),
       'Transient OS focus switch',

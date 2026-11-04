@@ -660,11 +660,11 @@ class GateNegativeControls(unittest.TestCase):
         # 中文注释：逐文件运行全部已审阅 Node 清单；唯一名称及固定命令形态防止合并或漏跑。
         steps = gate.matrix(Path("/scratch/source"), "/scratch/python")
         # 中文注释：旧协作 runner 迁出，核心 CLI 用例纳入固定门禁。
-        self.assertEqual(len(steps), 147)
+        self.assertEqual(len(steps), 150)
         node_steps = [(name, command) for name, command, kind in steps if kind == "tap"]
         self.assertEqual(len(node_steps), 87)
         self.assertEqual(len({name for name, _command in node_steps}), 87)
-        self.assertEqual(sum(kind != "tap" for _name, _command, kind in steps), 60)
+        self.assertEqual(sum(kind != "tap" for _name, _command, kind in steps), 63)
         self.assertEqual(gate.NODE_BOUNDARIES, (".",))
         self.assertFalse(
             any("cloud-link/" in token for _name, command, _kind in steps for token in command)

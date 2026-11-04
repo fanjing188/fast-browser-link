@@ -341,7 +341,7 @@ runQualityTest(
     };
     try {
       const api = measured(f.semantics);
-      const pages = collectPages(api, { mode: 'content', budget: 12000 });
+      const pages = collectPages(api, { mode: 'content', budget: 12000, limit: 200 });
       const items = pages.flatMap((page) => page.items);
       const wire = JSON.stringify(pages);
       const reconstructed = items.map((item) => item.name).join('');
@@ -386,14 +386,14 @@ runQualityTest(
       f.document.body.append(paragraph);
       const api = measured(f.semantics);
       const budget = 700;
-      const pages = collectPages(api, { mode: 'content', budget });
+      const pages = collectPages(api, { mode: 'content', budget, limit: 200 });
       const items = pages.flatMap((page) => page.items);
       const reconstructed = items.map((item) => item.name).join('');
 
       assert.ok(pages.length > 1, 'budget, not maxItems, must force continuation');
       assert.ok(
-        pages.every((page) => page.items.length > 1),
-        'response should pack multiple fragments instead of one fragment per call',
+        pages.slice(0, -1).every((page) => page.items.length > 1),
+        'non-final responses should pack multiple fragments instead of one per call',
       );
       assert.ok(api.calls.every((call) => call.estimatedUnits <= budget));
       assert.equal(pages.at(-1).nextCursor, null);
@@ -428,7 +428,7 @@ runQualityTest(
       paragraph.textContent = originalText;
       f.document.body.append(paragraph);
       const api = measured(f.semantics);
-      const options = { mode: 'content', budget: 10000 };
+      const options = { mode: 'content', budget: 10000, limit: 200 };
       const baseline = api.snapshot(options);
       assert.equal(
         baseline.nextCursor,

@@ -215,6 +215,7 @@ class ProtocolError(Exception):
         self.code = code
         self.message = message
         self.data = safe_summary(data) if code == "cookie_mirror_denied" else _safe_error_data(data)
+        self.outcome_unknown_explicit = "outcomeUnknown" in self.data
         # 中文注释：协议错误只用固定错误码分类，提示不拼接页面内容或底层异常。
         if "category" not in self.data:
             usage = ("invalid_", "missing_", "stale_", "binding_", "reference_", "parse_cursor_")
@@ -236,7 +237,11 @@ class ProtocolError(Exception):
             )
             self.data["category"] = category
         self.data.setdefault("retryable", False)
-        self.data.setdefault("outcomeUnknown", False)
+        # 中文注释：传输断开或超时不能证明已派发写入失败；只读入口会在调用边界明确改为 False。
+        self.data.setdefault(
+            "outcomeUnknown",
+            code in {"extension_timeout", "extension_disconnected", "workspace_unknown"},
+        )
         self.data.setdefault(
             "hint",
             {
@@ -2581,7 +2586,7 @@ class BridgeDaemon:
         except Exception as exc:
             unknown = not isinstance(exc, ProtocolError) or (
                 exc.data.get("outcomeUnknown")
-                if "outcomeUnknown" in exc.data
+                if exc.outcome_unknown_explicit
                 else exc.code
                 in {
                     "extension_timeout",
@@ -3455,7 +3460,9 @@ class BridgeDaemon:
                             result = {**result, "outcomeUnknown": True, "retryable": False}
             except ProtocolError as exc:
                 if action == "product.fill" or task.get("executionLane") == "product_work":
-                    unknown = exc.data.get("outcomeUnknown") is not False
+                    unknown = (
+                        not exc.outcome_unknown_explicit or exc.data.get("outcomeUnknown") is True
+                    )
                     # 中文注释：产品错误与页面正文不进入缓存、状态或日志，只保存固定码。
                     exc = ProtocolError(
                         "product_outcome_unknown" if unknown else "product_execution_denied",
@@ -3508,7 +3515,11 @@ class BridgeDaemon:
                 if uncertain_popup_adoption:
                     exc.data = {**exc.data, "outcomeUnknown": True, "retryable": False}
                 if read_only and exc.code in {"extension_timeout", "extension_disconnected"}:
-                    exc.data = {"outcomeUnknown": False, "retryable": False}
+                    exc = ProtocolError(
+                        exc.code,
+                        exc.message,
+                        {"outcomeUnknown": False, "retryable": False},
+                    )
                 with self.state_lock:
                     if (
                         action == "product.fill" or task.get("executionLane") == "product_work"

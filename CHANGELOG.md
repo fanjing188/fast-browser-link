@@ -1,6 +1,6 @@
 # Changelog
 
-## 开发中
+## 2.6.0 — 2026-11-04
 
 - 后台文档中暂停的透明过渡祖先不再隐藏其按钮；语义世界版本提升至 15，快照 coverage 增加 `documentHidden` 和 `pausedTransitions`，补充离线与独立浏览器夹具。
 - 修复语义快照名称或角色查询无匹配时误报引用缺失并触发恢复；真实浏览器测试改用 `FBL_TEST_PYTHON` 或 PATH 中的 `python3`，缺少 Hermes 测试模块时给出明确提示。
@@ -9,10 +9,6 @@
 - 任务关闭时生成脱敏的 Markdown/JSON 操作记录，`get` 与关闭回执返回路径。
 - 升级自动列出已关闭且清理成功的任务，`tasks:ack` 自动定位数据目录并支持多个任务 ID。
 - 新增显式 `npm run install:dev -- --apply`，打包、预检、安装并读回扩展构建号。
-
-## 2.6.0 — 2026-11-03
-
-未公开发布版本，基于正式 2.5.1。
 
 - 错误回执增加 `category`、`retryable`、中文 `hint`；待批准任务返回 `approval_pending`，任务查询公开审批状态与请求时间。语义快照默认 20 条，支持 `query`、`role`、`limit`（上限 200）和 `cursor`，覆盖率区分不可见、筛选及截断。
 

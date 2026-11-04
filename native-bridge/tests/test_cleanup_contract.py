@@ -653,12 +653,15 @@ class CleanupContractTests(unittest.TestCase):
             self.daemon._dispatch_client(
                 "shared.run", dict(self.params, action="snapshot", tabId=1, requestId="read")
             )
-        self.assertEqual(caught.exception.data, {
-            "outcomeUnknown": False,
-            "retryable": True,
-            "category": "site",
-            "hint": "请检查浏览器页面和任务状态",
-        })
+        self.assertEqual(
+            caught.exception.data,
+            {
+                "outcomeUnknown": False,
+                "retryable": True,
+                "category": "site",
+                "hint": "请检查浏览器页面和任务状态",
+            },
+        )
 
     def test_read_timeout_is_classified_without_revoking_task_or_replaying_request(self):
         task = self.daemon.tasks[self.task["id"]]

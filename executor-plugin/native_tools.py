@@ -1389,7 +1389,11 @@ def make_tool_handler(tool_name, profile_runtime, *, host_bridge=None, backend_c
                 and data.get("outcomeUnknown") is False
             )
             unknown = (
-                False
+                (
+                    data.get("outcomeUnknown") is True
+                    or code
+                    in {"outcome_unknown", "request_outcome_unavailable", "bridge_execution_failed"}
+                )
                 if read_only
                 else (
                     data.get("outcomeUnknown")

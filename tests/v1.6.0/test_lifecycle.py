@@ -400,7 +400,14 @@ class LifecycleTests(unittest.TestCase):
         }
         error = ProtocolError("click_no_effect", "fixed", data)
         client = BridgeError(error.code, error.message, error.data)
-        self.assertEqual(client.data, {k: v for k, v in data.items() if k != "secret"})
+        self.assertEqual(
+            client.data,
+            {
+                **{k: v for k, v in data.items() if k != "secret"},
+                "category": "site",
+                "hint": "请检查浏览器页面和任务状态",
+            },
+        )
         uncertain = ACTION.OutcomeUnknown("fixed", code=client.code, data=client.data)
         child = CHILD.BrowserError(
             "fixed",

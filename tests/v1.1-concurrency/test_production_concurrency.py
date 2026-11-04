@@ -503,6 +503,8 @@ class ProductionConcurrencyTests(unittest.TestCase):
             self.assertEqual(
                 caught.exception.data,
                 {
+                    "category": "site",
+                    "hint": "请检查页面和任务状态",
                     "outcomeUnknown": False,
                     "retryable": False,
                     "stage": "authority",
@@ -620,6 +622,8 @@ class ProductionConcurrencyTests(unittest.TestCase):
             self.assertEqual(
                 caught.exception.data,
                 {
+                    "category": "site",
+                    "hint": "请检查页面和任务状态",
                     "outcomeUnknown": False,
                     "retryable": False,
                     "stage": "authority",

@@ -199,6 +199,8 @@ test('持续换文档最多重读一次，桥接保留固定文档错误且不�
   assert.equal(sent[0].result, undefined);
   assert.equal(sent[0].error.code, 'document_changed');
   assert.deepEqual(sent[0].error.data, {
+    category: 'site',
+    hint: '请检查页面和任务状态',
     outcomeUnknown: false,
     retryable: true,
     stage: 'document',

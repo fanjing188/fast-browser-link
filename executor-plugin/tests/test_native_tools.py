@@ -181,7 +181,7 @@ class NativeTests(unittest.TestCase):
                 "allowed_origins": ["https://example.com"],
             },
         )
-        self.assertIn("自动", result["message"])
+        self.assertIn("批准", result["message"])
         self.assertIn("new_tab", self.tools.TOOL_SCHEMAS["fast_browser_create"]["description"])
         self.assertNotIn("用户必须", self.tools.TOOL_SCHEMAS["fast_browser_create"]["description"])
         self.assertIn("全部访问", self.tools.TOOL_SCHEMAS["fast_browser_resume"]["description"])

@@ -477,7 +477,15 @@ class DaemonPopupPeerTests(unittest.TestCase):
         with self.assertRaises(self.module.ProtocolError) as error:
             self.daemon._run_task(params)
         self.assertEqual(error.exception.code, "request_outcome_unavailable")
-        self.assertEqual(error.exception.data, {})
+        self.assertEqual(
+            error.exception.data,
+            {
+                "category": "site",
+                "hint": "请检查浏览器页面和任务状态",
+                "outcomeUnknown": False,
+                "retryable": False,
+            },
+        )
         self.assertEqual(len(self.calls), before)
 
     def change_takeover_state(self, unpause=False):
@@ -552,7 +560,7 @@ class DaemonPopupPeerTests(unittest.TestCase):
         self.assertEqual((resumed["generation"], resumed["state"]), (2, "pending_approval"))
         with self.assertRaises(self.module.ProtocolError) as preparing:
             self.daemon._run_task(params)
-        self.assertEqual(preparing.exception.code, "task_preparing")
+        self.assertEqual(preparing.exception.code, "approval_pending")
         self.assertEqual(
             self.daemon._operation_status(
                 {"owner": "owner", "taskId": "task", "requestId": "adopt"}
@@ -591,6 +599,8 @@ class DaemonPopupPeerTests(unittest.TestCase):
         self.assertEqual(
             caught.exception.data,
             {
+                "category": "plugin",
+                "hint": "请查看插件诊断并报告错误码",
                 "stage": "browser_execute",
                 "reasonCode": "runtime_error",
                 "outcomeUnknown": True,

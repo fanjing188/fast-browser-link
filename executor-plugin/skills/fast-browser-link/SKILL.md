@@ -8,9 +8,9 @@ description: Standard workflow and safety rules for working in the user's own lo
 
 Regular mode shares logins. Connection permits reads/navigation/writes/JS/CDP/Python; leases, takeover and stop remain. Offline/unknown grants nothing.
 
-默认/严格弹窗模式：写入前在本任务 `new_tab` 后 `navigate`。已有页可只读；`popup_policy_unprotected`（`unprotected_document`）表示未写入、未暂停。重新导航当前 URL，重读快照再写；先保存草稿。真实开窗暂停仍需人工解除。
+默认/严格弹窗模式：先在本任务新建并导航工作页；旧页只读。`popup_policy_unprotected` / `unprotected_document` 表示写入未执行、任务未暂停；保存草稿后重新导航并读取。真实开窗暂停需人工恢复。
 
-Local only: no cloud fallback. SDK/CLI/MCP/Hermes share one core; `ref_fill` does not enforce product approval, manual-edit or final-submit rules. 重复后台操作的 site tool 定义、断言和真实试跑说明见仓库 `docs/workflow-tools.md` 的“给 Agent 的固定后台流程指南”。
+Local only; SDK/CLI/MCP/Hermes share one core. `ref_fill` does not enforce product approval or final-submit rules. 后台 site tool 用法见 `docs/workflow-tools.md`。
 
 ## Page output and recovery
 
@@ -31,14 +31,14 @@ Takeover pauses. Cookie mirror needs source-extension confirmation. Auto-update 
    - `awaiting_authorization`: confirm browser access in the extension; wait for `fast_browser_get(task_id).state=ready`, then call `fast_browser_open` again.
    - `no_browser`: ask the user to enable the extension and check Hermes “浏览器连接”.
    - `task_paused`: the user has taken over the work tab. Call `fast_browser_get(task_id, until="resumed")` to wait, then re-read the page; do not create a new task.
-2. **Read**: choose `read_intent='content'` for body text or `'interactive'` (default) for controls; optional `root` narrows the summary. Keep `binding`, `snapshotId`, `coverage` and `nextCursor`. `semantic_snapshot` defaults to 20 items; `options={'query':'创建','role':'button','limit':50}` filters accessible names/text and role, with limit 1–200. Use `roles` for several roles. A query with no match returns `items=[]` and `coverage.matched=0` without reference recovery; `reference_target_missing` is for reference actions. Continue with the same options plus `cursor=coverage.nextCursor`; `coverage.hidden`, `queryFiltered`, and `omitted` separate invisible, filtered, and truncated items. `coverage.documentHidden` records whether the document was in the background; `coverage.pausedTransitions>0` means visibility checks skipped a transparent ancestor with transition evidence in that background document. Confirm the page state by reading again. When `summary_missing.reason='page_loading'`, wait for a specific condition in the same tab, then read the target region. Use `summary=false` if the next script already has a reading plan. Single read: `fast_browser_run(task_id=..., tab_id=..., action='semantic_snapshot', options={'root':'#target','mode':'interactive'})`. Run requires **both** `task_id` and `tab_id` except `tabs` / `new_tab`; validation returns `missing_fields` / `invalid_fields` and only field names.
+2. **Read**: `read_intent="content"` 读正文，`"interactive"` 读控件；`root` 缩小范围。保留 `binding`、`snapshotId`、`coverage`、`nextCursor`。`semantic_snapshot` 默认 20 项；`options={"query":"创建","role":"button","limit":50}` 按名称/文本和角色筛选，limit 为 1–200；多角色用 `roles`。零匹配返回 `items=[]`、`coverage.matched=0`，引用动作找不到目标才报 `reference_target_missing`。续读沿用原选项并传 `cursor=coverage.nextCursor`。`hidden`、`queryFiltered`、`omitted` 区分隐藏、筛选和截断；后台页看 `documentHidden`、`pausedTransitions`，有暂停过渡时重读确认。加载中先等具体条件；脚本自带读取时用 `summary=false`。单次读取用 `fast_browser_run(task_id=...,tab_id=...,action="semantic_snapshot",options={...})`；除 `tabs` / `new_tab` 外 run 必须传 task_id 和 tab_id。
    - 摘要一次按预算分页，不二次裁剪；用 `read_options` 原样加 `nextCursor` 续读。保留 `fragment` / `cellText`，按 `(ref, field, index)` 和 start/end 重组，不能按 ref 去重。`resync` 时丢弃旧片段重读；无游标不等于完整，检查 `coverage.truncated` / `traversalComplete`。大结果存工作区，模型只收计数、路径和覆盖状态。
 3. **Act**:
    - Official tools: `browser_click(ref)`, `browser_type(ref, text)`, `browser_navigate(url)`, `browser_scroll(direction)`, `browser_back()`, `browser_press(key)`.
    - Or `fast_browser_run`: `ref_click` / `ref_fill` / `ref_press` / `ref_set_checked` / `ref_select_option` (with `binding`, `snapshot_id`, `ref`), `navigate`, `scroll`, `back`, `screenshot`.
    - After a page change or `relocated: true`, read in the same script before the next action. Locator helpers already refresh their snapshot.
 4. **Another site**: use `goto_url` in the current task tab and read again. For separate work, `fast_browser_open` creates or reuses a task and selects its work tab.
-5. **Finish**: `fast_browser_close(task_id)` closes the task/work tabs. Success closes immediately by default; with configured grace, same-session `fast_browser_*` cancels it. Failed/interrupted/stopped turns immediately hand off. Paused or approval/manual-input-waiting tasks keep tabs; verified private creation records govern group cleanup, and overlays/authority are removed. List kept tab IDs. `keep_tabs=true` requires explicitly asking the user to act on that page now, or their request to keep it; pass `handoff_reason` (`captcha`, `login`, `verification`, `final_submit`, `user_requested`). Authority is revoked (`cleanupReason: handed_to_user`). 遇阻、结果未知、读不到或遮挡不是交接：记录 URL/停点后普通关闭，不把失败一律交给用户。
+5. **Finish**: `fast_browser_close(task_id)` 关闭任务及工作页；配置宽限期时同会话调用可取消关闭。暂停或待用户输入的任务保留页，关闭时撤销控制权。仅用户明确要继续操作或保留页面时传 `keep_tabs=true` 和 `handoff_reason`（`captcha` / `login` / `verification` / `final_submit` / `user_requested`），核对保留页 ID。遇阻、未知或遮挡先记录停点并正常关闭，不擅自交接。
 
 Multi-step: locate → act → check in the same script via `fast_browser_script`. Single step: `fast_browser_run`. Do not mix `browser_exec`; stop at unplanned branches or final submissions.
 
@@ -80,7 +80,7 @@ Multi-step: locate → act → check in the same script via `fast_browser_script
 
 Browser connection authorization permits page JavaScript, raw CDP, CDP event reads and `browser_exec` directly; no per-action approval is needed. Use `fast_browser_run` actions `js.evaluate`, `cdp.send`, `cdp.events` (or `browser_console`, `browser_cdp`, `browser_exec`). A page where a credential was filled cannot run arbitrary scripts/CDP. Raw CDP events include other frame origins; credential headers and Bearer values are removed.
 
-`evaluate` 和 MCP `js.evaluate` 的 `expression` 都要传 JavaScript 函数表达式，例如 `()=>document.title`，不能传 `document.title`；无参数时可省略 `arguments`。普通表达式返回 `invalid_expression` 且未执行，可在同一任务改正后继续。函数体可能有副作用，执行后结果未知时仍先回读。
+`evaluate` / `js.evaluate` 的 `expression` 必须是函数表达式，如 `()=>document.title`；无参数可省 `arguments`。否则返回 `invalid_expression`、未执行；执行后未知仍先回读。
 
 Independent script/Vault calls need new `request_id`; unknown results never replay. Vault requires its optional capability, manager unlock, official masked prompts, exact origin and private channel. Connection grants no secrets or substitute for manual entry.
 
@@ -88,7 +88,7 @@ Errors: `fast-browser-link:fast-browser-troubleshoot`. Product tasks allow only 
 
 ## 显式选择工作页
 
-`new_tab(url)` 返回并选中 tab id；`open_page(url, wait_for="idle", timeout_ms=15000)` 返回 tabId 与就绪信息。`run(new_tab|navigate)` 支持 `waitFor:"load"|"idle"|{"type":"selector"|"text","value":"..."}`，`timeoutMs` 为 1000–45000；等待超时回 `ready:false,category:site,retryable:true`，导航已派发。用 `current_tab()` 查看、`use_tab(tab_id)` 切换。页面 helper 的 `tab=` 仅影响本次调用；多页脚本始终显式传入。
+`new_tab(url)` 返回并选中 tab id。`open_page(url, wait_for="idle", timeout_ms=15000)` 返回 tabId 和就绪信息；`run(new_tab|navigate)` 支持 `waitFor` 为 `"load"`、`"idle"` 或 `{type:"selector"|"text",value:"..."}`，`timeoutMs` 为 1000–45000。超时回 `ready:false,category:site,retryable:true`，导航已派发。用 `current_tab()` / `use_tab(tab_id)` 选页；多页 helper 显式传 `tab=`。
 
 读动作只等待 DOM 的 `interactive`/`complete`，上限 1.5 秒。导航和新建页最多等待 8 秒；正文已解析且稳定时可提前返回 `partial`。摘要可用 `summary=false` 关闭。
 

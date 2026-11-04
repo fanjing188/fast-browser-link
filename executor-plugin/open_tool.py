@@ -330,12 +330,15 @@ def make_handler(runtime, host_bridge, *, lease_error, clock=time.monotonic, sle
                         "category": "site",
                         "retryable": True,
                         "outcome_unknown": False,
-                        "hint": "请在浏览器扩展里批准该任务" if pending else "请等待任务授权安装完成",
+                        "hint": "请在浏览器扩展里批准该任务"
+                        if pending
+                        else "请等待任务授权安装完成",
                         "task_id": task["id"],
                         "state": task.get("state"),
                         "message": (
                             "已建立任务，请在浏览器扩展里批准；批准后用 fast_browser_get 确认 ready。"
-                            if pending else "浏览器正在安装任务授权；请用 fast_browser_get 等待 ready。"
+                            if pending
+                            else "浏览器正在安装任务授权；请用 fast_browser_get 等待 ready。"
                         ),
                         **primary_note,
                     }

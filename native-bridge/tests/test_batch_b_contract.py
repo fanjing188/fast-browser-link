@@ -15,17 +15,26 @@ class BatchBContractTests(unittest.TestCase):
             daemon = BridgeDaemon(Path(home))
             daemon.extensions["fixture"] = {"browser": "chrome"}
             daemon._notify_tasks_changed = lambda _: None
-            task = daemon._create_task({
-                "owner": "trusted", "title": "fixture", "instanceId": "fixture",
-                "allowedOrigins": ["https://example.test"],
-            })
+            task = daemon._create_task(
+                {
+                    "owner": "trusted",
+                    "title": "fixture",
+                    "instanceId": "fixture",
+                    "allowedOrigins": ["https://example.test"],
+                }
+            )
             self.assertEqual(task["approval"]["status"], "pending")
             self.assertIsInstance(task["approval"]["requestedAt"], float)
             with self.assertRaises(ProtocolError) as caught:
-                daemon._run_task({
-                    "owner": "trusted", "taskId": task["id"], "requestId": "probe",
-                    "action": "new_tab", "url": "https://example.test",
-                })
+                daemon._run_task(
+                    {
+                        "owner": "trusted",
+                        "taskId": task["id"],
+                        "requestId": "probe",
+                        "action": "new_tab",
+                        "url": "https://example.test",
+                    }
+                )
             self.assertEqual(caught.exception.code, "approval_pending")
             self.assertEqual(caught.exception.data["category"], "site")
             self.assertTrue(caught.exception.data["retryable"])
@@ -35,10 +44,15 @@ class BatchBContractTests(unittest.TestCase):
             preparing = daemon._public_task(daemon.tasks[task["id"]])
             self.assertEqual(preparing["approval"]["status"], "approved")
             with self.assertRaises(ProtocolError) as preparing_error:
-                daemon._run_task({
-                    "owner": "trusted", "taskId": task["id"], "requestId": "preparing-probe",
-                    "action": "new_tab", "url": "https://example.test",
-                })
+                daemon._run_task(
+                    {
+                        "owner": "trusted",
+                        "taskId": task["id"],
+                        "requestId": "preparing-probe",
+                        "action": "new_tab",
+                        "url": "https://example.test",
+                    }
+                )
             self.assertEqual(preparing_error.exception.code, "task_preparing")
             self.assertTrue(preparing_error.exception.data["retryable"])
             daemon.tasks[task["id"]].update(state="pending_approval", approvalStatus="pending")

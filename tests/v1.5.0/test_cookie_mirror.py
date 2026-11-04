@@ -61,7 +61,16 @@ class CookieMirrorTests(unittest.TestCase):
                     extension, "browser.cookie_mirror.finish", {"transferId": "a" * 32}
                 )
             self.assertEqual(caught.exception.code, "cookie_mirror_denied")
-            self.assertEqual(caught.exception.data, {"success": 1})
+            self.assertEqual(
+                caught.exception.data,
+                {
+                    "success": 1,
+                    "category": "site",
+                    "hint": "请检查浏览器页面和任务状态",
+                    "outcomeUnknown": False,
+                    "retryable": False,
+                },
+            )
             self.assertNotIn(SECRET, str(caught.exception))
             self.assertFalse(extension["pending"])
 

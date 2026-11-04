@@ -147,9 +147,11 @@ class BridgeError(RuntimeError):
                 self.data["category"] = data["category"]
             if isinstance(data.get("hint"), str) and 0 < len(data["hint"]) <= 120:
                 self.data["hint"] = data["hint"]
-        if code == "popup_policy_unprotected" and isinstance(data, dict) and data.get(
-            "reason"
-        ) == "unprotected_document":
+        if (
+            code == "popup_policy_unprotected"
+            and isinstance(data, dict)
+            and data.get("reason") == "unprotected_document"
+        ):
             self.data["reason"] = "unprotected_document"
             self.data["suggestion"] = (
                 "在本任务 new_tab 后 navigate 到该 URL，或对当前页 URL 重新 navigate；导航后重新读取快照再写入。"

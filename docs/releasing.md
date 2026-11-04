@@ -24,10 +24,11 @@ Initialize a new repository in the reviewed export, use an appropriate public au
 
 Ordinary branch pushes and pull requests do not start Actions. Before a release, manually run **Core checks**, **Pinned Hermes integration** and **Secret scan** from the Actions page on the exact source commit. Only a pushed `v*` version tag starts the release package build and publication; pushing `main` alone never publishes or builds a package. Keep these manual checks green before approving the tag.
 
-Run the packager from the committed public source repository:
+Run both packagers from the committed public source repository:
 
 ```sh
-node scripts/package-executor.mjs --release 2.6.0 --output out/fast-browser-link-2.6.0
+python3 scripts/package-agent.py --release 2.6.0 --output out/fast-browser-link-2.6.0
+node scripts/package-executor.mjs --release 2.6.0 --output out/fast-browser-link-hermes-2.6.0
 ```
 
 The packager requires a clean working tree, consistent versions and Git-tracked release inputs. It records the public source commit in `RELEASE-STATUS.txt` and lists package file hashes in `SHA256SUMS.json`. Even an ignored, untracked runtime input is refused. Packaging does not install or enable anything.

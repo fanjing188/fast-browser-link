@@ -6,20 +6,20 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
   for (const v of [maxScan,maxItems,maxText]) if (!Number.isSafeInteger(v) || v < 1) throw new Error('INVALID_LIMIT');
   maxScan=Math.min(maxScan,100000); maxItems=Math.min(maxItems,1000); maxText=Math.min(maxText,2000);
   // 中文注释：Unicode 16.0.0 的完整大小写折叠差异表（Python str.casefold 相对 lower）；保留普通查询过滤语义，不以所有非 ASCII 控件充当候选。
-  const casefoldExceptions=Object.fromEntries("µμ|ßss|ŉʼn|ſs|ǰǰ|ͅι|ΐΐ|ΰΰ|ςσ|ϐβ|ϑθ|ϕφ|ϖπ|ϰκ|ϱρ|ϵε|ևեւ|ᲀв|ᲁд|ᲂо|ᲃс|ᲄт|ᲅт|ᲆъ|ᲇѣ|ᲈꙋ|ẖẖ|ẗẗ|ẘẘ|ẙẙ|ẚaʾ|ẛṡ|ẞss|ὐὐ|ὒὒ|ὔὔ|ὖὖ|ᾀἀι|ᾁἁι|ᾂἂι|ᾃἃι|ᾄἄι|ᾅἅι|ᾆἆι|ᾇἇι|ᾈἀι|ᾉἁι|ᾊἂι|ᾋἃι|ᾌἄι|ᾍἅι|ᾎἆι|ᾏἇι|ᾐἠι|ᾑἡι|ᾒἢι|ᾓἣι|ᾔἤι|ᾕἥι|ᾖἦι|ᾗἧι|ᾘἠι|ᾙἡι|ᾚἢι|ᾛἣι|ᾜἤι|ᾝἥι|ᾞἦι|ᾟἧι|ᾠὠι|ᾡὡι|ᾢὢι|ᾣὣι|ᾤὤι|ᾥὥι|ᾦὦι|ᾧὧι|ᾨὠι|ᾩὡι|ᾪὢι|ᾫὣι|ᾬὤι|ᾭὥι|ᾮὦι|ᾯὧι|ᾲὰι|ᾳαι|ᾴάι|ᾶᾶ|ᾷᾶι|ᾼαι|ιι|ῂὴι|ῃηι|ῄήι|ῆῆ|ῇῆι|ῌηι|ῒῒ|ΐΐ|ῖῖ|ῗῗ|ῢῢ|ΰΰ|ῤῤ|ῦῦ|ῧῧ|ῲὼι|ῳωι|ῴώι|ῶῶ|ῷῶι|ῼωι|ﬀff|ﬁfi|ﬂfl|ﬃffi|ﬄffl|ﬅst|ﬆst|ﬓմն|ﬔմե|ﬕմի|ﬖվն|ﬗմխ".split("|").map(pair=>[pair[0],pair.slice(1)]));
+  const foldMap=Object.fromEntries("µμ|ßss|ŉʼn|ſs|ǰǰ|ͅι|ΐΐ|ΰΰ|ςσ|ϐβ|ϑθ|ϕφ|ϖπ|ϰκ|ϱρ|ϵε|ևեւ|ᲀв|ᲁд|ᲂо|ᲃс|ᲄт|ᲅт|ᲆъ|ᲇѣ|ᲈꙋ|ẖẖ|ẗẗ|ẘẘ|ẙẙ|ẚaʾ|ẛṡ|ẞss|ὐὐ|ὒὒ|ὔὔ|ὖὖ|ᾀἀι|ᾁἁι|ᾂἂι|ᾃἃι|ᾄἄι|ᾅἅι|ᾆἆι|ᾇἇι|ᾈἀι|ᾉἁι|ᾊἂι|ᾋἃι|ᾌἄι|ᾍἅι|ᾎἆι|ᾏἇι|ᾐἠι|ᾑἡι|ᾒἢι|ᾓἣι|ᾔἤι|ᾕἥι|ᾖἦι|ᾗἧι|ᾘἠι|ᾙἡι|ᾚἢι|ᾛἣι|ᾜἤι|ᾝἥι|ᾞἦι|ᾟἧι|ᾠὠι|ᾡὡι|ᾢὢι|ᾣὣι|ᾤὤι|ᾥὥι|ᾦὦι|ᾧὧι|ᾨὠι|ᾩὡι|ᾪὢι|ᾫὣι|ᾬὤι|ᾭὥι|ᾮὦι|ᾯὧι|ᾲὰι|ᾳαι|ᾴάι|ᾶᾶ|ᾷᾶι|ᾼαι|ιι|ῂὴι|ῃηι|ῄήι|ῆῆ|ῇῆι|ῌηι|ῒῒ|ΐΐ|ῖῖ|ῗῗ|ῢῢ|ΰΰ|ῤῤ|ῦῦ|ῧῧ|ῲὼι|ῳωι|ῴώι|ῶῶ|ῷῶι|ῼωι|ﬀff|ﬁfi|ﬂfl|ﬃffi|ﬄffl|ﬅst|ﬆst|ﬓմն|ﬔմե|ﬕմի|ﬖվն|ﬗմխ".split("|").map(pair=>[pair[0],pair.slice(1)]));
   // 中文注释：Cherokee 大小写折叠统一为大写；连续范围单独表示，保留隔离世界安装载荷上限。
-  const casefold=value=>Array.from(value,character=>{const code=character.charCodeAt(0);if(code>=0x13a0&&code<=0x13f5)return character;if(code>=0x13f8&&code<=0x13fd)return String.fromCharCode(code-8);if(code>=0xab70&&code<=0xabbf)return String.fromCharCode(code-0x97d0);return casefoldExceptions[character]??character.toLowerCase();}).join('');
+  const casefold=value=>Array.from(value,character=>{const code=character.charCodeAt(0);if(code>=0x13a0&&code<=0x13f5)return character;if(code>=0x13f8&&code<=0x13fd)return String.fromCharCode(code-8);if(code>=0xab70&&code<=0xabbf)return String.fromCharCode(code-0x97d0);return foldMap[character]??character.toLowerCase();}).join('');
   const binding=Object.freeze({taskId,documentId,leaseId});
   const instance=Array.from(globalThis.crypto.getRandomValues(new Uint32Array(4)),n=>n.toString(16)).join('-');
   const docIds=new WeakMap([[doc,documentId]]);let docSequence=0;
   const identityFor=other=>{if(!docIds.has(other))docIds.set(other,`${instance}:document:${++docSequence}`);return docIds.get(other);};
   const refs=new WeakMap(); let sequence=0n,generation=0n,currentId;
-  let active=new Map(), baseline=null, cursorState=null, epoch=0, revoked=false, frameDocs=new Map();
+  let active=new Map(), baseline=null, pg=null, epoch=0, revoked=false, frameDocs=new Map();
   const snapshots=new Map();
   // 中文注释：无障碍补充只保存在真实节点上，任何 DOM epoch 变化都会使其失效。
   const axNames=new WeakMap();
   // 中文注释：样式和上下文缓存只活在一次同步解析内，下一次读或动作必定重新计算。
-  let styles=new WeakMap(),contexts=new WeakMap(),surfaces=new WeakMap(),pausedTransitions=0;
+  let styles=new WeakMap(),contexts=new WeakMap(),surfaces=new WeakMap(),paused=0;
   const computed=node=>{if(!styles.has(node))styles.set(node,node.ownerDocument.defaultView.getComputedStyle(node));return styles.get(node);};
   const parentOf=node=>node.assignedSlot||node.parentElement||node.getRootNode().host||node.ownerDocument.defaultView?.frameElement;
   const docRoot=doc.documentElement;
@@ -47,8 +47,8 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
       if(!frame.isConnected || current!==state.document || current?.documentElement!==state.root)epoch++;
     }
   }
-  function revoke(){revoked=true;active.clear();snapshots.clear();frameDocs.clear();baseline=null;cursorState=null;observer.disconnect();}
-  function stats(){return {activeRefs:active.size,baselineItems:baseline?.items.length||0,cursors:cursorState?1:0,maxItems,maxScan,maxText};}
+  function revoke(){revoked=true;active.clear();snapshots.clear();frameDocs.clear();baseline=null;pg=null;observer.disconnect();}
+  function stats(){return {activeRefs:active.size,baselineItems:baseline?.items.length||0,cursors:pg?1:0,maxItems,maxScan,maxText};}
   // 中文注释：复用合法 HTML 编辑属性形式，空值和纯文本模式与 true 使用相同解析链路。
   const editable='[contenteditable="true" i],[contenteditable=""],[contenteditable="plaintext-only" i]';
   const controls=`button,a[href],input,select,textarea,summary,${editable},[tabindex]`;
@@ -276,9 +276,9 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
         if(el.matches('[hidden],[aria-hidden="true"],[inert]'))return false;
         const s=computed(el);
         // 中文注释：后台文档的 checkVisibility 可能受前台绘制状态影响；此时只用布局与样式判断。
-        const pausedOpacity=act&&el!==n&&s.opacity==='0'&&el.ownerDocument.visibilityState==='hidden'&&transitioning(el,s);
-        if(pausedOpacity)pausedTransitions++;
-        if(act&&(s.opacity==='0'&&!pausedOpacity||s.clip&&s.clip!=='auto'||(s.clipPath||'').includes('inset(50%')||el===n&&el.ownerDocument.visibilityState!=='hidden'&&el.checkVisibility?.({checkOpacity:true,checkVisibilityCSS:true})===false))return false;
+        const po=act&&el!==n&&s.opacity==='0'&&el.ownerDocument.visibilityState==='hidden'&&transitioning(el,s);
+        if(po)paused++;
+        if(act&&(s.opacity==='0'&&!po||s.clip&&s.clip!=='auto'||(s.clipPath||'').includes('inset(50%')||el===n&&el.ownerDocument.visibilityState!=='hidden'&&el.checkVisibility?.({checkOpacity:true,checkVisibilityCSS:true})===false))return false;
         if((el!==n||l)&&(s.display==='none'||el===a&&['hidden','collapse'].includes(s.visibility)))return false;
       }
       // 中文注释：display:contents 没有自身矩形，但其正文和子控件仍参与布局。
@@ -519,72 +519,73 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
   }
   function snapshot(options={}){
     sync();
-    pausedTransitions=0;
+    paused=0;
     if('accessibility' in options&&typeof options.accessibility!=='boolean')throw Error('INVALID_OPTIONS');
     const {mode='interactive',root=null,query='',role:roleFilter=null,roles=roleFilter?[roleFilter]:[],limit=20,viewport=false,budget=3000,cursor=null,baselineId=null,composed=false}=options;
     if(!selectors[mode] || typeof query!=='string' || query.length>2000 || (roleFilter!==null&&(typeof roleFilter!=='string'||!roleFilter||roleFilter.length>100)) || !Array.isArray(roles) || roles.length>100 || roles.some(r=>typeof r!=='string'||r.length>100) || !Number.isSafeInteger(limit)||limit<1||limit>200 || typeof viewport!=='boolean' || typeof composed!=='boolean' || !Number.isSafeInteger(budget) || budget<512)throw new Error('INVALID_OPTIONS');
-    const queryFolded=casefold(redact(query));
+    const q=casefold(redact(query));
     const scope=typeof root==='string'?doc.querySelector(root):root||doc.body;
     if(!scope || scope.ownerDocument!==doc || !scope.isConnected || scope.nodeType!==1)throw new Error('INVALID_ROOT');
     const view=doc.defaultView;
-    const fingerprint=JSON.stringify({mode,root:ref(scope),query:queryFolded,roles:[...new Set(roles)].sort(),limit,viewport,geometry:viewport?[view.scrollX,view.scrollY,view.innerWidth,view.innerHeight]:null,budget,...(composed?{composed:true}:{})});
+    const fingerprint=JSON.stringify({mode,root:ref(scope),query:q,roles:[...new Set(roles)].sort(),limit,viewport,geometry:viewport?[view.scrollX,view.scrollY,view.innerWidth,view.innerHeight]:null,budget,...(composed?{composed:true}:{})});
     let offset=0,fragmentOffset=0,resync=null,seenKeys=null;
     if(cursor){
-      if(cursor!==cursorState?.id || cursorState.fingerprint!==fingerprint || cursorState.epoch!==epoch&&cursorState.fragmentOffset>0)resync={reason:'cursor_invalidated'};
-      else if(cursorState.epoch!==epoch||cursorState.seenMode){
+      if(cursor!==pg?.id || pg.fingerprint!==fingerprint || pg.epoch!==epoch&&pg.fragmentOffset>0)resync={reason:'cursor_invalidated'};
+      else if(pg.epoch!==epoch||pg.seenMode){
         // 中文注释：虚拟列表滚动重挂载节点后按已返回的非敏感结构键去重。
-        seenKeys=new Set(cursorState.seen);offset=0;
-      }else {offset=cursorState.offset;fragmentOffset=cursorState.fragmentOffset;}
+        seenKeys=new Set(pg.seen);offset=0;
+      }else {offset=pg.offset;fragmentOffset=pg.fragmentOffset;}
     }
     const key=`${fingerprint}:${offset}:${fragmentOffset}`;
     if(baselineId && !resync){if(baseline?.id!==baselineId)resync={reason:'baseline_unavailable'};else if(baseline.key!==key)resync={reason:'parameters_changed'};}
-    currentId=`${instance}:s${++generation}`;active=new Map();cursorState=null;
+    currentId=`${instance}:s${++generation}`;active=new Map();pg=null;
     // 中文注释：标题沿用语义快照的脱敏与网页内容过滤，再进入打开回执摘要。
-    const output={version:2,title:clip(doc.title||''),binding,snapshotId:currentId,kind:'full',mode,items:[],nextCursor:null,resync,coverage:{scanned:0,matched:0,returned:0,omitted:0,filtered:0,hidden:0,queryFiltered:0,truncated:0,offset,complete:true,traversalComplete:true,nextCursor:null,scope:composed?'light-dom + open-shadow + accessible same-origin-frame; closed-shadow/cross-origin-frame excluded':'light-dom; no iframe/shadow traversal',unsupportedCanvas:0,documentHidden:doc.visibilityState==='hidden',pausedTransitions:0,...(composed?{skippedFrames:0}:{})},budget:{kind:'estimated',method:'ceil(JSON.stringify(response).length/4)',limit:budget}};
+    const output={version:2,title:clip(doc.title||''),binding,snapshotId:currentId,kind:'full',mode,items:[],nextCursor:null,resync,coverage:{scanned:0,matched:0,returned:0,omitted:0,filtered:0,hidden:0,queryFiltered:0,truncated:0,offset,complete:true,traversalComplete:true,nextCursor:null,scope:composed?'light-dom + open-shadow + same-origin-frame; excludes closed-shadow/cross-origin-frame':'light-dom; no iframe/shadow traversal',unsupportedCanvas:0,documentHidden:doc.visibilityState==='hidden',pausedTransitions:0,...(composed?{skippedFrames:0}:{})},budget:{kind:'estimated',method:'ceil(JSON.stringify(response).length/4)',limit:budget}};
+    const cv=output.coverage;
     observer.disconnect();observer.observe(doc,{subtree:true,childList:true,attributes:true,characterData:true});
     frameDocs=new Map();
-    const candidates=[];let pendingFragment=false;
-    const nodes=composed?composedElements(scope,output.coverage):lightElements(scope,output.coverage);
+    const found=[];let hold=false;
+    const nodes=composed?composedElements(scope,cv):lightElements(scope,cv);
     for(const node of nodes){
       if(isOverlay(node))continue;
-      if(output.coverage.scanned>=maxScan){output.coverage.traversalComplete=false;break;}
-      output.coverage.scanned++;
-      if(node.localName==='canvas'&&visible(node,false))output.coverage.unsupportedCanvas++;
+      if(cv.scanned>=maxScan){cv.traversalComplete=false;break;}
+      cv.scanned++;
+      if(node.localName==='canvas'&&visible(node,false))cv.unsupportedCanvas++;
       if(!node.matches(selectors[mode]))continue;
       if(mode==='table'&&role(node)!=='row')continue;
       if(mode==='interactive' && !node.matches(controls) && !actionRoles.has(role(node)))continue;
       const visibility=mode==='interactive'?interactionVisibility(node):null;
-      if(visibility?visibility.visible===false||!visible(visibility.target,viewport)||node.matches('input[type="hidden"]'):!visible(node,viewport)){output.coverage.filtered++;output.coverage.hidden++;continue;}
+      if(visibility?visibility.visible===false||!visible(visibility.target,viewport)||node.matches('input[type="hidden"]'):!visible(node,viewport)){cv.filtered++;cv.hidden++;continue;}
       const value=mode==='interactive'?item(node,scope):fullItem(node,mode);
       if(visibility?.occluded)Object.assign(value,{blocked:'occluded',actionable:false});
       // 中文注释：短展示名可能藏住查询词或同名尾部；交互候选仍保留截断项并令覆盖率不完整，禁止误报唯一。
-      if((roles.length && !roles.includes(value.role)) || (queryFolded && !casefold(value.name).includes(queryFolded) && !(mode==='interactive'&&value.truncated))){output.coverage.filtered++;output.coverage.queryFiltered++;continue;}
+      if((roles.length && !roles.includes(value.role)) || (q && !casefold(value.name).includes(q) && !(mode==='interactive'&&value.truncated))){cv.filtered++;cv.queryFiltered++;continue;}
       if(seenKeys?.has(stableKey(node,value)))continue;
-      output.coverage.matched++;if(value.truncated)output.coverage.truncated++;
-      if(output.coverage.matched<=offset || pendingFragment || candidates.length>=Math.min(maxItems,limit))continue;
+      cv.matched++;if(value.truncated)cv.truncated++;
+      if(cv.matched<=offset || hold || found.length>=Math.min(maxItems,limit))continue;
       const parts=mode==='interactive'?null:fragments(value);
       if(parts){
-        const index=output.coverage.matched===offset+1?fragmentOffset:0;
-        if(index>=parts.length){output.coverage.traversalComplete=false;continue;}
-        for(let i=index;i<parts.length && candidates.length<Math.min(maxItems,limit);i++){
+        const index=cv.matched===offset+1?fragmentOffset:0;
+        if(index>=parts.length){cv.traversalComplete=false;continue;}
+        for(let i=index;i<parts.length && found.length<Math.min(maxItems,limit);i++){
           const nextFragment=i+1<parts.length?i+1:0;
-          candidates.push({node,value:fragmentItem(value,parts[i],i),nextOffset:nextFragment?output.coverage.matched-1:output.coverage.matched,nextFragment});
-          if(nextFragment)pendingFragment=true;
-          else pendingFragment=false;
+          found.push({node,value:fragmentItem(value,parts[i],i),nextOffset:nextFragment?cv.matched-1:cv.matched,nextFragment});
+          if(nextFragment)hold=true;
+          else hold=false;
         }
-      } else candidates.push({node,value,nextOffset:output.coverage.matched,nextFragment:0});
+      } else found.push({node,value,nextOffset:cv.matched,nextFragment:0});
     }
-    output.coverage.pausedTransitions=pausedTransitions;
-    output.items=candidates.map(c=>c.value);
+    cv.pausedTransitions=paused;
+    output.items=found.map(c=>c.value);
     const cursorId=`${currentId}:page`;
     function update(){
-      output.coverage.returned=output.items.length;
-      const last=candidates[output.items.length-1];
+      cv.returned=output.items.length;
+      const last=found[output.items.length-1];
       const nextOffset=last?.nextOffset??offset,nextFragment=last?.nextFragment??fragmentOffset;
-      output.coverage.omitted=output.coverage.matched-new Set(output.items.map(i=>i.ref)).size;
-      output.coverage.complete=output.coverage.traversalComplete&&(!composed || output.coverage.skippedFrames===0)&&offset===0&&fragmentOffset===0&&nextFragment===0&&output.coverage.omitted===0&&output.coverage.truncated===0;
-      output.nextCursor=last&&(nextOffset<output.coverage.matched || nextFragment)?cursorId:null;
-      output.coverage.nextCursor=output.nextCursor;
+      cv.omitted=cv.matched-new Set(output.items.map(i=>i.ref)).size;
+      cv.complete=cv.traversalComplete&&(!composed || cv.skippedFrames===0)&&offset===0&&fragmentOffset===0&&nextFragment===0&&cv.omitted===0&&cv.truncated===0;
+      output.nextCursor=last&&(nextOffset<cv.matched || nextFragment)?cursorId:null;
+      cv.nextCursor=output.nextCursor;
       return {nextOffset,nextFragment};
     }
     update();while(Math.ceil(JSON.stringify(output).length/4)>budget && output.items.length){output.items.pop();update();}
@@ -599,15 +600,15 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
       else if(Math.ceil(JSON.stringify(delta).length/4)>budget){output.resync={reason:'delta_budget'};while(Math.ceil(JSON.stringify(output).length/4)>budget && output.items.length){output.items.pop();update();}}
     }
     const records=new Map();
-    for(const c of candidates.slice(0,materialized.length)){
+    for(const c of found.slice(0,materialized.length)){
       active.set(c.value.ref,c.node);
       const box=c.node.getBoundingClientRect();
       records.set(c.value.ref,{node:c.node,value:c.value,key:stableKey(c.node,c.value),scope:targetScope(c.node),rect:{x:box.left,y:box.top,width:box.width,height:box.height}});
     }
     snapshots.set(currentId,{records,mode,epoch,root:scope});
     while(snapshots.size>5)snapshots.delete(snapshots.keys().next().value);
-    if(output.nextCursor){const last=candidates[materialized.length-1];cursorState={id:output.nextCursor,fingerprint,epoch,offset:last.nextOffset,fragmentOffset:last.nextFragment,
-      seenMode:!!seenKeys,seen:[...(seenKeys||[]),...candidates.slice(0,materialized.length).map(c=>stableKey(c.node,c.value))].slice(-1000)};}
+    if(output.nextCursor){const last=found[materialized.length-1];pg={id:output.nextCursor,fingerprint,epoch,offset:last.nextOffset,fragmentOffset:last.nextFragment,
+      seenMode:!!seenKeys,seen:[...(seenKeys||[]),...found.slice(0,materialized.length).map(c=>stableKey(c.node,c.value))].slice(-1000)};}
     baseline={id:currentId,key,items:JSON.parse(JSON.stringify(materialized))};
     return output;
   }

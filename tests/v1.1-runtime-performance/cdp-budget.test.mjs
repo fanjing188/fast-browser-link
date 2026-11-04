@@ -20,7 +20,7 @@ test('semantic CDP command and byte budget', async (t) => {
           const installing = params.functionDeclaration.includes('const createPageSemantics=');
           if (installing) installs++;
           const declaration = installing
-            ? 'function(){globalThis.__fastSemanticLibrary={version:1,call:()=>true};return true;}'
+            ? 'function(){globalThis.__fastSemanticLibrary={version:2,call:()=>true};return true;}'
             : params.functionDeclaration;
           return {
             result: {
@@ -101,7 +101,7 @@ test('missing library reinstalls once, absent context recovers, unknown dispatch
           if (unknown) throw Error('Execution context was destroyed.');
         }
         const declaration = installing
-          ? 'function(){globalThis.__fastSemanticLibrary={version:1,call:()=>true};return true;}'
+          ? 'function(){globalThis.__fastSemanticLibrary={version:2,call:()=>true};return true;}'
           : params.functionDeclaration;
         return {
           result: {

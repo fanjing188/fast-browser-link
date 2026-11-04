@@ -66,6 +66,8 @@ class PopupTests(unittest.TestCase):
                 self.assertEqual(
                     error.data,
                     {
+                        "category": "site",
+                        "hint": "请检查浏览器页面和任务状态",
                         "reasonCode": reason,
                         "stage": "shield_style",
                         "retryable": False,

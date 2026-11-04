@@ -663,14 +663,30 @@ def _project_tool_result(tool_name, args, value):
     ):
         error = _fixed_result_error()
         # 中文注释：明确未派发的失败保留固定错误码，不把用法错误投影成结果未知。
-        if value.get("outcome_unknown") is False and value.get("status") not in ("unknown", "outcome_unknown", "needs_sync"):
+        if value.get("outcome_unknown") is False and value.get("status") not in (
+            "unknown",
+            "outcome_unknown",
+            "needs_sync",
+        ):
             code = value.get("code")
-            error["code"] = code if isinstance(code, str) and code.upper() in _PUBLIC_ERROR_CODES else "ACTION_FAILED"
+            error["code"] = (
+                code
+                if isinstance(code, str) and code.upper() in _PUBLIC_ERROR_CODES
+                else "ACTION_FAILED"
+            )
             error["outcome_unknown"] = False
             error["error"] = "本项未完成；请按错误码修正或核查页面。"
-            error["category"] = value.get("category") if value.get("category") in {"usage", "site", "plugin"} else "site"
+            error["category"] = (
+                value.get("category")
+                if value.get("category") in {"usage", "site", "plugin"}
+                else "site"
+            )
             error["retryable"] = value.get("retryable") is True
-            error["hint"] = value.get("hint") if isinstance(value.get("hint"), str) and len(value["hint"]) <= 120 else "请按错误码修正或核查页面"
+            error["hint"] = (
+                value.get("hint")
+                if isinstance(value.get("hint"), str) and len(value["hint"]) <= 120
+                else "请按错误码修正或核查页面"
+            )
         if isinstance(value.get("recovery"), dict):
             error["recovery"] = _project_schema(value["recovery"], _RESULT_RECOVERY)
             if type(value.get("outcome_unknown")) is bool:

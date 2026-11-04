@@ -263,6 +263,8 @@ node tests/native-v2/real-page-export.mjs
 
 `tests/v1.6.0/real-background-focus.mjs` 使用打包候选、临时独立 Chrome/Edge 和本地合成站，默认无头并要求私有 TMPDIR。覆盖建页、窗口未聚焦、同窗非活动标签、最小化窗口、点击/表单填写/编辑器/按键、原始 CDP 激活及实际次数；核每阶段窗口 focused、state 和活动标签保持不变。无头浏览器标志不证明 macOS 跨应用实际桌面焦点；不操作个人浏览器，不以自动恢复焦点掩盖抢焦点。
 
+弹窗保护、旧文档拒写与遮罩穿透使用 `tests/v1.1-overlay/real-overlay.mjs`；后台暂停过渡动画的可见性使用 `tests/v1.1-overlay/real-hidden-doc.mjs`；独立工作窗口及输入队列使用 `tests/v1.6.0/real-work-window.mjs`。三者均分别运行 Chrome 默认模式与 `--edge`，只用临时 profile 和本地合成页面。设置 `TMPDIR=/tmp`、`FBL_TEST_PYTHON` 指向带 Hermes 测试依赖的解释器，并设置 `HERMES_SOURCE` 指向对应源码；每个 runner 串行执行，记录实际结果。
+
 
 ## 2.6.0 持久工作流与桌面补验
 

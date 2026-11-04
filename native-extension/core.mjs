@@ -181,7 +181,7 @@ export function compactSemanticSource(source){
 }
 const serializedFunction=fn=>fn.toString().replace(/^function [^(]+/,'function');
 export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
- const blocked='TARGET_NOT_ACTIONABLE',badSelect='INVALID_SELECT_OPTIONS';
+ const blocked='TARGET_NOT_ACTIONABLE',bad='INVALID_SELECT_OPTIONS';
  const createPageTextRedactor=${serializedFunction(createPageTextRedactor)};
  const createPageSemantics=${serializedFunction(createPageSemantics).replace(/^\s*\/\/[^\n]*\n/gm,'')};
  const createPageParser=context=>globalThis.__fastSemanticLibrary.parser(context);
@@ -190,13 +190,13 @@ export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
  const make=()=>({version:15,binding:p.binding,documentEpoch:globalThis.crypto?.randomUUID?.()||Date.now().toString(36)+'-'+Math.random().toString(36).slice(2),semantics:createPageSemantics({document,...p.binding,classifyField:classifySensitiveField,
   shadowRootOf:node=>node.shadowRoot||globalThis.__fastClosedShadowRoots?.get(node)||null})});
  const classifySensitiveField=${serializedFunction(classifySensitiveField)};
- const sensitive=e=>classifySensitiveField(e)!==null;
- const fieldKind=e=>classifySensitiveField(e)||'sensitive';
+ const sen=e=>classifySensitiveField(e)!==null;
+ const fk=e=>classifySensitiveField(e)||'sensitive';
  const overlayHit=e=>{for(let n=e;n;n=n.parentNode||n.host)if(n.nodeType===1&&(n.hasAttribute?.('data-fast-automation-overlay')||n.hasAttribute?.('data-fast-interaction-highlight')))return true;return false;};
  // 中文注释：准备阶段遮罩仍拦截人工输入；仅在命中测试中穿过本插件层，实际派发窗口另行放行。
  const pageHit=(root,x,y)=>root.elementsFromPoint?root.elementsFromPoint(x,y).find(hit=>!overlayHit(hit)):root.elementFromPoint(x,y);
  // 中文注释：遮挡时改点关联 label。
- const controlVisual=e=>{
+ const cv=e=>{
   if(e.tagName!=='INPUT'||!['checkbox','radio'].includes(e.type))return e;
   const v=e.ownerDocument.defaultView,r=e.getBoundingClientRect(),h=r.width&&r.height?e.getRootNode().elementFromPoint(r.left+r.width/2,r.top+r.height/2):null;
   if(v.getComputedStyle(e).opacity!=='0'&&h&&![...e.labels].some(l=>l.contains(h)))return e;
@@ -221,13 +221,13 @@ export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
   if(!Number.isFinite(scaleX)||!Number.isFinite(scaleY)||scaleX<=0||scaleY<=0)throw Error(code);
   return {x:box.left+(frame.clientLeft+point.x)*scaleX,y:box.top+(frame.clientTop+point.y)*scaleY};
  };
- const actionable=(e,preferredPoint=null)=>{
+ const act=(e,preferredPoint=null)=>{
   if(!e?.isConnected)throw Error(blocked);
   const first=e.getBoundingClientRect();let point=preferredPoint||{x:first.left+first.width/2,y:first.top+first.height/2};
   let current=e;
   while(current){
    const doc=current.ownerDocument,view=doc.defaultView,root=current.getRootNode();
-   if(semantics.interaction(current).disabled)throw Error('TARGET_DISABLED');
+   if(sem.interaction(current).disabled)throw Error('TARGET_DISABLED');
    if(current.closest('[inert],[aria-hidden="true"]'))throw Error('TARGET_HIDDEN');
    const style=view.getComputedStyle(current),r=current.getBoundingClientRect();
    // 中文注释：display:contents 宿主没有自身盒子，仍检查子目标尺寸和每层命中；恢复轮次不能跳过遮挡或敏感保护。
@@ -238,25 +238,25 @@ export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
    // 中文注释：隐藏页合成点击容许空命中。
    if(overlayHit(hit)||(!hit&&!(p.syntheticHidden&&doc.visibilityState==='hidden'))||hit&&(hit!==current&&!current.contains(hit))){
     // 中文注释：遮挡摘要只取脱敏名称。
-    let obstruction={role:hit?.getAttribute?.('role')||hit?.localName||'unknown',name:'',closeButton:null};
+    let obs={role:hit?.getAttribute?.('role')||hit?.localName||'unknown',name:'',closeButton:null};
     if(hit?.ownerDocument===document&&state?.semantics){
      try{
       const blocker=hit.closest('[role="dialog"],[role="alertdialog"],[role="banner"],dialog')||hit;
       const prior=state.occlusion;
-      if(prior?.[0]===blocker&&prior[1]===p.ref)obstruction=prior[2];
+      if(prior?.[0]===blocker&&prior[1]===p.ref)obs=prior[2];
       else{
        // 中文注释：等待同一个遮挡层期间只生成一次内部快照，避免淘汰动作原引用。
-       const snap=semantics.snapshot({root:blocker,mode:'interactive',budget:1800});
+       const snap=sem.snapshot({root:blocker,mode:'interactive',budget:1800});
        const close=snap.items.find(item=>item.role==='button'&&/close|dismiss|关闭|取消/i.test(item.name));
-       obstruction={role:blocker.getAttribute('role')||blocker.localName,name:semantics.parsingContext().describe(blocker).name.slice(0,80),
+       obs={role:blocker.getAttribute('role')||blocker.localName,name:sem.parsingContext().describe(blocker).name.slice(0,80),
         closeButton:close?{binding:snap.binding,snapshotId:snap.snapshotId,ref:close.ref,role:close.role,name:close.name}:null};
-       state.occlusion=[blocker,p.ref,obstruction];
+       state.occlusion=[blocker,p.ref,obs];
       }
      }catch{}
     }
-    throw Error('TARGET_OCCLUDED|'+encodeURIComponent(JSON.stringify(obstruction)));
+    throw Error('TARGET_OCCLUDED|'+encodeURIComponent(JSON.stringify(obs)));
    }
-   if(sensitive(current)||sensitive(hit))throw Error('SENSITIVE_TARGET');
+   if(sen(current)||sen(hit))throw Error('SENSITIVE_TARGET');
    if(root.host){current=root.host;continue;}
    if(doc===document)break;
    const frame=view.frameElement;if(!frame?.isConnected)throw Error(blocked);
@@ -265,11 +265,11 @@ export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
    current=frame;
   }
  };
- const prepareHighlight=(kind,target)=>{
+ const prepHi=(kind,target)=>{
   const overlay=globalThis.__fastAutomationOverlay,highlight=overlay?.highlight;
   if(!highlight||!p.highlightBinding)return {ok:false,code:'HIGHLIGHT_UNAVAILABLE'};
   // 中文注释：只用控件可访问名称，绝不读取输入值作为可视化标签。
-  const name=sensitive(target)?'敏感字段':semantics.parsingContext().describe(target).name.slice(0,48);
+  const name=sen(target)?'敏感字段':sem.parsingContext().describe(target).name.slice(0,48);
   const result=highlight.prepare({...p.highlightBinding,kind,target,label:name});
   if(result?.ok!==true)return result;
   const token=p.highlightBinding.operationToken;overlay.operationToken=token;overlay.paintedToken=null;
@@ -289,13 +289,13 @@ export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
   if(p.requireDocumentEpoch&&(!validState()||!same(state.binding,p.binding)||p.documentEpoch!==state.documentEpoch))throw Error('BINDING_MISMATCH');
   if(!validState()||!same(state.binding,p.binding)){try{state?.semantics.revoke();}catch{}state=make();globalThis.__fastNativeSemanticsV2=state;}
   if(op==='recovery_scan'){
-   const semantics=state.semantics,rows=[];let cursor;
+   const sem=state.semantics,rows=[];let cursor;
    for(let page=0;page<5;page++){
-    const snap=semantics.snapshot({mode:p.mode||'interactive',composed:true,budget:60000,...(cursor?{cursor}:{})});
+    const snap=sem.snapshot({mode:p.mode||'interactive',composed:true,budget:60000,...(cursor?{cursor}:{})});
     for(const item of snap.items){
-     let node;try{node=semantics.resolve({...snap.binding,snapshotId:snap.snapshotId,ref:item.ref});}catch{continue;}
-     const r=node.getBoundingClientRect(),{visible,inViewport,occluded}=semantics.interactionVisibility(node);
-     rows.push({...item,identityKey:semantics.recoveryHint({...snap.binding,snapshotId:snap.snapshotId,ref:item.ref}).identityKey,binding:snap.binding,snapshotId:snap.snapshotId,
+     let node;try{node=sem.resolve({...snap.binding,snapshotId:snap.snapshotId,ref:item.ref});}catch{continue;}
+     const r=node.getBoundingClientRect(),{visible,inViewport,occluded}=sem.interactionVisibility(node);
+     rows.push({...item,identityKey:sem.recoveryHint({...snap.binding,snapshotId:snap.snapshotId,ref:item.ref}).identityKey,binding:snap.binding,snapshotId:snap.snapshotId,
       selectorMatch:!!p.selector&&node.matches(p.selector),visible,inViewport,occluded,
       rect:{x:r.left,y:r.top,width:r.width,height:r.height}});
     }
@@ -309,13 +309,13 @@ export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
   }
  }
  if(!validState()||!same(state.binding,p.binding)||p.documentEpoch&&p.documentEpoch!==state.documentEpoch)throw Error('BINDING_MISMATCH');
- const semantics=state.semantics,token={...p.binding,snapshotId:p.snapshotId,ref:p.ref},highlightBinding=p.highlightBinding;
+ const sem=state.semantics,token={...p.binding,snapshotId:p.snapshotId,ref:p.ref},hb=p.highlightBinding;
  // 中文注释：只有宿主内部 CDP 查询使用节点对象，模型工具不会公开这两个操作。
- if(op==='recovery_hint')return semantics.recoveryHint(token);
- if(op==='accessibility_node')return semantics.accessibilityNode(token);
- if(op==='apply_accessibility'){semantics.applyAccessibility({...p.binding,snapshotId:p.snapshotId},p.values);return true;}
+ if(op==='recovery_hint')return sem.recoveryHint(token);
+ if(op==='accessibility_node')return sem.accessibilityNode(token);
+ if(op==='apply_accessibility'){sem.applyAccessibility({...p.binding,snapshotId:p.snapshotId},p.values);return true;}
  const delivery=state.deliveryProbe;
- const deliveryMatches=()=>delivery&&delivery.snapshotId===p.snapshotId&&delivery.ref===p.ref&&delivery.token===highlightBinding?.operationToken;
+ const deliveryMatches=()=>delivery&&delivery.snapshotId===p.snapshotId&&delivery.ref===p.ref&&delivery.token===hb?.operationToken;
  const clearDelivery=()=>{
   if(!state.deliveryProbe)return;
   for(const type of ['pointerdown','mousedown','click']){
@@ -334,7 +334,7 @@ export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
   // 中文注释：只为本文档内仍可解析、在视口中的引用返回 CSS 视口矩形；子 frame 不标注。
   const rows=[];
   for(const entry of (Array.isArray(p.labels)?p.labels:[]).slice(0,200)){
-   let node;try{node=semantics.resolve({...p.binding,snapshotId:p.snapshotId,ref:entry.ref});}catch{continue;}
+   let node;try{node=sem.resolve({...p.binding,snapshotId:p.snapshotId,ref:entry.ref});}catch{continue;}
    if(node.ownerDocument!==document)continue;
    const r=node.getBoundingClientRect();
    if(r.width<=0||r.height<=0||r.bottom<=0||r.right<=0||r.top>=innerHeight||r.left>=innerWidth)continue;
@@ -345,15 +345,15 @@ export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
  // 中文注释：回读使用本次计划保存的节点。
  const reading=op==='read_ref_set_checked'||op==='read_ref_select_option';
  const usingDelivery=op==='synthetic_ref_click'||op==='synthetic_ref_set_checked';
- const syntheticSelect=op==='synthetic_ref_select_option';
- const usingSelection=syntheticSelect||op==='pointer_target'&&p.selectionTarget===true;
+ const ss=op==='synthetic_ref_select_option';
+ const usingSelection=ss||op==='pointer_target'&&p.selectionTarget===true;
  const pending=(reading||usingSelection)&&state.pendingTarget?.snapshotId===p.snapshotId&&state.pendingTarget?.ref===p.ref?state.pendingTarget:null;
  if((reading||usingSelection)&&!pending||usingDelivery&&!deliveryMatches())throw Error('STALE_REF');
- const node=(usingDelivery?delivery.node:pending?.node)||semantics.resolve(token);
+ const node=(usingDelivery?delivery.node:pending?.node)||sem.resolve(token);
  const attr=key=>node.getAttribute(key),doc=node.ownerDocument;
  // 中文注释：预审、准备和填写复用同一资格判断；disabled 仍由各阶段原有检查拒绝。
  // 中文注释：编辑区判断覆盖 HTML 空属性和 plaintext-only，填写及回读使用同一资格。
- const interaction=()=>semantics.interaction(node);
+ const interaction=()=>sem.interaction(node);
  const editable=()=>interaction().editable;
  const fillable=()=>interaction().actions.includes('fill');
  if(op==='shield_write_target'){
@@ -361,11 +361,11 @@ export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
   const a=p.action.slice(4),tag=node.tagName;
   const ok=a==='fill'?['INPUT','TEXTAREA'].includes(tag):a==='select_option'?tag==='SELECT':
    a==='set_checked'?tag==='INPUT'&&['checkbox','radio'].includes(node.type):['A','BUTTON','INPUT','TEXTAREA','SELECT'].includes(tag)||a==='click'&&['link','button'].includes(interaction().role);
-  return ok&&doc===document?(a==='click'||a==='set_checked'?controlVisual(node):node):null;
+  return ok&&doc===document?(a==='click'||a==='set_checked'?cv(node):node):null;
  }
  // 中文注释：计划和指针定位共用选项查找，保留缺失、歧义及禁用检查，不缓存页面节点。
- const applySelect=op==='apply_native_ref_select_option';
- const planSelect=op==='plan_ref_select_option';
+ const as=op==='apply_native_ref_select_option';
+ const ps=op==='plan_ref_select_option';
  const ariaIds=()=>(attr('aria-controls')||attr('aria-owns')||'').trim().split(/\\s+/).filter(Boolean);
  const ariaList=(ids,allowMissing=false)=>{
   // 中文注释：展开和异步挂载不能把已计划的选择换绑到另一列表；定位、派发与回读沿用同一根和声明。
@@ -374,25 +374,25 @@ export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
   // 中文注释：延迟 portal 只能沿同树声明 ID 等待，不回退到另一 Shadow/frame 中的同名列表。
   const list=interaction().role==='listbox'?node:node.getRootNode().getElementById?.(ids[0]);
   if(!list){if(allowMissing)return null;throw Error('SELECT_OPTION_MISSING');}
-  if(semantics.interaction(list).role!=='listbox')throw Error('CUSTOM_SELECT_UNSUPPORTED');
+  if(sem.interaction(list).role!=='listbox')throw Error('CUSTOM_SELECT_UNSUPPORTED');
   return list;
  };
- const normalizeOption=value=>String(value||'').normalize('NFC').replace(/\\s+/g,' ').trim();
+ const norm=value=>String(value||'').normalize('NFC').replace(/\\s+/g,' ').trim();
  const uniqueOption=matches=>{
   if(matches.length!==1)throw Error(matches.length?'SELECT_OPTION_AMBIGUOUS':'SELECT_OPTION_MISSING');
   return matches[0];
  };
  const ariaOption=(list,allowMissing=false)=>{
   if(!list&&allowMissing)return null;
-  const matches=[...list.querySelectorAll('[role]')].filter(option=>semantics.interaction(option).role==='option'&&(p.by==='label'?normalizeOption(option.getAttribute('aria-label')||option.textContent||'')===normalizeOption(p.values[0]):(option.getAttribute('value')??option.getAttribute('data-value'))===p.values[0]));
+  const matches=[...list.querySelectorAll('[role]')].filter(option=>sem.interaction(option).role==='option'&&(p.by==='label'?norm(option.getAttribute('aria-label')||option.textContent||'')===norm(p.values[0]):(option.getAttribute('value')??option.getAttribute('data-value'))===p.values[0]));
   if(!matches.length&&allowMissing)return null;
   const option=uniqueOption(matches);
-  if(semantics.interaction(option).disabled)throw Error('SELECT_OPTION_DISABLED');
+  if(sem.interaction(option).disabled)throw Error('SELECT_OPTION_DISABLED');
   return option;
  };
  if(reading)state.pendingTarget=null;
  if(op==='input_visibility')return {visibility:document.visibilityState};
- if(op==='ref_relocation')return {relocated:semantics.relocation()};
+ if(op==='ref_relocation')return {relocated:sem.relocation()};
  if(op==='scroll_ref'){
   // 中文注释：只滚动目标所在的最近可滚动容器一屏的 80%，由调用方有上限地循环查找虚拟列表中未挂载的项。
   if(!['up','down'].includes(p.direction))throw Error('INVALID_SCROLL');
@@ -406,7 +406,7 @@ export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
  }
  // A sensitive field is reported (kind only, never its value) so the person can fill it.
  if(op==='assess_ref_fill'||op==='assess_ref_press'){
-  if(sensitive(node))return {targetAssessment:'sensitive',fieldKind:fieldKind(node)};
+  if(sen(node))return {targetAssessment:'sensitive',fieldKind:fk(node)};
   // 中文注释：预审只判字段类别；视口和遮挡留给批准后的 prepare 阶段滚动并重查。
   if(op==='assess_ref_fill'&&(!fillable()||node.disabled))throw Error(blocked);
   if(op==='assess_ref_press'&&(typeof node.focus!=='function'||!interaction().actions.includes('press')))throw Error(blocked);
@@ -433,25 +433,25 @@ export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
   const reveal=(block,target)=>{
    scrolled=true;
    target.scrollIntoView({behavior:'instant',block,inline:'nearest'});
-   if(semantics.resolve(token)!==node)throw Error('STALE_REF');
+   if(sem.resolve(token)!==node)throw Error('STALE_REF');
   };
-  const visual=p.checked!==undefined?controlVisual(node):node;
-  try{actionable(visual);}catch(error){
+  const visual=p.checked!==undefined?cv(node):node;
+  try{act(visual);}catch(error){
    if(!['TARGET_OUT_OF_VIEWPORT','TARGET_OCCLUDED'].includes(String(error?.message||'').split('|',1)[0])||typeof node.scrollIntoView!=='function')throw error;
    // 中文注释：固定定位且在视口外的目标无法靠滚动移入；直接返回可恢复的视口错误。
    if(String(error?.message||'').startsWith('TARGET_OUT_OF_VIEWPORT')&&doc.defaultView.getComputedStyle(node).position==='fixed')throw error;
    reveal('center',visual);
-   actionable(visual);
+   act(visual);
   }
-  if(op==='reveal_ref'){actionable(visual);return {rect:rectOf(),scrolled};}
+  if(op==='reveal_ref'){act(visual);return {rect:rectOf(),scrolled};}
  }
- if(!reading)actionable(p.checked!==undefined?controlVisual(node):node);
+ if(!reading)act(p.checked!==undefined?cv(node):node);
  if(op==='confirm_ref')return {confirmed:true};
  if(op==='arm_ref_delivery'){
   // 中文注释：分别记录目标和整页事件。
 
   clearDelivery();
-  const probe={node,snapshotId:p.snapshotId,ref:p.ref,token:highlightBinding.operationToken,
+  const probe={node,snapshotId:p.snapshotId,ref:p.ref,token:hb.operationToken,
    global:{pointerdown:0,mousedown:0,click:0},target:{pointerdown:0,mousedown:0,click:0,trustedClick:0}};
   probe.globalListener=event=>{if(Object.hasOwn(probe.global,event.type))probe.global[event.type]++;};
   probe.targetListener=event=>{if(Object.hasOwn(probe.target,event.type))probe.target[event.type]++;if(event.type==='click'&&event.isTrusted)probe.target.trustedClick++;};
@@ -469,15 +469,15 @@ export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
   return {clicked:received,kind:'dom-synthetic',delivery:received?'confirmed':'unconfirmed',
    fallbackReason:p.fallbackReason,effect:'unverified',...(received?{}:{outcomeUnknown:true})};
  }
- if(op==='prepare_ref_click')return prepareHighlight('click',node);
- if(op==='prepare_ref_set_checked')return prepareHighlight('click',controlVisual(node));
- if(op==='prepare_ref_select_option')return prepareHighlight('click',node);
- if(op==='prepare_ref_press')return prepareHighlight('input',node);
+ if(op==='prepare_ref_click')return prepHi('click',node);
+ if(op==='prepare_ref_set_checked')return prepHi('click',cv(node));
+ if(op==='prepare_ref_select_option')return prepHi('click',node);
+ if(op==='prepare_ref_press')return prepHi('input',node);
  if(op==='prepare_ref_fill'){
   if(!fillable())throw Error(blocked);
-  return prepareHighlight('input',node);
+  return prepHi('input',node);
  }
- if(op==='verify_ref_click'||op==='verify_ref_fill'||op==='verify_ref_press'||op==='verify_ref_set_checked'||op==='verify_ref_select_option')return verifyHighlight(op==='verify_ref_set_checked'?controlVisual(node):node);
+ if(op==='verify_ref_click'||op==='verify_ref_fill'||op==='verify_ref_press'||op==='verify_ref_set_checked'||op==='verify_ref_select_option')return verifyHighlight(op==='verify_ref_set_checked'?cv(node):node);
  if(op==='focus_ref_press'||op==='press_check_ref'){
   // 中文注释：键盘事件仅在当前引用仍是实际焦点时派发，Shadow 与 iframe 分别检查自身根。
 
@@ -492,13 +492,13 @@ export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
  if(op==='pointer_target'){
 
   // 中文注释：派发前复核指针命中。
-  let target=p.checked!==undefined?controlVisual(node):node;
+  let target=p.checked!==undefined?cv(node):node;
   if(p.optionTarget){
    target=ariaOption(ariaList(ariaIds()));
    target.scrollIntoView({behavior:'instant',block:'nearest',inline:'nearest'});
   }
   const r=target.getBoundingClientRect();let point={x:p.optionTarget?r.left+Math.min(12,r.width/4):r.left+r.width/2,y:r.top+r.height/2},doc=target.ownerDocument;
-  actionable(target,point);
+  act(target,point);
   // 中文注释：逐层映射 frame 坐标。
   while(doc!==document){
    const frame=doc.defaultView?.frameElement;if(!frame)throw Error('POINTER_FRAME_UNSUPPORTED');
@@ -537,23 +537,23 @@ export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
   const verified=node.isConnected&&matches;
   return {checked:before===true||before==='true',changed:true,verified,kind:'trusted-input',...(verified?{}:{outcomeUnknown:true})};
  }
- if(planSelect||reading||applySelect||syntheticSelect){
+ if(ps||reading||as||ss){
   if(!interaction().actions.includes('select_option'))throw Error(blocked);
   // 中文注释：原生控件按 value、去首尾空白的 Unicode 标签或零基 index 精确定位，校验全部选项后才写入。
   if(!Array.isArray(p.values)||p.values.length>100||!['value','label','index'].includes(p.by)||
-   p.values.some(value=>p.by==='index'?!Number.isSafeInteger(value)||value<0:typeof value!=='string'||value.length>1000))throw Error(badSelect);
+   p.values.some(value=>p.by==='index'?!Number.isSafeInteger(value)||value<0:typeof value!=='string'||value.length>1000))throw Error(bad);
   if(node.tagName==='SELECT'){
    if(node.disabled)throw Error(blocked);
-   if(!node.multiple&&p.values.length!==1)throw Error(badSelect);
+   if(!node.multiple&&p.values.length!==1)throw Error(bad);
    const options=[...node.options],selected=p.values.map(value=>{
-    const option=uniqueOption(options.filter((option,index)=>p.by==='index'?index===value:p.by==='label'?normalizeOption(option.label)===normalizeOption(value):option.value===value));
+    const option=uniqueOption(options.filter((option,index)=>p.by==='index'?index===value:p.by==='label'?norm(option.label)===norm(value):option.value===value));
     if(option.disabled||option.parentElement?.disabled)throw Error('SELECT_OPTION_DISABLED');
     return option;
    });
-   if(new Set(selected).size!==selected.length)throw Error(badSelect);
+   if(new Set(selected).size!==selected.length)throw Error(bad);
    const wanted=new Set(selected),changed=options.some(option=>option.selected!==wanted.has(option));
-   if(planSelect)return {kind:'native',needsChange:changed};
-   if(applySelect){
+   if(ps)return {kind:'native',needsChange:changed};
+   if(as){
 
     // 中文注释：浏览器原生下拉弹层不能可靠按网页坐标操作；与 selectOption 相同，设置 selected 后派发两个冒泡事件。
     for(const option of options)option.selected=wanted.has(option);
@@ -563,22 +563,22 @@ export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
     const verified=node.isConnected&&node.options.length===options.length&&options.every((option,index)=>node.options[index]===option&&option.selected===wanted.has(option));
     return {changed,verified,selectedCount:selectedOptions.length,selectedOptions,kind:'native-select',...(verified?{}:{outcomeUnknown:true})};
    }
-   throw Error(badSelect);
+   throw Error(bad);
   }
-  if(applySelect)throw Error(badSelect);
+  if(as)throw Error(bad);
   // 中文注释：自定义 listbox/combobox 仍只支持单选，并由宿主派发可信指针点击。
-  if(p.by==='index'||p.values.length!==1)throw Error(badSelect);
+  if(p.by==='index'||p.values.length!==1)throw Error(bad);
   const needsOpen=interaction().role==='combobox'&&attr('aria-expanded')!=='true';
-  const list=ariaList(ariaIds(),needsOpen&&(planSelect||syntheticSelect&&p.openOnly));
-  if(syntheticSelect&&p.openOnly){node.click();return;}
+  const list=ariaList(ariaIds(),needsOpen&&(ps||ss&&p.openOnly));
+  if(ss&&p.openOnly){node.click();return;}
   // 中文注释：只对有唯一明确关联 ID 的关闭组合框延后缺失检查；歧义、禁用仍在展开前拒绝。
-  const option=ariaOption(list,planSelect&&needsOpen);
+  const option=ariaOption(list,ps&&needsOpen);
   const selected=option?.getAttribute('aria-selected')==='true';
-  if(planSelect){state.pendingTarget={snapshotId:p.snapshotId,ref:p.ref,node,selection:{root:node.getRootNode(),role:interaction().role,ids:ariaIds()}};return {kind:'aria',needsChange:!selected,needsOpen};}
-  if(syntheticSelect){
+  if(ps){state.pendingTarget={snapshotId:p.snapshotId,ref:p.ref,node,selection:{root:node.getRootNode(),role:interaction().role,ids:ariaIds()}};return {kind:'aria',needsChange:!selected,needsOpen};}
+  if(ss){
 
    option.scrollIntoView({behavior:'instant',block:'nearest',inline:'nearest'});
-   actionable(option);
+   act(option);
    let clicks=0;const capture=()=>clicks++;
    option.addEventListener('click',capture,true);
    try{option.click();}finally{option.removeEventListener('click',capture,true);}

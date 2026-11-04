@@ -222,10 +222,10 @@ test('后台文档的空 getClientRects 不剪掉有布局矩形的控件', () =
     assert.equal(page.items[0].blocked, undefined);
     assert.equal(page.coverage.hidden, 0);
     assert.equal(page.coverage.prunedSubtrees || 0, 0);
-    const bundled = f.w.eval(`(${semanticWorldDeclaration})`)(
-      'semantic_snapshot',
-      { binding: f.binding, options: { roles: ['button'], query: '创建' } },
-    );
+    const bundled = f.w.eval(`(${semanticWorldDeclaration})`)('semantic_snapshot', {
+      binding: f.binding,
+      options: { roles: ['button'], query: '创建' },
+    });
     assert.equal(bundled.items.length, 1);
     assert.equal(bundled.coverage.hidden, 0);
   } finally {
@@ -244,9 +244,10 @@ test('后台暂停的透明过渡祖先不隐藏按钮，并在源码与打包�
       assert.equal(page.items.length, 1, marker);
       assert.equal(page.coverage.documentHidden, true);
       assert.ok(page.coverage.pausedTransitions > 0, marker);
-      const bundled = f.w.eval(`(${semanticWorldDeclaration})`)(
-        'semantic_snapshot', { binding: f.binding, options },
-      );
+      const bundled = f.w.eval(`(${semanticWorldDeclaration})`)('semantic_snapshot', {
+        binding: f.binding,
+        options,
+      });
       assert.equal(bundled.items.length, 1, marker);
       assert.equal(bundled.coverage.documentHidden, true);
       assert.ok(bundled.coverage.pausedTransitions > 0, marker);
@@ -258,12 +259,21 @@ test('后台暂停的透明过渡祖先不隐藏按钮，并在源码与打包�
 test('静态透明祖先、按钮自身透明及前台过渡仍保持不可见', () => {
   for (const { html, hidden } of [
     { html: '<main style="opacity: 0"><button>创建</button></main>', hidden: true },
-    { html: '<main style="transition: opacity .3s"><button style="opacity: 0">创建</button></main>', hidden: true },
-    { html: '<main style="opacity: 0; transition: opacity .3s"><button>创建</button></main>', hidden: false },
+    {
+      html: '<main style="transition: opacity .3s"><button style="opacity: 0">创建</button></main>',
+      hidden: true,
+    },
+    {
+      html: '<main style="opacity: 0; transition: opacity .3s"><button>创建</button></main>',
+      hidden: false,
+    },
   ]) {
     const f = fixture(html);
     try {
-      Object.defineProperty(f.doc, 'visibilityState', { configurable: true, value: hidden ? 'hidden' : 'visible' });
+      Object.defineProperty(f.doc, 'visibilityState', {
+        configurable: true,
+        value: hidden ? 'hidden' : 'visible',
+      });
       const page = f.semantics.snapshot({ mode: 'interactive', roles: ['button'] });
       assert.equal(page.items.length, 0);
       assert.equal(page.coverage.documentHidden, hidden);

@@ -260,7 +260,9 @@ PYTHON_FILES = {
         "test_browser_consent.py",
         "test_browser_wake.py",
         "test_manual_input.py",
+        "test_batch_b_contract.py",
         "test_batch_c_contract.py",
+        "test_batch_d_contract.py",
     ),
 }
 # Keep one baseline step per suite, but import only these exact V1.1 files.
@@ -808,6 +810,7 @@ def build_run_environment(
         ),
         "HERMES_SOURCE": hermes_source,
         "HERMES_PYTHON": py,
+        "FBL_TEST_PYTHON": py,
         "BROWSER_USE_CLI": browser_use_cli,
         "BROWSER_USE_CLI_SOURCE": str(browser_use_cli_source),
         # 中文注释：只读固定提交的旧更新器，源码快照不复制或链接整个 Git 历史。

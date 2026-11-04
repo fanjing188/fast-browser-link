@@ -381,9 +381,7 @@ def inspect(work: Path):
 def start_fixture(work: Path):
     # 中文注释：离线布局测试只启动本夹具的原生桥接，不导入 Hermes RPC 模块。
     value = paths(work)
-    client = load(
-        value["plugin"] / "native_bridge/client.py", "fixture_client_" + uuid.uuid4().hex
-    )
+    client = load(value["plugin"] / "native_bridge/client.py", "fixture_client_" + uuid.uuid4().hex)
     client.ensure_service(value["hermes"])
     return {}
 

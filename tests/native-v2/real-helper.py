@@ -378,6 +378,16 @@ def inspect(work: Path):
     }
 
 
+def start_fixture(work: Path):
+    # 中文注释：离线布局测试只启动本夹具的原生桥接，不导入 Hermes RPC 模块。
+    value = paths(work)
+    client = load(
+        value["plugin"] / "native_bridge/client.py", "fixture_client_" + uuid.uuid4().hex
+    )
+    client.ensure_service(value["hermes"])
+    return {}
+
+
 def register_fixture_artifact(
     work: Path, session: str, task_id: str, origin: str, filename: str, encoded: str
 ):
@@ -826,6 +836,8 @@ def main():
         )
     elif mode == "rpc":
         result = rpc(work, sys.argv[3], sys.argv[4], json.loads(sys.argv[5]))
+    elif mode == "start_fixture":
+        result = start_fixture(work)
     elif mode == "batch":
         result = batch(work, sys.argv[3], sys.argv[4], json.loads(sys.argv[5]))
     elif mode == "inspect":

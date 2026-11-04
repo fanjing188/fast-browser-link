@@ -8,8 +8,7 @@ import test from 'node:test';
 import * as runner from './real-session.mjs';
 
 const exec = promisify(execFile);
-const python =
-  process.env.HERMES_PYTHON || path.join(process.env.HOME, '.hermes/hermes-agent/venv/bin/python');
+const python = process.env.FBL_TEST_PYTHON || 'python3';
 
 test('离线夹具不绕过 TMPDIR 写入系统临时目录', async () => {
   for (const file of [
@@ -135,15 +134,12 @@ test('compactScratch stages isolated source and package homes with a bindable so
       assert.equal(restored.plugin, staged.plugin);
       assert.equal(restored.extension, staged.extension);
       await unlink(socketPath);
-      // 中文注释：真实 helper RPC 仅查询空实例，验证 daemon 路径与安全清理，不启动浏览器。
+      // 中文注释：仅用原生桥接启动夹具 daemon，验证路径与安全清理，不依赖 Hermes RPC。
       const inheritedBridge = process.env.FAST_BROWSER_BRIDGE_HOME;
       const unrelatedBridge = path.join(work, 'must-not-use-as-bridge');
       process.env.FAST_BROWSER_BRIDGE_HOME = unrelatedBridge;
       try {
-        assert.deepEqual(
-          await runner.helperCall('rpc', work, 'compact-offline', 'browsers', '{}'),
-          [],
-        );
+        assert.deepEqual(await runner.helperCall('start_fixture', work), {});
         await assert.rejects(realpath(unrelatedBridge), { code: 'ENOENT' });
         const identity = await runner.helperCall('inspect', work);
         assert.ok(identity.daemonCommand.includes(compactHome));

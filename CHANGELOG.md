@@ -2,6 +2,10 @@
 
 ## 2.6.0 — 2026-11-04
 
+### 开发中
+
+- 离线 compactScratch 布局测试改用原生桥接启动隔离 daemon，避免依赖 Hermes Python 模块；真实浏览器 RPC 仍使用 `FBL_TEST_PYTHON` 和 `HERMES_SOURCE`。
+
 - 后台文档中暂停的透明过渡祖先不再隐藏其按钮；语义世界版本提升至 15，快照 coverage 增加 `documentHidden` 和 `pausedTransitions`，补充离线与独立浏览器夹具。
 - 修复语义快照名称或角色查询无匹配时误报引用缺失并触发恢复；真实浏览器测试改用 `FBL_TEST_PYTHON` 或 PATH 中的 `python3`，缺少 Hermes 测试模块时给出明确提示。
 - 普通后台任务改用各自的工作窗口及分组，窗口输入队列随任务隔离；扩展待处理容量已满时明确返回插件类可重试错误。补充 site tool 的只读夹具和真实试跑指南。

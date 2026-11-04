@@ -41,6 +41,14 @@ class RecordingRuntime:
 
 
 class ActionSessionTest(unittest.TestCase):
+    def test_open_page_returns_readiness_and_binds_tab(self):
+        runtime = RecordingRuntime([{"tabId": 7, "url": "https://example.test/", "ready": "idle"}])
+        session = adapter.ActionSession(runtime, owner="trusted", task_id="task")
+        receipt = session.open_page("https://example.test/", wait_for="idle", timeout_ms=10000)
+        self.assertEqual(receipt["ready"], "idle")
+        self.assertEqual(session.tab_id, 7)
+        self.assertEqual(runtime.calls[0][1]["waitFor"], "idle")
+
     def test_invalid_evaluate_does_not_freeze_followup(self):
         error = RuntimeError("private page text")
         error.code = "invalid_expression"
@@ -52,7 +60,9 @@ class ActionSessionTest(unittest.TestCase):
             session.run("js.evaluate", {"expression": "document.title", "arguments": None})
         self.assertEqual(caught.exception.code, "invalid_expression")
         self.assertEqual(
-            session.run("js.evaluate", {"expression": "()=>document.title", "arguments": None})["value"],
+            session.run("js.evaluate", {"expression": "()=>document.title", "arguments": None})[
+                "value"
+            ],
             "title",
         )
 

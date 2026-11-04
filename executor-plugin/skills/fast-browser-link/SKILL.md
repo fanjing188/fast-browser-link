@@ -88,7 +88,7 @@ Errors: `fast-browser-link:fast-browser-troubleshoot`. Product tasks allow only 
 
 ## 显式选择工作页
 
-`new_tab(url)` 返回并选中 tab id；用 `current_tab()` 查看、`use_tab(tab_id)` 切换。页面 helper 的 `tab=` 仅影响本次调用；多页脚本始终显式传入。
+`new_tab(url)` 返回并选中 tab id；`open_page(url, wait_for="idle", timeout_ms=15000)` 返回 tabId 与就绪信息。`run(new_tab|navigate)` 支持 `waitFor:"load"|"idle"|{"type":"selector"|"text","value":"..."}`，`timeoutMs` 为 1000–45000；等待超时回 `ready:false,category:site,retryable:true`，导航已派发。用 `current_tab()` 查看、`use_tab(tab_id)` 切换。页面 helper 的 `tab=` 仅影响本次调用；多页脚本始终显式传入。
 
 读动作只等待 DOM 的 `interactive`/`complete`，上限 1.5 秒。导航和新建页最多等待 8 秒；正文已解析且稳定时可提前返回 `partial`。摘要可用 `summary=false` 关闭。
 

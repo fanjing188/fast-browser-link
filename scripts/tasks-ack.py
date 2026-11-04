@@ -69,7 +69,7 @@ def hold_daemon_lock(data):
             ) from error
 
 
-def acknowledge(home, task_id, reason, env, *, stop_daemon=False):
+def acknowledge(home, task_ids, reason, env, *, stop_daemon=False):
     data = home / "plugin-data/fast-browser-link-native"
     CLI.EXECUTOR.reject_target_symlinks([data])
     if not data.is_dir():
@@ -88,8 +88,8 @@ def acknowledge(home, task_id, reason, env, *, stop_daemon=False):
             descriptor = hold_daemon_lock(data)
             try:
                 CLI.check_daemon_stopped(home, env)
-                result = CLI.acknowledge_tasks(home, [task_id], reason, env, descriptor)
-                return {**result, "taskId": task_id}
+                result = CLI.acknowledge_tasks(home, task_ids, reason, env, descriptor)
+                return {**result, "taskIds": task_ids}
             finally:
                 os.close(descriptor)
         finally:
@@ -101,27 +101,50 @@ def main(argv=None):
     parser = argparse.ArgumentParser(
         description="标记用户已核实的已关闭任务 / Acknowledge a verified closed task"
     )
-    parser.add_argument("task_id")
+    parser.add_argument("task_id", nargs="+")
     parser.add_argument("--reason", default="用户已核实浏览器中没有残留标签页或操作")
     parser.add_argument(
         "--stop-daemon",
         action="store_true",
         help="进入维护模式并停止已核实的 daemon；完成后删除维护标记",
     )
-    parser.add_argument(
-        "--hermes-home", default=os.environ.get("HERMES_HOME", str(Path.home() / ".hermes"))
-    )
+    parser.add_argument("--hermes-home", default=None)
     args = parser.parse_args(argv)
     if not args.reason.strip() or len(args.reason) > 500:
         parser.error("--reason 不能为空且不超过 500 字")
     try:
-        result = acknowledge(
-            shared_home(args.hermes_home),
-            args.task_id,
-            args.reason.strip(),
-            os.environ,
-            stop_daemon=args.stop_daemon,
+        candidates = (
+            [args.hermes_home]
+            if args.hermes_home
+            else [
+                os.environ.get("HERMES_HOME"),
+                *(str(Path.home() / name) for name in (".fast-browser-link", ".hermes")),
+            ]
         )
+        homes = list(dict.fromkeys(shared_home(value) for value in candidates if value))
+        located = {}
+        for home in homes:
+            if not (home / "plugin-data/fast-browser-link-native").is_dir():
+                continue
+            ids = {
+                row.get("id")
+                for row in CLI.load_task_records(home)["tasks"]
+                if isinstance(row, dict)
+            }
+            for task_id in args.task_id:
+                if task_id in ids:
+                    located.setdefault(task_id, []).append(home)
+        if any(len(located.get(task_id, [])) != 1 for task_id in args.task_id):
+            raise InstallError(
+                "任务 ID 未找到或属于多个数据目录。", "显式传 --hermes-home 指定正确运行时。"
+            )
+        grouped = {}
+        for task_id in args.task_id:
+            grouped.setdefault(located[task_id][0], []).append(task_id)
+        result = [
+            acknowledge(home, ids, args.reason.strip(), os.environ, stop_daemon=args.stop_daemon)
+            for home, ids in grouped.items()
+        ]
     except InstallError as error:
         print("错误 / Error: " + str(error) + "\n处理 / Fix: " + error.fix, file=sys.stderr)
         return 1

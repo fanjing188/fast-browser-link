@@ -39,7 +39,12 @@ class NativeTests(unittest.TestCase):
     def test_mcp_evaluate_requires_function_even_without_arguments(self):
         self.invoke(
             "fast_browser_run",
-            {"task_id": "task-1", "tab_id": 7, "action": "js.evaluate", "expression": "location.pathname"},
+            {
+                "task_id": "task-1",
+                "tab_id": 7,
+                "action": "js.evaluate",
+                "expression": "location.pathname",
+            },
         )
         self.assertEqual(self.client.calls[-1][1]["arguments"], None)
         error = RuntimeError("PRIVATE_PAGE_CANARY")
@@ -48,7 +53,12 @@ class NativeTests(unittest.TestCase):
         self.client.call = lambda *_: (_ for _ in ()).throw(error)
         result, _ = self.invoke(
             "fast_browser_run",
-            {"task_id": "task-1", "tab_id": 7, "action": "js.evaluate", "expression": "location.pathname"},
+            {
+                "task_id": "task-1",
+                "tab_id": 7,
+                "action": "js.evaluate",
+                "expression": "location.pathname",
+            },
         )
         self.assertEqual(result["code"], "invalid_expression")
         self.assertFalse(result["outcome_unknown"])
@@ -844,6 +854,23 @@ class NativeTests(unittest.TestCase):
             self.assertEqual(params["requestId"], "trusted-call-1")
             if "tab_id" in extra:
                 self.assertEqual(params["tabId"], 42)
+
+    def test_navigation_wait_maps_to_native_contract(self):
+        result, _ = self.invoke(
+            "fast_browser_run",
+            {
+                "task_id": "task-1",
+                "action": "new_tab",
+                "url": "https://example.com",
+                "wait_for": {"type": "selector", "value": "#ready"},
+                "timeout_ms": 12000,
+            },
+        )
+        self.assertNotIn("error", result)
+        self.assertEqual(
+            self.client.calls[-1][1]["waitFor"], {"type": "selector", "value": "#ready"}
+        )
+        self.assertEqual(self.client.calls[-1][1]["timeoutMs"], 12000)
 
 
 if __name__ == "__main__":

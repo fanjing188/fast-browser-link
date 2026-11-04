@@ -674,6 +674,23 @@ def activate(hermes, home, profiles, action, env):
 
 TERMINAL_TASK_STATES = {"closed", "cancelled", "failed"}
 TERMINAL_OPERATION_STATES = {"succeeded", "failed", "confirmed"}
+SAFE_UNKNOWN_ACTIONS = {
+    "tabs",
+    "snapshot",
+    "semantic_snapshot",
+    "page.observe",
+    "page.parse",
+    "frame_catalog",
+    "images",
+    "console",
+    "screenshot",
+    "execution.guard",
+    "official.ready_state",
+    "navigate",
+    "new_tab",
+    "official.goto_url",
+    "official.new_tab",
+}
 MAINTENANCE_MARKER = "maintenance.json"
 
 
@@ -770,6 +787,25 @@ def task_block_reason(task, *, daemon_stopped=False):
     # 中文注释：当前操作仍在运行时继续阻塞；终态任务的未结历史只进入维护核实，不改运行时或原始结果。
     if operation["state"] not in TERMINAL_OPERATION_STATES | {"unknown"}:
         return "active"
+    # 中文注释：已清理成功的关闭任务里，只有纯读取/导航的未知回执可自动结清；动作缺失或写入未知继续阻断。
+    if task.get("state") in {"closed", "cancelled"} and task.get("cleanupState") == "succeeded":
+        history_safe = isinstance(history, list) and all(
+            isinstance(row, dict)
+            and (
+                row.get("state") in {"confirmed", "rejected"}
+                or row.get("state") in {"dispatched", "unknown"}
+                and row.get("action") in SAFE_UNKNOWN_ACTIONS
+            )
+            for row in history
+        )
+        operations_safe = all(
+            row["state"] in TERMINAL_OPERATION_STATES
+            or row["state"] == "unknown"
+            and row.get("action") in SAFE_UNKNOWN_ACTIONS
+            for row in operations
+        )
+        if history_safe and operations_safe:
+            return None
     if not verified and any(row["state"] not in TERMINAL_OPERATION_STATES for row in operations):
         if task.get("cleanupState") in {"succeeded", "unknown", "failed"}:
             return "history" if isinstance(task.get("userVerified"), dict) else "verification"

@@ -325,6 +325,11 @@ def new_tab(url):
     return _call("new_tab", [url])
 
 
+def open_page(url, *, wait_for="load", timeout_ms=15000):
+    """中文注释：打开工作页并返回 tabId、ready 与等待结果。"""
+    return _call("open_page", [url, wait_for, timeout_ms])
+
+
 def use_tab(tab_id):
     """Select the current owned work tab; prefer explicit tab= for parallel work."""
     return _call("use_tab", [tab_id])
@@ -1903,6 +1908,7 @@ HELPERS = {
         "ApprovalRequired",
         "UserInputRequired",
         "new_tab",
+        "open_page",
         "use_tab",
         "current_tab",
         "parallel",

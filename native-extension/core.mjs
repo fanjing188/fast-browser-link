@@ -2866,6 +2866,56 @@ export class Executor {
  }
  // 中文注释：只接受同协议的 apex/www 对换；其他已提交跳转立即拒绝并仅公开来源。
  acceptCommittedOrigin(t,requested,url){this.allowed(t,url);}
+ async waitForNavigation(t,p,guard,receipt){
+  const condition=p.waitFor||'load';
+  if(condition==='load')return receipt;
+  const deadline=Date.now()+(p.timeoutMs||15000),target={tabId:receipt.tabId};
+  const pending=new Set();let lastNetwork=Date.now(),stableSince=0,previous='',listener=null;
+  // 中文注释：监听目标页的真实请求起止；空闲必须同时满足没有在途请求和 DOM 连续稳定。
+  if(condition==='idle'&&this.api.debugger.onEvent?.addListener){
+   listener=(source,method,params)=>{
+    if(source.tabId!==receipt.tabId)return;
+    if(method==='Network.requestWillBeSent'){pending.add(params.requestId);lastNetwork=Date.now();}
+    if(method==='Network.loadingFinished'||method==='Network.loadingFailed'){pending.delete(params.requestId);lastNetwork=Date.now();}
+   };
+   this.api.debugger.onEvent.addListener(listener);
+  }
+  try{
+   while(Date.now()<deadline){
+    guard();
+    const tab=await this.api.tabs.get(receipt.tabId);guard();this.allowed(t,tab.url);
+    if(!this.attached.has(receipt.tabId)){
+     await this.api.debugger.attach(target,'1.3');guard();this.attached.add(receipt.tabId);
+    }
+    if(listener&&pending.size===0&&lastNetwork===0)lastNetwork=Date.now();
+    if(listener&&!listener.networkEnabled){
+     await this.api.debugger.sendCommand(target,'Network.enable',{});guard();listener.networkEnabled=true;
+    }
+    try{
+     const tree=await this.checkedFrameTree(target,t,guard,false);
+     const world=await this.api.debugger.sendCommand(target,'Page.createIsolatedWorld',{frameId:tree.frame.id,worldName:'fast-native',grantUniveralAccess:false});guard();
+     const result=await this.api.debugger.sendCommand(target,'Runtime.callFunctionOn',{
+      executionContextId:world.executionContextId,
+      functionDeclaration:'function(wait){const body=document.body;if(!body)return null;const resources=performance.getEntriesByType("resource");const last=resources.length?Math.max(...resources.slice(-100).map(item=>item.responseEnd||0)):0;return {ready:document.readyState,matched:wait.type==="selector"?!!document.querySelector(wait.value):wait.type==="text"?body.innerText.includes(wait.value):false,signature:body.innerText.length+":"+body.getElementsByTagName("*").length,quiet:performance.now()-last>=500};}',
+      arguments:[{value:typeof condition==='string'?{type:condition}:condition}],returnByValue:true
+     });guard();
+     const state=result.result?.value;
+     if(state){
+      if(condition==='idle'){
+       const signature=state.signature,quiet=state.quiet&&pending.size===0&&Date.now()-lastNetwork>=500;
+       if(state.ready!=='loading'&&quiet&&signature===previous){
+        if(Date.now()-stableSince>=500)return {...receipt,ready:'idle',waitFor:'idle'};
+       }else stableSince=Date.now();
+       previous=signature;
+      }else if(state.matched)return {...receipt,ready:condition.type,waitFor:condition};
+     }
+    }catch(error){if(!isTransientLoadError(error))throw error;}
+    await new Promise(resolve=>setTimeout(resolve,100));
+   }
+   // 中文注释：导航已派发且标签归属仍成立；等待超时只报告站点未就绪，不改写成动作失败或未知写入。
+   return {...receipt,ready:false,category:'site',retryable:true,code:'page_not_ready',waitFor:condition};
+  }finally{if(listener)this.api.debugger.onEvent.removeListener(listener);}
+ }
  async settledTab(tabId,guard,initial,waitMs=1500,t=null,requested=null,previousUrl=null){
   const deadline=Date.now()+waitMs,target={tabId};
   let tab=initial||await this.api.tabs.get(tabId),seenCommit=false,probeAt=0,probeOff=false,partialSeen=null;guard();
@@ -2975,7 +3025,7 @@ export class Executor {
   const opened=await settled;
   const receipt=await this.popupPolicy.createdReceipt(t,opened.tabId,opened);guard();
   void this.restoreOverlay(t,opened.tabId);
-  return withBackgroundFocusNotice(withBackgroundFocusNotice(receipt,url),opened.url);
+  return this.waitForNavigation(t,p,guard,withBackgroundFocusNotice(withBackgroundFocusNotice(receipt,url),opened.url));
  }
  async openSafeLink(t,p,guard,inspection){
   if(inspection?.kind!=='blank_anchor'||typeof inspection.url!=='string')return {unsupported:true,code:'CHILD_CREATION_UNSUPPORTED',clicked:false};
@@ -3069,7 +3119,7 @@ export class Executor {
    // 中文注释：加载中 tabs.update/get 仍可能返回旧的范围外 URL；目标已校验，等提交后再核对最终来源。
    await this.api.tabs.update(p.tabId,{url:p.url});guard();const current=await this.api.tabs.get(p.tabId);guard();
    const settled=await this.settledTab(p.tabId,guard,current,PAGE_SETTLE_MS,t,p.url,initialTab?.url);this.allowed(t,settled.tab.url);
-   return withBackgroundFocusNotice(withBackgroundFocusNotice({tabId:p.tabId,url:settled.tab.url,ready:settled.ready},p.url),settled.tab.url);
+   return this.waitForNavigation(t,p,guard,withBackgroundFocusNotice(withBackgroundFocusNotice({tabId:p.tabId,url:settled.tab.url,ready:settled.ready},p.url),settled.tab.url));
   }
   if(!this.attached.has(p.tabId)){
    try{await this.api.debugger.attach(target,'1.3');}

@@ -500,6 +500,19 @@ class ScriptToolTests(unittest.TestCase):
         second = self.run_script("print(open('checkpoint.json').read())", call="call-2")
         self.assertEqual(json.loads(second["stdout"]), {"page": 1})
 
+    def test_open_page_and_builtin_open_work_in_one_script(self):
+        self.bind()
+        result = self.run_script(
+            "receipt = open_page('https://example.com/', wait_for='idle')\n"
+            "with open('opened-page.json', 'w') as output:\n"
+            "    output.write('{\"ok\": true}')\n"
+            "print(receipt['tabId'], open('opened-page.json').read())\n"
+        )
+        self.assertEqual(result["exit_code"], 0, result)
+        self.assertEqual(result["stdout"].strip(), '7 {"ok": true}')
+        self.assertEqual([run["action"] for run in self.runtime.runs], ["new_tab"])
+        self.assertEqual(self.runtime.runs[0]["waitFor"], "idle")
+
     def test_approval_waits_on_the_same_request_without_replay(self):
         self.make({"click"})
         self.bind()

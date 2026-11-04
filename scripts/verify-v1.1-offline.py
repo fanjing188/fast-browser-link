@@ -260,6 +260,7 @@ PYTHON_FILES = {
         "test_browser_consent.py",
         "test_browser_wake.py",
         "test_manual_input.py",
+        "test_batch_c_contract.py",
     ),
 }
 # Keep one baseline step per suite, but import only these exact V1.1 files.

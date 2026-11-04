@@ -254,6 +254,18 @@ TOOL_SCHEMAS = {
                 "http_method": {"type": "string", "enum": ["GET", "HEAD"]},
                 "tab_id": {"type": "integer", "minimum": 0},
                 "url": _text(4096),
+                "wait_for": {
+                    "oneOf": [
+                        {"type": "string", "enum": ["load", "idle"]},
+                        _object(
+                            {
+                                "type": {"type": "string", "enum": ["selector", "text"]},
+                                "value": _text(500),
+                            },
+                            ("type", "value"),
+                        ),
+                    ]
+                },
                 "selector": _text(4096),
                 "summary": {
                     "type": "boolean",
@@ -450,7 +462,10 @@ TOOL_SCHEMAS["fast_browser_get"]["parameters"]["properties"].update(
     }
 )
 TOOL_SCHEMAS["fast_browser_get"]["description"] += (
-    " 接管暂停时设置 until=resumed 等待，默认最多 600 秒；恢复后先重新读页面。排查时设置 include_log=true、log_limit=N 获取最近步骤。"
+    " 接管暂停时设置 until=resumed 等待，默认最多 600 秒；恢复后先重新读页面。排查时设置 include_log=true、log_limit=N 获取最近步骤；任务关闭后 recordPaths 给出 Markdown/JSON 记录路径。"
+)
+TOOL_SCHEMAS["fast_browser_run"]["description"] += (
+    " new_tab/navigate 可用 wait_for=load|idle|{type:selector|text,value:...} 与 timeout_ms=1000..45000 等待页面就绪；等待超时返回 ready=false，导航已发生。"
 )
 
 
@@ -596,6 +611,21 @@ def _validate_value(spec, value):
 def _validate_field(key, value, spec, public):
     from urllib.parse import urlsplit
 
+    if key == "wait_for":
+        valid = (
+            value in {"load", "idle"}
+            if isinstance(value, str)
+            else (
+                isinstance(value, dict)
+                and set(value) == {"type", "value"}
+                and value["type"] in {"selector", "text"}
+                and isinstance(value["value"], str)
+                and 0 < len(value["value"]) <= 500
+            )
+        )
+        if valid:
+            return
+        raise ValueError("无效页面等待条件")
     kind = spec["type"]
     if kind == "array" and key == "fields":
         import re
@@ -784,7 +814,8 @@ def _validate(tool_name, args):
             "ref_select_option": {"frame_token"},
             "scroll": {"binding", "snapshot_id", "ref", "frame_token"},
             "files.upload": {"artifact_ids", "paths"},
-            "navigate": {"summary"},
+            "new_tab": {"wait_for", "timeout_ms"},
+            "navigate": {"summary", "wait_for", "timeout_ms"},
             "api_request": {"http_method"},
             "page.parse": {"options"},
             "semantic_snapshot": {"options"},
@@ -818,6 +849,12 @@ def _validate(tool_name, args):
             raise ArgumentFieldsError("missing_fields", set(required) - set(public))
         if action == "cdp.send" and "target_id" in public and "frame_token" in public:
             raise ArgumentFieldsError("invalid_fields", ["target_id", "frame_token"])
+        if (
+            action in {"new_tab", "navigate"}
+            and "timeout_ms" in public
+            and not 1000 <= public["timeout_ms"] <= 45000
+        ):
+            raise ArgumentFieldsError("invalid_fields", ["timeout_ms"])
         if action == "interaction.drag_coordinates" and public.get("mode", "pointer") != "pointer":
             raise ArgumentFieldsError("invalid_fields", ["mode"])
         if "clickMode" in public and public["clickMode"] not in (
@@ -913,6 +950,7 @@ def make_tool_handler(tool_name, profile_runtime, *, host_bridge=None, backend_c
                 "world": "world",
                 "await_promise": "awaitPromise",
                 "timeout_ms": "timeoutMs",
+                "wait_for": "waitFor",
                 "method": "method",
                 "cdp_params": "params",
                 "max": "max",
@@ -1375,8 +1413,12 @@ def make_tool_handler(tool_name, profile_runtime, *, host_bridge=None, backend_c
                     and not unknown
                 ),
                 "outcome_unknown": unknown,
-                "category": data.get("category") if data.get("category") in {"usage", "site", "plugin"} else "plugin",
-                "hint": data.get("hint") if isinstance(data.get("hint"), str) and len(data["hint"]) <= 120 else "请查看错误码并检查任务状态",
+                "category": data.get("category")
+                if data.get("category") in {"usage", "site", "plugin"}
+                else "plugin",
+                "hint": data.get("hint")
+                if isinstance(data.get("hint"), str) and len(data["hint"]) <= 120
+                else "请查看错误码并检查任务状态",
             }
             # 中文注释：协议层固定码必须始终传给模型，未知码仍有稳定的分类入口。
             result["bridgeCode"] = code or "bridge_error"

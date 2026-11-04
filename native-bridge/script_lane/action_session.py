@@ -759,13 +759,13 @@ class ActionSession:
                 self._unknown = True
                 raise OutcomeUnknown("invalid official fill_input receipt")
             value = receipt
-        elif kind == "new_tab":
+        elif kind in {"new_tab", "new_tab_receipt"}:
             tab_id = receipt.get("tabId")
             if type(tab_id) is not int or tab_id < 0:
                 self._unknown = True
                 raise OutcomeUnknown("new_tab returned no verified tabId")
             self.tab_id = tab_id
-            value = tab_id
+            value = receipt if kind == "new_tab_receipt" else tab_id
         elif kind == "screenshot":
             data = receipt.get("data")
             if not isinstance(data, str) or not data:
@@ -784,6 +784,13 @@ class ActionSession:
     def new_tab(self, url: str) -> int:
         """Open only an already-approved origin; native daemon validates URL."""
         return self._request("new_tab", "new_tab", url=url)
+
+    def open_page(self, url: str, *, wait_for="load", timeout_ms=15000) -> dict:
+        """中文注释：新建工作页并返回标签与页面就绪回执。"""
+        receipt = self._request(
+            "new_tab", "new_tab_receipt", url=url, waitFor=wait_for, timeoutMs=timeout_ms
+        )
+        return receipt
 
     def goto_url(self, url: str, *, summary: bool = True) -> dict:
         """Navigate only the verified work tab; return native (not CDP) receipt."""

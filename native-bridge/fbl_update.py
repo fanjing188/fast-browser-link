@@ -170,7 +170,7 @@ def legacy_cli(ctx):
 
 def task_status(ctx, cli):
     roots, _ = layouts(ctx)
-    groups = {"active": [], "after_daemon_stop": [], "needs_verification": []}
+    groups = {"active": [], "after_daemon_stop": [], "needs_verification": [], "auto_settled": []}
     eligible = {}
     epoch = None
     epoch_checked = False
@@ -219,6 +219,19 @@ def task_status(ctx, cli):
         for task in records["tasks"]:
             reason = cli.task_block_reason(task)
             if reason is None:
+                # 中文注释：已关闭且清理成功、无未知操作的任务已有终态证明，不依赖浏览器纪元。
+                if (
+                    isinstance(task, dict)
+                    and task.get("state") in {"closed", "cancelled"}
+                    and task.get("cleanupState") == "succeeded"
+                ):
+                    groups["auto_settled"].append(
+                        {
+                            "id": task["id"],
+                            "runtime": str(root),
+                            "reason": "verified_terminal_cleanup",
+                        }
+                    )
                 continue
             row = (
                 {
@@ -353,6 +366,7 @@ def preview(ctx, summary=None, cli=None):
         "status": "dry_run",
         "task_check": task_summary(groups),
         "safe_to_settle": sum(map(len, eligible.values())),
+        "auto_settled": groups["auto_settled"],
         "ready_after_confirmation": not blocking,
         "blocking": blocking,
         "reason": UpdateRefused(groups).reason if blocking else None,
@@ -483,6 +497,11 @@ def update(
                     raise ValueError("Hermes scheduling could not be paused")
                 paused = True
             acknowledgements = []
+            auto_settled = groups["auto_settled"]
+            private_write(
+                transaction / "task-settlement.json",
+                json.dumps({"autoSettled": auto_settled}, ensure_ascii=False, indent=2),
+            )
             for root in roots:
                 idle(ctx, cli, allow_settle=True)
                 cli.stop_daemon(root, env)
@@ -633,6 +652,7 @@ def update(
             "backup": str(transaction),
             "notes": notes,
             "acknowledged_tasks": acknowledgements,
+            "auto_settled": auto_settled,
         }
     except BaseException as error:
         for root in roots:

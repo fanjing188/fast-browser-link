@@ -17,6 +17,7 @@ description: 使用用户已登录的 Chrome 或 Edge 执行普通或无痕网�
    如需无痕任务，在 create 参数中增加 `"incognito": true`；须先在扩展详情允许无痕/InPrivate 访问。普通与无痕任务分开复用窗口；同一浏览器的多个无痕任务共享无痕会话。
 4. 保存返回的 `id`。用 `get '{"taskId":"id"}'` 确认 `state=ready`。未就绪时保留原任务，不重复创建。
 5. `run '{"taskId":"id","action":"new_tab","url":"https://example.com"}'` 创建工作页；保存返回的标签 ID。
+   可传 `waitFor:"idle"` 或 `waitFor:{"type":"selector"|"text","value":"..."}` 与 `timeoutMs`（1000–45000）；默认 `load`。等待超时返回 `ready:false`、`category:site`、`retryable:true`，导航已发生，不重复开页。
 6. `run '{"taskId":"id","tabId":123,"action":"semantic_snapshot"}'` 读取。使用新快照的 `binding`、`snapshotId`、`ref` 执行 `ref_click` / `ref_fill`。复杂参数通过 stdin 传入，将最后一个参数设为 `-`，避免 shell 插值。
    快照默认最多 20 条；`options.limit` 允许 1–200，`budget` 为估算预算（最少 512）。`options.query` 按可访问名称或文本查找，配 `role` 筛单一角色、`roles` 筛多个角色、`root` 缩小范围，例如 `"options":{"query":"创建","role":"button","limit":50,"budget":12000}`。响应有 `coverage.nextCursor` 时保持原 options 并加上 `cursor` 续读；`hidden`、`queryFiltered`、`omitted` 分别表示不可见、查询过滤、分页/预算截断。检查 `coverage.complete`。
 7. 完成后 `close '{"taskId":"id"}'`，只关闭自己的任务。
@@ -46,6 +47,7 @@ description: 使用用户已登录的 Chrome 或 Edge 执行普通或无痕网�
 - 上传只使用用户提供的路径：`run` 传 `action="files.upload"`、`tabId`、唯一可见文件输入框的 `selector`、`paths` 数组（绝对路径，最多 10 个、每个 100 MiB）。`selectedCount` 只表示文件已选择，还要读取页面确认上传结果。
 - 下载后调用 `downloads {"taskId":"..."}`；只有归属本任务且完成的条目，才能用 `download_claim {"taskId":"...","downloadId":"..."}` 领取并检查 `localPath` / `sha256`。取消使用 `download_cancel`。看不到归属或未完成，不猜测文件路径。
 - 默认 `close` 清理本次工作页。确实要交还页面给用户时，使用 `close {"taskId":"...","keepTabs":true,"handoffReason":"user_requested"}`，并核对 `cleanupState`。不要因遇阻就保留任务或重复创建。
+- 关闭回执与后续 `get` 的 `recordPaths` 提供任务 Markdown/JSON 记录路径；只含去掉 query 的 URL、动作名称/结果/分类/耗时及未知清单。脚本 `open_page(url, wait_for="idle", timeout_ms=15000)` 返回 tabId 与就绪信息。
 - 排查日志用 `get {"taskId":"...","includeLog":true,"logLimit":20}`。`recentLog` 按任务连续记录，页面面板只展示最近五步；日志不是完整网页正文。
 
 无痕 Cookie 镜像不在支持范围内；普通窗口镜像仍须单独确认。私有 Vault 仍属于可选 Hermes 适配器。

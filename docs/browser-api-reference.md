@@ -40,6 +40,12 @@ Open a work tab on an approved origin; returns the numeric tab id.
 
 扩展能力：`browser_core_v1`。
 
+### `open_page(url, *, wait_for='load', timeout_ms=15000)`
+
+中文注释：打开工作页并返回 tabId、ready 与等待结果。
+
+扩展能力：`browser_core_v1`。
+
 ### `use_tab(tab_id)`
 
 Select the current owned work tab; prefer explicit tab= for parallel work.
@@ -666,7 +672,7 @@ health/browsers 使用运行时已解析的 bridge_home；doctor/reference 跟�
 
 ```json
 {
-  "description": "同一页需要两步以上（填表、翻页、采集、点击后读结果）请用一次 fast_browser_script；打开或导航后先看回执摘要，不足再读取页面；同一页不要混用 browser_exec。需要用户处理时列出标签页；会话结束会保留待处理页。在任务的工作页执行一个动作。浏览器连接授权后，普通读取、导航、写入和 Python 工作流直接执行，不逐项确认；tabs 只返回任务标签。返回 user_input_required 时，等用户处理后用相同 request_id 和参数再查一次，不要改参重发；登录弹窗 popup_adopt 直接接管，无需确认，成功回执只交付一次，不重发接管。outcome_unknown 为真时不要重试，先读页面核实。详见技能 fast-browser-link:fast-browser-link。 点击第三方登录后查看 popupOpened 和 popupNextStep；smart/full（连接授权后的全部访问）模式下内置身份提供方授权页由本任务新打开时自动接管，直接 fast_browser_use_tab 到 popupOpened.tabId 并重读页面选账号。密码、验证码、2FA 用 manual_input 请用户亲自填写。弹窗关闭时 popupClosed.returnedTo 指向源页，返回后重读，不复用旧引用。白名单外及已发现的现有登录弹窗同样无需确认；popup_catalog 保留候选后用 popup_adopt 直接接管，再 use_tab 到返回的 tabId 并读取。用 fast_browser_get 核对 generation 与 adoptedPopupTabIds；成功回执只交付一次，不重发接管。不得另开登录网址替代原弹窗，不自动移动或关闭，不授予清理权；未知或变化的授权不能重放。 所有网站的结构读取显示真实邮箱，便于找联系人或选账号；卡号、密钥、Bearer 和密码保护不变。 semantic_snapshot 不接受 sections/maxScan/schema；需要 regions/blocks/forms/collections 等分区时用 page.parse。 页面执行：连接授权后 js.evaluate / cdp.send / cdp.events 直接执行，不逐项确认。发生过凭据填写的页面不能运行任意 JS/CDP。原始脚本结果不做字段级脱敏。 read_page/page_text 返回 dict：读 page[\"items\"] / page[\"elements\"]，不能切片 dict；wait_for timeout 上限 60 秒。 evaluate 和 js.evaluate 的 expression 必须是函数，例如 ()=>document.title；不可传 document.title。JS 用 evaluate(\"(selector)=>document.querySelector(selector)?.textContent\", \"#result\") 传值；isolated 共享 DOM，不共享网站 JS 全局变量，main 需明确理由且不自动切换。 上传：files.upload 传 selector 与 paths（用户在对话中给出的本地文件路径，可用 ~）。",
+  "description": "同一页需要两步以上（填表、翻页、采集、点击后读结果）请用一次 fast_browser_script；打开或导航后先看回执摘要，不足再读取页面；同一页不要混用 browser_exec。需要用户处理时列出标签页；会话结束会保留待处理页。在任务的工作页执行一个动作。浏览器连接授权后，普通读取、导航、写入和 Python 工作流直接执行，不逐项确认；tabs 只返回任务标签。返回 user_input_required 时，等用户处理后用相同 request_id 和参数再查一次，不要改参重发；登录弹窗 popup_adopt 直接接管，无需确认，成功回执只交付一次，不重发接管。outcome_unknown 为真时不要重试，先读页面核实。详见技能 fast-browser-link:fast-browser-link。 点击第三方登录后查看 popupOpened 和 popupNextStep；smart/full（连接授权后的全部访问）模式下内置身份提供方授权页由本任务新打开时自动接管，直接 fast_browser_use_tab 到 popupOpened.tabId 并重读页面选账号。密码、验证码、2FA 用 manual_input 请用户亲自填写。弹窗关闭时 popupClosed.returnedTo 指向源页，返回后重读，不复用旧引用。白名单外及已发现的现有登录弹窗同样无需确认；popup_catalog 保留候选后用 popup_adopt 直接接管，再 use_tab 到返回的 tabId 并读取。用 fast_browser_get 核对 generation 与 adoptedPopupTabIds；成功回执只交付一次，不重发接管。不得另开登录网址替代原弹窗，不自动移动或关闭，不授予清理权；未知或变化的授权不能重放。 所有网站的结构读取显示真实邮箱，便于找联系人或选账号；卡号、密钥、Bearer 和密码保护不变。 semantic_snapshot 不接受 sections/maxScan/schema；需要 regions/blocks/forms/collections 等分区时用 page.parse。 页面执行：连接授权后 js.evaluate / cdp.send / cdp.events 直接执行，不逐项确认。发生过凭据填写的页面不能运行任意 JS/CDP。原始脚本结果不做字段级脱敏。 read_page/page_text 返回 dict：读 page[\"items\"] / page[\"elements\"]，不能切片 dict；wait_for timeout 上限 60 秒。 evaluate 和 js.evaluate 的 expression 必须是函数，例如 ()=>document.title；不可传 document.title。JS 用 evaluate(\"(selector)=>document.querySelector(selector)?.textContent\", \"#result\") 传值；isolated 共享 DOM，不共享网站 JS 全局变量，main 需明确理由且不自动切换。 上传：files.upload 传 selector 与 paths（用户在对话中给出的本地文件路径，可用 ~）。 new_tab/navigate 可用 wait_for=load|idle|{type:selector|text,value:...} 与 timeout_ms=1000..45000 等待页面就绪；等待超时返回 ready=false，导航已发生。",
   "parameters": {
     "type": "object",
     "properties": {
@@ -743,6 +749,39 @@ health/browsers 使用运行时已解析的 bridge_home；doctor/reference 跟�
         "type": "string",
         "minLength": 1,
         "maxLength": 4096
+      },
+      "wait_for": {
+        "oneOf": [
+          {
+            "type": "string",
+            "enum": [
+              "load",
+              "idle"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "selector",
+                  "text"
+                ]
+              },
+              "value": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500
+              }
+            },
+            "required": [
+              "type",
+              "value"
+            ],
+            "additionalProperties": false
+          }
+        ]
       },
       "selector": {
         "type": "string",
@@ -1316,7 +1355,7 @@ health/browsers 使用运行时已解析的 bridge_home；doctor/reference 跟�
 
 ```json
 {
-  "description": "读取当前可信会话拥有的任务。 任务就绪时把本会话绑定到它（同一会话只绑定一个任务），供脚本与官方 browser_* 工具使用；结果见 sessionBinding。 接管暂停时设置 until=resumed 等待，默认最多 600 秒；恢复后先重新读页面。排查时设置 include_log=true、log_limit=N 获取最近步骤。",
+  "description": "读取当前可信会话拥有的任务。 任务就绪时把本会话绑定到它（同一会话只绑定一个任务），供脚本与官方 browser_* 工具使用；结果见 sessionBinding。 接管暂停时设置 until=resumed 等待，默认最多 600 秒；恢复后先重新读页面。排查时设置 include_log=true、log_limit=N 获取最近步骤；任务关闭后 recordPaths 给出 Markdown/JSON 记录路径。",
   "parameters": {
     "type": "object",
     "properties": {

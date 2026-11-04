@@ -219,18 +219,32 @@ class ProtocolError(Exception):
         if "category" not in self.data:
             usage = ("invalid_", "missing_", "stale_", "binding_", "reference_", "parse_cursor_")
             plugin = (
-                "internal_", "bridge_", "extension_", "execution_denied",
-                "instance_unavailable", "workspace_unknown", "runtime_",
+                "internal_",
+                "bridge_",
+                "extension_",
+                "execution_denied",
+                "instance_unavailable",
+                "workspace_unknown",
+                "runtime_",
             )
-            category = "usage" if code.startswith(usage) else "plugin" if code.startswith(plugin) else "site"
+            category = (
+                "usage"
+                if code.startswith(usage)
+                else "plugin"
+                if code.startswith(plugin)
+                else "site"
+            )
             self.data["category"] = category
         self.data.setdefault("retryable", False)
         self.data.setdefault("outcomeUnknown", False)
-        self.data.setdefault("hint", {
-            "usage": "请修正参数或重新读取引用后重试",
-            "site": "请检查浏览器页面和任务状态",
-            "plugin": "请查看插件诊断并报告错误码",
-        }[self.data["category"]])
+        self.data.setdefault(
+            "hint",
+            {
+                "usage": "请修正参数或重新读取引用后重试",
+                "site": "请检查浏览器页面和任务状态",
+                "plugin": "请查看插件诊断并报告错误码",
+            }[self.data["category"]],
+        )
 
 
 def _execution_failure(error, stage):
@@ -1044,8 +1058,8 @@ class BridgeDaemon:
             and isinstance(target_summary.get("role"), str)
             and isinstance(target_summary.get("name"), str)
         ):
-            role = target_summary["role"][:32]
-            name = target_summary["name"][:48]
+            role = " ".join(target_summary["role"].split())[:32]
+            name = " ".join(target_summary["name"].split())[:48]
             target = "敏感字段" if name == "敏感字段" else f"{role} · {name or '名称未提供'}"
         # 中文注释：错误码与结果状态分别保存；未知结果不能丢失原因，也不能保存任意异常正文。
         error_code = operation.get("errorCode")
@@ -1068,6 +1082,10 @@ class BridgeDaemon:
             if operation["state"] != "failed"
             else error_code or "error",
         }
+        if operation.get("url"):
+            row["url"] = operation["url"]
+        if operation.get("category"):
+            row["category"] = operation["category"]
         if operation["state"] in {"failed", "unknown"} and error_code:
             row["errorCode"] = error_code
         encoded = (json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n").encode(
@@ -1120,6 +1138,47 @@ class BridgeDaemon:
         except FileNotFoundError:
             return []
         return [json.loads(line) for line in lines[-limit:]]
+
+    def _write_task_report(self, task):
+        # 中文注释：只从已脱敏动作日志汇总，不读取输入值、页面正文或截图。
+        with self.task_log_lock:
+            if self.task_log_dir.is_symlink():
+                raise ProtocolError("invalid_state", "task log directory is a symlink")
+            source = self._task_log_path(task["id"])
+            rows = (
+                [json.loads(line) for line in _read_private_regular(source).splitlines()]
+                if source.exists()
+                else []
+            )
+        urls = list(dict.fromkeys(row["url"] for row in rows if isinstance(row.get("url"), str)))
+        unknown = [row for row in rows if row.get("result") == "unknown"]
+        report = {
+            "taskId": task["id"],
+            "state": task["state"],
+            "urls": urls,
+            "actions": rows,
+            "unknown": unknown,
+        }
+        stem = self.task_log_dir / _sha256(task["id"])
+        lines = [f"# 任务记录 {task['id']}", "", "## 打开过的 URL", ""]
+        lines += [f"- {url}" for url in urls] or ["- 无"]
+        lines += ["", "## 动作", ""]
+        lines += [
+            f"- {row['time']} · {row['action']} · {row['target']} · {row['result']} · {row.get('category', 'plugin')} · {row.get('durationMs', 0)} ms"
+            for row in rows
+        ] or ["- 无"]
+        lines += ["", "## 结果未知", ""]
+        lines += [
+            f"- {row['time']} · {row['action']} · {row.get('errorCode', 'operation_outcome_unknown')}"
+            for row in unknown
+        ] or ["- 无"]
+        self.task_log_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        _atomic_write_private(
+            stem.with_suffix(".json"),
+            (json.dumps(report, ensure_ascii=False, indent=2) + "\n").encode(),
+        )
+        _atomic_write_private(stem.with_suffix(".md"), ("\n".join(lines) + "\n").encode())
+        return {"markdown": str(stem.with_suffix(".md")), "json": str(stem.with_suffix(".json"))}
 
     def _diagnostic_writer(self):
         if JsonlDiagnosticSink is None:
@@ -2555,6 +2614,9 @@ class BridgeDaemon:
                     "unknown" if unknown else "failed",
                     duration_ms,
                     self._diagnostic_error_code(exc),
+                    category=getattr(exc, "data", {}).get("category")
+                    if isinstance(getattr(exc, "data", None), dict)
+                    else None,
                 )
             raise
         finally:
@@ -2589,7 +2651,12 @@ class BridgeDaemon:
         )
         self._record_task_request_diagnostic(params, status, duration_ms, result_code)
         self._finish_ui_operation(
-            params, status, duration_ms, result_code, target_summary=target_summary
+            params,
+            status,
+            duration_ms,
+            result_code,
+            target_summary=target_summary,
+            result=result,
         )
         if (
             params.get("action") == "page.parse"
@@ -2617,7 +2684,9 @@ class BridgeDaemon:
             else result
         )
 
-    def _finish_ui_operation(self, params, status, duration, code=None, target_summary=None):
+    def _finish_ui_operation(
+        self, params, status, duration, code=None, target_summary=None, result=None, category=None
+    ):
         """中文注释：仅更新已派发且身份一致的操作，重复查询不追加假步骤。"""
         if not isinstance(params, dict) or not isinstance(params.get("requestId"), str):
             return
@@ -2634,6 +2703,35 @@ class BridgeDaemon:
             ):
                 return
             operation.update(state=status, durationMs=round(duration), completedAt=time.time())
+            if (
+                params.get("action") in SITE_NAV_ACTIONS
+                and status == "succeeded"
+                and isinstance(result, dict)
+            ):
+                from urllib.parse import urlsplit, urlunsplit
+
+                url = result.get("url") or params.get("url")
+                if isinstance(url, str):
+                    parsed = urlsplit(url)
+                    if (
+                        parsed.scheme in {"http", "https"}
+                        and parsed.hostname
+                        and not parsed.username
+                        and not parsed.password
+                    ):
+                        operation["url"] = urlunsplit(
+                            (parsed.scheme, parsed.netloc, parsed.path, "", "")
+                        )
+            operation["category"] = (
+                category
+                if category in {"site", "plugin", "usage"}
+                else result.get("category")
+                if isinstance(result, dict)
+                and result.get("category") in {"site", "plugin", "usage"}
+                else "site"
+                if status in {"failed", "unknown"}
+                else "plugin"
+            )
             if code:
                 operation["errorCode"] = code
             task["operationTimeline"] = (task.get("operationTimeline", []) + [dict(operation)])[
@@ -2646,7 +2744,7 @@ class BridgeDaemon:
         # 中文注释：日志文件 IO 不持全局状态锁，避免一个动作收尾阻塞其他任务和客户端。
         try:
             self._append_task_log(*log_entry)
-        except (OSError, ValueError, ProtocolError):
+        except (OSError, ValueError, RuntimeError, ProtocolError):
             # 中文注释：日志写入失败不能把已派发动作改报失败或触发重放。
             pass
         if instance_id:
@@ -2725,11 +2823,17 @@ class BridgeDaemon:
                 raise ProtocolError(
                     "approval_pending",
                     "请在浏览器扩展里批准该任务",
-                    {"outcomeUnknown": False, "retryable": True, "category": "site", "hint": "请在浏览器扩展里批准该任务"},
+                    {
+                        "outcomeUnknown": False,
+                        "retryable": True,
+                        "category": "site",
+                        "hint": "请在浏览器扩展里批准该任务",
+                    },
                 )
             if task["state"] == "authorizing":
                 raise ProtocolError(
-                    "task_preparing", "浏览器正在安装任务授权；请等待 ready 后再调用",
+                    "task_preparing",
+                    "浏览器正在安装任务授权；请等待 ready 后再调用",
                     {"outcomeUnknown": False, "retryable": True},
                 )
             cached = self.dedupe[task_id].get(request_hash)
@@ -3028,11 +3132,17 @@ class BridgeDaemon:
                     raise ProtocolError(
                         "approval_pending",
                         "请在浏览器扩展里批准该任务",
-                        {"outcomeUnknown": False, "retryable": True, "category": "site", "hint": "请在浏览器扩展里批准该任务"},
+                        {
+                            "outcomeUnknown": False,
+                            "retryable": True,
+                            "category": "site",
+                            "hint": "请在浏览器扩展里批准该任务",
+                        },
                     )
                 if task["state"] == "authorizing":
                     raise ProtocolError(
-                        "task_preparing", "浏览器正在安装任务授权；请等待 ready 后再调用",
+                        "task_preparing",
+                        "浏览器正在安装任务授权；请等待 ready 后再调用",
                         {"outcomeUnknown": False, "retryable": True},
                     )
                 if task["state"] not in {"ready", "running"}:
@@ -3301,7 +3411,11 @@ class BridgeDaemon:
                                     "ref_set_checked",
                                     "ref_select_option",
                                 }
-                                else 15.0
+                                else (
+                                    max(15.0, params.get("timeoutMs", 15000) / 1000 + 10.0)
+                                    if action in {"new_tab", "navigate"}
+                                    else 15.0
+                                )
                             )
                             if wait_deadline is not None:
                                 # 中文注释：只给回执传播留一秒；浏览器内的绝对截止不延长。
@@ -4179,7 +4293,12 @@ class BridgeDaemon:
                 self._ungroup_terminal_tasks, task["instanceId"], extension, task["id"]
             )
         self._notify_tasks_changed(task["instanceId"])
-        return self._public_task(task)
+        result = self._public_task(task)
+        try:
+            result["recordPaths"] = self._write_task_report(task)
+        except (OSError, ValueError, RuntimeError, ProtocolError):
+            pass
+        return result
 
     @staticmethod
     def _cleanup_error_code(exc: Exception) -> str:
@@ -4598,6 +4717,8 @@ class BridgeDaemon:
             "dialog": {"tabId", "accept"},
         }[action]
         optional = {
+            "new_tab": {"waitFor", "timeoutMs"},
+            "navigate": {"waitFor", "timeoutMs"},
             "click": {"clickMode"},
             "ref_click": {"clickMode", "noAutoRecovery", "documentEpoch"},
             "ref_fill": {"frameToken", "noAutoRecovery", "documentEpoch"},
@@ -4654,6 +4775,25 @@ class BridgeDaemon:
                 raise ProtocolError("invalid_params", "invalid action observation")
         if set(params) - common - required - optional or required - set(params):
             raise ProtocolError("invalid_params", "invalid action arguments")
+        if action in {"new_tab", "navigate"}:
+            wait_for = params.get("waitFor", "load")
+            if isinstance(wait_for, str):
+                valid_wait = wait_for in {"load", "idle"}
+            else:
+                valid_wait = (
+                    isinstance(wait_for, dict)
+                    and set(wait_for) == {"type", "value"}
+                    and wait_for.get("type") in {"selector", "text"}
+                    and isinstance(wait_for.get("value"), str)
+                    and 0 < len(wait_for["value"]) <= 500
+                )
+            if not valid_wait or (
+                "timeoutMs" in params
+                and (
+                    type(params["timeoutMs"]) is not int or not 1000 <= params["timeoutMs"] <= 45000
+                )
+            ):
+                raise ProtocolError("invalid_params", "invalid navigation wait")
         if "clickMode" in params:
             modes = (
                 {"open_link_in_task_tab"}
@@ -5313,6 +5453,13 @@ class BridgeDaemon:
                 "approvalRequestedAt",
             }
         }
+        if task.get("state") in {"closed", "cancelled"}:
+            stem = self.task_log_dir / _sha256(task["id"])
+            if stem.with_suffix(".json").is_file() and stem.with_suffix(".md").is_file():
+                result["recordPaths"] = {
+                    "markdown": str(stem.with_suffix(".md")),
+                    "json": str(stem.with_suffix(".json")),
+                }
         # 中文注释：只公开审批状态和请求时间，不公开审批凭据或内部范围令牌。
         approval_state = task.get("approvalStatus") or (
             "pending" if task.get("state") == "pending_approval" else "approved"

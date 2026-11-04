@@ -656,6 +656,13 @@ class HostBridge:
                 ):
                     value = selected.new_tab(args[0])
                 elif (
+                    op == "open_page"
+                    and isinstance(args, list)
+                    and len(args) == 3
+                    and isinstance(args[0], str)
+                ):
+                    value = selected.open_page(args[0], wait_for=args[1], timeout_ms=args[2])
+                elif (
                     op == "goto_url"
                     and isinstance(args, list)
                     and len(args) == 2

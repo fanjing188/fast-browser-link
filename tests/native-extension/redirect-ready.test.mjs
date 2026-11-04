@@ -5,6 +5,37 @@ import { Executor } from '../../native-extension/core.mjs';
 import { readyState as officialReadyState } from '../../native-extension/official-actions.mjs';
 import { Bridge } from '../../native-extension/bridge.mjs';
 
+test('navigation wait timeout keeps the completed navigation receipt', async () => {
+  const api = {
+    tabs: { get: async () => ({ url: 'https://example.com/page' }) },
+    debugger: {
+      attach: async () => {},
+      sendCommand: async (_target, method) =>
+        method === 'Page.createIsolatedWorld'
+          ? { executionContextId: 1 }
+          : {
+              result: {
+                value: { ready: 'complete', matched: false, signature: '1:1', quiet: true },
+              },
+            },
+    },
+  };
+  const executor = new Executor(api);
+  executor.checkedFrameTree = async () => ({ frame: { id: 'main' } });
+  const task = { allowedOrigins: ['https://example.com'] };
+  const receipt = { tabId: 7, url: 'https://example.com/page', ready: 'interactive' };
+  const result = await executor.waitForNavigation(
+    task,
+    { waitFor: { type: 'text', value: 'Ready' }, timeoutMs: 1 },
+    () => {},
+    receipt,
+  );
+  assert.equal(result.tabId, 7);
+  assert.equal(result.ready, false);
+  assert.equal(result.category, 'site');
+  assert.equal(result.retryable, true);
+});
+
 function navigation(start, finish, state = 'complete') {
   let url = start,
     reads = 0;
@@ -202,6 +233,8 @@ test('bridge reports only final origin and definite redirected rejection', async
   assert.deepEqual(result.error.data, {
     outcomeUnknown: false,
     retryable: false,
+    category: 'site',
+    hint: '请检查页面和任务状态',
     finalOrigin: 'https://other.test',
   });
   assert.ok(!JSON.stringify(result).includes('secret/path'));

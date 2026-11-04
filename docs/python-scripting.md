@@ -30,6 +30,7 @@ The script uses the task's only work tab automatically. If the task has several 
 | Helper | Description |
 |---|---|
 | `new_tab(url)`, `goto_url(url)` | Open or navigate a work tab, including across sites in the same task |
+| `open_page(url, wait_for="idle", timeout_ms=15000)` | Open a work tab and return its tabId and readiness receipt |
 | `wait_for_load(timeout=15, until='interactive')` | Poll `document.readyState` until the DOM is readable (`interactive`, default) or `complete` (`until='complete'`); tolerates the transient errors of a slow page being replaced. Not proof that dynamic content has appeared. |
 | `wait_for(selector, state='present', timeout=10)` | Wait for a specific element or state on a dynamic page; prefer this when the target is known. |
 | `read_page(query='', root=None, mode='content', budget=3000, cursor=None)` | Read a region as text (`content`), tables (`table`) or controls (`interactive`), with coverage and paging info; pass `nextCursor` after scrolling a virtual list |

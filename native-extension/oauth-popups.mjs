@@ -454,12 +454,63 @@ export class PopupPolicy {
       this.executor.attached.add(tabId);
       guard();
     }
-    const row = { task: t, token: crypto.randomUUID(), scripts: [], blocked: null, epoch: 0 };
+    const row = {
+      task: t,
+      token: crypto.randomUUID(),
+      scripts: [],
+      sessions: new Map(),
+      contexts: new Map(),
+      blocked: null,
+      epoch: 0,
+    };
     row.binding = '__fblPopupBlocked_' + crypto.randomUUID().replaceAll('-', '');
     row.listener = (source, event, params) => {
+      if (source.tabId !== tabId) return;
+      const sessionId = source.sessionId || null;
       if (
-        source.tabId !== tabId ||
-        source.sessionId ||
+        event === 'Target.attachedToTarget' &&
+        params?.targetInfo?.type === 'iframe' &&
+        params.sessionId
+      ) {
+        const child = { sessionId: params.sessionId, ready: false, scripts: [] };
+        row.sessions.set(params.sessionId, child);
+        child.installing = this.installSession(row, tabId, child).catch(() => {
+          child.failed = true;
+        });
+        return;
+      }
+      if (event === 'Target.detachedFromTarget' && params?.sessionId) {
+        row.sessions.delete(params.sessionId);
+        for (const [id, context] of row.contexts)
+          if (context.sessionId === params.sessionId) row.contexts.delete(id);
+        return;
+      }
+      if (event === 'Runtime.executionContextCreated' && params?.context?.auxData?.isDefault) {
+        row.contexts.set(`${sessionId || ''}:${params.context.id}`, {
+          sessionId,
+          id: params.context.id,
+          frameId: params.context.auxData.frameId,
+        });
+        return;
+      }
+      if (event === 'Runtime.executionContextDestroyed') {
+        row.contexts.delete(`${sessionId || ''}:${params.executionContextId}`);
+        return;
+      }
+      if (event === 'Runtime.executionContextsCleared') {
+        for (const [id, context] of row.contexts)
+          if (context.sessionId === sessionId) row.contexts.delete(id);
+        return;
+      }
+      if (
+        event === 'Page.windowOpen' &&
+        (row.sessions.get(sessionId)?.failed ||
+          [...row.sessions.values()].some((child) => child.failed))
+      ) {
+        this.pauseFrame(row, tabId, 'unsupported_frames');
+        return;
+      }
+      if (
         event !== 'Runtime.bindingCalled' ||
         params.name !== row.binding ||
         typeof params.payload !== 'string' ||
@@ -496,6 +547,14 @@ export class PopupPolicy {
       guard();
       await this.script(row, tabId);
       guard();
+      await this.executor.api.debugger.sendCommand({ tabId }, 'Runtime.enable', {});
+      await this.executor.api.debugger.sendCommand({ tabId }, 'Target.setAutoAttach', {
+        autoAttach: true,
+        waitForDebuggerOnStart: true,
+        flatten: true,
+        filter: [{ type: 'iframe', exclude: false }],
+      });
+      guard();
     } catch (e) {
       row.blocked = 'installation_failed';
       throw e;
@@ -511,6 +570,49 @@ export class PopupPolicy {
     );
     if (typeof added?.identifier !== 'string') throw policyFail('POPUP_POLICY_UNAVAILABLE');
     row.scripts.push(added.identifier);
+  }
+  async installSession(row, tabId, child) {
+    const target = { tabId, sessionId: child.sessionId };
+    try {
+      await this.executor.api.debugger.sendCommand(target, 'Page.enable', {});
+      await this.executor.api.debugger.sendCommand(target, 'Runtime.addBinding', {
+        name: row.binding,
+      });
+      const source = `(${installPopupGuard.toString()})(${JSON.stringify(row.token)},${JSON.stringify(this.mode(row.task))},${JSON.stringify({ binding: row.binding, epoch: row.epoch })})`;
+      const added = await this.executor.api.debugger.sendCommand(
+        target,
+        'Page.addScriptToEvaluateOnNewDocument',
+        { source, runImmediately: true },
+      );
+      if (typeof added?.identifier !== 'string') throw policyFail('POPUP_POLICY_UNAVAILABLE');
+      child.scripts.push(added.identifier);
+      await this.executor.api.debugger.sendCommand(target, 'Runtime.enable', {});
+      await this.executor.api.debugger.sendCommand(target, 'Target.setAutoAttach', {
+        autoAttach: true,
+        waitForDebuggerOnStart: true,
+        flatten: true,
+        filter: [{ type: 'iframe', exclude: false }],
+      });
+      child.ready = true;
+    } finally {
+      await this.executor.api.debugger
+        .sendCommand(target, 'Runtime.runIfWaitingForDebugger', {})
+        .catch(() => {});
+    }
+  }
+  pauseFrame(row, tabId, reason) {
+    if (
+      row.noticed ||
+      this.rows.get(tabId) !== row ||
+      row.task.revoked ||
+      this.executor.leases.get(tabId) !== row.task.id
+    )
+      return;
+    row.noticed = true;
+    row.blocked = reason;
+    row.pendingNotice = this.notify(row.task, tabId, 'pause', reason).catch(() => {
+      row.blocked = 'state_unconfirmed';
+    });
   }
   async control(t, tabId, op, value) {
     const row = this.rows.get(tabId);
@@ -536,6 +638,27 @@ export class PopupPolicy {
     if (r.exceptionDetails || r.result?.value?.version !== 1)
       throw policyFail('POPUP_POLICY_UNPROTECTED');
     return r.result.value;
+  }
+  async frameControl(row, tabId, context, op, value) {
+    const target = { tabId, ...(context.sessionId ? { sessionId: context.sessionId } : {}) };
+    const r = await this.executor.api.debugger.sendCommand(target, 'Runtime.evaluate', {
+      contextId: context.id,
+      expression: `(function(secret,op,value){const c=window.open.__fblPopupGuard===true?window.open(secret):null;return typeof c==='function'?c(op,value):null})(${JSON.stringify(row.token)},${JSON.stringify(op)},${JSON.stringify(value ?? null)})`,
+      returnByValue: true,
+      timeout: 1000,
+    });
+    if (r.exceptionDetails || r.result?.value?.version !== 1)
+      throw policyFail('POPUP_POLICY_UNPROTECTED');
+    return r.result.value;
+  }
+  frameContexts(row, tree) {
+    const rootId = tree?.frameTree?.frame?.id;
+    return [...(row.contexts?.values() || [])].filter(
+      (context) =>
+        context.frameId &&
+        context.frameId !== rootId &&
+        (!context.sessionId || row.sessions?.get(context.sessionId)?.ready),
+    );
   }
   async guardWorld(t, p, target, frame, contextId, guard) {
     if (!this.enabled(t) || this.mode(t) === 'compatible' || !contextId) return;
@@ -583,6 +706,14 @@ export class PopupPolicy {
     if (tree.frameTree?.frame?.loaderId === lease.loader) {
       for (const context of lease.worlds) {
         const s = await this.worldControl(t, lease.tabId, context, 'finish', lease.nonce);
+        status.requests.push(...s.requests);
+        if (s.paused) {
+          status.paused = true;
+          status.reason = s.reason;
+        }
+      }
+      for (const context of lease.frameContexts || []) {
+        const s = await this.frameControl(lease.row, lease.tabId, context, 'finish', lease.nonce);
         status.requests.push(...s.requests);
         if (s.paused) {
           status.paused = true;
@@ -656,17 +787,23 @@ export class PopupPolicy {
       {},
     );
     guard();
-    // 中文注释：第一批只覆盖无子框架的顶层新文档，不对未知 OOPIF/旧页面放行写入。
-    if (tree.frameTree?.childFrames?.length) {
-      await this.notify(t, p.tabId, 'pause', 'unsupported_frames');
-      throw policyFail('POPUP_POLICY_UNPROTECTED');
-    }
+    await Promise.all([...(row.sessions?.values() || [])].map((session) => session.installing));
+    guard();
     if (row.loader !== tree.frameTree?.frame?.loaderId) {
       row.worlds?.clear();
       row.loader = tree.frameTree?.frame?.loaderId;
     }
     for (const context of row.worlds?.keys() || []) {
       const s = await this.worldControl(t, p.tabId, context, 'status');
+      guard();
+      if (s.paused) {
+        await this.notify(t, p.tabId, 'pause', s.reason);
+        throw policyFail('POPUP_POLICY_PAUSED');
+      }
+    }
+    const frameContexts = this.frameContexts(row, tree);
+    for (const context of frameContexts) {
+      const s = await this.frameControl(row, p.tabId, context, 'status');
       guard();
       if (s.paused) {
         await this.notify(t, p.tabId, 'pause', s.reason);
@@ -686,7 +823,19 @@ export class PopupPolicy {
     const armed = await this.control(t, p.tabId, 'arm', nonce);
     guard();
     if (armed.paused) throw policyFail('POPUP_POLICY_PAUSED');
-    const lease = { row, nonce, tabId: p.tabId, loader: row.loader, worlds: new Set() };
+    for (const context of frameContexts) {
+      const s = await this.frameControl(row, p.tabId, context, 'arm', nonce);
+      guard();
+      if (s.paused) throw policyFail('POPUP_POLICY_PAUSED');
+    }
+    const lease = {
+      row,
+      nonce,
+      tabId: p.tabId,
+      loader: row.loader,
+      worlds: new Set(),
+      frameContexts,
+    };
     row.lease = lease;
     (t.popupPolicyActive ??= new Set()).add(lease);
     return lease;
@@ -698,9 +847,13 @@ export class PopupPolicy {
     try {
       if (this.executor.observers?.pending(t, tabId)) throw Error('native dialog');
       state = await this.control(t, tabId, 'status');
+      const row = this.rows.get(tabId);
+      await Promise.all([...(row?.sessions?.values() || [])].map((child) => child.installing));
       const tree = await this.executor.api.debugger.sendCommand({ tabId }, 'Page.getFrameTree', {});
-      if (tree.frameTree?.childFrames?.length)
-        state = { ...state, paused: true, reason: 'unsupported_frames' };
+      for (const context of this.frameContexts(row, tree)) {
+        const local = await this.frameControl(row, tabId, context, 'status');
+        if (local.paused) state = { ...state, paused: true, reason: local.reason };
+      }
       if (state.mode !== this.mode(t))
         state = { ...state, paused: true, reason: 'mode_unconfirmed' };
     } catch {
@@ -741,6 +894,14 @@ export class PopupPolicy {
       if (!Array.isArray(status.requests) || status.requests.length > 8)
         throw policyFail('POPUP_POLICY_OUTCOME_UNKNOWN', false);
       const opened = [];
+      if (
+        Array.isArray(t.allowedOrigins) &&
+        status.requests.some((request) => !t.allowedOrigins.includes(site(request.url)))
+      ) {
+        status.paused = true;
+        status.reason = 'cross_origin_requires_confirmation';
+        status.requests = [];
+      }
       // 显式后台链接也可能返回启动暂停；不能被源页的健康状态覆盖。
       if (result?.popupPolicy?.paused === true) {
         status.paused = true;
@@ -852,8 +1013,7 @@ export class PopupPolicy {
     }
   }
   async status(t, tabId) {
-    let status = null,
-      frames = false;
+    let status = null;
     if (this.executor.observers?.pending(t, tabId))
       return {
         supported: this.enabled(t),
@@ -861,7 +1021,7 @@ export class PopupPolicy {
         protected: false,
         paused: true,
         reason: 'native_dialog_open',
-        coverage: 'fresh_top_level_without_frames',
+        coverage: 'fresh_documents_including_frames',
       };
     if (this.enabled(t) && this.mode(t) !== 'compatible')
       try {
@@ -871,7 +1031,14 @@ export class PopupPolicy {
           'Page.getFrameTree',
           {},
         );
-        frames = !!tree.frameTree?.childFrames?.length;
+        const row = this.rows.get(tabId);
+        for (const context of this.frameContexts(row, tree)) {
+          const local = await this.frameControl(row, tabId, context, 'status');
+          if (local.paused) {
+            status.paused = true;
+            status.reason = local.reason;
+          }
+        }
         if (tree.frameTree?.frame?.loaderId === this.rows.get(tabId)?.loader) {
           for (const context of this.rows.get(tabId)?.worlds?.keys() || []) {
             const local = await this.worldControl(t, tabId, context, 'status');
@@ -885,19 +1052,20 @@ export class PopupPolicy {
     const row = this.rows.get(tabId),
       blocked =
         t.popupPolicyPaused ||
-        [...this.rows.values()].find((x) => x.task === t && x.blocked)?.blocked;
+        [...this.rows.values()].find((x) => x.task === t && x.blocked)?.blocked,
+      failedFrame = [...(row?.sessions?.values() || [])].some((child) => child.failed);
     return {
       supported: this.enabled(t),
       mode: this.mode(t),
-      protected: !!status && !frames,
+      protected: !!status && !failedFrame,
       paused: !!blocked || !!row?.blocked || status?.paused === true,
-      reason: frames
-        ? 'unsupported_frames'
-        : blocked ||
-          row?.blocked ||
-          status?.reason ||
-          (!status && this.mode(t) !== 'compatible' ? 'unprotected_document' : null),
-      coverage: 'fresh_top_level_without_frames',
+      reason:
+        blocked ||
+        row?.blocked ||
+        status?.reason ||
+        (failedFrame ? 'unsupported_frames' : null) ||
+        (!status && this.mode(t) !== 'compatible' ? 'unprotected_document' : null),
+      coverage: 'fresh_documents_including_frames',
     };
   }
   catalog(t, tabId) {
@@ -947,6 +1115,8 @@ export class PopupPolicy {
           if (tree.frameTree?.frame?.loaderId !== row.loader) row.worlds?.clear();
           for (const context of row.worlds?.keys() || [])
             await this.worldControl(t, tabId, context, 'mode', { mode, epoch: row.epoch });
+          for (const context of this.frameContexts(row, tree))
+            await this.frameControl(row, tabId, context, 'mode', { mode, epoch: row.epoch });
           const old = [...row.scripts];
           await this.script(row, tabId);
           for (const identifier of old) {
@@ -957,6 +1127,28 @@ export class PopupPolicy {
             );
             row.scripts.splice(row.scripts.indexOf(identifier), 1);
           }
+          for (const child of row.sessions?.values() || [])
+            if (child.ready) {
+              const target = { tabId, sessionId: child.sessionId };
+              const previous = [...child.scripts];
+              const source = `(${installPopupGuard.toString()})(${JSON.stringify(row.token)},${JSON.stringify(mode)},${JSON.stringify({ binding: row.binding, epoch: row.epoch })})`;
+              const added = await this.executor.api.debugger.sendCommand(
+                target,
+                'Page.addScriptToEvaluateOnNewDocument',
+                { source, runImmediately: true },
+              );
+              if (typeof added?.identifier !== 'string')
+                throw policyFail('POPUP_POLICY_UNAVAILABLE');
+              child.scripts.push(added.identifier);
+              for (const identifier of previous) {
+                await this.executor.api.debugger.sendCommand(
+                  target,
+                  'Page.removeScriptToEvaluateOnNewDocument',
+                  { identifier },
+                );
+                child.scripts.splice(child.scripts.indexOf(identifier), 1);
+              }
+            }
         }
       guard();
       await this.notify(
@@ -999,6 +1191,19 @@ export class PopupPolicy {
     if (restore && tree.frameTree?.frame?.loaderId === row.loader)
       for (const context of row.worlds?.keys() || [])
         await this.worldControl(t, tabId, context, 'release');
+    if (restore)
+      for (const context of this.frameContexts(row, tree))
+        await this.frameControl(row, tabId, context, 'release').catch(() => {});
+    for (const child of row.sessions?.values() || []) {
+      const target = { tabId, sessionId: child.sessionId };
+      for (const identifier of child.scripts)
+        await this.executor.api.debugger
+          .sendCommand(target, 'Page.removeScriptToEvaluateOnNewDocument', { identifier })
+          .catch(() => {});
+      await this.executor.api.debugger
+        .sendCommand(target, 'Runtime.removeBinding', { name: row.binding })
+        .catch(() => {});
+    }
     for (const identifier of row.scripts)
       await this.executor.api.debugger.sendCommand(
         { tabId },

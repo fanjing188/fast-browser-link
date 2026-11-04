@@ -77,7 +77,10 @@ const server = createServer((req, res) => {
     else if (req.url === '/child') {
       children++;
       res.end('<h1>Child</h1>');
-    } else res.end(html);
+    } else if (req.url === '/frame') res.end('<h1 id="frame-ready">Frame ready</h1>');
+    else if (req.url === '/framed')
+      res.end(`${html}<iframe src="/frame" title="fixture frame"></iframe>`);
+    else res.end(html);
   }
 });
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
@@ -183,6 +186,28 @@ try {
     await quiet();
     checks.push({ name, ok: true, evidence: value });
   };
+  await check('带同源 iframe 的页面可受管读取且策略不暂停', async () => {
+    const t = await task('/framed');
+    await waitFor(
+      () =>
+        t
+          .read(
+            'document.querySelector("iframe")?.contentDocument?.querySelector("#frame-ready")?.textContent',
+          )
+          .then((value) => value === 'Frame ready'),
+      10000,
+      { label: '同源框架已加载' },
+    );
+    assert.equal(
+      await t.read(
+        'document.querySelector("iframe")?.contentDocument?.querySelector("#frame-ready")?.textContent',
+      ),
+      'Frame ready',
+    );
+    const state = await script(t, 'print(json.dumps(popup_status()))');
+    assert.equal(state.paused, false, JSON.stringify(state));
+    return { frame: 'ready', paused: false };
+  });
   await check('首次站点脚本运行前已保护，同源 noopener 后台建页并接入双端租约', async () => {
     const t = await task();
     assert.equal(await t.read('window.initialGuard'), true);

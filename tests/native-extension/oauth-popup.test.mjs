@@ -1526,9 +1526,9 @@ test('无痕状态只读查询使用浏览器授权，异常和缺失能力都�
 
 // 中文注释：真实 MAIN bootstrap 合同；只替换浏览器原生边界，不模拟策略实现。
 import { installPopupGuard, PopupPolicy } from '../../native-extension/oauth-popups.mjs';
-function popupGuardFixture(mode = 'background') {
+function popupGuardFixture(mode = 'background', url = 'https://example.com/') {
   const dom = new JSDOM('<a target="_blank" href="/next">Link</a><form target="_blank"></form>', {
-    url: 'https://example.com/',
+    url,
     runScripts: 'outside-only',
   });
   const calls = [],
@@ -1619,7 +1619,7 @@ test('target links and forms are blocked, compatible mode preserves actual windo
     f.dom.window.close();
   }
 });
-test('popup policy rejects old documents and child frames before writes', async () => {
+test('popup policy rejects old documents before writes', async () => {
   const task = { id: 'one', generation: 1, popupPolicy: 'background' },
     executor = {
       leases: new Map([[1, 'one']]),
@@ -1631,10 +1631,155 @@ test('popup policy rejects old documents and child frames before writes', async 
   await assert.rejects(policy.before(task, p), /POPUP_POLICY_UNPROTECTED/);
   assert.equal(task.popupPolicyPaused, 'unprotected_document');
   await assert.rejects(policy.before(task, p), /POPUP_POLICY_PAUSED/);
-  // 独立验收新文档含框架的拒绝，不借第一次失败清除实际运行保护。
-  const fresh = { ...task, popupPolicyPaused: null };
-  policy.rows.set(1, { task: fresh, token: 't', scripts: [] });
-  await assert.rejects(policy.before(fresh, p), /POPUP_POLICY_UNPROTECTED/);
+});
+
+test('same-process and OOPIF frames allow managed evaluate until an actual unsafe popup', async () => {
+  for (const oopif of [false, true]) {
+    const main = popupGuardFixture(),
+      frame = popupGuardFixture(
+        'background',
+        oopif ? 'https://embed.example.test/' : 'https://example.com/',
+      );
+    const task = {
+      id: 'one',
+      generation: 1,
+      popupPolicy: 'background',
+      policy: { modeGeneration: 1 },
+      agentTabs: new Set([1]),
+    };
+    const listeners = new Set(),
+      calls = [],
+      notices = [];
+    const tree = {
+      frameTree: {
+        frame: { id: 'main', loaderId: 'doc' },
+        childFrames: oopif ? [] : [{ frame: { id: 'child', loaderId: 'child-doc' } }],
+      },
+    };
+    const executor = {
+      leases: new Map([[1, 'one']]),
+      attached: new Set(),
+      check() {},
+      onPopupPolicyState: async (notice) => {
+        notices.push(notice);
+        return { verified: true, generation: 1 };
+      },
+      api: {
+        debugger: {
+          onEvent: {
+            addListener: (fn) => listeners.add(fn),
+            removeListener: (fn) => listeners.delete(fn),
+          },
+          attach: async () => {},
+          sendCommand: async (target, method, params = {}) => {
+            calls.push([target, method, params]);
+            if (method === 'Page.addScriptToEvaluateOnNewDocument') return { identifier: 'script' };
+            if (method === 'Page.getFrameTree') return tree;
+            if (method === 'Runtime.evaluate') {
+              const window =
+                params.contextId === 2 || target.sessionId ? frame.dom.window : main.dom.window;
+              return { result: { value: window.eval(params.expression) } };
+            }
+            return {};
+          },
+        },
+      },
+    };
+    const policy = new PopupPolicy(executor);
+    try {
+      await policy.install(task, 1, () => {});
+      policy.rows.get(1).token = 'private-test-token';
+      const emit = (source, event, params) => {
+        for (const listener of listeners) listener(source, event, params);
+      };
+      if (oopif) {
+        emit({ tabId: 1 }, 'Target.attachedToTarget', {
+          sessionId: 'oopif',
+          targetInfo: { type: 'iframe' },
+        });
+        await policy.rows.get(1).sessions.get('oopif').installing;
+      }
+      emit(
+        { tabId: 1, ...(oopif ? { sessionId: 'oopif' } : {}) },
+        'Runtime.executionContextCreated',
+        {
+          context: { id: 2, auxData: { isDefault: true, frameId: 'child' } },
+        },
+      );
+      const p = { action: 'js.evaluate', tabId: 1, generation: 1, modeGeneration: 1 };
+      const first = await policy.before(task, p);
+      assert.equal(await policy.status(task, 1).then((s) => s.paused), false);
+      assert.equal((await policy.after(task, p, first, { value: 42 })).value, 42);
+      assert.equal(notices.length, 0);
+      const second = await policy.before(task, p);
+      frame.dom.window.open(
+        oopif ? 'https://login.example.test/' : '/next',
+        '_blank',
+        oopif ? 'noopener' : 'width=450',
+      );
+      await policy.after(task, p, second, { value: 42 });
+      const reason = oopif ? 'cross_origin_requires_confirmation' : 'window_relationship_required';
+      assert.equal(task.popupPolicyPaused, reason);
+      assert.equal(frame.calls.length, 0);
+      assert.equal(notices.at(-1).reason, reason);
+      assert.ok(calls.some(([, method]) => method === 'Target.setAutoAttach'));
+    } finally {
+      main.dom.window.close();
+      frame.dom.window.close();
+    }
+  }
+});
+
+test('failed OOPIF installation pauses on its windowOpen event, not on frame discovery', async () => {
+  const task = {
+    id: 'one',
+    generation: 1,
+    popupPolicy: 'background',
+    policy: { modeGeneration: 1 },
+  };
+  const notices = [],
+    listeners = new Set();
+  const executor = {
+    leases: new Map([[1, 'one']]),
+    attached: new Set(),
+    check() {},
+    onPopupPolicyState: async (notice) => {
+      notices.push(notice);
+      return { verified: true, generation: 1 };
+    },
+    api: {
+      debugger: {
+        onEvent: {
+          addListener: (fn) => listeners.add(fn),
+          removeListener: (fn) => listeners.delete(fn),
+        },
+        attach: async () => {},
+        sendCommand: async (target, method) => {
+          if (target.sessionId && method === 'Runtime.addBinding') throw Error('unsupported');
+          if (method === 'Page.addScriptToEvaluateOnNewDocument') return { identifier: 'script' };
+          if (method === 'Page.getFrameTree')
+            return { frameTree: { frame: { id: 'main', loaderId: 'doc' } } };
+          return {};
+        },
+      },
+    },
+  };
+  const policy = new PopupPolicy(executor);
+  await policy.install(task, 1, () => {});
+  for (const listener of listeners)
+    listener({ tabId: 1 }, 'Target.attachedToTarget', {
+      sessionId: 'failed',
+      targetInfo: { type: 'iframe' },
+    });
+  await policy.rows.get(1).sessions.get('failed').installing;
+  assert.equal(task.popupPolicyPaused, undefined);
+  for (const listener of listeners)
+    listener({ tabId: 1, sessionId: 'failed' }, 'Page.windowOpen', {
+      url: 'https://login.example.test/',
+    });
+  await policy.rows.get(1).pendingNotice;
+  assert.equal(task.popupPolicyPaused, 'unsupported_frames');
+  assert.equal(notices.length, 1);
 });
 
 test('isolated execution guard queues through native ownership callback; mode switch waits for active lease', async () => {

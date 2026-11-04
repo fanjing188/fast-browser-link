@@ -1804,7 +1804,7 @@ export class Executor {
      record.configured.add(params.sessionId);
      // 中文注释：跨进程子 frame 的再下一层需要对该子 session 继续自动附加。
      void this.api.debugger.sendCommand({tabId,sessionId:params.sessionId},'Target.setAutoAttach',{
-      autoAttach:true,waitForDebuggerOnStart:false,flatten:true,filter:[{type:'iframe',exclude:false}],
+      autoAttach:true,waitForDebuggerOnStart:this.popupPolicy.enabled(t)&&this.popupPolicy.mode(t)!=='compatible',flatten:true,filter:[{type:'iframe',exclude:false}],
      }).catch(()=>{record.configured.delete(params.sessionId);});
     }
    }
@@ -1813,7 +1813,7 @@ export class Executor {
   this.api.debugger.onEvent.addListener(record.listener);
   try{
    await this.api.debugger.sendCommand({tabId},'Target.setAutoAttach',{
-    autoAttach:true,waitForDebuggerOnStart:false,flatten:true,filter:[{type:'iframe',exclude:false}],
+    autoAttach:true,waitForDebuggerOnStart:this.popupPolicy.enabled(t)&&this.popupPolicy.mode(t)!=='compatible',flatten:true,filter:[{type:'iframe',exclude:false}],
    });guard();t.frameSessions.set(tabId,record);return record;
   }catch(error){this.api.debugger.onEvent.removeListener(record.listener);throw error;}
  }

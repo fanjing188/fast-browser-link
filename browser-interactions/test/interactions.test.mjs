@@ -23,42 +23,48 @@ test('coordinate click requires a live unobscured nonsensitive node and consumes
     { code: 'UNKNOWN_SCREENSHOT' },
   );
 });
-test('hidden tab coordinate click uses confirmed DOM event and pointer drag refuses before dispatch', async (t) => {
-  const { page } = await fixture(t);
-  // 中文注释：headless 的隔离世界可能仍报告 visible；固定适配器状态测试分支，真实有界面状态由页面链验收。
-  await page.evaluate(() => {
-    window.received = [];
-    target.addEventListener('click', (event) => window.received.push(event.isTrusted));
+for (const dropped of [false, true])
+  test(`hidden tab click ${dropped ? 'falls back only after absent input' : 'preserves confirmed trusted input'} and drag refuses before dispatch`, async (t) => {
+    const { page } = await fixture(t);
+    // 中文注释：headless 的隔离世界可能仍报告 visible；固定适配器状态测试分支，真实有界面状态由页面链验收。
+    await page.evaluate(() => {
+      window.received = [];
+      target.addEventListener('click', (event) => window.received.push(event.isTrusted));
+    });
+    const adapter = await mod.createPlaywrightAdapter(page),
+      evaluate = adapter.evaluate.bind(adapter);
+    adapter.evaluate = async (op, arg) => {
+      const result = await evaluate(op, arg);
+      return op === 'state' ? { ...result, visibility: 'hidden' } : result;
+    };
+    // 中文注释：可确认的可信输入不因隐藏状态改成合成输入；仅明确未送达时允许一次回退。
+    const send = adapter.send.bind(adapter);
+    if (dropped)
+      adapter.send = (method, params) =>
+        method === 'Input.dispatchMouseEvent' ? Promise.resolve({}) : send(method, params);
+    const b = new mod.Interactions(adapter, scope);
+    const shot = await b.capture(scope),
+      request = { ...scope, screenshotId: shot.id };
+    const target = await b.bounds({ ...request, selector: '#target' });
+    // 中文注释：截图引用仍需 DOM 命中验证，隐藏页只更换交付方式，不激活标签页。
+    const result = await b.clickCoordinates({
+      ...request,
+      point: target.imageCenter,
+      expectedRef: target.ref,
+    });
+    assert.equal(result.kind, dropped ? 'dom-synthetic' : 'coordinate-click');
+    assert.equal(result.delivery, 'confirmed');
+    assert.equal(result.fallbackReason, dropped ? 'pointer_input_not_delivered' : undefined);
+    assert.deepEqual(await page.evaluate(() => window.received), [!dropped]);
+    const next = await b.capture(scope),
+      bound = await b.bounds({ ...scope, screenshotId: next.id, selector: '#target' });
+    const endpoint = { point: bound.imageCenter, expectedRef: bound.ref };
+    await assert.rejects(
+      b.dragCoordinates({ ...scope, screenshotId: next.id, from: endpoint, to: endpoint }),
+      { code: 'BACKGROUND_POINTER_UNSUPPORTED', preDispatch: true },
+    );
+    assert.deepEqual(await page.evaluate(() => window.received), [!dropped]);
   });
-  const adapter = await mod.createPlaywrightAdapter(page),
-    evaluate = adapter.evaluate.bind(adapter);
-  adapter.evaluate = async (op, arg) => {
-    const result = await evaluate(op, arg);
-    return op === 'state' ? { ...result, visibility: 'hidden' } : result;
-  };
-  const b = new mod.Interactions(adapter, scope);
-  const shot = await b.capture(scope),
-    request = { ...scope, screenshotId: shot.id };
-  const target = await b.bounds({ ...request, selector: '#target' });
-  // 中文注释：截图引用仍需 DOM 命中验证，隐藏页只更换交付方式，不激活标签页。
-  const result = await b.clickCoordinates({
-    ...request,
-    point: target.imageCenter,
-    expectedRef: target.ref,
-  });
-  assert.equal(result.kind, 'dom-synthetic');
-  assert.equal(result.delivery, 'confirmed');
-  assert.equal(result.fallbackReason, 'background_tab_input_unreliable');
-  assert.deepEqual(await page.evaluate(() => window.received), [false]);
-  const next = await b.capture(scope),
-    bound = await b.bounds({ ...scope, screenshotId: next.id, selector: '#target' });
-  const endpoint = { point: bound.imageCenter, expectedRef: bound.ref };
-  await assert.rejects(
-    b.dragCoordinates({ ...scope, screenshotId: next.id, from: endpoint, to: endpoint }),
-    { code: 'BACKGROUND_POINTER_UNSUPPORTED', preDispatch: true },
-  );
-  assert.deepEqual(await page.evaluate(() => window.received), [false]);
-});
 test('silent CDP click is confirmed absent before one synthetic fallback', async (t) => {
   const { page } = await fixture(t),
     adapter = await mod.createPlaywrightAdapter(page),

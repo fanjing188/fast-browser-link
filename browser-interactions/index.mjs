@@ -340,8 +340,13 @@ export class Interactions {
   clickCoordinates(r) {
     return this.#exclusive(() => this.#clickCoordinates(r));
   }
-  clickBoundTarget(r, { readTarget, guard = () => {}, onDispatch = () => {} } = {}) {
-    return this.#exclusive(() => this.#clickBoundTarget(r, readTarget, guard, onDispatch));
+  clickBoundTarget(
+    r,
+    { readTarget, guard = () => {}, onDispatch = () => {}, strictFinalRead = false } = {},
+  ) {
+    return this.#exclusive(() =>
+      this.#clickBoundTarget(r, readTarget, guard, onDispatch, strictFinalRead),
+    );
   }
   dragCoordinates(r) {
     return this.#exclusive(() => this.#dragCoordinates(r));
@@ -502,13 +507,13 @@ export class Interactions {
       await this.#adapter.evaluate('clear-probe').catch(() => {});
     }
   }
-  async #clickBoundTarget(r, readTarget, guard, onDispatch) {
+  async #clickBoundTarget(r, readTarget, guard, onDispatch, strictFinalRead) {
     this.#scope(r);
     if (typeof readTarget !== 'function' || typeof guard !== 'function')
       fail('INVALID_TARGET_READER');
     let point;
     try {
-      point = await this.#boundTargetPoint(readTarget, guard);
+      point = await this.#boundTargetPoint(readTarget, guard, strictFinalRead);
     } catch (error) {
       // 中文注释：按下鼠标前的所有核实失败都未派发点击（仅可能已有悬停移动）。
       if (error && typeof error === 'object') error.preDispatch = true;
@@ -534,7 +539,7 @@ export class Interactions {
     }
     return { ok: true, kind: 'pointer-click' };
   }
-  async #boundTargetPoint(readTarget, guard) {
+  async #boundTargetPoint(readTarget, guard, strictFinalRead) {
     const before = await this.#adapter.evaluate('state');
     if (before.visual.scale !== 1 || before.visual.x || before.visual.y)
       fail('UNSUPPORTED_VISUAL_VIEWPORT');
@@ -572,6 +577,18 @@ export class Interactions {
     if (after.visibility !== 'hidden')
       await this.#adapter.verifyHit(point, { allowOpenShadow: true, allowClosedShadow: true });
     guard();
+    // 中文注释：第二次命中核验可能异步等待；返回指针坐标前再核原引用，换根或换目标则不按下鼠标。
+    if (strictFinalRead) {
+      const final = await readTarget();
+      guard();
+      if (
+        !Number.isFinite(final?.x) ||
+        !Number.isFinite(final?.y) ||
+        Math.abs(final.x - point.x) > 0.5 ||
+        Math.abs(final.y - point.y) > 0.5
+      )
+        fail('NODE_MOVED');
+    }
     return point;
   }
   async #dragCoordinates(r) {

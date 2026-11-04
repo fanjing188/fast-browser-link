@@ -233,17 +233,34 @@ class PageHelpersTests(unittest.TestCase):
     def test_casefold_equivalent_names_cannot_be_filtered_into_false_uniqueness(self):
         candidates = [button("eszett", name="Straße"), button("ascii", name="Strasse")]
 
-        def js_lower_filtered(_op, args):
+        def conservative_filtered(_op, args):
             if args[0] != "semantic_snapshot":
                 raise AssertionError("write dispatched despite name ambiguity")
             query = args[1]["options"].get("query", "").lower()
-            return snapshot([row for row in candidates if query in row["name"].lower()])
+            return snapshot(
+                [
+                    row
+                    for row in candidates
+                    if query in row["name"].lower() or any(ord(char) > 127 for char in row["name"])
+                ]
+            )
 
-        with patch.object(child, "_call", side_effect=js_lower_filtered) as call:
+        with patch.object(child, "_call", side_effect=conservative_filtered) as call:
             with self.assertRaises(child.BrowserError) as caught:
                 child.click_element("Strasse", timeout=0)
             self.assertEqual(caught.exception.code, "ambiguous_target")
             self.assertEqual(call.call_count, 1)
+
+    def test_unique_target_remains_findable_on_a_large_button_page(self):
+        # 中文注释：200 个普通控件令未过滤的 3000 预算不完整；安全查询必须仍可定位唯一目标。
+        def bounded_read(**options):
+            if not options.get("query"):
+                return snapshot([], complete=False)
+            return snapshot([button(name="Continue")])
+
+        with patch.object(child, "semantic_snapshot", side_effect=bounded_read) as read:
+            self.assertEqual(child.wait_for_element("Continue", timeout=0)["ref"], "one")
+            self.assertEqual(read.call_count, 1)
 
     def test_immediate_helper_actions_disable_obstruction_recovery(self):
         for action in ("click", "fill"):

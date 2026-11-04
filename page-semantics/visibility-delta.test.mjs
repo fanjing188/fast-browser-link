@@ -101,6 +101,50 @@ test('unbound read after documentElement replacement cannot revive an old bound 
   }
 });
 
+test('A to B to A root replacement between reads revokes the original semantic instance', () => {
+  const f = fixture('<button>Continue</button>');
+  try {
+    const before = f.semantics.snapshot();
+    const original = f.doc.documentElement;
+    const replacement = f.doc.createElement('html');
+    replacement.innerHTML = '<body><button>Continue</button></body>';
+    f.doc.replaceChild(replacement, original);
+    f.doc.replaceChild(original, replacement);
+    assert.throws(() => f.semantics.snapshot(), /DOCUMENT_REPLACED/);
+    assert.ok(before.snapshotId);
+  } finally {
+    f.close();
+  }
+});
+
+test('A to B to A root replacement rotates the helper document epoch', () => {
+  const f = fixture('<button>Continue</button>');
+  try {
+    const call = f.w.eval(`(${semanticWorldDeclaration})`);
+    const payload = { binding: f.binding, options: { mode: 'interactive' } };
+    const before = call('semantic_snapshot', payload);
+    const original = f.doc.documentElement;
+    const replacement = f.doc.createElement('html');
+    replacement.innerHTML = '<body><button>Continue</button></body>';
+    f.doc.replaceChild(replacement, original);
+    f.doc.replaceChild(original, replacement);
+    const after = call('semantic_snapshot', payload);
+    assert.notEqual(after.documentEpoch, before.documentEpoch);
+    assert.throws(
+      () =>
+        call('semantic_snapshot', {
+          ...payload,
+          documentEpoch: before.documentEpoch,
+          requireCurrentDocument: true,
+          requireDocumentEpoch: true,
+        }),
+      /BINDING_MISMATCH|DOCUMENT_REPLACED/,
+    );
+  } finally {
+    f.close();
+  }
+});
+
 for (const mode of ['delayed', 'persistent'])
   test(`本地加载层 ${mode}：快照如实标记遮挡，只有自然消失后才恢复命中`, async () => {
     const dom = new JSDOM(loadingFixture, {

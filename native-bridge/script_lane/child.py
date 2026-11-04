@@ -781,8 +781,8 @@ def wait_for_element(
     ):
         raise BrowserError("invalid element query", code="invalid_params", outcome_unknown=False)
     normalized = _normalized_accessible_name(name)
-    # 中文注释：JS 小写过滤不等价于 Python casefold；helper 必须在完整当前范围内判定唯一性。
-    options = {"mode": "interactive", "budget": 3000}
+    # 中文注释：引擎保留 Unicode 折叠不确定候选及截断名，查询可压缩普通大页面而不误报唯一。
+    options = {"mode": "interactive", "query": normalized if exact else name, "budget": 3000}
     if role is not None:
         options["roles"] = [role]
     if root is not None:

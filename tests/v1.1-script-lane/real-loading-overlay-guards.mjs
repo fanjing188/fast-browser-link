@@ -60,9 +60,22 @@ try {
   assert.notEqual(ambiguous.exit_code, 0);
   assert.equal(await tab.read('window.__unicodeClicks||0'), 0);
   console.log('unicode=ambiguous clicks=0');
+  await tab.read(
+    "(()=>{for(let i=0;i<199;i++){const b=document.createElement('button');b.textContent='Other '+i;document.body.append(b)}const target=document.createElement('button');target.textContent='UniqueAction';target.onclick=()=>{window.__largeClicks=(window.__largeClicks||0)+1};document.body.append(target);return true})()",
+  );
+  const large = await helperCall(
+    'script',
+    session.work,
+    tab.owner,
+    tab.task.id,
+    "click_element('UniqueAction', timeout=0)",
+  );
+  assert.equal(large.exit_code, 0);
+  assert.equal(await tab.read('window.__largeClicks||0'), 1);
+  console.log('large_page=unique_clicked clicks=1');
   stage = 'epoch_script';
   await tab.read(
-    "setTimeout(()=>{const next=document.createElement('html');next.innerHTML='<body><button>Continue</button></body>';document.replaceChild(next,document.documentElement)},1500);true",
+    "setTimeout(()=>{const original=document.documentElement;const next=document.createElement('html');next.innerHTML='<body><button>Continue</button></body>';document.replaceChild(next,original);document.replaceChild(original,next)},1500);true",
   );
   const epochCheck = await helperCall(
     'script',

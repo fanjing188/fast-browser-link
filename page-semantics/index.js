@@ -29,13 +29,15 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
     const nodes=[...record.addedNodes,...record.removedNodes];
     return nodes.length===0 || nodes.some(node=>!isOverlay(node));
   };
-  const changed=records=>{if(records.some(realMutation))epoch++;};
+  // 中文注释：根 A→B→A 可能在两次读取之间完成；记录一旦移除过原根就永久撤销该语义实例。
+  let replacedRoot=false;
+  const changed=records=>{if(records.some(record=>record.type==='childList'&&[...record.removedNodes].includes(docRoot)))replacedRoot=true;if(records.some(realMutation))epoch++;};
   const observer=new doc.defaultView.MutationObserver(changed);
   observer.observe(doc,{subtree:true,childList:true,attributes:true,characterData:true});
   function sync(){
     styles=new WeakMap();contexts=new WeakMap();surfaces=new WeakMap();
     changed(observer.takeRecords());
-    if(revoked)throw new Error('LEASE_REVOKED');if(Date.now()>=expiresAt)throw new Error('LEASE_EXPIRED');if(doc.documentElement!==docRoot)throw new Error('DOCUMENT_REPLACED');
+    if(revoked)throw new Error('LEASE_REVOKED');if(Date.now()>=expiresAt)throw new Error('LEASE_EXPIRED');if(replacedRoot||doc.documentElement!==docRoot)throw new Error('DOCUMENT_REPLACED');
     for(const [frame,state] of frameDocs){
       let current;try{current=frame.contentDocument;}catch{current=null;}
       if(!frame.isConnected || current!==state.document || current?.documentElement!==state.root)epoch++;
@@ -501,7 +503,9 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
     if('accessibility' in options&&typeof options.accessibility!=='boolean')throw Error('INVALID_OPTIONS');
     const {mode='interactive',root=null,query='',roles=[],viewport=false,budget=3000,cursor=null,baselineId=null,composed=false}=options;
     if(!selectors[mode] || typeof query!=='string' || query.length>2000 || !Array.isArray(roles) || roles.length>100 || roles.some(r=>typeof r!=='string'||r.length>100) || typeof viewport!=='boolean' || typeof composed!=='boolean' || !Number.isSafeInteger(budget) || budget<512)throw new Error('INVALID_OPTIONS');
-    const queryFolded=redact(query).toLocaleLowerCase();
+    const queryFolded=redact(query).toLowerCase();
+    // 中文注释：JS 小写与 Unicode casefold 不等价；非 ASCII 查询不能安全排除任何交互候选。
+    const queryMayFoldDiffer=/[^\u0020-\u007e]/.test(query);
     const scope=typeof root==='string'?doc.querySelector(root):root||doc.body;
     if(!scope || scope.ownerDocument!==doc || !scope.isConnected || scope.nodeType!==1)throw new Error('INVALID_ROOT');
     const view=doc.defaultView;
@@ -536,7 +540,7 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
       const value=mode==='interactive'?item(node,scope):fullItem(node,mode);
       if(visibility?.occluded)Object.assign(value,{blocked:'occluded',actionable:false});
       // 中文注释：短展示名可能藏住查询词或同名尾部；交互候选仍保留截断项并令覆盖率不完整，禁止误报唯一。
-      if((roles.length && !roles.includes(value.role)) || (queryFolded && !value.name.toLocaleLowerCase().includes(queryFolded) && !(mode==='interactive'&&value.truncated))){output.coverage.filtered++;continue;}
+      if((roles.length && !roles.includes(value.role)) || (queryFolded && !value.name.toLowerCase().includes(queryFolded) && !(mode==='interactive'&&(value.truncated||queryMayFoldDiffer||/[^\u0020-\u007e]/.test(value.name))))){output.coverage.filtered++;continue;}
       if(seenKeys?.has(stableKey(node,value)))continue;
       output.coverage.matched++;if(value.truncated)output.coverage.truncated++;
       if(output.coverage.matched<=offset || pendingFragment || candidates.length>=maxItems)continue;

@@ -2254,6 +2254,7 @@ export class Executor {
     // 中文注释：对话框阻断送达回读时不能把未经确认的指针或语义按键报告为成功。
     // 中文注释：新打开的 JS 对话框本身就是已观察到的页面效果。
     if(['ref_click','interaction.click'].includes(p.action))return {clicked:false,delivery:'unconfirmed',outcomeUnknown:true,effect:'observed',dialogOpened:result.dialogOpened};
+    if(p.action==='ref_fill')return {dispatched:true,delivery:'unconfirmed',outcomeUnknown:true,effect:'observed',dialogOpened:result.dialogOpened};
     if(['ref_set_checked','ref_press'].includes(p.action))return {outcomeUnknown:true,effect:'observed',dialogOpened:result.dialogOpened};
     return p.action==='click'?{clicked:true,kind:'dom-synthetic',effect:'observed',dialogOpened:result.dialogOpened}:
      {dispatched:true,effect:'observed',dialogOpened:result.dialogOpened};
@@ -3300,7 +3301,7 @@ export class Executor {
       // 中文注释：Chrome/Edge 本地实验确认后台 CDP 可送达，先走真实输入，再核实送达。
       const interactions=this.interactionsFor(t,p.tabId,guard,resolved?.record||null);
       const readTarget=()=>this.callSemanticWorld(frameTarget,frame.id,'pointer_target',payload,guard,entry?.contextId);
-      try{await interactions.clickBoundTarget({taskId:t.id,generation:t.generation},{readTarget,guard,onDispatch});}
+      try{await interactions.clickBoundTarget({taskId:t.id,generation:t.generation},{readTarget,guard,onDispatch,strictFinalRead:p.noAutoRecovery===true});}
       catch(error){
        // 中文注释：按下前转后台则合成点击。
        if(error?.preDispatch===true){

@@ -124,6 +124,35 @@ test('interactive text remains clipped and action ref still resolves exact eleme
   }
 });
 
+test('200 ordinary buttons exceed an unfiltered budget but a unique ASCII query fits', () => {
+  const others = Array.from({ length: 199 }, (_, n) => `<button>Other ${n}</button>`).join('');
+  const f = fixture(`${others}<button>Continue</button>`);
+  try {
+    const broad = f.semantics.snapshot({ mode: 'interactive', budget: 3000 });
+    assert.equal(broad.coverage.complete, false);
+    const narrow = f.semantics.snapshot({ mode: 'interactive', query: 'Continue', budget: 3000 });
+    assert.equal(narrow.coverage.complete, true);
+    assert.equal(narrow.items.length, 1);
+    assert.equal(narrow.items[0].name, 'Continue');
+  } finally {
+    f.close();
+  }
+});
+
+test('interactive query keeps Unicode controls whose casefold could equal an ASCII name', () => {
+  const f = fixture('<button>Straße</button><button>Strasse</button>');
+  try {
+    const page = f.semantics.snapshot({ mode: 'interactive', query: 'Strasse', budget: 3000 });
+    assert.equal(page.coverage.complete, true);
+    assert.deepEqual(
+      page.items.map((item) => item.name),
+      ['Straße', 'Strasse'],
+    );
+  } finally {
+    f.close();
+  }
+});
+
 test('query cannot report complete when a clipped control name may hide another match', () => {
   const f = fixture(`<button>${'Q'.repeat(410)} Alpha</button><button>Alpha</button>`);
   try {

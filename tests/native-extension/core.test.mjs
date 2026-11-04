@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { runInNewContext } from 'node:vm';
 import { createHash, randomUUID } from 'node:crypto';
+import { Interactions } from '../../browser-interactions/index.mjs';
 const load = () => import(process.env.CORE_UNDER_TEST || '../../native-extension/core.mjs');
 import { trustedTask as task, workspaceFixture } from './workspace-fixture.mjs';
 const newTabCommand = (taskId = 'a', requestId = 'new-work-tab') => ({
@@ -150,6 +151,78 @@ test('bound helper read forwards the original document epoch into semantic world
   assert.equal(seen.length, 1);
   assert.equal(seen[0].documentEpoch, 'epoch-1');
   assert.equal(seen[0].requireDocumentEpoch, true);
+});
+
+test('ref_fill dialog leaves delivery unknown so the script lane must reconcile', async () => {
+  const { Executor } = await load();
+  const executor = Object.create(Executor.prototype);
+  const current = { id: 'task', generation: 1, interactionOperations: new Set() };
+  executor.observers = { pending: () => false };
+  executor.checkedFrameTree = async () => ({ frame: { loaderId: 'loader' } });
+  executor.overlayCall = async () => true;
+  executor.timed = async (_p, _stage, work) => work();
+  executor.raceDialog = async () => ({ dialogOpened: { type: 'alert' } });
+  executor.interactionCleanupCall = async () => ({ ok: true });
+  const result = await executor.withInteractionHighlight({
+    t: current,
+    p: { tabId: 7, action: 'ref_fill' },
+    entry: { documentId: 'loader' },
+    guard: () => {},
+    prepare: async () => ({ ok: false }),
+    verify: async () => ({ ok: true }),
+    dispatch: async () => ({ kind: 'dom-synthetic' }),
+    visualOnly: true,
+  });
+  assert.equal(result.dispatched, true);
+  assert.equal(result.outcomeUnknown, true);
+  assert.equal(result.delivery, 'unconfirmed');
+});
+
+test('semantic pointer refuses a root change during the final hit verification', async () => {
+  const scope = { taskId: 'task', generation: 1 };
+  let root = 'A',
+    hits = 0,
+    pressed = 0,
+    dispatched = 0;
+  const state = {
+    visual: { scale: 1, x: 0, y: 0 },
+    viewport: { width: 800, height: 600 },
+    visibility: 'visible',
+    documentId: 'same-loader',
+    token: 'same-token',
+    url: 'https://example.test/',
+    dpr: 1,
+    scroll: { x: 0, y: 0 },
+  };
+  const adapter = {
+    evaluate: async (op) => {
+      assert.equal(op, 'state');
+      return state;
+    },
+    verifyHit: async () => {
+      if (++hits === 2) root = 'B';
+    },
+    send: async (_method, params) => {
+      if (params.type === 'mousePressed') pressed++;
+    },
+  };
+  const interactions = new Interactions(adapter, scope);
+  await assert.rejects(
+    interactions.clickBoundTarget(scope, {
+      readTarget: async () => {
+        if (root !== 'A') throw Error('DOCUMENT_REPLACED');
+        return { x: 40, y: 40 };
+      },
+      strictFinalRead: true,
+      onDispatch: () => {
+        dispatched++;
+      },
+    }),
+    /DOCUMENT_REPLACED/,
+  );
+  assert.equal(hits, 2);
+  assert.equal(pressed, 0);
+  assert.equal(dispatched, 0);
 });
 
 test('受信分页快照在等待遮罩期间换文档或引用租约时不读取正文', async () => {

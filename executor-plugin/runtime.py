@@ -345,6 +345,7 @@ _RESULT_TASK = {
     "attachedTabIds": [None],
     "workTabs": [_scalar_fields("tabId windowId groupId state")],
     "pendingInteraction": _scalar_fields("kind count"),
+    "approval": _scalar_fields("status requestedAt"),
     "popupClosed": _scalar_fields("returnedTo"),
     "resumeSummary": _scalar_fields("urlChanged documentReplaced referencesInvalid readPageFirst"),
     # 中文注释：日志状态和固定错误码一起交付，云端读取不能把未知结果的原因再次裁掉。
@@ -372,7 +373,7 @@ _RESULT_SEMANTIC = {
     "order": [None],
     "resync": _scalar_fields("reason"),
     "coverage": _scalar_fields(
-        "scanned matched returned omitted filtered truncated offset complete traversalComplete scope coveredScopeComplete skippedFrames unsupportedCanvas contentShieldSkippedFrames axDiscoveryComplete axEnriched axOmitted"
+        "scanned matched returned omitted filtered hidden queryFiltered truncated offset complete traversalComplete nextCursor scope coveredScopeComplete skippedFrames unsupportedCanvas contentShieldSkippedFrames axDiscoveryComplete axEnriched axOmitted"
     ),
     "budget": _scalar_fields("kind method limit"),
 }
@@ -638,7 +639,7 @@ _PUBLIC_ERROR_CODES = _UNKNOWN_ERROR_CODES | frozenset(
     SCOPE_MISMATCH TYPE_DENIED INVALID_DIGEST IDEMPOTENCY_CONFLICT ACTION_FAILED
     TASK_NOT_FOUND INVALID_STATE GENERATION_MISMATCH REQUEST_ID_CONFLICT
     REFERENCE_TARGET_MISSING REFERENCE_TARGET_AMBIGUOUS TARGET_UNSTABLE TARGET_UNAVAILABLE
-    DOCUMENT_CHANGED STALE_REFERENCE ELEMENT_TIMEOUT EXECUTION_DENIED PAGE_NOT_READY
+    DOCUMENT_CHANGED STALE_REFERENCE ELEMENT_TIMEOUT EXECUTION_DENIED PAGE_NOT_READY APPROVAL_PENDING
 """.split()
 )
 
@@ -647,6 +648,8 @@ def _fixed_result_error():
     return {
         "error": "浏览器操作结果无法确认；请检查实际状态，不要自动重试",
         "code": "OUTCOME_UNKNOWN",
+        "category": "plugin",
+        "hint": "请先读取页面核实，不能重放写操作",
         "retryable": False,
         "outcome_unknown": True,
     }
@@ -659,6 +662,15 @@ def _project_tool_result(tool_name, args, value):
         or value.get("status") in ("unknown", "outcome_unknown", "needs_sync")
     ):
         error = _fixed_result_error()
+        # 中文注释：明确未派发的失败保留固定错误码，不把用法错误投影成结果未知。
+        if value.get("outcome_unknown") is False and value.get("status") not in ("unknown", "outcome_unknown", "needs_sync"):
+            code = value.get("code")
+            error["code"] = code if isinstance(code, str) and code.upper() in _PUBLIC_ERROR_CODES else "ACTION_FAILED"
+            error["outcome_unknown"] = False
+            error["error"] = "本项未完成；请按错误码修正或核查页面。"
+            error["category"] = value.get("category") if value.get("category") in {"usage", "site", "plugin"} else "site"
+            error["retryable"] = value.get("retryable") is True
+            error["hint"] = value.get("hint") if isinstance(value.get("hint"), str) and len(value["hint"]) <= 120 else "请按错误码修正或核查页面"
         if isinstance(value.get("recovery"), dict):
             error["recovery"] = _project_schema(value["recovery"], _RESULT_RECOVERY)
             if type(value.get("outcome_unknown")) is bool:

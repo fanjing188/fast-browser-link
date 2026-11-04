@@ -68,8 +68,24 @@ def _json(value):
 
 
 def _error(message, code, **extra):
+    # 中文注释：开页工具的参数和会话错误同样使用固定分类，不回传底层异常。
+    category = (
+        "usage"
+        if code.startswith(("invalid_", "missing_"))
+        else "plugin"
+        if code in {"instance_unavailable", "browser_launch_failed"}
+        else "site"
+    )
     return _json(
-        {"error": message, "code": code, "retryable": False, "outcome_unknown": False, **extra}
+        {
+            "error": message,
+            "code": code,
+            "category": category,
+            "retryable": False,
+            "outcome_unknown": False,
+            "hint": message[:120],
+            **extra,
+        }
     )
 
 
@@ -306,13 +322,21 @@ def make_handler(runtime, host_bridge, *, lease_error, clock=time.monotonic, sle
                     }
                 )
             if task.get("state") in {"pending_approval", "authorizing"}:
+                pending = task.get("state") == "pending_approval"
                 return _json(
                     {
-                        "status": "awaiting_authorization",
+                        "status": "approval_pending" if pending else "task_preparing",
+                        "code": "approval_pending" if pending else "task_preparing",
+                        "category": "site",
+                        "retryable": True,
+                        "outcome_unknown": False,
+                        "hint": "请在浏览器扩展里批准该任务" if pending else "请等待任务授权安装完成",
                         "task_id": task["id"],
                         "state": task.get("state"),
-                        "message": "已为该网站建立任务，正在等待用户在浏览器扩展中批准；"
-                        "批准后调用 fast_browser_get 确认就绪，再调用本工具打开页面。",
+                        "message": (
+                            "已建立任务，请在浏览器扩展里批准；批准后用 fast_browser_get 确认 ready。"
+                            if pending else "浏览器正在安装任务授权；请用 fast_browser_get 等待 ready。"
+                        ),
                         **primary_note,
                     }
                 )

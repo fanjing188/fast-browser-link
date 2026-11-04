@@ -215,6 +215,22 @@ class ProtocolError(Exception):
         self.code = code
         self.message = message
         self.data = safe_summary(data) if code == "cookie_mirror_denied" else _safe_error_data(data)
+        # 中文注释：协议错误只用固定错误码分类，提示不拼接页面内容或底层异常。
+        if "category" not in self.data:
+            usage = ("invalid_", "missing_", "stale_", "binding_", "reference_", "parse_cursor_")
+            plugin = (
+                "internal_", "bridge_", "extension_", "execution_denied",
+                "instance_unavailable", "workspace_unknown", "runtime_",
+            )
+            category = "usage" if code.startswith(usage) else "plugin" if code.startswith(plugin) else "site"
+            self.data["category"] = category
+        self.data.setdefault("retryable", False)
+        self.data.setdefault("outcomeUnknown", False)
+        self.data.setdefault("hint", {
+            "usage": "请修正参数或重新读取引用后重试",
+            "site": "请检查浏览器页面和任务状态",
+            "plugin": "请查看插件诊断并报告错误码",
+        }[self.data["category"]])
 
 
 def _execution_failure(error, stage):
@@ -250,6 +266,10 @@ def _safe_error_data(data: Any) -> dict:
     safe = {
         key: data[key] for key in ("outcomeUnknown", "retryable") if type(data.get(key)) is bool
     }
+    if data.get("category") in {"usage", "site", "plugin"}:
+        safe["category"] = data["category"]
+    if isinstance(data.get("hint"), str) and 0 < len(data["hint"]) <= 120:
+        safe["hint"] = data["hint"]
     if isinstance(data.get("fields"), list):
         safe["fields"] = sorted(
             field
@@ -2299,6 +2319,8 @@ class BridgeDaemon:
                 "instanceId": instance_id,
                 "browser": extension["browser"],
                 "state": "pending_approval",
+                "approvalStatus": "pending",
+                "approvalRequestedAt": now,
                 "generation": 1,
                 "activeMode": "smart",
                 "modeGeneration": 1,
@@ -2699,10 +2721,15 @@ class BridgeDaemon:
                     {"outcomeUnknown": False, "retryable": False},
                 )
             # 中文注释：新任务授权由扩展异步安装；未就绪时明确告知查询状态，不能把它当成已派发动作。
-            if task["state"] in {"pending_approval", "authorizing"}:
+            if task["state"] == "pending_approval":
                 raise ProtocolError(
-                    "task_preparing",
-                    "任务授权尚未就绪；请查询任务状态，ready 后重新调用",
+                    "approval_pending",
+                    "请在浏览器扩展里批准该任务",
+                    {"outcomeUnknown": False, "retryable": True, "category": "site", "hint": "请在浏览器扩展里批准该任务"},
+                )
+            if task["state"] == "authorizing":
+                raise ProtocolError(
+                    "task_preparing", "浏览器正在安装任务授权；请等待 ready 后再调用",
                     {"outcomeUnknown": False, "retryable": True},
                 )
             cached = self.dedupe[task_id].get(request_hash)
@@ -2997,10 +3024,15 @@ class BridgeDaemon:
                         {"outcomeUnknown": False},
                     )
                 # 中文注释：动作准备期间授权状态仍可变化；此处再次检查以免返回含糊的状态错误。
-                if task["state"] in {"pending_approval", "authorizing"}:
+                if task["state"] == "pending_approval":
                     raise ProtocolError(
-                        "task_preparing",
-                        "任务授权尚未就绪；请查询任务状态，ready 后重新调用",
+                        "approval_pending",
+                        "请在浏览器扩展里批准该任务",
+                        {"outcomeUnknown": False, "retryable": True, "category": "site", "hint": "请在浏览器扩展里批准该任务"},
+                    )
+                if task["state"] == "authorizing":
+                    raise ProtocolError(
+                        "task_preparing", "浏览器正在安装任务授权；请等待 ready 后再调用",
                         {"outcomeUnknown": False, "retryable": True},
                     )
                 if task["state"] not in {"ready", "running"}:
@@ -4013,6 +4045,8 @@ class BridgeDaemon:
                 task["downloadKey"] = new_download_key()
                 self.cleanup_proofs.pop(task["id"], None)
                 task["state"] = "pending_approval"
+                task["approvalStatus"] = "pending"
+                task["approvalRequestedAt"] = time.time()
                 task["tabIds"] = []
                 task["agentTabIds"] = []
                 task["adoptedPopupTabIds"] = []
@@ -5012,7 +5046,9 @@ class BridgeDaemon:
                 "mode",
                 "root",
                 "query",
+                "role",
                 "roles",
+                "limit",
                 "viewport",
                 "composed",
                 "budget",
@@ -5052,6 +5088,16 @@ class BridgeDaemon:
                 )
             ):
                 raise ProtocolError("invalid_params", "invalid semantic roles")
+            if "role" in options and (
+                not isinstance(options["role"], str)
+                or not 1 <= len(options["role"]) <= 100
+                or "roles" in options
+            ):
+                raise ProtocolError("invalid_params", "invalid semantic role")
+            if "limit" in options and (
+                type(options["limit"]) is not int or not 1 <= options["limit"] <= 200
+            ):
+                raise ProtocolError("invalid_params", "semantic limit must be 1–200")
             if "viewport" in options and type(options["viewport"]) is not bool:
                 raise ProtocolError("invalid_params", "invalid semantic viewport")
             if "composed" in options and type(options["composed"]) is not bool:
@@ -5263,7 +5309,17 @@ class BridgeDaemon:
                 "attachment",
                 "attachmentConnection",
                 "executionLane",
+                "approvalStatus",
+                "approvalRequestedAt",
             }
+        }
+        # 中文注释：只公开审批状态和请求时间，不公开审批凭据或内部范围令牌。
+        approval_state = task.get("approvalStatus") or (
+            "pending" if task.get("state") == "pending_approval" else "approved"
+        )
+        result["approval"] = {
+            "status": approval_state,
+            "requestedAt": task.get("approvalRequestedAt", task.get("createdAt")),
         }
         # 中文注释：计数仅含本会话仍持有租约的工作页，已关闭页面不计入。
         result["open_tabs"] = sum(
@@ -5870,6 +5926,7 @@ class BridgeDaemon:
                 task["state"] = (
                     "authorizing" if workspace_only or task.get("attachment") else "ready"
                 )
+                task["approvalStatus"] = "approved"
                 task["updatedAt"] = time.time()
                 self._persist_tasks()
                 result = self._public_task(task)
@@ -5892,6 +5949,7 @@ class BridgeDaemon:
                     if task["state"] != "pending_approval":
                         raise ProtocolError("invalid_state", "only a pending task can be rejected")
                     final_state = "failed"
+                    task["approvalStatus"] = "denied"
                 else:
                     if task["state"] in {"cancelled", "closed"}:
                         return self._public_task(task)

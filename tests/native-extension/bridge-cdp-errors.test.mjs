@@ -35,6 +35,13 @@ async function request(description, semantic = true, action = 'ref_click') {
   return sent[0].error;
 }
 
+function legacyData(error) {
+  assert.ok(['usage', 'site', 'plugin'].includes(error.data.category));
+  assert.equal(typeof error.data.hint, 'string');
+  const { category, hint, ...data } = error.data;
+  return data;
+}
+
 for (const semantic of [true, false])
   for (const [reason, code] of [
     ['TARGET_OCCLUDED', 'target_occluded'],
@@ -49,9 +56,9 @@ for (const semantic of [true, false])
         semantic,
       );
       assert.equal(error.code, code);
-      assert.deepEqual(error.data, {
+      assert.deepEqual(legacyData(error), {
         outcomeUnknown: !['TARGET_OCCLUDED', 'STALE_REF', 'BINDING_MISMATCH'].includes(reason),
-        retryable: false,
+        retryable: ['STALE_REF', 'BINDING_MISMATCH'].includes(reason),
         ...(code === 'document_changed'
           ? { stage: 'document', reasonCode: 'document_changed' }
           : {}),
@@ -76,7 +83,7 @@ for (const reason of [
       'semantic_snapshot',
     );
     assert.equal(error.code, 'permission_denied');
-    assert.deepEqual(error.data, {
+    assert.deepEqual(legacyData(error), {
       outcomeUnknown: false,
       retryable: false,
       stage: 'authority',
@@ -91,7 +98,7 @@ test('wrapped stale read permits refresh, not write replay', async () => {
     'semantic_snapshot',
   );
   assert.equal(error.code, 'stale_reference');
-  assert.deepEqual(error.data, { outcomeUnknown: false, retryable: true });
+  assert.deepEqual(legacyData(error), { outcomeUnknown: false, retryable: true });
 });
 test('classification must not search arbitrary payloads or stack frames', async () => {
   for (const text of [
@@ -125,7 +132,7 @@ test('page-load CDP protocol errors become retryable page_not_ready for reads, n
     '{"code":-32000,"message":"Cannot find context with specified id"}',
   );
   assert.equal(error.code, 'page_not_ready');
-  assert.deepEqual(error.data, { outcomeUnknown: false, retryable: true });
+  assert.deepEqual(legacyData(error), { outcomeUnknown: false, retryable: true });
   error = await run('ref_click', '{"code":-32000,"message":"Execution context was destroyed."}');
   assert.equal(error.code, 'page_not_ready');
   assert.equal(error.data.retryable, false);
@@ -136,7 +143,7 @@ test('page-load CDP protocol errors become retryable page_not_ready for reads, n
   ]) {
     error = await run('official.ready_state', detail);
     assert.equal(error.code, 'page_not_ready');
-    assert.deepEqual(error.data, { outcomeUnknown: false, retryable: true });
+    assert.deepEqual(legacyData(error), { outcomeUnknown: false, retryable: true });
   }
   error = await run('semantic_snapshot', 'private Cannot find context with specified id');
   assert.equal(error.code, 'execution_denied');

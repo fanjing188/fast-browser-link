@@ -18,7 +18,7 @@ description: 使用用户已登录的 Chrome 或 Edge 执行普通或无痕网�
 4. 保存返回的 `id`。用 `get '{"taskId":"id"}'` 确认 `state=ready`。未就绪时保留原任务，不重复创建。
 5. `run '{"taskId":"id","action":"new_tab","url":"https://example.com"}'` 创建工作页；保存返回的标签 ID。
 6. `run '{"taskId":"id","tabId":123,"action":"semantic_snapshot"}'` 读取。使用新快照的 `binding`、`snapshotId`、`ref` 执行 `ref_click` / `ref_fill`。复杂参数通过 stdin 传入，将最后一个参数设为 `-`，避免 shell 插值。
-   快照取更多条用 `options` 中的 `budget`（估算预算，最少 512），响应有 `nextCursor` 时用相同 options 加上 `cursor: nextCursor` 续读；用 `options.query` 按名称查找，可配 `roles`、`root` 缩小范围，例如 `"options":{"query":"创建","roles":["button"],"budget":12000}`。没有顶层或 options 内的 `limit` 参数，传入会返回 `invalid_params`。检查 `coverage.complete`，不要把默认页当成整页。
+   快照默认最多 20 条；`options.limit` 允许 1–200，`budget` 为估算预算（最少 512）。`options.query` 按可访问名称或文本查找，配 `role` 筛单一角色、`roles` 筛多个角色、`root` 缩小范围，例如 `"options":{"query":"创建","role":"button","limit":50,"budget":12000}`。响应有 `coverage.nextCursor` 时保持原 options 并加上 `cursor` 续读；`hidden`、`queryFiltered`、`omitted` 分别表示不可见、查询过滤、分页/预算截断。检查 `coverage.complete`。
 7. 完成后 `close '{"taskId":"id"}'`，只关闭自己的任务。
 
 所有任务操作共用同一个 `--session`。JSON 参数使用 Native 协议的 camelCase。`run` 自动生成请求 ID，也可提供 `requestId` 查询同一次待人工处理的请求。不要指定 owner。

@@ -141,6 +141,12 @@ class BridgeError(RuntimeError):
             for key in ("outcomeUnknown", "retryable")
             if isinstance(data, dict) and type(data.get(key)) is bool
         }
+        # 中文注释：与 daemon 的错误回执保持一致，仅接收有限分类和短提示。
+        if isinstance(data, dict):
+            if data.get("category") in {"usage", "site", "plugin"}:
+                self.data["category"] = data["category"]
+            if isinstance(data.get("hint"), str) and 0 < len(data["hint"]) <= 120:
+                self.data["hint"] = data["hint"]
         if code == "popup_policy_unprotected" and isinstance(data, dict) and data.get(
             "reason"
         ) == "unprotected_document":

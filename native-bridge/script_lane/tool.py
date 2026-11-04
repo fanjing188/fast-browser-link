@@ -47,8 +47,22 @@ SCHEMA = {
 
 
 def _error(message, code, *, outcome_unknown=False):
+    category = (
+        "usage"
+        if code.startswith(("invalid_", "missing_"))
+        else "plugin"
+        if code.startswith(("bridge_", "extension_"))
+        else "site"
+    )
     return json.dumps(
-        {"error": message, "code": code, "retryable": False, "outcome_unknown": outcome_unknown},
+        {
+            "error": message,
+            "code": code,
+            "category": category,
+            "retryable": False,
+            "hint": message[:120],
+            "outcome_unknown": outcome_unknown,
+        },
         ensure_ascii=False,
     )
 
@@ -281,6 +295,8 @@ def make_handler(
                     "fields": ["code"],
                     "outcome_unknown": False,
                     "retryable": False,
+                    "category": "usage",
+                    "hint": "请补齐脚本字段",
                 },
                 ensure_ascii=False,
             )
@@ -299,6 +315,8 @@ def make_handler(
                     "fields": invalid,
                     "outcome_unknown": False,
                     "retryable": False,
+                    "category": "usage",
+                    "hint": "请修正脚本参数",
                 },
                 ensure_ascii=False,
             )

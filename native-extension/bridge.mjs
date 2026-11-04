@@ -53,7 +53,7 @@ function executionError(error, message) {
     .replace(/^Error: /, '');
   const reason = String(error?.code || detail).split('|', 1)[0];
   let code = 'execution_denied',
-    text = 'Browser operation could not be completed.';
+    text = '插件内部执行异常，请查看诊断并报告错误码。';
   // 中文注释：并发资源冲突只拒绝当前请求，保留是否已创建页面的派发事实。
   if (
     [
@@ -497,18 +497,60 @@ function executionError(error, message) {
             ['initialization_exception', 'return_type_invalid'].includes(error?.reasonCode)
           ? { stage: 'overlay', reasonCode: error.reasonCode }
           : {};
+  const usageCodes = new Set([
+    'invalid_params',
+    'invalid_expression',
+    'stale_reference',
+    'stale_frame',
+    'parse_cursor_stale',
+    'reference_target_missing',
+    'reference_target_ambiguous',
+    'element_timeout',
+    'target_unavailable',
+    'select_option_missing',
+    'select_option_ambiguous',
+    'custom_select_unsupported',
+    'not_file_input',
+    'file_input_not_unique',
+    'result_too_large',
+    'stale_screenshot',
+    'screenshot_expired',
+  ]);
+  const pluginCodes = new Set([
+    'execution_denied',
+    'semantic_library_unavailable',
+    'debugger_detached',
+    'runtime_preparation_failed',
+    'overlay_injection_failed',
+    'extension_timeout',
+    'workspace_unknown',
+    'cdp_error',
+  ]);
+  // 中文注释：只用固定错误码归类；未知异常的原始文本不能进入回执。
+  const category = usageCodes.has(code) ? 'usage' : pluginCodes.has(code) ? 'plugin' : 'site';
+  const outcomeUnknown =
+    code !== 'cdp_error' &&
+    !readOnly &&
+    !filePreDispatch &&
+    !refusedBeforeDispatch &&
+    error?.preDispatch !== true &&
+    error?.dispatched !== false;
+  const hint = outcomeUnknown
+    ? '请先读取页面核实结果，不能直接重放写操作'
+    : category === 'usage'
+      ? '请修正参数或重新读取页面引用后重试'
+      : category === 'plugin'
+        ? '请查看插件诊断并报告错误码'
+        : '请检查页面和任务状态';
   return {
     code,
     message: text,
     data: {
-      outcomeUnknown:
-        code !== 'cdp_error' &&
-        !readOnly &&
-        !filePreDispatch &&
-        !refusedBeforeDispatch &&
-        error?.preDispatch !== true,
+      category,
+      hint,
+      outcomeUnknown,
       retryable:
-        readOnly &&
+        !outcomeUnknown &&
         [
           'document_changed',
           'stale_reference',
@@ -517,7 +559,10 @@ function executionError(error, message) {
           'page_not_ready',
           'overlay_frame_changed',
           'overlay_injection_failed',
+          'stale_frame',
+          'parse_cursor_stale',
         ].includes(code),
+      ...(code === 'execution_denied' ? { reasonCode: 'internal_exception' } : {}),
       ...stage,
       ...(code === 'popup_policy_unprotected' && error?.reason === 'unprotected_document'
         ? {
@@ -676,7 +721,56 @@ export class Bridge {
     this.accessRequests.clear();
   }
   send(message) {
-    if (!this.closed) this.port.postMessage(message);
+    if (this.closed) return;
+    if (!message?.error) return this.port.postMessage(message);
+    // 中文注释：原生消息上的直接拒绝也保留统一分类，不能把未知回执改成可重试。
+    const error = message.error;
+    const data = error.data && typeof error.data === 'object' ? error.data : {};
+    const category =
+      data.category ||
+      (/^(invalid_|missing_|stale_)/.test(error.code)
+        ? 'usage'
+        : /^(internal_|unavailable|execution_denied)/.test(error.code)
+          ? 'plugin'
+          : 'site');
+    const outcomeUnknown = data.outcomeUnknown === true;
+    this.port.postMessage({
+      ...message,
+      error: {
+        ...error,
+        data: {
+          ...data,
+          category,
+          retryable: !outcomeUnknown && data.retryable === true,
+          outcomeUnknown,
+          hint:
+            data.hint ||
+            (outcomeUnknown
+              ? '请先读取页面核实，不能重放写操作'
+              : category === 'usage'
+                ? '请修正参数或重新读取引用'
+                : category === 'plugin'
+                  ? '请查看插件诊断并报告错误码'
+                  : '请检查页面和任务状态'),
+        },
+      },
+    });
+  }
+  executionError(error, request) {
+    const receipt = executionError(error, request);
+    if (receipt.code === 'execution_denied') {
+      // 中文注释：诊断只记录固定内部原因码，不写页面异常、正文或参数。
+      try {
+        this.executor.diagnostics?.recordSafely({
+          component: 'mv3_background',
+          event_type: 'execution_error',
+          connection_id: this.executor.diagnosticConnection,
+          status: 'failed',
+          error_code: 'INTERNAL_EXCEPTION',
+        });
+      } catch {}
+    }
+    return receipt;
   }
   async sendResult(request, response) {
     if (response.error || !this.executor.response) {
@@ -686,7 +780,7 @@ export class Bridge {
     try {
       this.send({ ...response, result: await this.executor.response(request, response.result) });
     } catch (error) {
-      this.send({ id: response.id, error: executionError(error, request) });
+      this.send({ id: response.id, error: this.executionError(error, request) });
     }
   }
   validateApproval(request, result) {
@@ -993,7 +1087,7 @@ export class Bridge {
           if (this.closed) throw Error('native disconnected');
           return { id: m.id, result: await this.executor.gateway(m.method, m.params) };
         } catch (e) {
-          return { id: m.id, error: executionError(e, m) };
+          return { id: m.id, error: this.executionError(e, m) };
         }
       })().then(async (r) => {
         this.gatewayInflight--;
@@ -1075,7 +1169,7 @@ export class Bridge {
       } else throw Error('unsupported method');
       return { id: m.id, result };
     } catch (e) {
-      return { id: m.id, error: executionError(e, m) };
+      return { id: m.id, error: this.executionError(e, m) };
     }
   }
 }

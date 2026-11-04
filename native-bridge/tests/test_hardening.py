@@ -249,8 +249,8 @@ class HardeningTests(unittest.TestCase):
                     "tabId": 31,
                 },
             )
-        # 中文注释：重新批准前属于可确认未派发的授权准备状态。
-        self.assertEqual(not_approved.exception.code, "task_preparing")
+        # 中文注释：重新批准前确实在等待用户审批，且本次未派发。
+        self.assertEqual(not_approved.exception.code, "approval_pending")
         approved = extension.request(
             "extension.approve",
             {"taskId": task["id"], "tabIds": [31], "allowedOrigins": origins},

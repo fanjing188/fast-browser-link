@@ -14,6 +14,13 @@ async function request(executor, method, params = {}) {
   return sent[0];
 }
 
+function legacyData(error) {
+  assert.ok(['usage', 'site', 'plugin'].includes(error.data.category));
+  assert.equal(typeof error.data.hint, 'string');
+  const { category, hint, ...data } = error.data;
+  return data;
+}
+
 test('cleanup status is a read-only executor route, separate from release', async () => {
   let reads = 0,
     releases = 0;
@@ -64,7 +71,7 @@ test('read-only document change is typed and not an uncertain write', async () =
     { action: 'semantic_snapshot' },
   );
   assert.equal(result.error.code, 'document_changed');
-  assert.deepEqual(result.error.data, {
+  assert.deepEqual(legacyData(result.error), {
     outcomeUnknown: false,
     retryable: true,
     stage: 'document',
@@ -83,7 +90,7 @@ test('stale click keeps uncertain outcome and cannot be automatically replayed',
     { action: 'ref_click' },
   );
   assert.equal(result.error.code, 'stale_reference');
-  assert.deepEqual(result.error.data, { outcomeUnknown: true, retryable: false });
+  assert.deepEqual(legacyData(result.error), { outcomeUnknown: true, retryable: false });
 });
 
 test('permission rejection is specific and never retryable', async () => {
@@ -97,7 +104,7 @@ test('permission rejection is specific and never retryable', async () => {
     { action: 'snapshot' },
   );
   assert.equal(result.error.code, 'permission_denied');
-  assert.deepEqual(result.error.data, {
+  assert.deepEqual(legacyData(result.error), {
     outcomeUnknown: false,
     retryable: false,
     stage: 'authority',

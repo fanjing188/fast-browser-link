@@ -2,6 +2,16 @@
 
 由 `python3 scripts/generate-browser-reference.py` 从实际 helper 和工具 schema 生成。不要手工编辑。
 
+## 错误回执分类
+
+所有失败回执包含 category（usage/site/plugin）、布尔 retryable 和中文 hint。outcomeUnknown 只在写操作已派发且结果无法确认时为 true；只读预检失败为 false。approval_pending 仅表示任务仍在等待浏览器扩展批准；已批准但浏览器或工作区授权尚未就绪时返回 task_preparing。两者均未派发动作，查询 get 等待 ready 后重试。permission_denied 表示实际拒绝。get 返回 approval.status（pending/approved/denied）及 approval.requestedAt。
+
+| category | 含义 | 调用方处理 |
+| --- | --- | --- |
+| `usage` | 参数、表达式或页面引用失效 | 修正后重试，先获取新快照引用 |
+| `site` | 网页或用户侧阻断：登录、验证码、遮罩、弹窗保护、暂停、审批 | 等用户处理或读取页面状态 |
+| `plugin` | 内部异常、连接断开、版本不一致 | 查询插件诊断，带错误码报告；未知写入先核实 |
+
 ## Page output and recovery
 
 页面内容原样返回，仅密码输入值不回显。coverage 表示未读范围。同一任务页可跨站；任务与会话标签租约仍隔离。定位失败插件已自动等待、重扫 frame/Shadow DOM 并最多恢复三轮。recovery 包含 triggered、rounds、locator、clickMethod、selected、otherCandidates；失败时另含 strategies、candidates 和 screenshotPath。仍失败就换描述重找或跳过该项继续，不停整个任务。已派发结果未知时先回读核实，不重复执行。
@@ -62,7 +72,7 @@ Wait until document.readyState reaches ``until``; returns the final state.  The 
 
 ### `semantic_snapshot(tab=None, **options)`
 
-中文注释：返回 dict {binding, snapshotId, items, coverage, nextCursor, ...}；读 result['items']，coverage.complete=false 时按 nextCursor 续读。
+中文注释：返回 dict {binding, snapshotId, items, coverage, nextCursor, ...}。query 按可访问名称/文本筛选，role 或 roles 筛角色，limit 默认 20、上限 200；保持原选项并传 cursor=coverage['nextCursor'] 续读。coverage.hidden/queryFiltered/omitted 区分不可见、筛选和截断。
 
 扩展能力：`browser_core_v1`。
 
@@ -797,6 +807,11 @@ health/browsers 使用运行时已解析的 bridge_home；doctor/reference 跟�
             "type": "string",
             "maxLength": 2000
           },
+          "role": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
           "roles": {
             "type": "array",
             "minItems": 0,
@@ -806,6 +821,11 @@ health/browsers 使用运行时已解析的 bridge_home；doctor/reference 跟�
               "minLength": 1,
               "maxLength": 100
             }
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
           },
           "viewport": {
             "type": "boolean"
@@ -1232,6 +1252,11 @@ health/browsers 使用运行时已解析的 bridge_home；doctor/reference 跟�
                   "type": "string",
                   "maxLength": 2000
                 },
+                "role": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 100
+                },
                 "roles": {
                   "type": "array",
                   "minItems": 0,
@@ -1241,6 +1266,11 @@ health/browsers 使用运行时已解析的 bridge_home；doctor/reference 跟�
                     "minLength": 1,
                     "maxLength": 100
                   }
+                },
+                "limit": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 200
                 },
                 "viewport": {
                   "type": "boolean"

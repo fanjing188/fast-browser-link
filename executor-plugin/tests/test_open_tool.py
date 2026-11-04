@@ -746,7 +746,9 @@ class OpenToolTests(unittest.TestCase):
     def test_unauthorized_task_reports_waiting_instead_of_opening(self):
         self.make([{**EDGE, "consentStatus": "disabled"}], ready_after=10_000)
         result = self.open({"url": "https://shop.example/"})
-        self.assertEqual(result["status"], "awaiting_authorization")
+        self.assertEqual(result["status"], "approval_pending")
+        self.assertEqual(result["category"], "site")
+        self.assertTrue(result["retryable"])
         self.assertNotIn("shared.run", self.methods())
 
     def test_task_stopped_while_waiting_is_not_reported_as_awaiting_authorization(self):

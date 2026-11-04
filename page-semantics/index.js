@@ -336,14 +336,14 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
   // 中文注释：隐藏勾选控件仍需检查外部 label 代理；其余无布局分支直接剪枝。
   const excludedBranch=node=>isOverlay(node)||node.matches('[hidden],[aria-hidden="true"],[inert]')||computed(node).display==='none'&&!node.matches('input[type=checkbox],input[type=radio]');
   function* lightElements(scope,coverage){
-    const accept=node=>{if(!excludedBranch(node))return 1;coverage.prunedSubtrees=(coverage.prunedSubtrees||0)+1;return 2;};
+    const accept=node=>{if(!excludedBranch(node))return 1;coverage.prunedSubtrees=(coverage.prunedSubtrees||0)+1;coverage.hidden=(coverage.hidden||0)+1;return 2;};
     if(accept(scope)===2)return;
     const walker=doc.createTreeWalker(scope,1,{acceptNode:accept});yield scope;let node;while((node=walker.nextNode()))yield node;
   }
   function* composedElements(scope,coverage){
     const stack=[scope];
     while(stack.length){
-      const node=stack.pop();if(excludedBranch(node)){coverage.prunedSubtrees=(coverage.prunedSubtrees||0)+1;continue;}yield node;
+      const node=stack.pop();if(excludedBranch(node)){coverage.prunedSubtrees=(coverage.prunedSubtrees||0)+1;coverage.hidden=(coverage.hidden||0)+1;continue;}yield node;
       for(let i=node.children.length-1;i>=0;i--)stack.push(node.children[i]);
       if(node.localName==='iframe' || node.localName==='frame'){
         // 中文注释：隐藏/私密框架不在语义范围内，不能因不可读取而误报可见页面缺口。
@@ -505,13 +505,13 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
   function snapshot(options={}){
     sync();
     if('accessibility' in options&&typeof options.accessibility!=='boolean')throw Error('INVALID_OPTIONS');
-    const {mode='interactive',root=null,query='',roles=[],viewport=false,budget=3000,cursor=null,baselineId=null,composed=false}=options;
-    if(!selectors[mode] || typeof query!=='string' || query.length>2000 || !Array.isArray(roles) || roles.length>100 || roles.some(r=>typeof r!=='string'||r.length>100) || typeof viewport!=='boolean' || typeof composed!=='boolean' || !Number.isSafeInteger(budget) || budget<512)throw new Error('INVALID_OPTIONS');
+    const {mode='interactive',root=null,query='',role:roleFilter=null,roles=roleFilter?[roleFilter]:[],limit=20,viewport=false,budget=3000,cursor=null,baselineId=null,composed=false}=options;
+    if(!selectors[mode] || typeof query!=='string' || query.length>2000 || (roleFilter!==null&&(typeof roleFilter!=='string'||!roleFilter||roleFilter.length>100)) || !Array.isArray(roles) || roles.length>100 || roles.some(r=>typeof r!=='string'||r.length>100) || !Number.isSafeInteger(limit)||limit<1||limit>200 || typeof viewport!=='boolean' || typeof composed!=='boolean' || !Number.isSafeInteger(budget) || budget<512)throw new Error('INVALID_OPTIONS');
     const queryFolded=casefold(redact(query));
     const scope=typeof root==='string'?doc.querySelector(root):root||doc.body;
     if(!scope || scope.ownerDocument!==doc || !scope.isConnected || scope.nodeType!==1)throw new Error('INVALID_ROOT');
     const view=doc.defaultView;
-    const fingerprint=JSON.stringify({mode,root:ref(scope),query:queryFolded,roles:[...new Set(roles)].sort(),viewport,geometry:viewport?[view.scrollX,view.scrollY,view.innerWidth,view.innerHeight]:null,budget,...(composed?{composed:true}:{})});
+    const fingerprint=JSON.stringify({mode,root:ref(scope),query:queryFolded,roles:[...new Set(roles)].sort(),limit,viewport,geometry:viewport?[view.scrollX,view.scrollY,view.innerWidth,view.innerHeight]:null,budget,...(composed?{composed:true}:{})});
     let offset=0,fragmentOffset=0,resync=null,seenKeys=null;
     if(cursor){
       if(cursor!==cursorState?.id || cursorState.fingerprint!==fingerprint || cursorState.epoch!==epoch&&cursorState.fragmentOffset>0)resync={reason:'cursor_invalidated'};
@@ -524,7 +524,7 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
     if(baselineId && !resync){if(baseline?.id!==baselineId)resync={reason:'baseline_unavailable'};else if(baseline.key!==key)resync={reason:'parameters_changed'};}
     currentId=`${instance}:s${++generation}`;active=new Map();cursorState=null;
     // 中文注释：标题沿用语义快照的脱敏与网页内容过滤，再进入打开回执摘要。
-    const output={version:2,title:clip(doc.title||''),binding,snapshotId:currentId,kind:'full',mode,items:[],nextCursor:null,resync,coverage:{scanned:0,matched:0,returned:0,omitted:0,filtered:0,truncated:0,offset,complete:true,traversalComplete:true,scope:composed?'light-dom + open-shadow + accessible same-origin-frame; closed-shadow/cross-origin-frame excluded':'light-dom; no iframe/shadow traversal',unsupportedCanvas:0,...(composed?{skippedFrames:0}:{})},budget:{kind:'estimated',method:'ceil(JSON.stringify(response).length/4)',limit:budget}};
+    const output={version:2,title:clip(doc.title||''),binding,snapshotId:currentId,kind:'full',mode,items:[],nextCursor:null,resync,coverage:{scanned:0,matched:0,returned:0,omitted:0,filtered:0,hidden:0,queryFiltered:0,truncated:0,offset,complete:true,traversalComplete:true,nextCursor:null,scope:composed?'light-dom + open-shadow + accessible same-origin-frame; closed-shadow/cross-origin-frame excluded':'light-dom; no iframe/shadow traversal',unsupportedCanvas:0,...(composed?{skippedFrames:0}:{})},budget:{kind:'estimated',method:'ceil(JSON.stringify(response).length/4)',limit:budget}};
     observer.disconnect();observer.observe(doc,{subtree:true,childList:true,attributes:true,characterData:true});
     frameDocs=new Map();
     const candidates=[];let pendingFragment=false;
@@ -538,19 +538,19 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
       if(mode==='table'&&role(node)!=='row')continue;
       if(mode==='interactive' && !node.matches(controls) && !actionRoles.has(role(node)))continue;
       const visibility=mode==='interactive'?interactionVisibility(node):null;
-      if(visibility?visibility.visible===false||!visible(visibility.target,viewport)||node.matches('input[type="hidden"]'):!visible(node,viewport)){output.coverage.filtered++;continue;}
+      if(visibility?visibility.visible===false||!visible(visibility.target,viewport)||node.matches('input[type="hidden"]'):!visible(node,viewport)){output.coverage.filtered++;output.coverage.hidden++;continue;}
       const value=mode==='interactive'?item(node,scope):fullItem(node,mode);
       if(visibility?.occluded)Object.assign(value,{blocked:'occluded',actionable:false});
       // 中文注释：短展示名可能藏住查询词或同名尾部；交互候选仍保留截断项并令覆盖率不完整，禁止误报唯一。
-      if((roles.length && !roles.includes(value.role)) || (queryFolded && !casefold(value.name).includes(queryFolded) && !(mode==='interactive'&&value.truncated))){output.coverage.filtered++;continue;}
+      if((roles.length && !roles.includes(value.role)) || (queryFolded && !casefold(value.name).includes(queryFolded) && !(mode==='interactive'&&value.truncated))){output.coverage.filtered++;output.coverage.queryFiltered++;continue;}
       if(seenKeys?.has(stableKey(node,value)))continue;
       output.coverage.matched++;if(value.truncated)output.coverage.truncated++;
-      if(output.coverage.matched<=offset || pendingFragment || candidates.length>=maxItems)continue;
+      if(output.coverage.matched<=offset || pendingFragment || candidates.length>=Math.min(maxItems,limit))continue;
       const parts=mode==='interactive'?null:fragments(value);
       if(parts){
         const index=output.coverage.matched===offset+1?fragmentOffset:0;
         if(index>=parts.length){output.coverage.traversalComplete=false;continue;}
-        for(let i=index;i<parts.length && candidates.length<maxItems;i++){
+        for(let i=index;i<parts.length && candidates.length<Math.min(maxItems,limit);i++){
           const nextFragment=i+1<parts.length?i+1:0;
           candidates.push({node,value:fragmentItem(value,parts[i],i),nextOffset:nextFragment?output.coverage.matched-1:output.coverage.matched,nextFragment});
           if(nextFragment)pendingFragment=true;
@@ -567,6 +567,7 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
       output.coverage.omitted=output.coverage.matched-new Set(output.items.map(i=>i.ref)).size;
       output.coverage.complete=output.coverage.traversalComplete&&(!composed || output.coverage.skippedFrames===0)&&offset===0&&fragmentOffset===0&&nextFragment===0&&output.coverage.omitted===0&&output.coverage.truncated===0;
       output.nextCursor=last&&(nextOffset<output.coverage.matched || nextFragment)?cursorId:null;
+      output.coverage.nextCursor=output.nextCursor;
       return {nextOffset,nextFragment};
     }
     update();while(Math.ceil(JSON.stringify(output).length/4)>budget && output.items.length){output.items.pop();update();}

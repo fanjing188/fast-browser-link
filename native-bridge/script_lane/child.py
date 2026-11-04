@@ -389,7 +389,7 @@ def page_text(*, tab=None):
 
 @_tab_scoped
 def semantic_snapshot(tab=None, **options):
-    """中文注释：返回 dict {binding, snapshotId, items, coverage, nextCursor, ...}；读 result['items']，coverage.complete=false 时按 nextCursor 续读。"""
+    """中文注释：返回 dict {binding, snapshotId, items, coverage, nextCursor, ...}。query 按可访问名称/文本筛选，role 或 roles 筛角色，limit 默认 20、上限 200；保持原选项并传 cursor=coverage['nextCursor'] 续读。coverage.hidden/queryFiltered/omitted 区分不可见、筛选和截断。"""
     binding = options.pop("_binding", None)
     document_epoch = options.pop("_document_epoch", None)
     no_query_recovery = options.pop("_no_query_recovery", False)

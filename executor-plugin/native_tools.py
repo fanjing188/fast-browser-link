@@ -131,7 +131,9 @@ def _semantic_options():
             "mode": {"type": "string", "enum": ["interactive", "content", "table"]},
             "root": _text(4096),
             "query": {"type": "string", "maxLength": 2000},
+            "role": _text(100),
             "roles": {"type": "array", "minItems": 0, "maxItems": 100, "items": _text(100)},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 200},
             "viewport": {"type": "boolean"},
             "composed": {"type": "boolean"},
             # 中文注释：显式 root 内最多补充 16 个复杂控件；不接受游标或增量基线。
@@ -543,7 +545,7 @@ def _public(value, raw=None):
             )
         if isinstance(row, dict) and row.get("state") == "pending_approval":
             row["message"] = (
-                "浏览器扩展正在自动安装任务，请先用get查询ready状态，不要重复创建；就绪后用new_tab创建工作页。连接授权后的普通动作无需逐项批准，特殊确认和凭据保护仍生效。"
+                "请在浏览器扩展里批准该任务；用get查询ready状态后再用new_tab创建工作页，不要重复创建任务。"
             )
     return result
 
@@ -857,6 +859,8 @@ def make_tool_handler(tool_name, profile_runtime, *, host_bridge=None, backend_c
                         "fields": exc.fields,
                         "retryable": False,
                         "outcome_unknown": False,
+                        "category": "usage",
+                        "hint": "请修正浏览器动作参数",
                     },
                     ensure_ascii=False,
                 )
@@ -1126,7 +1130,8 @@ def make_tool_handler(tool_name, profile_runtime, *, host_bridge=None, backend_c
                 "instance_unavailable": "浏览器扩展未连接；请检查连接后重新读取任务状态。",
                 "browser_launch_failed": "曾连接的浏览器启动失败；请手动打开并检查扩展连接。未创建任务。",
                 "invalid_state": "任务未就绪；请查看状态。若已结束，请重新 fast_browser_open。",
-                "task_preparing": "任务授权正在准备或等待浏览器批准；请先查询任务状态，ready 后重新调用。本次未执行。",
+                "task_preparing": "任务已批准，但浏览器或工作区授权仍在准备；请查询任务状态，ready 后重新调用。本次未执行。",
+                "approval_pending": "请在浏览器扩展里批准该任务。批准后查询 ready 状态，再重新调用；本次未执行。",
                 # 中文注释：截图超时不返回图片，也不建议自动重试。
                 "screenshot_timeout": "截图超时，未返回截图；请核对页面状态后再操作。",
                 "capture_sensitive_blocked": "敏感字段遮罩失败；请隐藏该字段或让用户手动截图。",
@@ -1288,6 +1293,7 @@ def make_tool_handler(tool_name, profile_runtime, *, host_bridge=None, backend_c
                     "instance_unavailable",
                     "incognito_access_required",
                     "task_preparing",
+                    "approval_pending",
                     "browser_access_revoked",
                     "target_occluded",
                     "target_hit_unverified",
@@ -1345,11 +1351,7 @@ def make_tool_handler(tool_name, profile_runtime, *, host_bridge=None, backend_c
                 and data.get("outcomeUnknown") is False
             )
             unknown = (
-                (
-                    data.get("outcomeUnknown") is True
-                    or code
-                    in {"outcome_unknown", "request_outcome_unavailable", "bridge_execution_failed"}
-                )
+                False
                 if read_only
                 else (
                     data.get("outcomeUnknown")
@@ -1369,10 +1371,12 @@ def make_tool_handler(tool_name, profile_runtime, *, host_bridge=None, backend_c
                 "retryable": bool(
                     data.get("retryable") is True
                     and code != "task_paused"
-                    and (read_only or code == "task_preparing")
+                    and (read_only or code in {"task_preparing", "approval_pending"})
                     and not unknown
                 ),
                 "outcome_unknown": unknown,
+                "category": data.get("category") if data.get("category") in {"usage", "site", "plugin"} else "plugin",
+                "hint": data.get("hint") if isinstance(data.get("hint"), str) and len(data["hint"]) <= 120 else "请查看错误码并检查任务状态",
             }
             # 中文注释：协议层固定码必须始终传给模型，未知码仍有稳定的分类入口。
             result["bridgeCode"] = code or "bridge_error"

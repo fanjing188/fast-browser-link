@@ -278,8 +278,9 @@ class TaskTests(unittest.TestCase):
         }
         with self.assertRaises(BridgeError) as caught:
             client.call("shared.run", run)
-        self.assertEqual(caught.exception.code, "task_preparing")
-        self.assertIn("ready", str(caught.exception))
+        self.assertEqual(caught.exception.code, "approval_pending")
+        self.assertEqual(caught.exception.data["category"], "site")
+        self.assertEqual(caught.exception.data["hint"], "请在浏览器扩展里批准该任务")
         self.assertEqual(caught.exception.data["outcomeUnknown"], False)
         self.assertEqual(caught.exception.data["retryable"], True)
         self.assertEqual(

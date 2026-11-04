@@ -2710,15 +2710,13 @@ export class Executor {
   if(p[PAGE_WAIT])return p[PAGE_WAIT].poll((action,options)=>this.performSettled(t,{...p,action,options}));
   const after=actionObservationOptions(p),modeGeneration=t.policy.modeGeneration;
   const finish=async result=>after?{...result,observation:result?.recovery?.observation||await this.observeAfterAction(t,p,after,modeGeneration)}:result;
-  // 中文注释：产品局部读取的空集是结果，不进入会扩大根、遍历与预算的目标恢复。
-  const queryRead=t.executionLane!=='product_work'&&p.noQueryRecovery!==true&&p.action==='semantic_snapshot'&&!!(p.options?.query||p.options?.roles?.length)&&!p.options?.cursor;
+  // 中文注释：快照查询零匹配是正常的只读结果；只有引用动作找不到目标才进入目标恢复。
   const execute=async params=>{
    this.check(t,params);
    if(t.paused||t.pauseRequested)throw Object.assign(Error('task paused'),{preDispatch:true});
    const scrub=['js.evaluate','console','network.inspect','cdp.events'].includes(params.action);
    if(scrub)await this.collectPasswords(t,params);
    const result=await (Number.isInteger(params.tabId)?this.performSettled(t,params):this.perform(t,params));
-   if(queryRead&&params.action===p.action&&result?.items?.length===0)throw Object.assign(Error('REF_TARGET_MISSING'),{preDispatch:true});
    return scrub?omitPasswordValues(result,await this.collectPasswords(t,params)):result;
   };
   const remember=result=>{
@@ -2731,7 +2729,7 @@ export class Executor {
   };
   // 中文注释：脚本已只读等待网页遮挡自然消失；这次引用动作失败后直接拒绝，不进入会发 Escape 或点击关闭按钮的恢复轮次。
   if(p.noAutoRecovery===true&&['ref_click','ref_fill','ref_press'].includes(p.action))return finish(remember(await execute(p)));
-  if(!RECOVERY_ACTIONS.has(p.action)&&!queryRead)return remember(await execute(p));
+  if(!RECOVERY_ACTIONS.has(p.action))return remember(await execute(p));
   const saved=t.recoveryRefs?.get(p.ref);
   if(saved&&(saved.tabId!==p.tabId||canonical(saved.binding)!==canonical(p.binding)))throw Object.assign(Error('BINDING_MISMATCH'),{preDispatch:true});
   const hint={...(saved?.tabId===p.tabId?saved:{ref:p.ref,name:p.options?.query,role:p.options?.roles?.[0]}),binding:p.binding,frameToken:p.frameToken};
@@ -2773,7 +2771,7 @@ export class Executor {
    }
   };
   return finish(remember(await recoverTarget({action:p.action,hint,
-   run:(chosen,round)=>runOnce(chosen&&!queryRead?{...p,action:({click:'ref_click',fill:'ref_fill',press:'ref_press'}[p.action]||p.action),
+   run:(chosen,round)=>runOnce(chosen?{...p,action:({click:'ref_click',fill:'ref_fill',press:'ref_press'}[p.action]||p.action),
     ref:chosen.ref,snapshotId:chosen.snapshotId,binding:chosen.binding,frameToken:chosen.frameToken,[RECOVERY_ROUND]:round}:p),
    settle:async()=>{
     guard();const target={tabId:p.tabId},deadline=Date.now()+3000;

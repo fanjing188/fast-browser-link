@@ -415,7 +415,8 @@ class BridgeIntegrationTests(unittest.TestCase):
         self.assertEqual(int((data_dir / "daemon.pid").read_text()), pid)
 
     def test_installer_stages_chrome_and_edge_manifests_only_in_isolated_home(self):
-        isolated_home = Path(self.temp.name) / "mac-home"
+        # 中文注释：安装器返回规范化绝对路径，比较时也要解析 /tmp 符号链接。
+        isolated_home = Path(self.temp.name).resolve() / "mac-home"
         origin = "chrome-extension://hhnljehnkmhhgjjjmnlhilfpcjhobloc/"
         subprocess.run(
             [

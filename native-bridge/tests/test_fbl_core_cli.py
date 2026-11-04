@@ -21,7 +21,8 @@ from fbl_runtime import Context
 class CoreLogTests(unittest.TestCase):
     def test_execution_view_and_bundle_exclude_legacy_assist_data(self):
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+            # 中文注释：macOS 的 /tmp 是符号链接，真实临时目录先规范化再交给安全路径检查。
+            root = Path(temporary).resolve()
             context = Context(root / "user", root / "hermes", root / "runtime")
             context.data.mkdir(parents=True)
             sink = JsonlDiagnosticSink(context.data / "diagnostics")

@@ -18,8 +18,8 @@ import { configureOAuthFixture } from './oauth-fixture.mjs';
 
 const exec = promisify(execFile);
 export const root = path.resolve(import.meta.dirname, '../..');
-const python =
-  process.env.HERMES_PYTHON || path.join(process.env.HOME, '.hermes/hermes-agent/venv/bin/python');
+// 中文注释：真实夹具优先使用指定解释器，否则从 PATH 查找 python3，不依赖个人 Hermes venv。
+const python = process.env.FBL_TEST_PYTHON || 'python3';
 const helper = path.join(import.meta.dirname, 'real-helper.py');
 // 中文注释：默认保留旧短临时根目录；compactScratch 只使用指定 TMPDIR，延迟解析以免触及 /tmp。
 const scratchRoot = (compactScratch) => {
@@ -59,17 +59,36 @@ export const browserPaths = {
 export const sha256 = (data) => createHash('sha256').update(data).digest('hex');
 
 export async function helperCall(...args) {
-  const { stdout } = await exec(python, [helper, ...args], {
-    cwd: root,
-    env: {
-      ...process.env,
-      PYTHONDONTWRITEBYTECODE: '1',
-      HERMES_SOURCE:
-        process.env.HERMES_SOURCE || path.join(process.env.HOME, '.hermes/hermes-agent'),
-    },
-    timeout: 240000,
-    maxBuffer: 8 * 1024 * 1024,
-  });
+  let stdout;
+  try {
+    ({ stdout } = await exec(python, [helper, ...args], {
+      cwd: root,
+      env: {
+        ...process.env,
+        PYTHONDONTWRITEBYTECODE: '1',
+        HERMES_SOURCE:
+          process.env.HERMES_SOURCE || path.join(process.env.HOME, '.hermes/hermes-agent'),
+      },
+      timeout: 240000,
+      maxBuffer: 8 * 1024 * 1024,
+    }));
+  } catch (error) {
+    if (error.code === 'ENOENT')
+      throw Error(
+        `找不到测试 Python 解释器 ${python}；请安装 PATH 中的 python3 或设置 FBL_TEST_PYTHON 为可执行路径。`,
+        { cause: error },
+      );
+    if (
+      /ModuleNotFoundError: No module named ['"](?:hermes_cli|agent|tools)['"]/.test(
+        error.stderr || '',
+      )
+    )
+      throw Error(
+        '真实浏览器 RPC 需要仓库外的 Hermes 源码模块（hermes_cli、agent、tools）；请设置 HERMES_SOURCE 为完整 Hermes 测试源码目录，并用 FBL_TEST_PYTHON 指向具备其依赖的 Python。',
+        { cause: error },
+      );
+    throw error;
+  }
   return JSON.parse(stdout.trim().split('\n').filter(Boolean).at(-1) || '{}');
 }
 

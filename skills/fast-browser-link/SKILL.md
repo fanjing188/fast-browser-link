@@ -18,7 +18,7 @@ description: 使用用户已登录的 Chrome 或 Edge 执行普通或无痕网�
 4. 保存返回的 `id`。用 `get '{"taskId":"id"}'` 确认 `state=ready`。未就绪时保留原任务，不重复创建。
 5. `run '{"taskId":"id","action":"new_tab","url":"https://example.com"}'` 创建工作页；保存返回的标签 ID。
    可传 `waitFor:"idle"` 或 `waitFor:{"type":"selector"|"text","value":"..."}` 与 `timeoutMs`（1000–45000）；默认 `load`。等待超时返回 `ready:false`、`category:site`、`retryable:true`，导航已发生，不重复开页。
-6. `run '{"taskId":"id","tabId":123,"action":"semantic_snapshot"}'` 读取。使用新快照的 `binding`、`snapshotId`、`ref` 执行 `ref_click` / `ref_fill`。复杂参数通过 stdin 传入，将最后一个参数设为 `-`，避免 shell 插值。
+6. `run '{"taskId":"id","tabId":123,"action":"semantic_snapshot"}'` 读取。按 `options.query` 查询无匹配时返回 `items:[]`、`coverage.matched:0`，不进入引用恢复；`reference_target_missing` 只用于引用动作。使用新快照的 `binding`、`snapshotId`、`ref` 执行 `ref_click` / `ref_fill`。复杂参数通过 stdin 传入，将最后一个参数设为 `-`，避免 shell 插值。
    快照默认最多 20 条；`options.limit` 允许 1–200，`budget` 为估算预算（最少 512）。`options.query` 按可访问名称或文本查找，配 `role` 筛单一角色、`roles` 筛多个角色、`root` 缩小范围，例如 `"options":{"query":"创建","role":"button","limit":50,"budget":12000}`。响应有 `coverage.nextCursor` 时保持原 options 并加上 `cursor` 续读；`hidden`、`queryFiltered`、`omitted` 分别表示不可见、查询过滤、分页/预算截断。检查 `coverage.complete`。
 7. 完成后 `close '{"taskId":"id"}'`，只关闭自己的任务。
 

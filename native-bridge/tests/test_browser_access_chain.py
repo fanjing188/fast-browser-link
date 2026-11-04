@@ -46,6 +46,7 @@ class BrowserAccessChainTests(unittest.TestCase):
                     "instanceId": "target-browser",
                     "browser": "chrome",
                     "version": "0.1.0",
+                    "loadedBuildId": None,
                     # 中文注释：未声明能力时返回空能力列表，不推断浏览器支持情况。
                     "features": [],
                     "connected": True,

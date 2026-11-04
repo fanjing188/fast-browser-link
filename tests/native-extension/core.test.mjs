@@ -316,6 +316,34 @@ test('helper 查询空结果只读取一次，不在内部重扫到另一文档'
   assert.equal(scans, 0);
 });
 
+test('普通快照按名称或角色无匹配时返回空集，不触发引用恢复', async () => {
+  const { Executor } = await load();
+  const executor = new Executor(workspaceFixture().api);
+  await executor.approve(task());
+  const current = executor.tasks.get('a');
+  let reads = 0;
+  executor.performSettled = async () => {
+    reads++;
+    return { kind: 'full', items: [], coverage: { matched: 0, complete: true } };
+  };
+  executor.checkedFrameTree = async () => {
+    throw Error('unexpected reference recovery');
+  };
+  for (const options of [{ query: '网站' }, { roles: ['button'] }]) {
+    const result = await executor.performRecovering(current, {
+      taskId: 'a',
+      generation: 1,
+      tabId: 1,
+      action: 'semantic_snapshot',
+      options,
+    });
+    assert.deepEqual(result.items, []);
+    assert.equal(result.coverage.matched, 0);
+    assert.equal(result.recovery, undefined);
+  }
+  assert.equal(reads, 2);
+});
+
 test('自然等待后的引用动作被遮挡时只执行一次，不进入自动恢复或关闭遮挡层', async () => {
   const { Executor } = await load();
   const executor = new Executor(workspaceFixture().api);

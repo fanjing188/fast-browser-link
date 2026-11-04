@@ -73,6 +73,22 @@ test('bound semantic read rejects documentElement replacement with the same bind
     f.close();
   }
 });
+test('语义世界版本 15 使旧版本实例失效并重建', () => {
+  const f = fixture('<button>创建</button>');
+  try {
+    const call = f.w.eval(`(${semanticWorldDeclaration})`);
+    const payload = { binding: f.binding, options: { mode: 'interactive' } };
+    const first = call('semantic_snapshot', payload);
+    const previous = f.w.__fastNativeSemanticsV2;
+    assert.equal(previous.version, 15);
+    previous.version = 14;
+    const next = call('semantic_snapshot', payload);
+    assert.notEqual(next.documentEpoch, first.documentEpoch);
+    assert.equal(f.w.__fastNativeSemanticsV2.version, 15);
+  } finally {
+    f.close();
+  }
+});
 
 test('unbound read after documentElement replacement cannot revive an old bound read', () => {
   const f = fixture('<button>Continue</button>');
@@ -166,17 +182,97 @@ for (const mode of ['delayed', 'persistent'])
       leaseId: 'fixture-lease',
     });
     try {
-      assert.equal(semantics.snapshot().items[0].blocked, 'occluded');
-      await new Promise((resolve) => setTimeout(resolve, 240));
       assert.equal(
         semantics.snapshot().items[0].blocked,
-        mode === 'persistent' ? 'occluded' : undefined,
+        mode === 'persistent' ? undefined : 'occluded',
       );
+      await new Promise((resolve) => setTimeout(resolve, 240));
+      assert.equal(semantics.snapshot().items[0].blocked, undefined);
     } finally {
       semantics.revoke();
       dom.window.close();
     }
   });
+test('后台文档按布局保留按钮，查询仍可找到，且跳过不可靠的可见性与命中测试', () => {
+  const f = fixture('<button id="create">创建</button>');
+  try {
+    Object.defineProperty(f.doc, 'visibilityState', { configurable: true, value: 'hidden' });
+    const button = f.doc.querySelector('#create');
+    button.checkVisibility = () => false;
+    f.doc.elementFromPoint = () => null;
+    const page = f.semantics.snapshot({ roles: ['button'], query: '创建' });
+    assert.equal(page.items.length, 1);
+    assert.equal(page.items[0].name, '创建');
+    assert.equal(page.items[0].blocked, undefined);
+    assert.equal(page.coverage.hidden, 0);
+  } finally {
+    f.close();
+  }
+});
+test('后台文档的空 getClientRects 不剪掉有布局矩形的控件', () => {
+  const f = fixture('<main><section><button id="create">创建</button></section></main>');
+  try {
+    Object.defineProperty(f.doc, 'visibilityState', { configurable: true, value: 'hidden' });
+    f.w.HTMLElement.prototype.getClientRects = () => [];
+    f.w.HTMLElement.prototype.checkVisibility = () => false;
+    f.doc.elementFromPoint = () => null;
+    const page = f.semantics.snapshot({ roles: ['button'], query: '创建' });
+    assert.equal(page.items.length, 1);
+    assert.equal(page.items[0].name, '创建');
+    assert.equal(page.items[0].blocked, undefined);
+    assert.equal(page.coverage.hidden, 0);
+    assert.equal(page.coverage.prunedSubtrees || 0, 0);
+    const bundled = f.w.eval(`(${semanticWorldDeclaration})`)(
+      'semantic_snapshot',
+      { binding: f.binding, options: { roles: ['button'], query: '创建' } },
+    );
+    assert.equal(bundled.items.length, 1);
+    assert.equal(bundled.coverage.hidden, 0);
+  } finally {
+    f.close();
+  }
+});
+test('后台暂停的透明过渡祖先不隐藏按钮，并在源码与打包副本中报告 coverage', () => {
+  for (const marker of ['transition-duration: .3s', 'animation-duration: .3s', 'class']) {
+    const css = marker === 'class' ? 'opacity: 0' : `opacity: 0; ${marker}`;
+    const className = marker === 'class' ? ' class="fade-transform-enter-from"' : '';
+    const f = fixture(`<main${className} style="${css}"><button id="create">创建</button></main>`);
+    try {
+      Object.defineProperty(f.doc, 'visibilityState', { configurable: true, value: 'hidden' });
+      const options = { mode: 'interactive', roles: ['button'], query: '创建' };
+      const page = f.semantics.snapshot(options);
+      assert.equal(page.items.length, 1, marker);
+      assert.equal(page.coverage.documentHidden, true);
+      assert.ok(page.coverage.pausedTransitions > 0, marker);
+      const bundled = f.w.eval(`(${semanticWorldDeclaration})`)(
+        'semantic_snapshot', { binding: f.binding, options },
+      );
+      assert.equal(bundled.items.length, 1, marker);
+      assert.equal(bundled.coverage.documentHidden, true);
+      assert.ok(bundled.coverage.pausedTransitions > 0, marker);
+    } finally {
+      f.close();
+    }
+  }
+});
+test('静态透明祖先、按钮自身透明及前台过渡仍保持不可见', () => {
+  for (const { html, hidden } of [
+    { html: '<main style="opacity: 0"><button>创建</button></main>', hidden: true },
+    { html: '<main style="transition: opacity .3s"><button style="opacity: 0">创建</button></main>', hidden: true },
+    { html: '<main style="opacity: 0; transition: opacity .3s"><button>创建</button></main>', hidden: false },
+  ]) {
+    const f = fixture(html);
+    try {
+      Object.defineProperty(f.doc, 'visibilityState', { configurable: true, value: hidden ? 'hidden' : 'visible' });
+      const page = f.semantics.snapshot({ mode: 'interactive', roles: ['button'] });
+      assert.equal(page.items.length, 0);
+      assert.equal(page.coverage.documentHidden, hidden);
+      assert.equal(page.coverage.pausedTransitions, 0);
+    } finally {
+      f.close();
+    }
+  }
+});
 function retained(f, name) {
   const page = f.semantics.snapshot({ composed: true }),
     item = page.items.find((item) => item.name === name);

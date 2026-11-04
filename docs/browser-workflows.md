@@ -2,7 +2,7 @@
 
 ## 语义快照取更多条
 
-`semantic_snapshot` 的读取参数放在 `options`：`query` 按可访问名称或文本筛选，`role` 筛单一角色（多角色用 `roles`），`limit` 默认 20、允许 1–200，`root` 缩小范围，`budget` 是估算预算（最少 512）。示例：`{"action":"semantic_snapshot","options":{"query":"创建","role":"button","limit":50,"budget":12000}}`。名称或角色无匹配时返回 `items:[]` 和 `coverage.matched:0`，不会触发引用恢复；`reference_target_missing` 仅用于按引用执行的动作。响应带 `coverage.nextCursor`（同顶层 `nextCursor`）时，保持原 options 并加上 `cursor` 读取下一页；`coverage.hidden` 统计不可见项，`coverage.queryFiltered` 统计名称/角色过滤项，`coverage.omitted` 统计分页或预算截断项。每页检查 `coverage.complete`。页面变化后重新读取，不复用旧 cursor 或引用。
+`semantic_snapshot` 的读取参数放在 `options`：`query` 按可访问名称或文本筛选，`role` 筛单一角色（多角色用 `roles`），`limit` 默认 20、允许 1–200，`root` 缩小范围，`budget` 是估算预算（最少 512）。示例：`{"action":"semantic_snapshot","options":{"query":"创建","role":"button","limit":50,"budget":12000}}`。名称或角色无匹配时返回 `items:[]` 和 `coverage.matched:0`，不会触发引用恢复；`reference_target_missing` 仅用于按引用执行的动作。响应带 `coverage.nextCursor`（同顶层 `nextCursor`）时，保持原 options 并加上 `cursor` 读取下一页；`coverage.hidden` 统计不可见项，`coverage.queryFiltered` 统计名称/角色过滤项，`coverage.omitted` 统计分页或预算截断项。`coverage.documentHidden` 标记读取时文档在后台；`coverage.pausedTransitions` 统计后台扫描中跳过的透明过渡祖先判断次数，非零时应再次读回页面状态。每页检查 `coverage.complete`。页面变化后重新读取，不复用旧 cursor 或引用。
 
 2.6.0 候选新增 Python helper：`wait_until`、`run_steps`、`diagnose_target`、`execution_status`、`recover_page`、`read_resilient`。SDK、JSON CLI、MCP 和 Hermes 都通过原有 `script` 执行链调用；没有新增常驻工具或第二套浏览器执行器。宿主先核本任务绑定实例的 `browser_workflow_v1`，旧组件返回 `workflow_unsupported`，不切换执行方式。恢复与执行保护另核 `execution_resilience_v1`；`run_steps` 同时要求两种能力。需要同时升级宿主和扩展。
 

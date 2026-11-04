@@ -181,9 +181,8 @@ export class PageRuntime {
     };
     // 中文注释：函数参数作为 CDP 值传递，不插入可执行源码。
     const evaluation = (async () => {
-      const callable = Object.hasOwn(p, 'arguments');
-      // 中文注释：evaluate(function, arguments) 只接受函数字面量；普通表达式在派发前拒绝，
-      // 避免把确定的用法错误记成未知页面写入。无 arguments 的底层 js() 保留原始表达式语义。
+      // 中文注释：函数表达式即使省略 arguments 也须调用；显式传参仍拒绝普通表达式。
+      const callable = Object.hasOwn(p, 'arguments') || looksLikeJsFunction(p.expression);
       if (callable && !looksLikeJsFunction(p.expression)) throw fail('INVALID_JS_FUNCTION');
       if (callable) {
         // CDP 编译阶段不运行网页代码；语法错误可确定没有派发函数体。
@@ -219,7 +218,7 @@ export class PageRuntime {
       return api.sendCommand(target, 'Runtime.callFunctionOn', {
         objectId: value.result.objectId,
         functionDeclaration: 'function(argument){return this(argument)}',
-        arguments: [{ value: p.arguments }],
+        arguments: [{ value: Object.hasOwn(p, 'arguments') ? p.arguments : [] }],
         returnByValue: false,
         awaitPromise: true,
         userGesture: false,

@@ -117,6 +117,24 @@ test('evaluate rejects a non-function before page evaluation and accepts the nex
   assert.equal(reply.result.value, '/a');
 });
 
+for (const entry of ['CLI/MCP 共用桥接', '脚本共用运行时'])
+  test(`${entry} 省略 arguments 的函数表达式会调用，默认参数为空数组`, async () => {
+    const f = fixture();
+    f.replies['Runtime.evaluate'] = () => ({ result: { type: 'function', objectId: 'fn' } });
+    f.replies['Runtime.callFunctionOn'] = () => ({
+      result: { type: 'object', value: { done: true } },
+    });
+    const request = { action: 'js.evaluate', tabId: 7, expression: '()=>({done:true})' };
+    const result =
+      entry === '脚本共用运行时'
+        ? await f.controller.evaluate(f.task, request, guard)
+        : await runtimeRequest(f, request);
+    assert.equal((entry === '脚本共用运行时' ? result : result.result).value.done, true);
+    const call = f.sent.find((row) => row.method === 'Runtime.callFunctionOn');
+    assert.ok(call);
+    assert.deepEqual(call.params.arguments, [{ value: [] }]);
+  });
+
 test('evaluate syntax failure is classified before page execution', async () => {
   const f = fixture();
   f.replies['Runtime.compileScript'] = () => ({
@@ -188,7 +206,12 @@ for (const stage of ['frame tree', 'frame resolution', 'isolated world', 'world 
     assert.equal(f.sent.filter((row) => row.method === 'Runtime.evaluate').length, 0);
     assert.equal(f.sent.filter((row) => row.method === 'Runtime.callFunctionOn').length, 0);
     assert.equal(reply.error.code, 'runtime_preparation_failed');
-    assert.deepEqual(reply.error.data, { outcomeUnknown: false, retryable: false });
+    assert.deepEqual(reply.error.data, {
+      category: 'plugin',
+      hint: '请查看插件诊断并报告错误码',
+      outcomeUnknown: false,
+      retryable: false,
+    });
     assert.doesNotMatch(JSON.stringify(reply), /PRIVATE_PREPARATION_CANARY/);
   });
 
@@ -252,7 +275,12 @@ for (const method of ['Runtime.evaluate', 'Runtime.callFunctionOn'])
       params: {},
     });
     assert.equal(f.sent.filter((row) => row.method === method).length, 0);
-    assert.deepEqual(result.error.data, { outcomeUnknown: false, retryable: false });
+    assert.deepEqual(result.error.data, {
+      category: 'plugin',
+      hint: '请查看插件诊断并报告错误码',
+      outcomeUnknown: false,
+      retryable: false,
+    });
     assert.doesNotMatch(JSON.stringify(result), /PRIVATE_PREPARATION_CANARY/);
   });
 
@@ -288,7 +316,12 @@ test('production Executor debugger-attach failure does not claim JS was dispatch
     ).length,
     0,
   );
-  assert.deepEqual(result.error.data, { outcomeUnknown: false, retryable: false });
+  assert.deepEqual(result.error.data, {
+    category: 'plugin',
+    hint: '请查看插件诊断并报告错误码',
+    outcomeUnknown: false,
+    retryable: false,
+  });
   assert.doesNotMatch(JSON.stringify(result), /PRIVATE_PREPARATION_CANARY/);
 });
 

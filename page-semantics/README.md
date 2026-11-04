@@ -75,6 +75,7 @@ Errors are ordinary `Error` objects with stable messages: `BINDING_REQUIRED`, `I
   resync: null,    // or { reason }
   coverage: {
     scanned, matched, returned, omitted, filtered, truncated, offset,
+    documentHidden, pausedTransitions,
     complete, traversalComplete,
     scope: 'light-dom; no iframe/shadow traversal' // changes for composed:true
   },
@@ -94,6 +95,7 @@ Errors are ordinary `Error` objects with stable messages: `BINDING_REQUIRED`, `I
 - `composed:true` traverses light DOM, open shadow roots, and reachable same-origin frame bodies under the chosen root, including nested combinations. `coverage.scope` names this narrower reachability; `coverage.skippedFrames` counts inaccessible/unready frames and forces `complete:false`. Closed shadow roots, cross-origin frames, browser UI, and CSS pseudo-element text are out of scope. The main document's `root` selector still selects in the main document, not inside a shadow/frame. Shadow `aria-labelledby` IDs resolve within their own tree root. Hidden/private hosts, frame elements, and CSS-hidden ancestors suppress nested content. Same-name controls keep unique node refs (not a generated selector/path); `resolve` returns the actual node, including in a frame.
 - `matched` counts matches in the **scanned prefix**, not an asserted whole-document total when `traversalComplete=false`.
 - `returned` is the current materialized **entry/fragment** count, even for deltas; several entries can share one ref. `omitted = matched - distinct returned refs` counts unrepresented matched **nodes** (including earlier pages); it never goes negative. `filtered` counts semantic candidates rejected by visibility/query/roles. `truncated` counts matched nodes with irreversibly shortened fields, **not** ordinary recoverable fragments.
+- `documentHidden` records whether the main document was in the background when scanned. `pausedTransitions` counts skipped zero-opacity ancestor checks in background documents when a transition, animation, or transition-state class is present. It counts checks, not distinct elements; the target element's own zero opacity remains hidden.
 - `complete` only means all matches in the declared semantic scope were returned without irreversible text truncation and traversal was exhaustive (and no inaccessible frames were encountered in composed mode). It does **not** imply the complete rendered/accessibility page, especially where closed shadow roots exist. A single page can be complete with multiple fragments of the same node; conversely the last page can have no cursor but still be incomplete due to earlier pages, scan caps, text caps, or an entry too large for budget. Aggregate pages to reconstruct; never treat `complete:false` alone as proof that another cursor exists.
 - Budget checks the **entire serialized response**, including metadata, refs, coverage and delta lists. It is an explicit UTF-16-character-based estimate; it can underestimate actual multilingual/model tokens. No tokenizer or token-cost claim is made.
 

@@ -458,6 +458,9 @@ def evaluate(
     function, arguments=None, *, world="isolated", timeout_ms=10000, frame_token=None, tab=None
 ):
     """中文注释：返回函数的 JSON 值；evaluate('(selector)=>document.querySelector(selector)?.textContent', '#result') 用 arguments 传数据。isolated 共享 DOM、不共享网站 JS 全局变量；main 仅确需网站变量时显式指定，禁止错误后自动切换。"""
+    # 中文注释：脚本省略参数时与 CLI/MCP 一样传空数组，不传 null。
+    if arguments is None:
+        arguments = []
     json.dumps(arguments, allow_nan=False)
     params = {
         "expression": function,

@@ -19,7 +19,7 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
   // 中文注释：无障碍补充只保存在真实节点上，任何 DOM epoch 变化都会使其失效。
   const axNames=new WeakMap();
   // 中文注释：样式和上下文缓存只活在一次同步解析内，下一次读或动作必定重新计算。
-  let styles=new WeakMap(),contexts=new WeakMap(),surfaces=new WeakMap();
+  let styles=new WeakMap(),contexts=new WeakMap(),surfaces=new WeakMap(),pausedTransitions=0;
   const computed=node=>{if(!styles.has(node))styles.set(node,node.ownerDocument.defaultView.getComputedStyle(node));return styles.get(node);};
   const parentOf=node=>node.assignedSlot||node.parentElement||node.getRootNode().host||node.ownerDocument.defaultView?.frameElement;
   const docRoot=doc.documentElement;
@@ -258,6 +258,13 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
   // 本段改编自 NousResearch/hermes-agent 的 preview-act/visibility.ts:53-143。
   // Copyright (c) 2025 Nous Research；MIT，完整许可见 third-party/licenses/hermes-agent-MIT.txt。
   // 中文注释：沿用组合祖先和本次样式缓存；视觉限制只用于交互，不改变正文读取。
+  const nonzeroDuration=value=>String(value||'').split(',').some(part=>parseFloat(part)>0);
+  const transitioning=(el,s)=>{
+    if(el.getAnimations?.().some(animation=>animation.playState!=='finished'&&animation.playState!=='idle'))return true;
+    if(nonzeroDuration(s.transitionDuration)||nonzeroDuration(s.animationDuration))return true;
+    // 中文注释：后台 rAF 暂停时动画对象可能尚未建立，Vue 过渡类名仅作兜底。
+    return /(?:^|\s)[\w-]+-(?:enter-from|enter-active|leave-active)(?:\s|$)/.test(el.className?.baseVal??el.className??'');
+  };
   function visible(n,vp,act=false,l=true){
     if(isOverlay(n))return false;
     // 中文注释：插槽隐私和隐藏状态同样约束被分配的 light DOM 节点，包括宿主提供的封闭根。
@@ -268,11 +275,18 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
       for(let el=a;el;el=el.parentElement){
         if(el.matches('[hidden],[aria-hidden="true"],[inert]'))return false;
         const s=computed(el);
-        if(act&&(s.opacity==='0'||s.clip&&s.clip!=='auto'||(s.clipPath||'').includes('inset(50%')||el===n&&el.checkVisibility?.({checkOpacity:true,checkVisibilityCSS:true})===false))return false;
+        // 中文注释：后台文档的 checkVisibility 可能受前台绘制状态影响；此时只用布局与样式判断。
+        const pausedOpacity=act&&el!==n&&s.opacity==='0'&&el.ownerDocument.visibilityState==='hidden'&&transitioning(el,s);
+        if(pausedOpacity)pausedTransitions++;
+        if(act&&(s.opacity==='0'&&!pausedOpacity||s.clip&&s.clip!=='auto'||(s.clipPath||'').includes('inset(50%')||el===n&&el.ownerDocument.visibilityState!=='hidden'&&el.checkVisibility?.({checkOpacity:true,checkVisibilityCSS:true})===false))return false;
         if((el!==n||l)&&(s.display==='none'||el===a&&['hidden','collapse'].includes(s.visibility)))return false;
       }
       // 中文注释：display:contents 没有自身矩形，但其正文和子控件仍参与布局。
-      if((a!==n||l)&&!a.getClientRects().length&&computed(a).display!=='contents')return false;
+      if((a!==n||l)&&computed(a).display!=='contents'){
+        // 中文注释：后台文档可能没有可绘制矩形；布局矩形仍可证明控件占有空间。
+        const rect=a.getBoundingClientRect();
+        if(a.ownerDocument.visibilityState==='hidden'?rect.width<=0||rect.height<=0:!a.getClientRects().length)return false;
+      }
       a=a.getRootNode().host || (a.ownerDocument!==doc ? a.ownerDocument.defaultView?.frameElement : null);
     }
     if(!vp)return true;
@@ -316,7 +330,8 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
       const d=cur.ownerDocument,v=d.defaultView,rt=cur.getRootNode();
       const ok=iv&&p.x>=0&&p.y>=0&&p.x<v.innerWidth&&p.y<v.innerHeight&&geo(cur,p);
       iv&&=ok;
-      if(ok){
+      // 中文注释：后台文档的命中测试可能返回 null；布局可见性不能因此变成遮挡。
+      if(ok&&d.visibilityState!=='hidden'){
         const ctx=rt.host&&(rt.elementsFromPoint||rt.elementFromPoint)?rt:d;
         if(ctx.elementsFromPoint||ctx.elementFromPoint){
           // 中文注释：穿过插件浮层检查首个网页元素，避免浮层掩盖网页自身的遮挡。
@@ -504,6 +519,7 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
   }
   function snapshot(options={}){
     sync();
+    pausedTransitions=0;
     if('accessibility' in options&&typeof options.accessibility!=='boolean')throw Error('INVALID_OPTIONS');
     const {mode='interactive',root=null,query='',role:roleFilter=null,roles=roleFilter?[roleFilter]:[],limit=20,viewport=false,budget=3000,cursor=null,baselineId=null,composed=false}=options;
     if(!selectors[mode] || typeof query!=='string' || query.length>2000 || (roleFilter!==null&&(typeof roleFilter!=='string'||!roleFilter||roleFilter.length>100)) || !Array.isArray(roles) || roles.length>100 || roles.some(r=>typeof r!=='string'||r.length>100) || !Number.isSafeInteger(limit)||limit<1||limit>200 || typeof viewport!=='boolean' || typeof composed!=='boolean' || !Number.isSafeInteger(budget) || budget<512)throw new Error('INVALID_OPTIONS');
@@ -524,7 +540,7 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
     if(baselineId && !resync){if(baseline?.id!==baselineId)resync={reason:'baseline_unavailable'};else if(baseline.key!==key)resync={reason:'parameters_changed'};}
     currentId=`${instance}:s${++generation}`;active=new Map();cursorState=null;
     // 中文注释：标题沿用语义快照的脱敏与网页内容过滤，再进入打开回执摘要。
-    const output={version:2,title:clip(doc.title||''),binding,snapshotId:currentId,kind:'full',mode,items:[],nextCursor:null,resync,coverage:{scanned:0,matched:0,returned:0,omitted:0,filtered:0,hidden:0,queryFiltered:0,truncated:0,offset,complete:true,traversalComplete:true,nextCursor:null,scope:composed?'light-dom + open-shadow + accessible same-origin-frame; closed-shadow/cross-origin-frame excluded':'light-dom; no iframe/shadow traversal',unsupportedCanvas:0,...(composed?{skippedFrames:0}:{})},budget:{kind:'estimated',method:'ceil(JSON.stringify(response).length/4)',limit:budget}};
+    const output={version:2,title:clip(doc.title||''),binding,snapshotId:currentId,kind:'full',mode,items:[],nextCursor:null,resync,coverage:{scanned:0,matched:0,returned:0,omitted:0,filtered:0,hidden:0,queryFiltered:0,truncated:0,offset,complete:true,traversalComplete:true,nextCursor:null,scope:composed?'light-dom + open-shadow + accessible same-origin-frame; closed-shadow/cross-origin-frame excluded':'light-dom; no iframe/shadow traversal',unsupportedCanvas:0,documentHidden:doc.visibilityState==='hidden',pausedTransitions:0,...(composed?{skippedFrames:0}:{})},budget:{kind:'estimated',method:'ceil(JSON.stringify(response).length/4)',limit:budget}};
     observer.disconnect();observer.observe(doc,{subtree:true,childList:true,attributes:true,characterData:true});
     frameDocs=new Map();
     const candidates=[];let pendingFragment=false;
@@ -558,6 +574,7 @@ export function createPageSemantics({document: doc = globalThis.document, taskId
         }
       } else candidates.push({node,value,nextOffset:output.coverage.matched,nextFragment:0});
     }
+    output.coverage.pausedTransitions=pausedTransitions;
     output.items=candidates.map(c=>c.value);
     const cursorId=`${currentId}:page`;
     function update(){

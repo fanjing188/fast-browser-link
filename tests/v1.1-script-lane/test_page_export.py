@@ -37,6 +37,14 @@ def workspace():
 
 
 class ExportTests(unittest.TestCase):
+    def test_evaluate_omitted_arguments_uses_empty_array(self):
+        # 中文注释：脚本入口默认参数与 CLI/MCP 的省略参数语义一致。
+        with patch.object(child, "_call", return_value={"ok": True, "value": 42}) as call:
+            self.assertEqual(child.evaluate("()=>42"), 42)
+        self.assertEqual(call.call_args.args[0], "run")
+        self.assertEqual(call.call_args.args[1][0], "js.evaluate")
+        self.assertEqual(call.call_args.args[1][1]["arguments"], [])
+
     def test_script_history_supports_repeated_export_and_keeps_paginated_ambiguity(self):
         self.resources = [
             {"url": "https://example.test/a.js", "type": "Script", "mimeType": "text/javascript"}

@@ -36,6 +36,8 @@ description: 使用用户已登录的 Chrome 或 Edge 执行普通或无痕网�
 
 `site_search {"query":"...","limit":20}` 查已验证启用工具及契约；`site_run {"taskId":"id","site":"...","name":"...","args":{}}` 运行，仍校验任务来源和参数/结果。独立路径不开放 define/try/activate。支持 health/browsers/create/get/list/run/operation_status/close/cancel/resume/downloads/download_claim/download_cancel。MCP 启动 `python3 <安装目录>/runtime/agent-link/fast_browser_link.py --mcp`，每进程身份隔离。
 
+重复后台流程的定义、参数/结果断言及真实试跑注意事项见 [固定后台流程指南](../../docs/workflow-tools.md#给-agent-的固定后台流程指南)。
+
 
 ## 登录、文件及交接
 

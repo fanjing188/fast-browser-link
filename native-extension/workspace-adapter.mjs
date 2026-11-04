@@ -13,6 +13,7 @@ export class NativeWorkspaces {
     this.api = api;
     this.workWindow = new WorkWindow(api);
     this.incognitoWindow = new WorkWindow(api, { incognito: true });
+    this.taskWindows = new Map();
     this.authority = createAuthority(instance);
     const guarded = {
       runtime: api.runtime,
@@ -57,12 +58,26 @@ export class NativeWorkspaces {
       }
     })();
   }
+  taskWindow(task) {
+    if (!task?.id) return task?.incognito ? this.incognitoWindow : this.workWindow;
+    const key = `${task.instanceId}:${task.id}:${!!task.incognito}`;
+    let window = this.taskWindows.get(key);
+    if (!window) {
+      // 中文注释：每个任务的首页标记和持久编号独立，不能扫描到其他任务的窗口。
+      window = new WorkWindow(this.api, {
+        incognito: !!task.incognito,
+        scope: `${task.instanceId}:${task.id}`,
+      });
+      this.taskWindows.set(key, window);
+    }
+    return window;
+  }
   async install(task, tabs) {
     await this.ready;
     if (task.instanceId !== this.authority.instance) throw Error('WORKSPACE_INSTANCE_MISMATCH');
     // 中文注释：显式接管只保护原窗口，不创建首页；普通新任务仍使用独立工作窗口。
     const owner = JSON.stringify([task.instanceId, task.approvalScope, task.id, task.generation]);
-    const workWindow = task.incognito ? this.incognitoWindow : this.workWindow;
+    const workWindow = this.taskWindow(task);
     const preferred = task.attachment
       ? tabs[0]
       : !task.incognito && task.workWindowMode === 'current'
@@ -99,7 +114,7 @@ export class NativeWorkspaces {
     )
       return work();
     const windowId = this.authority.resolve(task.workspaceCapability).windowId;
-    const workWindow = task.incognito ? this.incognitoWindow : this.workWindow;
+    const workWindow = this.taskWindow(task);
     if (windowId !== workWindow.windowId || !task.agentTabs.has(p.tabId)) return work();
     const tab = await this.api.tabs.get(p.tabId);
     guard();
@@ -143,11 +158,19 @@ export class NativeWorkspaces {
     if (result.cleanupState === 'succeeded') {
       const id = this.authority.resolve(cap, { allowStale: true }),
         owner = JSON.stringify([id.instance, id.owner, id.task, id.generation]);
-      for (const window of [this.workWindow, this.incognitoWindow])
+      const windows = [
+        this.taskWindow({ id: id.task, instanceId: id.instance, incognito: false }),
+        this.taskWindow({ id: id.task, instanceId: id.instance, incognito: true }),
+        this.workWindow,
+        this.incognitoWindow,
+      ];
+      for (const window of windows)
         await window.closeIdle(owner, id.windowId, {
           ...options,
           timeoutMs: Math.max(0, deadline - Date.now()),
         });
+      this.taskWindows.delete(`${id.instance}:${id.task}:false`);
+      this.taskWindows.delete(`${id.instance}:${id.task}:true`);
     }
     return result;
   }

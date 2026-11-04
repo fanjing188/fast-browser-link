@@ -44,10 +44,11 @@ export function withBackgroundFocusNotice(
   };
 }
 export class WorkWindow {
-  constructor(api, { incognito = false } = {}) {
+  constructor(api, { incognito = false, scope = null } = {}) {
     this.api = api;
     this.incognito = incognito;
-    this.key = incognito ? `${KEY}.incognito` : KEY;
+    this.scope = scope;
+    this.key = `${incognito ? `${KEY}.incognito` : KEY}${scope ? `.${encodeURIComponent(scope)}` : ''}`;
     this.pending = null;
     this.windowId = null;
     this.tails = new Map();
@@ -85,9 +86,10 @@ export class WorkWindow {
   }
   // 中文注释：spanning 扩展页不能作为无痕窗口主框架，使用固定且不联网的占位页。
   marker() {
+    const suffix = this.scope ? `#task=${encodeURIComponent(this.scope)}` : '';
     return this.incognito
-      ? 'data:text/html,<title>Fast-browser-link</title><p>Fast-browser-link incognito workspace</p>'
-      : this.api.runtime.getURL('work-window.html');
+      ? `data:text/html,<title>Fast-browser-link</title><p>Fast-browser-link incognito workspace</p>${suffix}`
+      : `${this.api.runtime.getURL('work-window.html')}${suffix}`;
   }
   async resolve() {
     const marker = this.marker();

@@ -59,6 +59,61 @@ test('page actions overlap across tabs and task writer fences later reads', asyn
   await assert.rejects(run('foreign', 9), /tab lease denied/);
 });
 
+test('两个任务交错 navigate、snapshot、evaluate，各自队列独立', async () => {
+  const executor = new Executor({ tabs: {}, debugger: {} });
+  const gate = deferred();
+  const entered = deferred();
+  const events = [];
+  for (const [id, tabId] of [
+    ['a', 7],
+    ['b', 9],
+  ]) {
+    executor.tasks.set(id, {
+      id,
+      generation: 1,
+      allowedOrigins: ['https://example.test'],
+      policy: { modeGeneration: 1 },
+      overlays: new Map(),
+    });
+    executor.leases.set(tabId, id);
+  }
+  executor.performSettled = async (task, p) => {
+    events.push(`${task.id}:${p.action}`);
+    if (task.id === 'a' && p.action === 'navigate') {
+      entered.resolve();
+      await gate.promise;
+    }
+    return { ok: true };
+  };
+  const run = (taskId, tabId, action, requestId) =>
+    executor.executeAction({
+      taskId,
+      generation: 1,
+      tabId,
+      action,
+      requestId,
+      allowedOrigins: ['https://example.test'],
+    });
+  const aNav = run('a', 7, 'navigate', 'a-nav');
+  await entered.promise;
+  const aRead = run('a', 7, 'snapshot', 'a-read');
+  await run('b', 9, 'navigate', 'b-nav');
+  await run('b', 9, 'snapshot', 'b-read');
+  await run('b', 9, 'js.evaluate', 'b-eval');
+  assert.deepEqual(events, ['a:navigate', 'b:navigate', 'b:snapshot', 'b:js.evaluate']);
+  gate.resolve();
+  await Promise.all([aNav, aRead]);
+  await run('a', 7, 'js.evaluate', 'a-eval');
+  assert.deepEqual(events, [
+    'a:navigate',
+    'b:navigate',
+    'b:snapshot',
+    'b:js.evaluate',
+    'a:snapshot',
+    'a:js.evaluate',
+  ]);
+});
+
 // 中文注释：使用真实执行器队列和页面遮罩，接管必须覆盖整项任务，并拒绝接管前排队但尚未派发的动作。
 import { JSDOM } from 'jsdom';
 import { createAutomationOverlay } from '../../native-extension/automation-overlay.mjs';

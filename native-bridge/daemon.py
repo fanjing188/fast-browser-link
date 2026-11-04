@@ -5318,7 +5318,12 @@ class BridgeDaemon:
         pending = {"event": threading.Event(), "response": None}
         with extension["pendingLock"]:
             if len(extension["pending"]) >= 128:
-                raise ProtocolError("too_many_pending", "too many pending browser operations")
+                # 中文注释：容量在派发前拒绝，明确是插件资源不足，调用方不应把它当站点超时。
+                raise ProtocolError(
+                    "too_many_pending",
+                    "too many pending browser operations",
+                    {"category": "plugin", "retryable": True, "outcomeUnknown": False},
+                )
             extension["pending"][request_id] = pending
         try:
             try:

@@ -2,6 +2,31 @@
 
 2.6.0 未发布候选。九个 Python helper 复用原有 script 链路；需要宿主和绑定扩展同时支持 `durable_workflow_v1`。不增加常驻工具、第二套执行器或个人安装。基础条件与步骤格式见 [通用工作流](browser-workflows.md)。
 
+## 给 Agent 的固定后台流程指南
+
+同一后台操作需要重复执行、参数可列清、结果可断言时，先用普通任务在合成页或授权站点观察一次，再把稳定步骤定义为 site tool。偶发操作、页面结构仍在变化或结果无法核实的流程继续使用普通任务。`browser_site_search` 只查已激活的工具；`browser_site_manage` 负责 `define → try → activate`，`browser_site_run` 调用已激活版本。管理入口在提供该工具的宿主中使用，独立 CLI 不提供定义入口。
+
+定义必须包含 `site`、`name`、`description`、`origins`、`access`、`args_schema`、`result_schema` 和 `code`。`code` 顶层只写 `def run(args)`，内部通过现有 `read_page`、`click`、`fill` 等 helper 操作当前绑定任务。参数 schema 明确必填、类型、长度和范围；结果 schema 只包含要核验的字段。`access` 是说明标签，不授予额外权限。`origins` 填当前授权站点的精确来源，执行时仍按会话、任务及来源校验。不要在定义中存密码、令牌或真实数据。
+
+下面是**只读通用夹具**；在测试站点准备带 `<meta charset="utf-8">` 和 `#site-list` 的页面，再把 `https://example.test` 换成该夹具的实际来源。它不会导航、点击或预置任何服务器写入。
+
+```json
+{
+  "site": "fixture-sites",
+  "name": "read-list",
+  "description": "读取当前测试页的站点列表",
+  "origins": ["https://example.test"],
+  "access": "read",
+  "args_schema": {"type": "object", "properties": {}, "required": [], "additionalProperties": false},
+  "result_schema": {"type": "object", "properties": {"items": {"type": "array", "items": {"type": "object", "properties": {}, "required": [], "additionalProperties": false}}, "complete": {"type": "boolean"}}, "required": ["items", "complete"], "additionalProperties": false},
+  "code": "def run(args):\n    # 中文注释：只读取当前任务页；覆盖不完整时由试跑断言拒绝启用。\n    page = read_page(root='#site-list', mode='content')\n    return {'items': [{} for _ in page['items']], 'complete': page['coverage']['complete']}"
+}
+```
+
+示例把条目映射为空对象，仅用于证明列表数量；实际工具应只返回业务需要且非敏感的字段。调用 `browser_site_manage(action="define", definition=...)` 取得 `draft_id`，再用 `try` 传 `args={}` 及 `checks=[{"path":"complete","equals":true},{"path":"items","min_items":1}]`。试跑通过后才 `activate`，随后用 `site_search` 查契约、`site_run` 读取。断言必须验证业务后置条件，不能仅检查脚本没有抛错。
+
+**`try` 会真实执行脚本。** 写流程的试跑会真实写入；先在合成或明确授权的环境准备可识别的测试记录，核对后置条件和副作用，再激活。遇到结果未知、断言失败或人工审批时不要重放原动作，也不要激活草稿。站点改版后重新定义并试跑新版本。
+
 ## 检查点与逐项续做
 
 ```python

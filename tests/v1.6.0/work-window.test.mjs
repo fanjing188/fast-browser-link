@@ -117,6 +117,46 @@ test('显式接管在用户原窗口建立保护基线，不新建首页或取�
   assert.deepEqual(f.calls, []);
 });
 
+test('两个任务各有窗口和分组，交错建页与读取互不等待', async () => {
+  const f = fixture();
+  const native = new NativeWorkspaces(f.api, 'browser');
+  const tasks = ['a', 'b'].map((id) => ({
+    id,
+    instanceId: 'browser',
+    approvalScope: `scope-${id}`,
+    generation: 1,
+    workWindowMode: 'separate',
+  }));
+  const [a, b] = await Promise.all(tasks.map((task) => native.install(task, [])));
+  assert.notEqual(native.authority.resolve(a).windowId, native.authority.resolve(b).windowId);
+  const [aPage, bPage] = await Promise.all([
+    native.open(a, { requestId: 'open-a', url: 'https://example.test/a' }),
+    native.open(b, { requestId: 'open-b', url: 'https://example.test/b' }),
+  ]);
+  const aWindow = native.authority.resolve(a).windowId;
+  const bWindow = native.authority.resolve(b).windowId;
+  assert.equal((await f.api.tabs.get(aPage.tabId)).windowId, aWindow);
+  assert.equal((await f.api.tabs.get(bPage.tabId)).windowId, bWindow);
+  assert.notEqual(aPage.groupId, bPage.groupId);
+  let release;
+  const held = new Promise((resolve) => (release = resolve));
+  const aInput = native.taskWindow(tasks[0]).input(
+    aWindow,
+    aPage.tabId,
+    () => {},
+    () => held,
+  );
+  const bRead = native.taskWindow(tasks[1]).input(
+    bWindow,
+    bPage.tabId,
+    () => {},
+    async () => 'snapshot/evaluate',
+  );
+  assert.equal(await bRead, 'snapshot/evaluate');
+  release();
+  await aInput;
+});
+
 test('并发任务只创建一个独立窗口，不聚焦、不最小化，关闭后重建', async () => {
   const f = fixture(),
     w = new WorkWindow(f.api);

@@ -303,7 +303,6 @@ class CdpGateway:
                 or grant is None
                 or headers.get("upgrade", "").lower() != "websocket"
                 or not headers.get("sec-websocket-key")
-                or live >= MAX_CONNECTIONS_PER_GRANT
             ):
                 sock.sendall(
                     b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
@@ -314,6 +313,16 @@ class CdpGateway:
             if headers.get("origin"):
                 sock.sendall(
                     b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                )
+                sock.close()
+                return
+            if live >= MAX_CONNECTIONS_PER_GRANT:
+                # 中文注释：连接数到顶属于插件容量，不伪装成未知目标或让客户端一直等待。
+                body = b'{"code":"cdp_capacity","category":"plugin","retryable":true}'
+                sock.sendall(
+                    b"HTTP/1.1 429 Too Many Requests\r\nContent-Type: application/json\r\n"
+                    + f"Content-Length: {len(body)}\r\nConnection: close\r\n\r\n".encode()
+                    + body
                 )
                 sock.close()
                 return

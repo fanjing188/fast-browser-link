@@ -10,7 +10,7 @@ Regular mode shares logins. Connection permits reads/navigation/writes/JS/CDP/Py
 
 默认/严格弹窗模式：写入前在本任务 `new_tab` 后 `navigate`。已有页可只读；`popup_policy_unprotected`（`unprotected_document`）表示未写入、未暂停。重新导航当前 URL，重读快照再写；先保存草稿。真实开窗暂停仍需人工解除。
 
-Local only: no cloud fallback. SDK/CLI/MCP/Hermes share one core; `ref_fill` does not enforce product approval, manual-edit or final-submit rules.
+Local only: no cloud fallback. SDK/CLI/MCP/Hermes share one core; `ref_fill` does not enforce product approval, manual-edit or final-submit rules. 重复后台操作的 site tool 定义、断言和真实试跑说明见仓库 `docs/workflow-tools.md` 的“给 Agent 的固定后台流程指南”。
 
 ## Page output and recovery
 

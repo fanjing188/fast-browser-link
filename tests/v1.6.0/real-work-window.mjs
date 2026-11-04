@@ -1,4 +1,4 @@
-// 中文注释：三个任务共用临时工作窗口；所有断言都经真实扩展、daemon、插件及脚本通道。
+// 中文注释：三个任务各有临时工作窗口；所有断言都经真实扩展、daemon、插件及脚本通道。
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { openRealSession, openTask, helperCall } from '../native-v2/real-session.mjs';
@@ -36,7 +36,7 @@ try {
   const windows = await session.ui.evaluate(
     `Promise.all(${JSON.stringify(tabs.map((t) => t.tabId))}.map(id=>chrome.tabs.get(id))).then(t=>t.map(x=>x.windowId))`,
   );
-  assert.equal(new Set(windows).size, 1);
+  assert.equal(new Set(windows).size, 3);
   const user = await session.ui.evaluate(
     `chrome.windows.create({url:${JSON.stringify(origin + '/user')},focused:true,type:'normal'}).then(w=>({windowId:w.id,tabId:w.tabs[0].id}))`,
   );
@@ -55,7 +55,7 @@ try {
   );
   assert.deepEqual(after, before);
   console.log(
-    'PASS 3 并发可信点击、同一工作窗口、用户活动标签及焦点不变',
+    'PASS 3 并发可信点击、任务独立窗口、用户活动标签及焦点不变',
     JSON.stringify({ windows, results, before, after }),
   );
   const quiet = await tabs[0].ref('Quiet', ['button']);
@@ -82,7 +82,7 @@ try {
   console.log('PASS 脚本无可见效果保留送达且不补发', script.stdout.trim());
   // 中文注释：后台截图、bounds 和点击均不切活动标签，原引用仍可确认可信交付。
   const activeBeforeRead = await session.ui.evaluate(
-    `chrome.tabs.query({windowId:${windows[0]},active:true}).then(t=>t[0].id)`,
+    `chrome.tabs.query({windowId:${windows[1]},active:true}).then(t=>t[0].id)`,
   );
   const shot = await tabs[1].run('interaction.capture');
   assert.equal(shot.error, undefined, JSON.stringify(shot));
@@ -93,7 +93,7 @@ try {
   assert.equal(bounds.error, undefined, JSON.stringify(bounds));
   assert.equal(
     await session.ui.evaluate(
-      `chrome.tabs.query({windowId:${windows[0]},active:true}).then(t=>t[0].id)`,
+      `chrome.tabs.query({windowId:${windows[1]},active:true}).then(t=>t[0].id)`,
     ),
     activeBeforeRead,
   );
@@ -117,7 +117,7 @@ try {
   assert.equal(await tabs[1].read('hits.trusted'), 2);
   assert.equal(
     await session.ui.evaluate(
-      `chrome.tabs.query({windowId:${windows[0]},active:true}).then(t=>t[0].id)`,
+      `chrome.tabs.query({windowId:${windows[1]},active:true}).then(t=>t[0].id)`,
     ),
     activeBeforeRead,
   );
@@ -164,27 +164,19 @@ try {
     'observed',
   );
   console.log('PASS 用户关闭后工作窗口自动重建');
-  // 中文注释：丢失保存编号时仍复用真实首页；并发任务全部结束后才关闭空窗口。
-  await session.ui.evaluate(`chrome.storage.local.remove('fast.workWindow.v1').then(()=>true)`);
+  // 中文注释：新任务使用另一窗口，关闭时只回收自己的空首页。
   const peer = await openTask(session, {
     owner: 'peer160',
     origins: [origin],
     url: `${origin}/peer`,
-    title: '复用',
+    title: '隔离',
   });
-  assert.equal(
-    await session.ui.evaluate(`chrome.tabs.get(${peer.tabId}).then(t=>t.windowId)`),
-    rebuiltWindow,
+  const peerWindow = await session.ui.evaluate(
+    `chrome.tabs.get(${peer.tabId}).then(t=>t.windowId)`,
   );
+  assert.notEqual(peerWindow, rebuiltWindow);
   const closed = await session.rpc(rebuilt.owner, 'close', { task_id: rebuilt.task.id });
   assert.equal(closed.state, 'closed', JSON.stringify(closed));
-  assert.ok(
-    await session.ui.evaluate(
-      `chrome.windows.getAll().then(ws=>ws.some(w=>w.id===${rebuiltWindow}))`,
-    ),
-  );
-  const peerClosed = await session.rpc(peer.owner, 'close', { task_id: peer.task.id });
-  assert.equal(peerClosed.state, 'closed', JSON.stringify(peerClosed));
   assert.equal(
     await session.ui.evaluate(
       `chrome.windows.getAll().then(ws=>ws.some(w=>w.id===${rebuiltWindow}))`,
@@ -192,12 +184,21 @@ try {
     false,
   );
   assert.ok(
+    await session.ui.evaluate(`chrome.windows.getAll().then(ws=>ws.some(w=>w.id===${peerWindow}))`),
+  );
+  const peerClosed = await session.rpc(peer.owner, 'close', { task_id: peer.task.id });
+  assert.equal(peerClosed.state, 'closed', JSON.stringify(peerClosed));
+  assert.equal(
+    await session.ui.evaluate(`chrome.windows.getAll().then(ws=>ws.some(w=>w.id===${peerWindow}))`),
+    false,
+  );
+  assert.ok(
     await session.ui.evaluate(
       `chrome.tabs.get(${user.tabId}).then(t=>t.windowId===${user.windowId})`,
     ),
   );
-  console.log('PASS 丢失编号复用工作窗口，最后任务关闭后回收空首页，用户页保留');
-  // 中文注释：明确保留结果页时窗口继续存在，后续任务复用同一窗口。
+  console.log('PASS 独立任务各自回收空首页，用户页保留');
+  // 中文注释：明确保留结果页时窗口继续存在，后续任务仍另建窗口。
   const kept = await openTask(session, {
     owner: 'kept160',
     origins: [origin],
@@ -217,9 +218,9 @@ try {
     owner: 'next160',
     origins: [origin],
     url: `${origin}/next`,
-    title: '继续复用',
+    title: '继续隔离',
   });
-  assert.equal(
+  assert.notEqual(
     await session.ui.evaluate(`chrome.tabs.get(${next.tabId}).then(t=>t.windowId)`),
     keptWindow,
   );
@@ -227,7 +228,7 @@ try {
   assert.ok(
     await session.ui.evaluate(`chrome.tabs.get(${kept.tabId}).then(t=>t.windowId===${keptWindow})`),
   );
-  console.log('PASS 保留结果页不关闭窗口，后续任务继续复用');
+  console.log('PASS 保留结果页不关闭窗口，后续任务仍使用独立窗口');
 } finally {
   await session?.close();
   await new Promise((r) => server.close(r));

@@ -1906,6 +1906,7 @@ class BridgeDaemon:
                         "instanceId": item["instanceId"],
                         "browser": item["browser"],
                         "version": item["version"],
+                        "loadedBuildId": item.get("loadedBuildId"),
                         "features": item.get("features", []),
                         "connected": True,
                         "primary": primary is not None
@@ -1924,6 +1925,7 @@ class BridgeDaemon:
                         "instanceId": known["instanceId"],
                         "browser": known["browser"],
                         "version": "",
+                        "loadedBuildId": None,
                         "features": [],
                         "connected": False,
                         "consentStatus": "unknown",
@@ -1941,6 +1943,7 @@ class BridgeDaemon:
                         "instanceId": primary["instanceId"],
                         "browser": primary["browser"],
                         "version": "",
+                        "loadedBuildId": None,
                         "features": [],
                         "connected": False,
                         "consentStatus": "unknown",
@@ -6623,6 +6626,13 @@ class BridgeDaemon:
             version = params.get("version")
             raw_capabilities = params.get("capabilities")
             capabilities = raw_capabilities if isinstance(raw_capabilities, dict) else {}
+            loaded_build_id = capabilities.get("loadedBuildId")
+            if not (
+                isinstance(loaded_build_id, str)
+                and len(loaded_build_id) == 64
+                and all(char in "0123456789abcdef" for char in loaded_build_id)
+            ):
+                loaded_build_id = None
             consent_status_supported = capabilities.get("consentStatus") is True
             access_request_supported = capabilities.get("accessRequest") is True
             if (
@@ -6670,6 +6680,7 @@ class BridgeDaemon:
                     "instanceId": instance_id,
                     "browser": browser,
                     "version": version,
+                    "loadedBuildId": loaded_build_id,
                     "origin": origin,
                     "socket": conn,
                     "sendLock": threading.RLock(),

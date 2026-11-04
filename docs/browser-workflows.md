@@ -1,5 +1,9 @@
 # 通用观察、组合操作与定位诊断
 
+## 语义快照取更多条
+
+`semantic_snapshot` 的读取参数放在 `options`：`budget` 是估算预算（最少 512），`query` 按名称筛选，`roles` 与 `root` 可缩小范围。示例：`{"action":"semantic_snapshot","options":{"query":"创建","roles":["button"],"budget":12000}}`。响应带 `nextCursor` 时，保持原 options 并加上 `cursor: nextCursor` 读取下一页；每页检查 `coverage.complete`。`limit` 不是该操作的参数，顶层或 options 内传入均会得到 `invalid_params`。页面变化后重新读取，不复用旧 cursor 或引用。
+
 2.6.0 候选新增 Python helper：`wait_until`、`run_steps`、`diagnose_target`、`execution_status`、`recover_page`、`read_resilient`。SDK、JSON CLI、MCP 和 Hermes 都通过原有 `script` 执行链调用；没有新增常驻工具或第二套浏览器执行器。宿主先核本任务绑定实例的 `browser_workflow_v1`，旧组件返回 `workflow_unsupported`，不切换执行方式。恢复与执行保护另核 `execution_resilience_v1`；`run_steps` 同时要求两种能力。需要同时升级宿主和扩展。
 
 持久检查点、逐项批量结算、报告、业务进展、站点模板、下载校验与执行预算见 [持久工作流](workflow-tools.md)。

@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { mkdtemp, mkdir, readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
-import { preveilSource } from '../../native-extension/core.mjs';
+import { preveilSource, semanticWorldDeclaration } from '../../native-extension/core.mjs';
 import { CdpClient, waitFor, fetchJson } from '../native-v2/cdp-client.mjs';
 const browser = process.argv.includes('--edge') ? 'edge' : 'chrome';
 const binary =
@@ -47,7 +47,7 @@ const server = createServer((req, res) => {
       ? '<input id=frame-input aria-label=框架输入>'
       : moduleSources.has(req.url)
         ? moduleSources.get(req.url)
-        : `<!doctype html><style>body{min-height:4000px}#frame{position:fixed;left:400px;top:100px;width:280px;height:160px}</style><script>window.blockedAtFirstScript=!!document.querySelector('[data-fast-preveil]')</script><button id="target" style="position:fixed;left:50px;top:80px" onclick="window.clicks++">测试点击</button><iframe id="frame" src="http://localhost:${server.address().port}/frame"></iframe><dialog id="dialog"><button onclick="window.clicks++">模态按钮</button></dialog><div id="pop" popover="manual"><button onclick="window.clicks++">浮层按钮</button></div><script>window.clicks=0</script><script type="module">import {createAutomationOverlay} from '/overlay.mjs';window.overlay=createAutomationOverlay({taskId:'t',generation:1,tabId:7,origin:location.origin,onStop:async()=>({state:'stopped'}),onTakeover:async()=>({state:'paused'}),onResume:async()=>({state:'running'})});</script>`,
+        : `<!doctype html><meta charset="utf-8"><style>body{min-height:4000px}#frame{position:fixed;left:400px;top:100px;width:280px;height:160px}</style><script>window.blockedAtFirstScript=!!document.querySelector('[data-fast-preveil]')</script><button id="target" style="position:fixed;left:50px;top:80px" onclick="window.clicks++"><span>测试点击</span></button><ul><li role="menuitem" style="position:fixed;left:50px;top:140px"><span>网站</span></li></ul><iframe id="frame" src="http://localhost:${server.address().port}/frame"></iframe><dialog id="dialog"><button onclick="window.clicks++">模态按钮</button></dialog><div id="pop" popover="manual"><button onclick="window.clicks++">浮层按钮</button></div><script>window.clicks=0</script><script type="module">import {createAutomationOverlay} from '/overlay.mjs';window.overlay=createAutomationOverlay({taskId:'t',generation:1,tabId:7,origin:location.origin,onStop:async()=>({state:'stopped'}),onTakeover:async()=>({state:'paused'}),onResume:async()=>({state:'running'})});</script>`,
   );
 });
 let proc, cdp;
@@ -102,6 +102,14 @@ try {
   assert.equal(await cdp.evaluate('window.clicks'), 0);
   await cdp.evaluate("overlay.update({state:'running',step:'click',holdMs:50})");
   await waitFor(() => cdp.evaluate("overlay.host.style.pointerEvents==='auto'"));
+  const semantic = await cdp.evaluate(
+    `(${semanticWorldDeclaration})('semantic_snapshot',{binding:{taskId:'t',documentId:'fixture',leaseId:'fixture'},options:{mode:'interactive',budget:12000}})`,
+  );
+  for (const name of ['测试点击', '网站']) {
+    const item = semantic.items.find((entry) => entry.name === name);
+    assert.ok(item, `missing ${name}`);
+    assert.notEqual(item.blocked, 'occluded', `${name} blocked by task overlay`);
+  }
   await click();
   assert.equal(await cdp.evaluate('window.clicks'), 0);
   await cdp.evaluate('overlay.host.remove()');

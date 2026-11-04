@@ -187,7 +187,7 @@ export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
  const createPageParser=context=>globalThis.__fastSemanticLibrary.parser(context);
  const same=(a,b)=>a&&b&&a.taskId===b.taskId&&a.documentId===b.documentId&&a.leaseId===b.leaseId;
  // 中文注释：扩展重载后旧隔离世界还可能存在；实现版本变化必须撤销旧引用并重新创建语义实例。
- const make=()=>({version:12,binding:p.binding,documentEpoch:globalThis.crypto?.randomUUID?.()||Date.now().toString(36)+'-'+Math.random().toString(36).slice(2),semantics:createPageSemantics({document,...p.binding,classifyField:classifySensitiveField,
+ const make=()=>({version:13,binding:p.binding,documentEpoch:globalThis.crypto?.randomUUID?.()||Date.now().toString(36)+'-'+Math.random().toString(36).slice(2),semantics:createPageSemantics({document,...p.binding,classifyField:classifySensitiveField,
   shadowRootOf:node=>node.shadowRoot||globalThis.__fastClosedShadowRoots?.get(node)||null})});
  const classifySensitiveField=${serializedFunction(classifySensitiveField)};
  const sensitive=e=>classifySensitiveField(e)!==null;
@@ -283,7 +283,7 @@ export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
   return result;
  };
  let state=globalThis.__fastNativeSemanticsV2;
- const validState=()=>state?.version===12&&typeof state.semantics?.interactionVisibility==='function';
+ const validState=()=>state?.version===13&&typeof state.semantics?.interactionVisibility==='function';
  if(op==='semantic_snapshot'||op==='page.parse'||op==='recovery_scan'){
   // 中文注释：当前文档代次独立于 loaderId；无绑定读取重建实例后，旧代次续读仍必须拒绝。
   if(p.requireDocumentEpoch&&(!validState()||!same(state.binding,p.binding)||p.documentEpoch!==state.documentEpoch))throw Error('BINDING_MISMATCH');
@@ -2552,8 +2552,8 @@ export class Executor {
   const createWorld=()=>this.api.debugger.sendCommand(target,'Page.createIsolatedWorld',{frameId,worldName:'fast-native-semantics-v2',grantUniveralAccess:false});
   let world=executionContextId?{executionContextId}:await createWorld();guard();
   const key=()=>JSON.stringify([target.tabId,target.sessionId,world.executionContextId]);
-  const install=async()=>{const installed=await this.api.debugger.sendCommand(target,'Runtime.callFunctionOn',{executionContextId:world.executionContextId,functionDeclaration:`function(){globalThis.__fastSemanticLibrary={version:1,call:(${semanticWorldDeclaration})};return true;}`,returnByValue:true});guard();if(installed.exceptionDetails||installed.result?.value!==true)throw Object.assign(Error('SEMANTIC_LIBRARY_UNAVAILABLE'),{preDispatch:true});this.semanticWorlds.add(key());};
-  const invoke=()=>this.api.debugger.sendCommand(target,'Runtime.callFunctionOn',{executionContextId:world.executionContextId,functionDeclaration:op==='page.observe'?`function(op,p){const library=globalThis.__fastSemanticLibrary;if(library?.version!==1)return {hermesSemanticMissing:true};const state=globalThis.__fastNativeSemanticsV2;if(!state||state.version!==12||typeof state.semantics?.interactionVisibility!=='function'||JSON.stringify(state.binding)!==JSON.stringify(p.binding))library.call('semantic_snapshot',{binding:p.binding,options:{root:'head',mode:'content',budget:512}});return (${observePage.toString()})(globalThis.__fastNativeSemanticsV2.semantics.parsingContext(),p.options);}`:'function(op,p){const library=globalThis.__fastSemanticLibrary;if(library?.version!==1)return {hermesSemanticMissing:true};if(op==="page.parse"&&!library.parser)return {hermesParserMissing:true};return library.call(op,p);}',arguments:[{value:op},{value:payload}],returnByValue:true,awaitPromise:true});
+  const install=async()=>{const installed=await this.api.debugger.sendCommand(target,'Runtime.callFunctionOn',{executionContextId:world.executionContextId,functionDeclaration:`function(){globalThis.__fastSemanticLibrary={version:2,call:(${semanticWorldDeclaration})};return true;}`,returnByValue:true});guard();if(installed.exceptionDetails||installed.result?.value!==true)throw Object.assign(Error('SEMANTIC_LIBRARY_UNAVAILABLE'),{preDispatch:true});this.semanticWorlds.add(key());};
+  const invoke=()=>this.api.debugger.sendCommand(target,'Runtime.callFunctionOn',{executionContextId:world.executionContextId,functionDeclaration:op==='page.observe'?`function(op,p){const library=globalThis.__fastSemanticLibrary;if(library?.version!==2)return {hermesSemanticMissing:true};const state=globalThis.__fastNativeSemanticsV2;if(!state||state.version!==13||typeof state.semantics?.interactionVisibility!=='function'||JSON.stringify(state.binding)!==JSON.stringify(p.binding))library.call('semantic_snapshot',{binding:p.binding,options:{root:'head',mode:'content',budget:512}});return (${observePage.toString()})(globalThis.__fastNativeSemanticsV2.semantics.parsingContext(),p.options);}`:'function(op,p){const library=globalThis.__fastSemanticLibrary;if(library?.version!==2)return {hermesSemanticMissing:true};if(op==="page.parse"&&!library.parser)return {hermesParserMissing:true};return library.call(op,p);}',arguments:[{value:op},{value:payload}],returnByValue:true,awaitPromise:true});
   let result;
   try{if(!this.semanticWorlds.has(key()))await install();result=await invoke();}
   catch(error){
@@ -2568,7 +2568,7 @@ export class Executor {
   if(result.result?.value?.hermesSemanticMissing===true)throw Object.assign(Error('SEMANTIC_LIBRARY_UNAVAILABLE'),{preDispatch:true});
   // 中文注释：结构解析器是冷路径；首次解析才装入同一隔离库，普通读取和动作不传输这段源码，后续解析保留原游标实例。
   if(op==='page.parse'&&result.result?.value?.hermesParserMissing===true){
-   const parser=await this.api.debugger.sendCommand(target,'Runtime.callFunctionOn',{executionContextId:world.executionContextId,functionDeclaration:compactSemanticSource(`function(){const library=globalThis.__fastSemanticLibrary;if(library?.version!==1)return false;library.parser=(${serializedFunction(createPageParser).replace(/^\s*\/\/[^\n]*\n/gm,'')});return true;}`),returnByValue:true});guard();
+   const parser=await this.api.debugger.sendCommand(target,'Runtime.callFunctionOn',{executionContextId:world.executionContextId,functionDeclaration:compactSemanticSource(`function(){const library=globalThis.__fastSemanticLibrary;if(library?.version!==2)return false;library.parser=(${serializedFunction(createPageParser).replace(/^\s*\/\/[^\n]*\n/gm,'')});return true;}`),returnByValue:true});guard();
    if(parser.exceptionDetails||parser.result?.value!==true)throw Error('SEMANTIC_LIBRARY_UNAVAILABLE');
    result=await invoke();
   }

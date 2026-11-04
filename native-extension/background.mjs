@@ -895,6 +895,7 @@ async function connect() {
       browser: /Edg/.test(navigator.userAgent) ? 'edge' : 'chrome',
       version: chrome.runtime.getManifest().version,
       capabilities: {
+        loadedBuildId: BUILD_ID,
         features: [
           'browser_core_v1',
           'browser_workflow_v1',

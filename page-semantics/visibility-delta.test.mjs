@@ -569,6 +569,34 @@ for (const blocked of [true, false])
       f.close();
     }
   });
+test('S1 Element Plus 菜单与按钮在任务遮罩下保留可操作引用', () => {
+  const f = fixture(
+    '<div data-fast-automation-overlay><span>任务遮罩</span></div><li class="el-menu-item" role="menuitem"><span>网站</span></li><button class="el-button--primary"><span>创建</span></button>',
+  );
+  try {
+    const overlay = f.doc.querySelector('[data-fast-automation-overlay]');
+    f.doc.elementsFromPoint = () => [
+      overlay,
+      overlay.firstElementChild,
+      f.doc.querySelector('li span'),
+      f.doc.querySelector('li'),
+    ];
+    let page = f.semantics.snapshot({ query: '网站' });
+    assert.equal(page.items[0].blocked, undefined);
+    assert.notEqual(page.items[0].actionable, false);
+    f.doc.elementsFromPoint = () => [
+      overlay,
+      overlay.firstElementChild,
+      f.doc.querySelector('button span'),
+      f.doc.querySelector('button'),
+    ];
+    page = f.semantics.snapshot({ query: '创建' });
+    assert.equal(page.items[0].blocked, undefined);
+    assert.notEqual(page.items[0].actionable, false);
+  } finally {
+    f.close();
+  }
+});
 test('S1 引用动作预检穿过任务遮罩与高亮，仍拒绝真实网页遮挡', () => {
   const f = fixture(
     '<button>创建</button><div data-fast-automation-overlay><span></span></div><div data-fast-interaction-highlight></div><div class="el-overlay"></div>',

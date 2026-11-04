@@ -237,7 +237,12 @@ class BridgeIntegrationTests(unittest.TestCase):
         hello = {
             "id": "hello-1",
             "method": "extension.hello",
-            "params": {"instanceId": "chrome-profile-a", "browser": "chrome", "version": "0.1.0"},
+            "params": {
+                "instanceId": "chrome-profile-a",
+                "browser": "chrome",
+                "version": "0.1.0",
+                "capabilities": {"loadedBuildId": "a" * 64},
+            },
         }
         payload = json.dumps(hello, separators=(",", ":")).encode()
         process.stdin.write(struct.pack("<I", len(payload)) + payload)
@@ -255,6 +260,7 @@ class BridgeIntegrationTests(unittest.TestCase):
                         "instanceId": "chrome-profile-a",
                         "browser": "chrome",
                         "version": "0.1.0",
+                        "loadedBuildId": "a" * 64,
                         "connected": True,
                         # 中文注释：旧握手未声明能力，宿主应明确返回空列表。
                         "features": [],

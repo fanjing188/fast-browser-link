@@ -14,6 +14,35 @@ export const INPUT_ACTIONS = new Set([
   'scroll',
 ]);
 const KEY = 'fast.workWindow.v1';
+// 已在 macOS Edge 的无扩展浏览器中复现。只提示已知风险，不改变网址、权限或执行结果。
+export function withBackgroundFocusNotice(
+  receipt,
+  url,
+  userAgent = globalThis.navigator?.userAgent || '',
+) {
+  if (!/\bEdg\//.test(userAgent) || !/Macintosh|Mac OS X/.test(userAgent)) return receipt;
+  let target;
+  try {
+    target = new URL(url);
+  } catch {
+    return receipt;
+  }
+  const host = target.hostname.toLowerCase().replace(/\.$/, '');
+  const loopback =
+    host === 'localhost' ||
+    host.endsWith('.localhost') ||
+    host === '[::1]' ||
+    /^127(?:\.\d{1,3}){3}$/.test(host);
+  if (target.protocol !== 'http:' || !loopback) return receipt;
+  return {
+    ...receipt,
+    backgroundFocus: {
+      code: 'EDGE_LOOPBACK_FOCUS_RISK',
+      guaranteed: false,
+      message: 'Edge 访问本地 HTTP 地址可能切走桌面焦点；任务继续执行，无法保证静默。',
+    },
+  };
+}
 export class WorkWindow {
   constructor(api, { incognito = false } = {}) {
     this.api = api;

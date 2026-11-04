@@ -130,6 +130,30 @@ CHROME = {
 
 
 class OpenToolTests(unittest.TestCase):
+    def test_open_preserves_fixed_background_focus_notice_without_blocking(self):
+        self.make([EDGE])
+        original = self.runtime.call
+
+        def call(method, params):
+            result = original(method, params)
+            if method == "shared.run" and params.get("action") == "new_tab":
+                result["backgroundFocus"] = {
+                    "code": "EDGE_LOOPBACK_FOCUS_RISK",
+                    "guaranteed": False,
+                    "message": "untrusted extra text",
+                    "secret": "private-fixture-value",
+                }
+            return result
+
+        self.runtime.call = call
+        result = self.open({"url": "http://localhost/", "summary": False})
+        self.assertIn("tab_id", result)
+        self.assertEqual(result["backgroundFocus"]["code"], "EDGE_LOOPBACK_FOCUS_RISK")
+        self.assertIs(result["backgroundFocus"]["guaranteed"], False)
+        self.assertIn("无法保证静默", result["backgroundFocus"]["message"])
+        self.assertNotIn("private-fixture-value", json.dumps(result))
+        self.assertNotIn("untrusted extra text", json.dumps(result))
+
     def test_attach_current_page_with_real_vault_coordinator(self):
         from vault_adapter.integration import VaultBindingRegistry
 

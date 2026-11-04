@@ -6,9 +6,11 @@ import { promisify } from 'node:util';
 import { writeFile, mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { openRealSession, openTask, helperCall } from '../native-v2/real-session.mjs';
+import { waitFor } from '../native-v2/cdp-client.mjs';
 const exec = promisify(execFile),
   browser = process.argv.includes('--edge') ? 'edge' : 'chrome',
-  headed = process.argv.includes('--headed');
+  headed = process.argv.includes('--headed'),
+  namedOrigin = process.argv.includes('--named-origin');
 const desktop = async () =>
   headed
     ? JSON.parse(
@@ -79,8 +81,13 @@ const server = createServer((req, res) => {
   }
 });
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
-const origin = `http://127.0.0.1:${server.address().port}`;
-const output = path.join(process.env.TMPDIR, `popup-policy-${browser}${headed ? '-desktop' : ''}`);
+// 保留原始回环地址验收；命名来源单独记录，不能用其通过覆盖 Edge 回环导航失败。
+const fixtureHost = namedOrigin ? 'popup-policy.test' : '127.0.0.1';
+const origin = `http://${fixtureHost}:${server.address().port}`;
+const output = path.join(
+  process.env.TMPDIR,
+  `popup-policy-${browser}${headed ? '-desktop' : ''}${namedOrigin ? '-named-origin' : ''}`,
+);
 await mkdir(output, { recursive: true });
 try {
   if (headed) assertDesktopAvailable(original);
@@ -91,6 +98,7 @@ try {
     packageMode: true,
     label: 'pp',
     compactScratch: true,
+    ...(namedOrigin ? { hostRules: `MAP ${fixtureHost} 127.0.0.1` } : {}),
   });
   await session.enableFullAccess();
   // 准备时连接界面使用的焦点模拟必须关闭，避免 Edge 将夹具界面带到前台。
@@ -350,12 +358,43 @@ try {
     ok: true,
     evidence: { authenticated: true, proxyPreserved: true },
   });
+  // 用户选择继续允许本地地址；这一组明确允许 Edge 的已知焦点风险，不计入静默采样。
+  let displayTask = t;
+  if (namedOrigin) {
+    const loopback = `http://127.0.0.1:${server.address().port}`;
+    displayTask = await openTask(session, {
+      owner: 'loopback-notice',
+      origins: [loopback],
+      url: loopback,
+      activate: false,
+    });
+    const moved = await displayTask.run('navigate', { url: loopback + '/child' });
+    assert.equal(moved.url, loopback + '/child');
+    for (const receipt of [displayTask.opened, moved]) {
+      if (browser === 'edge') {
+        assert.equal(receipt.backgroundFocus?.code, 'EDGE_LOOPBACK_FOCUS_RISK');
+        assert.equal(receipt.backgroundFocus?.guaranteed, false);
+      } else assert.equal(receipt.backgroundFocus, undefined);
+    }
+    checks.push({
+      name: '本地 HTTP 仍可新建和导航，Edge 回执提示静默限制，Chrome 不误报',
+      ok: true,
+      evidence: { allowed: true, warned: browser === 'edge', excludedFromQuietSampling: true },
+    });
+  }
   // 真正渲染扩展弹窗的新模式控件，并检查两个视口。
   await session.ui.evaluate(
-    `chrome.tabs.update(${t.tabId},{active:true}).then(()=>chrome.tabs.get(${t.tabId}).then(tab=>chrome.windows.update(tab.windowId,{focused:true})))`,
+    `chrome.tabs.update(${displayTask.tabId},{active:true}).then(()=>chrome.tabs.get(${displayTask.tabId}).then(tab=>chrome.windows.update(tab.windowId,{focused:true})))`,
   );
   await session.ui.evaluate("document.querySelector('#popup-policy')!==null");
-  await new Promise((r) => setTimeout(r, 1200));
+  await waitFor(
+    () =>
+      session.ui.evaluate(
+        `document.querySelector('#page-task').dataset.tabId === '${displayTask.tabId}'`,
+      ),
+    15000,
+    { label: '当前任务页提示完成刷新' },
+  );
   for (const width of [1440, 375]) {
     await session.ui.call('Emulation.setDeviceMetricsOverride', {
       width,
@@ -364,10 +403,14 @@ try {
       mobile: false,
     });
     const dimensions = await session.ui.evaluate(
-      '({width:innerWidth,scroll:document.documentElement.scrollWidth,visible:!document.querySelector("#popup-policy-row").hidden})',
+      '({width:innerWidth,scroll:document.documentElement.scrollWidth,visible:!document.querySelector("#popup-policy-row").hidden,focusNotice:!document.querySelector("#background-focus-note").hidden,focusText:document.querySelector("#background-focus-note").textContent})',
     );
     assert.equal(dimensions.visible, true, JSON.stringify(dimensions));
     assert.ok(dimensions.scroll <= dimensions.width, JSON.stringify(dimensions));
+    if (namedOrigin) {
+      assert.equal(dimensions.focusNotice, browser === 'edge', JSON.stringify(dimensions));
+      if (browser === 'edge') assert.match(dimensions.focusText, /无法保证静默|not guaranteed/);
+    }
     const png = await session.ui.call('Page.captureScreenshot', { format: 'png' });
     await writeFile(path.join(output, `popup-${width}.png`), Buffer.from(png.data, 'base64'));
   }
@@ -390,6 +433,7 @@ try {
       {
         browser,
         headed,
+        fixtureHost,
         original,
         browserPid: session?.browserPid,
         after: await desktop(),

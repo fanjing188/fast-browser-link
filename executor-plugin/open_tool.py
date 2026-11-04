@@ -506,6 +506,17 @@ def make_handler(runtime, host_bridge, *, lease_error, clock=time.monotonic, sle
             "sessionBinding": "ready",
             **({"attached": True} if attaching else {}),
         }
+        focus_notice = opened.get("backgroundFocus")
+        if (
+            isinstance(focus_notice, dict)
+            and focus_notice.get("code") == "EDGE_LOOPBACK_FOCUS_RISK"
+            and focus_notice.get("guaranteed") is False
+        ):
+            result["backgroundFocus"] = {
+                "code": "EDGE_LOOPBACK_FOCUS_RISK",
+                "guaranteed": False,
+                "message": "Edge 访问本地 HTTP 地址可能切走桌面焦点；任务继续执行，无法保证静默。",
+            }
         # 中文注释：会话拥有的任务工作页一起计数；复用既有页面不会增加计数。
         result["open_tabs"] = opened.get("open_tabs", task.get("open_tabs", 0))
         if result["open_tabs"] > 6:

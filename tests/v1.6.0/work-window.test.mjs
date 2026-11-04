@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 import { Interactions } from '../../browser-interactions/index.mjs';
-import { WorkWindow } from '../../native-extension/work-window.mjs';
+import { WorkWindow, withBackgroundFocusNotice } from '../../native-extension/work-window.mjs';
 import { NativeWorkspaces } from '../../native-extension/workspace-adapter.mjs';
 import {
   effectProbe,
@@ -562,4 +562,50 @@ test('无痕任务覆盖 current 配置，恢复清理只回收无痕首页', as
   assert.equal(f.windows.get(id).incognito, true);
   await new NativeWorkspaces(f.api, 'instance').cleanupRecovered('private', 1, { closeTabs: true });
   assert.equal(f.windows.has(id), false);
+});
+
+// 提示不改变执行结果或访问能力；解析 URL 后判断主机，防止用户信息和相似域名误报。
+test('macOS Edge 回环 HTTP 提示保留原回执且不泄露网址', () => {
+  const ua =
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/156.0.0.0 Safari/537.36 Edg/156.0.4314.58';
+  const receipt = Object.freeze({ tabId: 7, ready: 'complete' });
+  for (const url of [
+    'http://127.0.0.1:1234/private?token=fixture',
+    'http://2130706433',
+    'http://127.1',
+    'http://localhost',
+    'http://LOCALHOST.',
+    'http://app.localhost',
+    'http://[::1]',
+  ]) {
+    const result = withBackgroundFocusNotice(receipt, url, ua);
+    assert.equal(result.tabId, 7);
+    assert.equal(result.ready, 'complete');
+    assert.equal(result.backgroundFocus.guaranteed, false);
+    assert.equal(result.backgroundFocus.code, 'EDGE_LOOPBACK_FOCUS_RISK');
+    assert.doesNotMatch(JSON.stringify(result.backgroundFocus), /private|token|fixture|1234/);
+    assert.equal(receipt.backgroundFocus, undefined);
+  }
+  for (const url of [
+    'https://127.0.0.1',
+    'http://popup-policy.test',
+    'http://127.example',
+    'http://127.0.0.1.example',
+    'http://localhost.example',
+    'http://127.0.0.1@example.com',
+    'not a URL',
+  ]) {
+    assert.equal(withBackgroundFocusNotice(receipt, url, ua), receipt);
+  }
+});
+test('Chrome 和未确认受影响的平台不使用 Edge/macOS 风险提示', () => {
+  const receipt = { tabId: 7 };
+  for (const ua of [
+    'Mozilla/5.0 (Macintosh) Chrome/156.0.0.0',
+    'Mozilla/5.0 (Windows NT 10.0) Chrome/156.0.0.0 Edg/156.0.4314.58',
+    'Mozilla/5.0 (X11; Linux) Edg/156.0.4314.58',
+    '',
+  ]) {
+    assert.equal(withBackgroundFocusNotice(receipt, 'http://localhost', ua), receipt);
+  }
 });

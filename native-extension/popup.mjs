@@ -200,6 +200,14 @@ function renderWork() {
   $('#page-task').dataset.taskId = task?.id || '';
   $('#page-task').dataset.tabId = task ? String(page.tabId) : '';
   $('#page-task').hidden = !task && !receipt;
+  const focusRisk = task && page?.backgroundFocus?.code === 'EDGE_LOOPBACK_FOCUS_RISK';
+  $('#background-focus-note').hidden = !focusRisk;
+  $('#background-focus-note').textContent = focusRisk
+    ? t(
+        'Edge 访问本地 HTTP 地址可能切走桌面焦点。任务继续执行，无法保证静默。',
+        'Edge may take desktop focus on local HTTP pages. The task continues; silent execution is not guaranteed.',
+      )
+    : '';
   const popupPolicy = task?.popupPolicy;
   $('#popup-policy-row').hidden = !popupPolicy?.supported;
   $('#popup-policy').value = popupPolicy?.mode || 'background';

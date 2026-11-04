@@ -5,7 +5,7 @@ import {passwordValues,omitPasswordValues} from './password-values.mjs';
 import {RECOVERY_ACTIONS,recoverTarget,recoveryReason} from './target-recovery.mjs';
 const RECOVERY_ROUND=Symbol('recovery round');
 const OBSERVATION_FENCE=Symbol('observation fence');
-import {INPUT_ACTIONS} from './work-window.mjs';
+import {INPUT_ACTIONS,withBackgroundFocusNotice} from './work-window.mjs';
 import {observeInputEffect} from './action-effects.mjs';
 import {DiagnosticEventBuffer,observeAction} from '../browser-diagnostics/js/diagnostics.mjs';
 import {NativeWorkspaces,groupTitle} from './workspace-adapter.mjs';
@@ -1755,7 +1755,7 @@ export class Executor {
    if(this.leases.get(tabId)!==taskId)continue;
    try{const tab=await this.api.tabs.get(tabId);this.allowed(t,tab.url);
     if(t.revoked||t.generation!==generation||this.leases.get(tabId)!==taskId)continue;
-    pages.push({tabId,title:String(tab.title||'').slice(0,120),origin:origin(tab.url),control:t.paused?'human':'hermes'});
+    pages.push(withBackgroundFocusNotice({tabId,title:String(tab.title||'').slice(0,120),origin:origin(tab.url),control:t.paused?'human':'hermes'},tab.url));
    }catch{continue;}
   }
   return {pages,status:'confirmed',observedAt:Date.now()};
@@ -2942,7 +2942,7 @@ export class Executor {
   const opened=await settled;
   const receipt=await this.popupPolicy.createdReceipt(t,opened.tabId,opened);guard();
   void this.restoreOverlay(t,opened.tabId);
-  return receipt;
+  return withBackgroundFocusNotice(withBackgroundFocusNotice(receipt,url),opened.url);
  }
  async openSafeLink(t,p,guard,inspection){
   if(inspection?.kind!=='blank_anchor'||typeof inspection.url!=='string')return {unsupported:true,code:'CHILD_CREATION_UNSUPPORTED',clicked:false};
@@ -3036,7 +3036,7 @@ export class Executor {
    // 中文注释：加载中 tabs.update/get 仍可能返回旧的范围外 URL；目标已校验，等提交后再核对最终来源。
    await this.api.tabs.update(p.tabId,{url:p.url});guard();const current=await this.api.tabs.get(p.tabId);guard();
    const settled=await this.settledTab(p.tabId,guard,current,PAGE_SETTLE_MS,t,p.url,initialTab?.url);this.allowed(t,settled.tab.url);
-   return {tabId:p.tabId,url:settled.tab.url,ready:settled.ready};
+   return withBackgroundFocusNotice(withBackgroundFocusNotice({tabId:p.tabId,url:settled.tab.url,ready:settled.ready},p.url),settled.tab.url);
   }
   if(!this.attached.has(p.tabId)){
    try{await this.api.debugger.attach(target,'1.3');}

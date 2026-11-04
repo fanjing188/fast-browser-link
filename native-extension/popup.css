@@ -28,3 +28,5 @@ body button{min-height:44px;min-width:44px}
 #popup-policy-row { flex-wrap: wrap; gap: 6px; }
 #popup-policy { max-width: 220px; font: inherit; font-size: 12px; }
 #popup-policy-note { flex-basis: 100%; }
+
+#background-focus-note { min-height: 0; line-height: 1.5; }

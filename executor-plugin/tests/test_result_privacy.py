@@ -720,6 +720,37 @@ class ResultPrivacyTests(unittest.TestCase):
         )
         self.assertEqual(result, [{"id": 1, "outOfScope": True}])
 
+    def test_background_focus_notice_survives_closed_navigation_projection(self):
+        notice = {
+            "code": "EDGE_LOOPBACK_FOCUS_RISK",
+            "guaranteed": False,
+            "message": "静默无法保证",
+        }
+        for action in ("new_tab", "navigate"):
+            with self.subTest(action=action):
+                args = {
+                    "task_id": "t",
+                    "action": action,
+                    "url": "http://localhost/",
+                }
+                if action == "navigate":
+                    args["tab_id"] = 1
+                    args["summary"] = False
+                result, _ = self.invoke(
+                    True,
+                    "run",
+                    args,
+                    {
+                        "tabId": 1,
+                        "url": "http://localhost/",
+                        "ready": "complete",
+                        "backgroundFocus": {**notice, "secret": CANARY, "debug": {"value": CANARY}},
+                    },
+                )
+                self.assertEqual(result["tabId"], 1)
+                self.assertEqual(result["backgroundFocus"], notice)
+                self.assertNotIn(CANARY, json.dumps(result))
+
     def test_completed_click_keeps_navigation_metadata(self):
         # 中文注释：C 的点击回执不能被旧结果白名单丢弃，调用者需知道已跳出任务范围。
         for action, target in [

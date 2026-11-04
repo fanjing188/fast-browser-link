@@ -326,9 +326,13 @@ _RESULT_CONTENT_FILTER = {
 }
 _RESULT_SKIPPED_FRAME = _scalar_fields("origin x y width height")
 # 中文注释：导航就绪与离开任务来源是执行器的明确状态，公共工具不能在投影时丢弃。
-_RESULT_TAB = _scalar_fields(
-    "id tabId url title active selected index windowId groupId status pinned ready outOfScope"
-)
+_RESULT_TAB = {
+    **_scalar_fields(
+        "id tabId url title active selected index windowId groupId status pinned ready outOfScope"
+    ),
+    # 中文注释：保留执行器的静默限制提示；嵌套对象仍按封闭结构投影。
+    "backgroundFocus": _scalar_fields("code guaranteed message"),
+}
 _RESULT_ARTIFACT = _scalar_fields("id taskId sha256 mimeType size")
 _RESULT_TASK = {
     **_scalar_fields(

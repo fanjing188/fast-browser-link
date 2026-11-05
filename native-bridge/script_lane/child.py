@@ -8,6 +8,7 @@ holds browser credentials or can pick another task or tab.
 
 import json
 import contextvars
+from contextlib import contextmanager
 import functools
 import threading
 import itertools
@@ -43,6 +44,8 @@ class BrowserError(RuntimeError):
         reason=None,
         skipped_frame=None,
         recovery=None,
+        tab_id=None,
+        tab_state=None,
     ):
         super().__init__(message)
         self.code = code
@@ -57,6 +60,7 @@ class BrowserError(RuntimeError):
         self.reason = reason
         self.skipped_frame = skipped_frame
         self.recovery = recovery
+        self.tab_id, self.tab_state = tab_id, tab_state
 
     def __str__(self):
         # 中文注释：异常首行保留可信错误码，便于从脚本回溯区分拒绝与未知结果。
@@ -69,6 +73,8 @@ class BrowserError(RuntimeError):
             message += f" 原因：{self.reason_code}。"
         if self.code == "popup_policy_unprotected" and self.reason == "unprotected_document":
             message += f" 原因：{self.reason}。{self.suggestion or ''}"
+        if self.tab_state == "created" and type(self.tab_id) is int:
+            message += f" 标签页已创建（tabId={self.tab_id}），请核对状态，不要重建。"
         if self.recovery:
             message += " 恢复详情：" + json.dumps(self.recovery, ensure_ascii=False)
         return f"BrowserError[{self.code}]: {message}" if self.code else message
@@ -276,6 +282,8 @@ def _call(op, args):
         reason=reply.get("reason") if code == "popup_policy_unprotected" else None,
         skipped_frame=reply.get("skippedFrame"),
         recovery=reply.get("recovery"),
+        tab_id=reply.get("tabId"),
+        tab_state=reply.get("tabState"),
     )
 
 
@@ -338,6 +346,35 @@ def use_tab(tab_id):
 def current_tab():
     """Return the explicitly selected work-tab id without guessing the active tab."""
     return _call("current_tab", [])
+
+
+@_tab_scoped
+def focus_window(*, restore=True, hold_ms=1000, tab=None):
+    """中文注释：临时置前任务页，返回 focused、visible、previousWindowId 与 restored。"""
+    return _call("run", ["focus_window", {"restore": restore, "holdMs": hold_ms}])
+
+
+@contextmanager
+def focused_window(tab=None, max_ms=120000):
+    """连续交互期间保持窗口可见；退出、异常、max_ms 到期或任务关闭时尝试恢复。锁屏 screen_locked 时停止并提示浏览器启动参数 --disable-backgrounding-occluded-windows。"""
+    if type(max_ms) is not int or not 1 <= max_ms <= 120000:
+        raise ValueError("max_ms must be 1..120000")
+    target_tab = tab if tab is not None else current_tab()
+    token = _tab_scope.set(target_tab) if target_tab is not None else None
+    try:
+        lease = _call("run", ["focus_window", {"restore": "deferred", "maxMs": max_ms}])
+    finally:
+        if token is not None:
+            _tab_scope.reset(token)
+    try:
+        yield lease
+    finally:
+        token = _tab_scope.set(target_tab) if target_tab is not None else None
+        try:
+            _call("run", ["focus_restore", {"focusLeaseId": lease["focusLeaseId"]}])
+        finally:
+            if token is not None:
+                _tab_scope.reset(token)
 
 
 @_tab_scoped
@@ -1914,6 +1951,8 @@ HELPERS = {
         "open_page",
         "use_tab",
         "current_tab",
+        "focus_window",
+        "focused_window",
         "parallel",
         "goto_url",
         "wait_for_load",

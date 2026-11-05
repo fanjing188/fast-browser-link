@@ -102,6 +102,17 @@ class FakeRuntime:
         self.ledger[params["requestId"]] = "confirmed"
         return {
             "new_tab": {"tabId": 7},
+            "select_tab": {"tabId": params.get("tabId")},
+            "focus_window": {
+                "focused": True,
+                "visible": True,
+                "previousWindowId": 2,
+                "restored": params.get("restore") != "deferred",
+                **(
+                    {"focusLeaseId": "fixture-lease"} if params.get("restore") == "deferred" else {}
+                ),
+            },
+            "focus_restore": {"restored": True},
             "navigate": {"tabId": 7, "url": params.get("url")},
             "official.ready_state": {"readyState": "complete"},
             # 中文注释：效率 helper 使用完整范围的真实快照契约，不以单条结果猜测唯一性。
@@ -130,6 +141,36 @@ class FakeRuntime:
 
 
 class ScriptToolTests(unittest.TestCase):
+    def test_focus_window_crosses_child_and_host_with_bound_tab(self):
+        self.bind()
+        self.runtime.tab_ids = [7]
+        result = self.run_script("import json\nprint(json.dumps(focus_window(hold_ms=50)))")
+        self.assertEqual(result["exit_code"], 0, result)
+        self.assertTrue(json.loads(result["stdout"])["visible"])
+        action = self.runtime.runs[-1]
+        self.assertEqual(
+            (action["action"], action["tabId"], action["holdMs"]), ("focus_window", 7, 50)
+        )
+        self.assertTrue(action["restore"])
+
+    def test_focused_window_restores_after_script_exception(self):
+        self.bind()
+        self.runtime.tab_ids = [7]
+        result = self.run_script(
+            "try:\n with focused_window(tab=7, max_ms=1000):\n  raise ValueError('fixture')\nexcept ValueError:\n print('restored')"
+        )
+        self.assertEqual(result["exit_code"], 0, result)
+        self.assertEqual(result["stdout"].strip(), "restored")
+        focus, restore = self.runtime.runs[-2:]
+        self.assertEqual(
+            (focus["action"], focus["restore"], focus["maxMs"], focus["tabId"]),
+            ("focus_window", "deferred", 1000, 7),
+        )
+        self.assertEqual(
+            (restore["action"], restore["focusLeaseId"], restore["tabId"]),
+            ("focus_restore", "fixture-lease", 7),
+        )
+
     def test_workflow_crosses_real_script_process_and_trusted_host(self):
         self.bind()
         self.runtime.tab_ids = [7]

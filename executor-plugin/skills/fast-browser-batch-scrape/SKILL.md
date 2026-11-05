@@ -1,6 +1,6 @@
 ---
 name: fast-browser-batch-scrape
-version: 2.6.0
+version: 2.6.1
 description: Use fast_browser_script for authorized bulk browser work with Python: paging, extraction, de-duplication, saving and multi-step forms.
 ---
 

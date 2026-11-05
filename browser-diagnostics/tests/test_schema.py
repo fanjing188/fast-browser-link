@@ -34,7 +34,7 @@ class SchemaTests(unittest.TestCase):
         contract = json.loads((ROOT / "schema-v1.json").read_text(encoding="utf-8"))
         event = make_event(**base_event(), timestamp="2026-09-22T00:00:00.000Z")
         self.assertEqual(contract["$id"], SCHEMA_VERSION)
-        self.assertEqual(set(contract["required"]), set(event))
+        self.assertEqual(set(contract["required"]) | {"reason_code"}, set(event))
         self.assertFalse(contract["additionalProperties"])
         for component in contract["properties"]["component"]["enum"]:
             make_event(**base_event(component=component))
@@ -64,6 +64,7 @@ class SchemaTests(unittest.TestCase):
                 "error_code": None,
                 "action": None,
                 "stage": None,
+                "reason_code": None,
             },
         )
 

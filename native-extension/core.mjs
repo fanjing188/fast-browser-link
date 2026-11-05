@@ -5,7 +5,8 @@ import {passwordValues,omitPasswordValues} from './password-values.mjs';
 import {RECOVERY_ACTIONS,recoverTarget,recoveryReason} from './target-recovery.mjs';
 const RECOVERY_ROUND=Symbol('recovery round');
 const OBSERVATION_FENCE=Symbol('observation fence');
-import {INPUT_ACTIONS,withBackgroundFocusNotice} from './work-window.mjs';
+import {withBackgroundFocusNotice,focusTaskWindow} from './work-window.mjs';
+import {BackgroundRender} from './background-render.mjs';
 import {observeInputEffect} from './action-effects.mjs';
 import {DiagnosticEventBuffer,observeAction} from '../browser-diagnostics/js/diagnostics.mjs';
 import {NativeWorkspaces,groupTitle} from './workspace-adapter.mjs';
@@ -123,7 +124,7 @@ export async function maskCapturePng(base64,rects,viewport,format='png'){
 }
 
 // 中文注释：语义页面函数在任何点击、赋值或按键之前抛出的原因；据此报告未派发。
-const PRE_DISPATCH_PAGE_REASONS=new Set(['TARGET_OCCLUDED','TARGET_NOT_ACTIONABLE','TARGET_UNSTABLE','SENSITIVE_TARGET','STALE_REF','STALE_SNAPSHOT',
+const PRE_DISPATCH_PAGE_REASONS=new Set(['HIDDEN_STALLED','TARGET_OCCLUDED','TARGET_NOT_ACTIONABLE','TARGET_UNSTABLE','SENSITIVE_TARGET','STALE_REF','STALE_SNAPSHOT',
  'target not found','target unavailable','TARGET_NOT_UNIQUE','TARGET_DISABLED','TARGET_HIDDEN','TARGET_ZERO_SIZE','TARGET_OUT_OF_VIEWPORT','REF_TARGET_MISSING','REF_TARGET_AMBIGUOUS',
  'BINDING_MISMATCH','DOCUMENT_REPLACED','UNSUPPORTED_FRAME_TRANSFORM','POINTER_FRAME_UNSUPPORTED','TARGET_STATE_UNKNOWN','RADIO_CANNOT_UNCHECK',
  'INVALID_CHECKED_STATE','INVALID_SELECT_OPTIONS','CUSTOM_SELECT_UNSUPPORTED','SELECT_OPTION_AMBIGUOUS','SELECT_OPTION_DISABLED','SELECT_OPTION_MISSING','PRESS_TARGET_CHANGED']);
@@ -184,17 +185,17 @@ export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
  const blocked='TARGET_NOT_ACTIONABLE',bad='INVALID_SELECT_OPTIONS';
  const createPageTextRedactor=${serializedFunction(createPageTextRedactor)};
  const createPageSemantics=${serializedFunction(createPageSemantics).replace(/^\s*\/\/[^\n]*\n/gm,'')};
- const createPageParser=context=>globalThis.__fastSemanticLibrary.parser(context);
- const same=(a,b)=>a&&b&&a.taskId===b.taskId&&a.documentId===b.documentId&&a.leaseId===b.leaseId;
+ const createPageParser=c=>globalThis.__fastSemanticLibrary.parser(c);
+ const same=(a,b)=>a&&b&&['taskId','documentId','leaseId'].every(k=>a[k]===b[k]);
  // 中文注释：扩展重载后旧隔离世界还可能存在；实现版本变化必须撤销旧引用并重新创建语义实例。
- const make=()=>({version:15,binding:p.binding,documentEpoch:globalThis.crypto?.randomUUID?.()||Date.now().toString(36)+'-'+Math.random().toString(36).slice(2),semantics:createPageSemantics({document,...p.binding,classifyField:classifySensitiveField,
+ const make=()=>({version:15,binding:p.binding,documentEpoch:globalThis.crypto?.randomUUID?.()||Date.now().toString(36)+'-'+Math.random().toString(36).slice(2),semantics:createPageSemantics({document,...p.binding,classifyField:cs,
   shadowRootOf:node=>node.shadowRoot||globalThis.__fastClosedShadowRoots?.get(node)||null})});
- const classifySensitiveField=${serializedFunction(classifySensitiveField)};
- const sen=e=>classifySensitiveField(e)!==null;
- const fk=e=>classifySensitiveField(e)||'sensitive';
- const overlayHit=e=>{for(let n=e;n;n=n.parentNode||n.host)if(n.nodeType===1&&(n.hasAttribute?.('data-fast-automation-overlay')||n.hasAttribute?.('data-fast-interaction-highlight')))return true;return false;};
+ const cs=${classifySensitiveField.toString()};
+ const sen=e=>!!cs(e);
+ const fk=e=>cs(e)||'sensitive';
+ const oh=e=>{for(let n=e;n;n=n.parentNode||n.host)if(n.nodeType===1&&(n.hasAttribute?.('data-fast-automation-overlay')||n.hasAttribute?.('data-fast-interaction-highlight')))return true;return false;};
  // 中文注释：准备阶段遮罩仍拦截人工输入；仅在命中测试中穿过本插件层，实际派发窗口另行放行。
- const pageHit=(root,x,y)=>root.elementsFromPoint?root.elementsFromPoint(x,y).find(hit=>!overlayHit(hit)):root.elementFromPoint(x,y);
+ const pageHit=(root,x,y)=>root.elementsFromPoint?root.elementsFromPoint(x,y).find(hit=>!oh(hit)):root.elementFromPoint(x,y);
  // 中文注释：遮挡时改点关联 label。
  const cv=e=>{
   if(e.tagName!=='INPUT'||!['checkbox','radio'].includes(e.type))return e;
@@ -236,7 +237,7 @@ export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
    if(point.x<0||point.y<0||point.x>=view.innerWidth||point.y>=view.innerHeight)throw Error('TARGET_OUT_OF_VIEWPORT');
    const hit=pageHit(root.host?root:doc,point.x,point.y);
    // 中文注释：隐藏页合成点击容许空命中。
-   if(overlayHit(hit)||(!hit&&!(p.syntheticHidden&&doc.visibilityState==='hidden'))||hit&&(hit!==current&&!current.contains(hit))){
+   if(oh(hit)||(!hit&&!(p.syntheticHidden&&doc.visibilityState==='hidden'))||hit&&(hit!==current&&!current.contains(hit))){
     // 中文注释：遮挡摘要只取脱敏名称。
     let obs={role:hit?.getAttribute?.('role')||hit?.localName||'unknown',name:'',closeButton:null};
     if(hit?.ownerDocument===document&&state?.semantics){
@@ -254,6 +255,8 @@ export const semanticWorldDeclaration=compactSemanticSource(`function(op,p){
       }
      }catch{}
     }
+    // 中文注释：仅在命中遮挡节点确有尚未结束的 CSS 过渡时报告后台渲染停滞。
+    if(doc.hidden&&hit?.getAnimations?.().some(a=>a.transitionProperty&&a.playState==='running'))throw Error('HIDDEN_STALLED');
     throw Error('TARGET_OCCLUDED|'+encodeURIComponent(JSON.stringify(obs)));
    }
    if(sen(current)||sen(hit))throw Error('SENSITIVE_TARGET');
@@ -864,7 +867,7 @@ export function preveilSource(allowedOrigins,{taskId='',generation=0}={}){
 }catch{}})()`;
 }
 
-export const V1_ACTIONS = Object.freeze(['popup.policy','popup_catalog','popup_adopt','tabs','new_tab','navigate','snapshot','click','fill','press','screenshot','execution.guard','page.observe','page.parse','semantic_snapshot','frame_catalog','ref_click','ref_fill','ref_press','ref_set_checked','ref_select_option','files.upload','interaction.capture','interaction.bounds','interaction.click','interaction.drag_coordinates','interaction.drag_elements','official.ready_state','official.goto_url','official.new_tab','scroll','back',
+export const V1_ACTIONS = Object.freeze(['popup.policy','popup_catalog','popup_adopt','tabs','new_tab','navigate','select_tab','snapshot','click','fill','press','screenshot','focus_window','execution.guard','page.observe','page.parse','semantic_snapshot','frame_catalog','ref_click','ref_fill','ref_press','ref_set_checked','ref_select_option','files.upload','interaction.capture','interaction.bounds','interaction.click','interaction.drag_coordinates','interaction.drag_elements','official.ready_state','official.goto_url','official.new_tab','scroll','back',
  'js.evaluate','cdp.send','cdp.events','network.inspect','images','console','dialog']);
 const SCRIPT_ACTIONS=new Set(['js.evaluate','cdp.send','cdp.events','network.inspect']);
 const SITE_READ_ACTIONS=new Set(['snapshot','screenshot','page.observe','page.parse','semantic_snapshot','frame_catalog','interaction.capture','interaction.bounds','official.ready_state','images','console']);
@@ -873,6 +876,7 @@ function assertV1Action(action) { if(!V1_ACTIONS.includes(action))throw Error('V
 const SILENT_WINDOW_METHODS=new Set(['Page.bringToFront','Browser.setWindowBounds','Browser.close','Browser.crash','Target.activateTarget','Target.createTarget','Target.createBrowserContext','Target.disposeBrowserContext','Target.sendMessageToTarget']);
 export class Executor {
  constructor(api,onEvent=()=>{},{beforeLeaseRelease=async()=>{},onOverlayCommand=null,releaseDeadlineMs=RELEASE_DEADLINE_MS,onDownloadEvent=null,onCdpEvents=null,onSignInRedirect=null,onPopupAdopt=async()=>{},onBackgroundPopup=async()=>null,onPopupPolicyState=null,onOverlayReady=null,oauthProviders=OAUTH_PROVIDERS}={}) {
+  this.backgroundRender=new BackgroundRender(api);
   this.onPopupPolicyState=onPopupPolicyState;this.onBackgroundPopup=onBackgroundPopup;this.onOverlayReady=onOverlayReady;this.onPopupAdopt=onPopupAdopt;this.oauthProviders=oauthProviders;this.onSignInRedirect=onSignInRedirect;
   this.beforeLeaseRelease=beforeLeaseRelease;
   this.releaseDeadlineMs=Number.isFinite(releaseDeadlineMs)&&releaseDeadlineMs>0?Math.min(releaseDeadlineMs,RELEASE_DEADLINE_MS):RELEASE_DEADLINE_MS;
@@ -1219,6 +1223,21 @@ export class Executor {
   if((p.modeGeneration??1)!==t.policy.modeGeneration)throw Error('mode generation mismatch');
   guard();
   if(Number.isInteger(p.tabId)&&this.leases.get(p.tabId)!==t.id)throw Error('tab lease denied');
+ }
+ async focusWindow(t,p,guard){
+  // 中文注释：只允许扩展独立窗口中本任务创建、分组和租赁的页，拒绝原窗口及接管页。
+  if(t.silent||['product_fill','product_work'].includes(t.executionLane)||t.attachment||
+   t.workWindowMode==='current'||!this.workspaces||!t.workspaceCapability||!t.agentTabs?.has(p.tabId))
+   throw Object.assign(Error('FOCUS_WINDOW_DENIED'),{preDispatch:true});
+  const cap=this.workspaces.authority.resolve(t.workspaceCapability),w=this.workspaces.taskWindow(t);
+  const tab=await this.api.tabs.get(p.tabId);guard();
+  if(cap.windowId!==w.windowId||tab.windowId!==cap.windowId||tab.groupId!==t.agentTabGroups?.get(p.tabId))
+   throw Object.assign(Error('FOCUS_WINDOW_DENIED'),{preDispatch:true});
+  // 中文注释：占用时立即拒绝，不能把焦点请求排队到宿主超时后再迟到执行。
+  if(this.focusBusy)throw Object.assign(Error('FOCUS_WINDOW_BUSY'),{preDispatch:true});
+  this.focusBusy=true;
+  try{guard();const value=await focusTaskWindow(this.api,p.tabId,cap.windowId,guard,{restore:p.restore===undefined?true:p.restore,holdMs:p.holdMs===undefined?1000:p.holdMs,groupId:t.agentTabGroups.get(p.tabId),restoreOnFailure:p._restoreOnFailure===true});return {...value,workWindowId:cap.windowId};}
+  finally{this.focusBusy=false;}
  }
  check(t,p) {if(!t||t.revoked||this.tasks.get(t.id)!==t||t.generation!==p.generation)throw Error('stale generation');if(t.overlayStopping)throw Error('stop intent fenced');}
  // 中文注释：接管只冻结后续动作，不释放标签页，也不撤销当前任务授权。
@@ -1677,6 +1696,8 @@ export class Executor {
  }
  async execute(p) {
   const t=this.tasks.get(p.taskId),sourceTabId=t?.popupReturns?.get(p.tabId);
+  if(p.action==='focus_window'&&(t?.silent||['product_fill','product_work'].includes(t?.executionLane)))
+   throw Object.assign(Error('FOCUS_WINDOW_DENIED'),{preDispatch:true});
   if(p.action==='product.fill'){
    this.check(t,p);
    if(t.executionLane!=='product_fill')throw Object.assign(Error('PRODUCT_LANE_REQUIRED'),{preDispatch:true});
@@ -1982,6 +2003,7 @@ export class Executor {
   t.childHighlights.set(resolved.token,entry);return entry;
  }
  async closeTabResources(t,tabId,releaseDeadline=null,{keepOverlay=false,keepNetwork=false}={}) {
+  if(!keepOverlay)await this.backgroundRender.close(tabId);
   // 中文注释：释放标签资源时丢弃网络正文；导航保留同一捕获的有界记录。
   if(!keepNetwork)t.execution?.network?.delete(tabId);
   let cleanupState='succeeded';
@@ -2489,7 +2511,7 @@ export class Executor {
   guard();
   const tree=await this.api.debugger.sendCommand(target,'Page.getFrameTree',{});guard();
   const urls=allFrames?this.frameUrls(tree.frameTree):[tree.frameTree?.frame?.url];
-  try{this.allowed(t,urls[0]);if(allFrames)for(const url of urls.slice(1))this.allowed(t,url);}catch(e){throw Error(allFrames?'frame origin denied':e.message);}
+  try{this.allowed(t,urls[0]);if(allFrames)for(const url of urls.slice(1))this.allowed(t,url);}catch(e){const failure=Error(allFrames?'frame origin denied':e.message);if(!allFrames&&urls[0]&&urls[0]!=='about:blank')failure.committedFrame=true;throw failure;}
   return tree.frameTree;
  }
  async callWorld(target,frameId,t,action,selector,text,key,guard,executionContextId=null,highlightBinding=null) {
@@ -2919,6 +2941,8 @@ export class Executor {
   let tab=initial||await this.api.tabs.get(tabId),seenCommit=false,probeAt=0,probeOff=false,partialSeen=null;guard();
   while(true){
    guard();
+   // 中文注释：待提交目标已是浏览器内部页时无需等加载；普通 about:blank 是建页过渡态。
+   if(t&&requested&&tab.pendingUrl&&tab.pendingUrl!=='about:blank')this.acceptCommittedOrigin(t,requested,tab.pendingUrl);
    // 中文注释：导航期间 tabs.get 可能仍是旧页；只检查已提交的新网址。
    if(tab.url&&!(t&&requested&&/^https?:/.test(requested)&&tab.url==='about:blank')&&(!previousUrl||tab.url!==previousUrl||tab.status==='complete')){
     seenCommit=true;if(t&&requested)this.acceptCommittedOrigin(t,requested,tab.url);
@@ -2942,7 +2966,9 @@ export class Executor {
      // 中文注释：主框架可能先于 tabs.get 提交跳转；等标签页网址更新后再判定来源。
      if(error?.message==='origin denied')redirected=true;
      // 中文注释：新页提交导航前主框架是 about:blank 或空网址，只跳过本轮；关闭探测会退回等全部子资源加载完（常到上限 8 秒）。
+     else if(error?.message==='origin scheme denied'&&error.committedFrame)throw error;
      else if(error?.message==='origin scheme denied'||error instanceof TypeError&&/Invalid URL/i.test(error.message)){/* 跳过本轮 */}
+     else if(/^(?:Cannot access a chrome(?:-extension)?:\/\/ URL|Cannot access contents of url|Missing host permission)/i.test(String(error?.message||'')))throw Object.assign(Error('host permission denied'),{preDispatch:false});
      else if(!isTransientLoadError(error))probeOff=true;
     }
     if(redirected){
@@ -2966,7 +2992,7 @@ export class Executor {
   }
  }
  async openOwnedTab(t,p,guard,url){
-  this.allowed(t,url);
+  try{this.allowed(t,url);}catch(error){error.preDispatch=true;throw error;}
   // 中文注释：仅串行容量回收、创建与租约登记；加载 Promise 单独返回，不占建页队列。
   const prior=t.tabOpenQueue||Promise.resolve();
   const registration=prior.catch(()=>{}).then(async()=>{
@@ -2994,25 +3020,30 @@ export class Executor {
     });
    }
    guard();
-   const work=await this.workspaces.open(t.workspaceCapability,{requestId:p.action==='new_tab'?p.requestId:(p.requestId||crypto.randomUUID()),url,title:t.title,...(this.popupPolicy.enabled(t)?{prepareTab:id=>this.popupPolicy.install(t,id,guard)}:{})});
+   const work=await this.workspaces.open(t.workspaceCapability,{requestId:p.action==='new_tab'?p.requestId:(p.requestId||crypto.randomUUID()),url,title:t.title,active:!t.silent&&!t.attachment&&(t.incognito||t.workWindowMode!=='current'),...(this.popupPolicy.enabled(t)?{prepareTab:id=>this.popupPolicy.install(t,id,guard)}:{})});
    const tab=await this.api.tabs.get(work.tabId);guard();
    if(!Number.isInteger(tab.id))throw Error('invalid new tab');
    const windowId=this.workspaces.authority.resolve(t.workspaceCapability).windowId;
    if(tab.windowId!==windowId||tab.groupId!==work.groupId)throw Error('RELEASED');
    if(this.leases.has(tab.id))throw Object.assign(Error('TASK_BUSY'),{code:'TASK_BUSY',preDispatch:false});
-   if(tab.url!=='about:blank')this.acceptCommittedOrigin(t,url,tab.url||url);
    t.tabIds.add(tab.id);t.agentTabs.add(tab.id);this.leases.set(tab.id,t.id);
    // 中文注释：记录模型页创建时的组，用于回收前核对用户是否移走页面。
    (t.agentTabGroups??=new Map()).set(tab.id,work.groupId);
    (t.agentTabRequests??=new Map()).set(tab.id,p.requestId);
    const settled=this.lock(tab.id,async()=>{
     guard();
-    const value=await this.settledTab(tab.id,guard,tab,PAGE_SETTLE_MS,t,url);guard();
+    let value;
+    try{value=await this.settledTab(tab.id,guard,tab,PAGE_SETTLE_MS,t,url);guard();}
+    catch(error){
+     // 中文注释：标签已登记并持有租约，回执只暴露编号与创建事实，不回显外站地址。
+     if(['origin denied','origin scheme denied','origin authority mismatch','confirmation required','host permission denied'].includes(error?.message)){error.tabId=tab.id;error.tabState='created';error.groupId=work.groupId;error.windowId=tab.windowId;error.closedTabs=closedTabs;error.preDispatch=false;}
+     throw error;
+    }
     // 中文注释：来源、代次及模式仍逐次核验，新增同任务标签不属于授权变化。
     if(this.leases.get(tab.id)!==t.id)throw Object.assign(Error('TASK_BUSY'),{code:'TASK_BUSY',preDispatch:false});
     const settledUrl=value.tab.url||(value.tab.status==='loading'?value.tab.pendingUrl:undefined);
     // 中文注释：建页已发生但没有可核实的网址，返回未就绪而非 URL 解析异常；不能借 pendingUrl 伪报完成。
-    if(!settledUrl)throw Object.assign(Error('PAGE_NOT_READY'),{preDispatch:false});
+    if(!settledUrl||settledUrl==='about:blank')throw Object.assign(Error('PAGE_NOT_READY'),{preDispatch:false,tabId:tab.id,tabState:'created',groupId:work.groupId,windowId:tab.windowId,closedTabs});
     this.allowed(t,settledUrl);
     return {tabId:tab.id,url:settledUrl,ready:value.ready,groupId:work.groupId,windowId:value.tab.windowId,closedTabs};
    });
@@ -3066,7 +3097,7 @@ export class Executor {
    return unconfirmed;
   }finally{
    if(window)await this.overlayCall(p.tabId,window.entry,'reblock',{expectedActionToken:window.token}).catch(()=>{});
-   await this.api.debugger.sendCommand(target,'Emulation.setFocusEmulationEnabled',{enabled:false}).catch(()=>{});
+   await this.api.debugger.sendCommand(target,'Emulation.setFocusEmulationEnabled',{enabled:this.backgroundRender.focusValue(p.tabId)}).catch(()=>{});
   }
  }
  async perform(t,p) {
@@ -3079,7 +3110,7 @@ export class Executor {
   this.check(t,p);const modeGeneration=t.policy.modeGeneration;const guard=()=>{p[OBSERVATION_FENCE]?.();this.check(t,p);if(Number.isInteger(p.tabId)&&this.leases.get(p.tabId)!==t.id)throw Error('tab lease denied');if(t.policy.modeGeneration!==modeGeneration)throw Error('mode revoked');};const get=async id=>{const tab=await this.api.tabs.get(id);guard();this.allowed(t,tab.url);return tab;};
   await this.authorize(t,p,guard);guard();
   // 中文注释：审批完成后才进入窗口输入队列，读操作不切前台。
-  return this.workspaces&&INPUT_ACTIONS.has(p.action)?this.workspaces.withInput(t,p,guard,()=>this.performAuthorized(t,p,guard,get,modeGeneration)):this.performAuthorized(t,p,guard,get,modeGeneration);
+  return this.workspaces&&Number.isInteger(p.tabId)&&p.action!=='focus_window'?this.workspaces.withInput(t,p,guard,()=>this.performAuthorized(t,p,guard,get,modeGeneration)):this.performAuthorized(t,p,guard,get,modeGeneration);
  }
  async performAuthorized(t,p,guard,get,modeGeneration){
   const boundSnapshot=p.action==='semantic_snapshot'&&p.binding;
@@ -3101,11 +3132,19 @@ export class Executor {
   if(p.action==='new_tab'){
    return this.openOwnedTab(t,p,guard,p.url);
   }
-  const initialTab=await get(p.tabId);
+  let initialTab;
+  try{initialTab=await get(p.tabId);}
+  catch(error){
+   // 中文注释：这里只标记浏览器标签查询的固定错误；任何页面异常正文均不转发。
+   if(/^No tab with id: \d+\.?$/.test(String(error?.message||'')))throw Object.assign(Error('TAB_CLOSED_BEFORE_DISPATCH'),{preDispatch:true,reasonCode:'tab_closed'});
+   // 中文注释：标签查询失败发生在动作派发前，只记录固定 API 类别。
+   throw Object.assign(Error('CHROME_API_ERROR'),{preDispatch:true,reasonCode:'chrome_api_error'});
+  }
+  if(p.action==='select_tab')return {tabId:p.tabId};
   const target={tabId:p.tabId},captureCache={};
   if(p.action==='navigate'&&this.downloads){
    if(!this.attached.has(p.tabId)){
-    await this.api.debugger.attach(target,'1.3');
+    try{await this.api.debugger.attach(target,'1.3');}catch{throw Object.assign(Error('DEBUGGER_ATTACH_BEFORE_DISPATCH'),{preDispatch:true,reasonCode:'debugger_attach_failed'});}
     try{guard();}catch(e){await this.api.debugger.detach(target).catch(()=>{});throw e;}
     this.attached.add(p.tabId);
    }
@@ -3121,11 +3160,13 @@ export class Executor {
   }
   if(!this.attached.has(p.tabId)){
    try{await this.api.debugger.attach(target,'1.3');}
-   catch(error){if(p.action==='js.evaluate'||p.action==='cdp.send')throw Object.assign(Error('RUNTIME_ATTACH_FAILED'),{preDispatch:true});throw error;}
+   catch(error){if(p.action==='js.evaluate'||p.action==='cdp.send')throw Object.assign(Error('RUNTIME_ATTACH_FAILED'),{preDispatch:true,reasonCode:'debugger_attach_failed'});throw Object.assign(Error('DEBUGGER_ATTACH_BEFORE_DISPATCH'),{preDispatch:true,reasonCode:'debugger_attach_failed'});}
    try{guard();}catch(e){await this.api.debugger.detach(target).catch(()=>{});if(p.action==='js.evaluate'||p.action==='cdp.send')e.preDispatch=true;throw e;}
    this.attached.add(p.tabId);
   }
   await this.ensurePageEvents(target,guard);
+  await this.backgroundRender.enable(p.tabId);guard();
+  if(p.action==='focus_window')return this.focusWindow(t,p,guard);
   // 中文注释：JS 对话框打开时页面脚本被阻塞，除处理对话框外的动作立即拒绝，避免挂起到超时。
   if(p.action==='dialog'){
    const handled=await this.observers.handle(t,p,target,guard);
@@ -3585,7 +3626,7 @@ export class Executor {
     }
     if(!DISPATCHING_ACTIONS.has(p.action))await this.checkedFrameTree(target,t,guard,false);
    } finally {
-    if(emulatedFocus)await this.api.debugger.sendCommand(target,'Emulation.setFocusEmulationEnabled',{enabled:false});
+    if(emulatedFocus)await this.api.debugger.sendCommand(target,'Emulation.setFocusEmulationEnabled',{enabled:this.backgroundRender.focusValue(p.tabId)});
    }
   }
   if(captureCache.coverage)result={...result,coverage:captureCache.coverage};

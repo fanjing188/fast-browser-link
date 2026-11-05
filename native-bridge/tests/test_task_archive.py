@@ -59,7 +59,7 @@ class TaskArchiveTests(unittest.TestCase):
         restored._load_tasks()
         self.assertEqual(set(restored.tasks), {"recent", "unknown"})
 
-    def test_verified_unknown_is_archived_only_after_verification_ages(self):
+    def test_verified_old_unknown_archives_without_waiting_again(self):
         old = self.task("verified-old", requestHistory=[{"state": "unknown"}])
         old["userVerified"] = {
             "reason": "checked",
@@ -72,9 +72,9 @@ class TaskArchiveTests(unittest.TestCase):
         }
         self.daemon.tasks = {row["id"]: row for row in (old, recent)}
         self.daemon._flush_tasks()
-        self.assertEqual(set(self.daemon.tasks), {"verified-recent"})
+        self.assertEqual(set(self.daemon.tasks), set())
         self.assertEqual(self.daemon.task_archive.get("verified-old"), old)
-        self.assertIsNone(self.daemon.task_archive.get("verified-recent"))
+        self.assertEqual(self.daemon.task_archive.get("verified-recent"), recent)
 
     def test_archive_is_idempotent_if_snapshot_still_contains_task(self):
         old = self.task("old")

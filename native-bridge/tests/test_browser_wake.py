@@ -188,7 +188,14 @@ class BrowserWakeTests(unittest.TestCase):
             self.daemon._launch_browser("edge")
         self.assertEqual(
             run.call_args.args[0],
-            ["/usr/bin/open", "-g", "-b", "com.microsoft.edgemac"],
+            [
+                "/usr/bin/open",
+                "-g",
+                "-b",
+                "com.microsoft.edgemac",
+                "--args",
+                "--disable-backgrounding-occluded-windows",
+            ],
         )
         with (
             patch.object(daemon_module.sys, "platform", "darwin"),

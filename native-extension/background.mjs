@@ -498,6 +498,8 @@ const approvalActions = {
   screenshot: '截取页面',
   'page.parse': '解析页面',
   semantic_snapshot: '读取语义快照',
+  focus_window: '临时置前任务窗口',
+  focus_restore: '恢复原前台',
   frame_catalog: '读取子框架目录',
   'interaction.capture': '截取交互画面',
   'interaction.bounds': '读取元素位置',

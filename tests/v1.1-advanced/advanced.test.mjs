@@ -320,7 +320,9 @@ test('production Executor debugger-attach failure does not claim JS was dispatch
     category: 'plugin',
     hint: '请查看插件诊断并报告错误码',
     outcomeUnknown: false,
-    retryable: false,
+    retryable: true,
+    stage: 'preparation',
+    reasonCode: 'debugger_attach_failed',
   });
   assert.doesNotMatch(JSON.stringify(result), /PRIVATE_PREPARATION_CANARY/);
 });

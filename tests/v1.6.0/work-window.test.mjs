@@ -306,7 +306,7 @@ test('持久编号指向用户页面时不采用该窗口', async () => {
   tab.url = 'https://fixture.test';
   assert.notEqual(await w.ensure(), id);
 });
-test('同窗口后台输入串行且活动标签不变，独立窗口和只读不阻塞', async () => {
+test('同窗口后台输入串行切换活动标签，独立窗口和只读不阻塞', async () => {
   const f = fixture(),
     w = new WorkWindow(f.api),
     windowId = await w.ensure();
@@ -353,9 +353,9 @@ test('同窗口后台输入串行且活动标签不变，独立窗口和只读�
   release();
   await Promise.all([a, b]);
   assert.deepEqual(events, ['a', 'independent', 'read', 'a-end', 'b']);
-  assert.equal(f.calls.filter((c) => c[0] === 'tabs.update').length, 0);
+  assert.equal(f.calls.filter((c) => c[0] === 'tabs.update').length, 3);
   assert.equal(f.tabs.get(1).active, false);
-  assert.equal(f.tabs.get(2).active, false);
+  assert.equal(f.tabs.get(2).active, true);
 });
 test('current 配置不切前台；拖走的页不在原工作窗口切前台', async () => {
   const f = fixture(),
@@ -390,7 +390,7 @@ test('current 配置不切前台；拖走的页不在原工作窗口切前台', 
   assert.equal(count, 2);
   assert.equal(f.calls.filter((c) => c[0] === 'tabs.update').length, 0);
 });
-test('原始 CDP 输入进入窗口队列，非输入命令不切前台', async () => {
+test('CDP 动作目标在窗口内激活且不抢系统焦点', async () => {
   const f = fixture(),
     w = new WorkWindow(f.api),
     id = await w.ensure();
@@ -413,15 +413,15 @@ test('原始 CDP 输入进入窗口队列，非输入命令不切前台', async 
     () => {},
     async () => {},
   );
-  assert.equal(f.calls.filter((c) => c[0] === 'tabs.update').length, 0);
+  assert.equal(f.calls.filter((c) => c[0] === 'tabs.update').length, 1);
   await native.withInput(
     t,
     { action: 'cdp.send', method: 'Input.dispatchKeyEvent', tabId: 2 },
     () => {},
     async () => {},
   );
-  assert.equal(f.calls.filter((c) => c[0] === 'tabs.update').length, 0);
-  assert.equal(f.tabs.get(2).active, false);
+  assert.equal(f.calls.filter((c) => c[0] === 'tabs.update').length, 1);
+  assert.equal(f.tabs.get(2).active, true);
 });
 test('隐藏语义目标先派发真实输入，页面核验后不依赖不可用的 CDP 命中接口', async () => {
   const events = [];
@@ -648,4 +648,26 @@ test('Chrome 和未确认受影响的平台不使用 Edge/macOS 风险提示', (
   ]) {
     assert.equal(withBackgroundFocusNotice(receipt, 'http://localhost', ua), receipt);
   }
+});
+
+test('新建、导航和选择时激活独立窗口标签，不调用窗口置前', async () => {
+  const f = fixture(), created = [];
+  const create = f.api.tabs.create;
+  f.api.tabs.create = async p => { created.push({ ...p }); return create(p); };
+  const workspaces = new NativeWorkspaces(f.api, 'browser');
+  const task = { id: 'active', instanceId: 'browser', approvalScope: 'scope', generation: 1,
+    workWindowMode: 'separate', title: 'Task', agentTabs: new Set(), agentTabGroups: new Map() };
+  const cap = await workspaces.install(task, []);
+  task.workspaceCapability = cap;
+  const opened = await workspaces.open(cap, { requestId: 'active-1', url: 'https://example.test/', title: task.title, active: true });
+  assert.equal(created[0].active, true);
+  assert.ok(f.calls.some(row => row[0] === 'tabs.update' && row[1] === opened.tabId && row[2].active === true));
+  task.agentTabs.add(opened.tabId); task.agentTabGroups.set(opened.tabId, opened.groupId);
+  for (const action of ['navigate', 'select_tab']) {
+    f.tabs.get(opened.tabId).active = false;
+    await workspaces.withInput(task, { action, tabId: opened.tabId }, () => {}, async () => {
+      assert.equal(f.tabs.get(opened.tabId).active, true);
+    });
+  }
+  assert.equal(f.calls.some(row => row[0] === 'windows.update'), false);
 });

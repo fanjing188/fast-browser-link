@@ -86,6 +86,7 @@ NODE_TESTS = (
     "browser-diagnostics/tests/diagnostics.test.mjs",
     # 中文注释：独立工作窗口和效果观察只用合成 API/DOM。
     "tests/v1.6.0/work-window.test.mjs",
+    "tests/v1.6.0/focus-window.test.mjs",
     # 中文注释：浮层断连与本地放开回归只使用离线 DOM，不自动运行真实浏览器。
     "tests/v1.5.3/overlay-orphan.test.mjs",
     # 中文注释：Cookie 镜像只运行合成 API；真实双浏览器脚本不进入门禁。

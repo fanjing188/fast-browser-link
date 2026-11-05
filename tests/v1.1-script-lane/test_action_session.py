@@ -41,6 +41,42 @@ class RecordingRuntime:
 
 
 class ActionSessionTest(unittest.TestCase):
+    def test_focus_window_uses_bound_tab_and_passes_options(self):
+        runtime = RecordingRuntime(
+            [{"focused": True, "visible": True, "previousWindowId": 2, "restored": True}]
+        )
+        session = adapter.ActionSession(runtime, owner="trusted", task_id="task")
+        session.tab_id = 7
+        result = session.run("focus_window", {"restore": True, "holdMs": 10})
+        self.assertTrue(result["visible"])
+        self.assertEqual(runtime.calls[-1][1]["tabId"], 7)
+
+    def test_unknown_permission_receipt_keeps_created_tab_and_reason(self):
+        data = {
+            "tabId": 9,
+            "tabState": "created",
+            "stage": "authority",
+            "reasonCode": "host_permission_denied",
+            "private": "do not forward",
+        }
+        error = adapter.OutcomeUnknown("unknown", code="permission_denied", data=data)
+        self.assertEqual(
+            error.data, {key: value for key, value in data.items() if key != "private"}
+        )
+        self.assertTrue(error.outcomeUnknown)
+
+    def test_unknown_execution_receipt_keeps_fixed_diagnostics(self):
+        error = adapter.OutcomeUnknown(
+            "unknown",
+            code="execution_denied",
+            data={
+                "stage": "execution",
+                "reasonCode": "frame_destroyed",
+                "private": "do not forward",
+            },
+        )
+        self.assertEqual(error.data, {"stage": "execution", "reasonCode": "frame_destroyed"})
+
     def test_open_page_returns_readiness_and_binds_tab(self):
         runtime = RecordingRuntime([{"tabId": 7, "url": "https://example.test/", "ready": "idle"}])
         session = adapter.ActionSession(runtime, owner="trusted", task_id="task")
@@ -290,8 +326,10 @@ class ActionSessionTest(unittest.TestCase):
 
         class Runtime:
             def call(self, method, _params):
-                self_method = method
-                assert self_method == "shared.get"
+                if method == "shared.run":
+                    assert _params["action"] == "select_tab"
+                    return {"tabId": 7}
+                assert method == "shared.get"
                 return {
                     "state": "ready" if resumed.is_set() else "paused",
                     "generation": 2,
@@ -929,7 +967,12 @@ class EventReadConcurrencyTests(unittest.TestCase):
             finally:
                 release.set()
             self.assertTrue(command.result(timeout=1)["ok"])
-        self.assertEqual(len([p for method, p in calls if method == "shared.run"]), 2)
+        self.assertEqual(
+            len(
+                [p for method, p in calls if method == "shared.run" and p["action"] != "select_tab"]
+            ),
+            2,
+        )
         root._tab_sessions[7]._unknown = True
         refused = request("cdp.events", {"cursor": 1})
         self.assertFalse(refused["ok"])

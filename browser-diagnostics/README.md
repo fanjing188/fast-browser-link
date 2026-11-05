@@ -11,7 +11,7 @@ Structured, privacy-minimized diagnostics shared by the native bridge (Python) a
 
 ## Event contract
 
-Every stored or buffered event has exactly these keys. Additional keys are rejected (`additionalProperties: false`).
+New events contain these keys. Older v1 events may omit `reason_code`; readers accept them so existing logs remain usable. Additional keys are rejected (`additionalProperties: false`).
 
 | Field | Contract |
 |---|---|
@@ -26,6 +26,9 @@ Every stored or buffered event has exactly these keys. Additional keys are rejec
 | `status` | `pending`, `running`, `succeeded`, `failed`, `cancelled`, `unknown`, `connected`, `disconnected`, `dropped`, `rotated`, or `recovered` |
 | `duration_ms` | Finite number from 0 through 86,400,000, or `null` |
 | `error_code` | `null`, one exact uppercase code listed below, or a lowercase protocol code matching `[a-z][a-z0-9_]{0,63}` in full |
+| `action` | Allowlisted action name or `null` |
+| `stage` | Allowlisted execution stage or `null` |
+| `reason_code` | Fixed lowercase reason code or `null`; never exception text |
 
 Opaque identifiers must match `^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$`. They are correlation tokens only—not user text, URLs, paths, account names, or other descriptive values.
 

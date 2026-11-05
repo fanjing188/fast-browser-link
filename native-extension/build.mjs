@@ -49,6 +49,7 @@ for (const file of [
   'overlay-logs.mjs',
   'manifest.json',
   'work-window.mjs',
+  'background-render.mjs',
   'work-window.html',
   'action-effects.mjs',
   'request-ledger.mjs',

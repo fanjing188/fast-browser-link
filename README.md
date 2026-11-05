@@ -25,7 +25,7 @@ Your request → AI agent → Fast-browser-link → Local Chrome / Edge
 | Run longer workflows | Combine steps, wait for results, process batches, save checkpoints, resume, and generate reports. |
 | Handle interruptions | Slow down when rate-limited, stop repeated failures or stalled loops, and recover eligible temporary page failures. |
 
-**Source version: 2.6.0**. This page describes the current source. `main` may be ahead of the published packages; [Releases](https://github.com/fanjing188/fast-browser-link/releases) is the source of truth for available downloads. See the [2.6.0 notes](docs/releases/release-2.6.0.md) for the new workflow, recovery, and popup capabilities.
+**Source version: 2.6.1**. This page describes the current source. `main` may be ahead of the published packages; [Releases](https://github.com/fanjing188/fast-browser-link/releases) is the source of truth for available downloads. See the [2.6.1 notes](docs/releases/release-2.6.1.md) for the new workflow, recovery, and popup capabilities.
 
 ## Requirements
 

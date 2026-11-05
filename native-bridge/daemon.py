@@ -42,6 +42,94 @@ def _outside_task_lock(lock):
         lock.acquire()
 
 
+# 中文注释：NSWorkspace 不依赖辅助功能权限；只在本机进程内传递 PID 和启动时间。
+_FRONT_APP_SCRIPT = r"""
+ObjC.import('AppKit');
+function run() {
+  const a = $.NSWorkspace.sharedWorkspace.frontmostApplication;
+  if (!a || !a.bundleIdentifier) return '{}';
+  return JSON.stringify({pid:Number(a.processIdentifier), bundle:ObjC.unwrap(a.bundleIdentifier),
+    started:a.launchDate ? Number(a.launchDate.timeIntervalSince1970) : null});
+}
+"""
+_RESTORE_APP_SCRIPT = r"""
+ObjC.import('AppKit');
+function run(args) {
+  const pid=Number(args[0]), bundle=args[1], started=Number(args[2]), browser=args[3];
+  const w=$.NSWorkspace.sharedWorkspace, current=w.frontmostApplication;
+  if (!current || ObjC.unwrap(current.bundleIdentifier) !== browser) return 'focus_changed';
+  const app=$.NSRunningApplication.runningApplicationWithProcessIdentifier(pid);
+  if (!app || !app.bundleIdentifier || !app.launchDate || ObjC.unwrap(app.bundleIdentifier)!==bundle ||
+      Number(app.launchDate.timeIntervalSince1970)!==started) return 'previous_app_gone';
+  if (!app.activateWithOptions(2)) return 'restore_failed';
+  for (let i=0;i<15;i++) {
+    delay(0.1);
+    const front=w.frontmostApplication;
+    if (front && Number(front.processIdentifier)===pid) return 'restored';
+    if (front && ObjC.unwrap(front.bundleIdentifier)!==browser) return 'focus_changed';
+  }
+  return 'restore_unverified';
+}
+"""
+
+
+def _front_app():
+    if sys.platform != "darwin":
+        return None
+    try:
+        run = subprocess.run(
+            ["/usr/bin/osascript", "-l", "JavaScript", "-e", _FRONT_APP_SCRIPT],
+            capture_output=True,
+            text=True,
+            timeout=3,
+            check=True,
+        )
+        app = json.loads(run.stdout)
+        # 中文注释：锁屏进程可能没有启动时间，仍须在派发前识别；普通应用保留恢复身份校验。
+        if app.get("bundle") == "com.apple.loginwindow":
+            return app
+        if (
+            type(app.get("pid")) is int
+            and app["pid"] > 0
+            and isinstance(app.get("bundle"), str)
+            and app["bundle"]
+            and type(app.get("started")) in (int, float)
+        ):
+            return app
+    except (OSError, subprocess.SubprocessError, ValueError, AttributeError):
+        pass
+    return None
+
+
+def _restore_front_app(app, browser_bundle):
+    try:
+        run = subprocess.run(
+            [
+                "/usr/bin/osascript",
+                "-l",
+                "JavaScript",
+                "-e",
+                _RESTORE_APP_SCRIPT,
+                str(app["pid"]),
+                app["bundle"],
+                str(app["started"]),
+                browser_bundle,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=3,
+            check=True,
+        )
+        result = run.stdout.strip()
+        return (
+            result
+            if result in {"restored", "focus_changed", "previous_app_gone", "restore_unverified"}
+            else "restore_failed"
+        )
+    except (OSError, subprocess.SubprocessError):
+        return "restore_failed"
+
+
 @contextmanager
 def _task_admission(lock, deadline_ms=None):
     # 中文注释：只读等待的期限从脚本发起起算；排队过期不进入浏览器，也不重置后续预算。
@@ -125,6 +213,8 @@ V1_ACTIONS = frozenset(
         "screenshot",
         "tabs",
         "new_tab",
+        "focus_window",
+        "select_tab",
         "execution.guard",
         "popup.policy",
         "page.observe",
@@ -294,6 +384,15 @@ def _safe_error_data(data: Any) -> dict:
             field
             for field in data["fields"]
             if isinstance(field, str) and field in {"sections", "maxScan", "schema"}
+        )
+    if (
+        data.get("tabState") == "created"
+        and all(type(data.get(k)) is int and data[k] >= 0 for k in ("tabId", "groupId", "windowId"))
+        and isinstance(data.get("closedTabs"), list)
+        and all(type(v) is int and v >= 0 for v in data["closedTabs"])
+    ):
+        safe.update(
+            {k: data[k] for k in ("tabId", "groupId", "windowId", "tabState", "closedTabs")}
         )
     # 中文注释：错误摘要只保留已脱敏的角色、名称和关闭按钮引用。
     rows = data.get("candidates")
@@ -472,6 +571,9 @@ class BridgeDaemon:
         self.primary_path = self.data_dir / "primary-browser.json"
         self.known_browsers_path = self.data_dir / "known-browsers.json"
         self.browser_launch_lock = threading.Lock()
+        self.focus_window_lock = threading.Lock()
+        self.focus_lease = None
+        self.focus_lease_guard = threading.Lock()
         self.browser_launch_attempts = {}
         self.task_log_dir = self.data_dir / "task-logs"
         self.task_log_lock = threading.Lock()
@@ -794,10 +896,19 @@ class BridgeDaemon:
         try:
             verified = datetime.fromisoformat(proof["at"])
             updated = task["updatedAt"]
+            activity = task.get("lastActivityAt")
             return (
                 verified.tzinfo is not None
                 and isinstance(updated, (int, float))
                 and not isinstance(updated, bool)
+                and (
+                    activity is None
+                    or (
+                        isinstance(activity, (int, float))
+                        and not isinstance(activity, bool)
+                        and 0 < activity <= verified.timestamp()
+                    )
+                )
                 and 0 < updated <= verified.timestamp() <= time.time() + 5
             )
         except (KeyError, TypeError, ValueError, OverflowError):
@@ -810,14 +921,7 @@ class BridgeDaemon:
         ):
             return False
         activity = max(value for value in timestamps if value is not None)
-        verified = task.get("userVerified")
-        if isinstance(verified, dict):
-            try:
-                from datetime import datetime
-
-                activity = max(activity, datetime.fromisoformat(verified["at"]).timestamp())
-            except (KeyError, TypeError, ValueError):
-                return False
+        # 中文注释：核实时间只用于证明结果未被后续更改，不应让已过期任务再等待七天。
         if not isinstance(activity, (int, float)) or activity > now - self.task_archive_seconds:
             return False
         if any(
@@ -988,7 +1092,14 @@ class BridgeDaemon:
         bundle = {"chrome": "com.google.Chrome", "edge": "com.microsoft.edgemac"}[browser]
         try:
             result = subprocess.run(
-                ["/usr/bin/open", "-g", "-b", bundle],
+                [
+                    "/usr/bin/open",
+                    "-g",
+                    "-b",
+                    bundle,
+                    "--args",
+                    "--disable-backgrounding-occluded-windows",
+                ],
                 capture_output=True,
                 timeout=5,
                 check=False,
@@ -1093,6 +1204,20 @@ class BridgeDaemon:
             row["category"] = operation["category"]
         if operation["state"] in {"failed", "unknown"} and error_code:
             row["errorCode"] = error_code
+        if (operation.get("stage"), operation.get("reasonCode")) in {
+            ("preparation", "tab_closed"),
+            ("execution", "debugger_detached"),
+            ("execution", "tab_closed"),
+            ("execution", "cdp_timeout"),
+            ("execution", "frame_destroyed"),
+            ("execution", "execution_context_lost"),
+            ("execution", "service_worker_disconnected"),
+            ("execution", "chrome_api_error"),
+            ("preparation", "debugger_attach_failed"),
+            ("preparation", "chrome_api_error"),
+            ("execution", "internal_exception"),
+        }:
+            row.update(stage=operation["stage"], reasonCode=operation["reasonCode"])
         encoded = (json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n").encode(
             "utf-8"
         )
@@ -1197,7 +1322,15 @@ class BridgeDaemon:
         return self.diagnostics, self.diagnostic_projection
 
     def _diagnostic(
-        self, event_type, status, request_id=None, duration_ms=None, error_code=None, action=None
+        self,
+        event_type,
+        status,
+        request_id=None,
+        duration_ms=None,
+        error_code=None,
+        action=None,
+        stage=None,
+        reason_code=None,
     ):
         # No caller payload, IDs, URLs, exceptions or metadata enter this seam.
         try:
@@ -1214,6 +1347,8 @@ class BridgeDaemon:
                     duration_ms=duration_ms,
                     error_code=error_code,
                     action=action,
+                    stage=stage,
+                    reason_code=reason_code,
                 )
             )
         except Exception:
@@ -1746,32 +1881,28 @@ class BridgeDaemon:
                 timer, self.persist_timer = self.persist_timer, None
                 if timer is not None:
                     timer.cancel()
-                payload = copy.deepcopy(
-                    {
-                        "version": 1,
-                        "tasks": [
-                            {k: v for k, v in task.items() if k != "activeMode"}
-                            for task in self.tasks.values()
-                        ],
-                    }
-                )
-                # 中文注释：人工请求本身不持久化；只保存暂停保护标记，重启后需显式恢复，不自动关闭 CAPTCHA 页。
-                for row in payload["tasks"]:
-                    if row["state"] not in {"closed", "cancelled"} and self._pending_human(
-                        self.tasks[row["id"]]
-                    ):
+                # 中文注释：锁内直接生成不可变 JSON 快照，避免复制整张可变任务表；磁盘 IO 在锁外。
+                rows = []
+                for task in self.tasks.values():
+                    row = {k: v for k, v in task.items() if k != "activeMode"}
+                    if row["state"] not in {"closed", "cancelled"} and self._pending_human(task):
                         row["idlePendingHuman"] = True
+                    rows.append(row)
+                encoded = json.dumps(
+                    {"version": 1, "tasks": rows},
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    ensure_ascii=False,
+                ).encode("utf-8")
                 records, self.pending_journal = self.pending_journal, []
                 self.persist_dirty = False
             try:
                 self._append_journal(records)
-                encoded = json.dumps(
-                    payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
-                ).encode("utf-8")
                 _atomic_write_private(self.tasks_path, encoded)
                 # 中文注释：普通派发指纹已合并快照；活动任务的自动接管审计保留到任务终态。
                 # 从本次快照重建，避免重复追加或从旧日志复活已关闭任务。
                 if self.journal_path.exists():
+                    payload = json.loads(encoded)
                     audit = [
                         self._ledger_record(task, entry)
                         for task in payload["tasks"]
@@ -2540,6 +2671,23 @@ class BridgeDaemon:
         self, params: Dict[str, Any], _approval=None, _gateway=False, *, _authority=None
     ) -> Any:
         task = self._owned_task(params, _authority=_authority)
+        if params.get("action") == "focus_restore":
+            if set(params) - {
+                "owner",
+                "taskId",
+                "requestId",
+                "action",
+                "focusLeaseId",
+                "tabId",
+            } or not isinstance(params.get("focusLeaseId"), str):
+                raise ProtocolError(
+                    "invalid_params", "invalid focus lease", {"outcomeUnknown": False}
+                )
+            return self._restore_focus_lease(task["id"], params["focusLeaseId"])
+        if params.get("action") == "focus_window" and (
+            task.get("silent") or task.get("executionLane") in {"product_fill", "product_work"}
+        ):
+            raise ProtocolError("focus_window_denied", "此任务不能置前", {"outcomeUnknown": False})
         if task.get("executionLane") == "product_work":
             self.optional_service.work.validate_request(task, params, _authority)
         if (task.get("executionLane") == "product_fill") != (
@@ -2605,6 +2753,14 @@ class BridgeDaemon:
                 duration_ms,
                 code,
                 action=params.get("action") if params.get("action") in V1_ACTIONS else None,
+                stage=exc.data.get("stage")
+                if isinstance(exc, ProtocolError)
+                and exc.data.get("stage") in {"preparation", "execution"}
+                else None,
+                reason_code=exc.data.get("reasonCode")
+                if isinstance(exc, ProtocolError)
+                and exc.data.get("stage") in {"preparation", "execution"}
+                else None,
             )
             self._record_task_request_diagnostic(
                 params,
@@ -2622,6 +2778,7 @@ class BridgeDaemon:
                     category=getattr(exc, "data", {}).get("category")
                     if isinstance(getattr(exc, "data", None), dict)
                     else None,
+                    error_data=getattr(exc, "data", None),
                 )
             raise
         finally:
@@ -2690,7 +2847,15 @@ class BridgeDaemon:
         )
 
     def _finish_ui_operation(
-        self, params, status, duration, code=None, target_summary=None, result=None, category=None
+        self,
+        params,
+        status,
+        duration,
+        code=None,
+        target_summary=None,
+        result=None,
+        category=None,
+        error_data=None,
     ):
         """中文注释：仅更新已派发且身份一致的操作，重复查询不追加假步骤。"""
         if not isinstance(params, dict) or not isinstance(params.get("requestId"), str):
@@ -2739,6 +2904,24 @@ class BridgeDaemon:
             )
             if code:
                 operation["errorCode"] = code
+            # 中文注释：任务日志仅收录可信边界给出的固定阶段和原因组合。
+            if isinstance(error_data, dict) and (
+                error_data.get("stage"),
+                error_data.get("reasonCode"),
+            ) in {
+                ("preparation", "tab_closed"),
+                ("execution", "debugger_detached"),
+                ("execution", "tab_closed"),
+                ("execution", "cdp_timeout"),
+                ("execution", "frame_destroyed"),
+                ("execution", "execution_context_lost"),
+                ("execution", "service_worker_disconnected"),
+                ("execution", "chrome_api_error"),
+                ("preparation", "debugger_attach_failed"),
+                ("preparation", "chrome_api_error"),
+                ("execution", "internal_exception"),
+            }:
+                operation.update(stage=error_data["stage"], reasonCode=error_data["reasonCode"])
             task["operationTimeline"] = (task.get("operationTimeline", []) + [dict(operation)])[
                 -32:
             ]
@@ -2784,6 +2967,13 @@ class BridgeDaemon:
         with _task_admission(lock, wait_deadline):
             with self.state_lock:
                 self._owned_task(params, _authority=_authority)
+                if action == "focus_window" and (
+                    task.get("silent")
+                    or task.get("executionLane") in {"product_fill", "product_work"}
+                ):
+                    raise ProtocolError(
+                        "focus_window_denied", "此任务不能置前", {"outcomeUnknown": False}
+                    )
                 if task.get("executionLane") == "product_work":
                     self.optional_service.work.validate_request(task, params, _authority)
                 if action == "product.fill" and (
@@ -3419,24 +3609,29 @@ class BridgeDaemon:
                                 else (
                                     max(15.0, params.get("timeoutMs", 15000) / 1000 + 10.0)
                                     if action in {"new_tab", "navigate"}
+                                    else 25.0
+                                    if action == "focus_window"
                                     else 15.0
                                 )
                             )
                             if wait_deadline is not None:
                                 # 中文注释：只给回执传播留一秒；浏览器内的绝对截止不延长。
                                 timeout = max(0.1, wait_deadline / 1000 - time.time()) + 1
-                            result = self._extension_call(
-                                extension,
-                                "browser.execute",
-                                command_params,
-                                timeout=timeout,
-                                **(
-                                    {"_authority": _authority}
-                                    if action == "product.fill"
-                                    or task.get("executionLane") == "product_work"
-                                    else {}
-                                ),
-                            )
+                            if action == "focus_window":
+                                result = self._focus_window_call(extension, command_params, timeout)
+                            else:
+                                result = self._extension_call(
+                                    extension,
+                                    "browser.execute",
+                                    command_params,
+                                    timeout=timeout,
+                                    **(
+                                        {"_authority": _authority}
+                                        if action == "product.fill"
+                                        or task.get("executionLane") == "product_work"
+                                        else {}
+                                    ),
+                                )
                         if isinstance(result, dict) and "__fastChunked" in result:
                             # 中文注释：工具通道单行上限 1MB；超限结果已执行但不回传正文，改用网关或更小的请求。
                             size = (
@@ -3521,6 +3716,32 @@ class BridgeDaemon:
                         {"outcomeUnknown": False, "retryable": False},
                     )
                 with self.state_lock:
+                    # 中文注释：扩展确认建页后才带此回执；保留同代租约与回收墓碑，不能把已建页当成未发生。
+                    created = exc.data.get("tabId")
+                    if (
+                        action == "new_tab"
+                        and exc.code in {"permission_denied", "page_not_ready"}
+                        and exc.data.get("tabState") == "created"
+                        and task["generation"] == generation
+                        and task["state"] == "running"
+                        and self.tab_leases.get((task["instanceId"], created)) in (None, task_id)
+                    ):
+                        for old_id in exc.data["closedTabs"]:
+                            if old_id != created:
+                                retired = task.setdefault("retiredAgentTabs", {}).setdefault(
+                                    str(generation), []
+                                )
+                                if old_id not in retired:
+                                    retired.append(old_id)
+                                self._forget_agent_tab_locked(task, old_id)
+                        self.tab_leases[(task["instanceId"], created)] = task_id
+                        for field in ("tabIds", "agentTabIds"):
+                            if created not in task[field]:
+                                task[field].append(created)
+                        task.setdefault("workTabs", []).append(
+                            {k: exc.data[k] for k in ("tabId", "groupId", "windowId")}
+                        )
+                        task["workspaceState"] = "ready"
                     if (
                         action == "product.fill" or task.get("executionLane") == "product_work"
                     ) and exc.data.get("outcomeUnknown") is True:
@@ -4016,7 +4237,22 @@ class BridgeDaemon:
                 "generation": generation if type(generation) is int and generation >= 1 else None,
             }
 
-    def _revoke_task_locked(self, task: Dict[str, Any], state: str) -> None:
+    def _revoke_task_locked(self, task: Dict[str, Any], state: str, *, restore_focus=True) -> None:
+        # 扩展停止回调可能占用连接读取线程；恢复浏览器窗口必须异步，避免等待同一连接死锁。
+        lease = self.focus_lease
+        if (
+            restore_focus
+            and state in {"closed", "cancelled"}
+            and lease
+            and lease["taskId"] == task["id"]
+        ):
+            worker = threading.Thread(
+                target=self._restore_focus_lease,
+                args=(task["id"], lease["id"]),
+                kwargs={"missing_ok": True},
+                daemon=True,
+            )
+            worker.start()
         self._revoke_api_locked(task)
         task.pop("gatewayPermit", None)
         task.pop("vaultPermit", None)
@@ -4266,11 +4502,12 @@ class BridgeDaemon:
                 # 中文注释：启动扫描可能早于扩展连接；重连后仅补发这次从未派发的释放。
                 task["autoClosePending"] = close_agent_tabs
             generation = task["generation"]
-            self._revoke_task_locked(task, final_state)
+            self._revoke_task_locked(task, final_state, restore_focus=False)
             self.cleanup_proofs.pop(task["id"], None)
             task.update(cleanupState="pending", cleanupReason="release_in_progress")
             task.pop("cleanupError", None)
             self._persist_tasks()
+        self._restore_focus_lease(task["id"], None, missing_ok=True)
         with self.cleanup_locks[task["id"]]:
             if extension is None:
                 self._record_cleanup(task, generation, extension, None, "browser_offline")
@@ -4686,6 +4923,8 @@ class BridgeDaemon:
             "popup_adopt": {"tabId", "candidateRef"},
             "tabs": set(),
             "new_tab": {"url"},
+            "focus_window": {"tabId"},
+            "select_tab": {"tabId"},
             "navigate": {"tabId", "url"},
             "official.ready_state": {"tabId"},
             "official.goto_url": {"tabId", "url"},
@@ -4729,6 +4968,7 @@ class BridgeDaemon:
         }[action]
         optional = {
             "new_tab": {"waitFor", "timeoutMs"},
+            "focus_window": {"restore", "holdMs", "maxMs"},
             "navigate": {"waitFor", "timeoutMs"},
             "click": {"clickMode"},
             "ref_click": {"clickMode", "noAutoRecovery", "documentEpoch"},
@@ -4755,6 +4995,22 @@ class BridgeDaemon:
         }.get(action, set())
         if action == "ref_click":
             optional = optional | {"frameToken"}
+        if action == "focus_window" and (
+            "restore" in params
+            and type(params["restore"]) is not bool
+            and params["restore"] != "deferred"
+            or "holdMs" in params
+            and (type(params["holdMs"]) is not int or not 0 <= params["holdMs"] <= 15000)
+            or "maxMs" in params
+            and (
+                type(params["maxMs"]) is not int
+                or not 1 <= params["maxMs"] <= 120000
+                or params.get("restore") != "deferred"
+            )
+        ):
+            raise ProtocolError(
+                "invalid_params", "invalid focus options", {"outcomeUnknown": False}
+            )
         # 中文注释：自然等待路径只能要求禁用恢复，不接受 false 或其它值来扩大权限。
         if "noAutoRecovery" in params and params["noAutoRecovery"] is not True:
             raise ProtocolError("invalid_params", "invalid noAutoRecovery")
@@ -5274,6 +5530,157 @@ class BridgeDaemon:
                 type(options["budget"]) is not int or options["budget"] < 512
             ):
                 raise ProtocolError("invalid_params", "invalid semantic budget")
+
+    def _focus_window_call(self, extension, params, timeout):
+        # 中文注释：并发请求立即拒绝，不能排队后在调用方超时之后突然置前。
+        if not self.focus_window_lock.acquire(blocking=False):
+            raise ProtocolError(
+                "focus_window_busy",
+                "另一个任务正在临时置前",
+                {"outcomeUnknown": False, "retryable": True},
+            )
+        original_max_ms = params.get("maxMs", 120000)
+        lease_created = False
+        try:
+            restore = params.get("restore", True)
+            app = _front_app()
+            if app and app.get("bundle") == "com.apple.loginwindow":
+                raise ProtocolError(
+                    "screen_locked",
+                    "屏幕已锁定",
+                    {
+                        "category": "site",
+                        "outcomeUnknown": False,
+                        "retryable": False,
+                        "hint": "请自行用 --disable-backgrounding-occluded-windows 重启浏览器后运行；不要重复置前。",
+                    },
+                )
+            deferred = restore == "deferred"
+            if deferred:
+                params = {**params, "restore": False, "holdMs": 0, "_restoreOnFailure": True}
+                params.pop("maxMs", None)
+            bundle = {"chrome": "com.google.Chrome", "edge": "com.microsoft.edgemac"}.get(
+                extension.get("browser")
+            )
+            result = None
+            may_have_focused = True
+            try:
+                result = self._extension_call(extension, "browser.execute", params, timeout=timeout)
+            except ProtocolError as exc:
+                # 中文注释：明确未派发时不能把用户自行切到浏览器当成我们的置前。
+                if exc.outcome_unknown_explicit and exc.data.get("outcomeUnknown") is False:
+                    may_have_focused = False
+                raise
+            finally:
+                # 中文注释：仅在目标浏览器仍是前台时恢复捕获的原进程；用户切走则不抢回。
+                if (
+                    restore
+                    and (not deferred or result is None)
+                    and may_have_focused
+                    and app
+                    and bundle
+                    and app["bundle"] != bundle
+                    and (
+                        not isinstance(result, dict)
+                        or result.get("restoreReason") != "focus_changed"
+                    )
+                ):
+                    reason = _restore_front_app(app, bundle)
+                else:
+                    reason = None
+            if deferred and isinstance(result, dict):
+                if not result.get("focused") or not result.get("visible"):
+                    if app and bundle and app["bundle"] != bundle:
+                        _restore_front_app(app, bundle)
+                    raise ProtocolError(
+                        "focus_visibility_unavailable", "未确认可见", {"outcomeUnknown": False}
+                    )
+                lease_id = uuid.uuid4().hex
+                timer = threading.Timer(
+                    original_max_ms / 1000,
+                    self._restore_focus_lease,
+                    args=(params.get("taskId"), lease_id),
+                    kwargs={"missing_ok": True},
+                )
+                timer.daemon = True
+                self.focus_lease = {
+                    "id": lease_id,
+                    "taskId": params.get("taskId"),
+                    "app": app,
+                    "bundle": bundle,
+                    "extension": extension,
+                    "workWindowId": result.get("workWindowId"),
+                    "previousWindowId": result.get("previousWindowId"),
+                    "timer": timer,
+                }
+                lease_created = True
+                timer.start()
+                return {**result, "focusLeaseId": lease_id, "restored": False}
+            if restore and isinstance(result, dict):
+                if not app:
+                    result = {
+                        **result,
+                        "restored": False,
+                        "restoreReason": "previous_app_unavailable",
+                    }
+                elif not bundle:
+                    result = {**result, "restored": False, "restoreReason": "browser_unrecognized"}
+                elif app["bundle"] == bundle and result.get("restored") is True:
+                    current = _front_app()
+                    if current != app:
+                        result = {
+                            **result,
+                            "restored": False,
+                            "restoreReason": "focus_changed" if current else "restore_unverified",
+                        }
+                elif reason is not None:
+                    result = {**result, "restored": reason == "restored"}
+                    if reason == "restored":
+                        result.pop("restoreReason", None)
+                    else:
+                        result["restoreReason"] = reason
+            return result
+        finally:
+            if not lease_created:
+                self.focus_window_lock.release()
+
+    def _restore_focus_lease(self, task_id, lease_id, missing_ok=False):
+        with self.focus_lease_guard:
+            lease = self.focus_lease
+            if (
+                not lease
+                or lease["taskId"] != task_id
+                or (lease_id is not None and lease["id"] != lease_id)
+            ):
+                if missing_ok:
+                    return {"restored": False, "restoreReason": "lease_unavailable"}
+                raise ProtocolError(
+                    "focus_lease_unavailable", "焦点租约不存在或已过期", {"outcomeUnknown": False}
+                )
+            self.focus_lease = None
+        lease["timer"].cancel()
+        try:
+            app, bundle = lease["app"], lease["bundle"]
+            if app and bundle and app["bundle"] != bundle:
+                reason = _restore_front_app(app, bundle)
+                return {
+                    "restored": reason == "restored",
+                    **({} if reason == "restored" else {"restoreReason": reason}),
+                }
+            try:
+                return self._extension_call(
+                    lease["extension"],
+                    "browser.focus_restore",
+                    {
+                        "workWindowId": lease["workWindowId"],
+                        "previousWindowId": lease["previousWindowId"],
+                    },
+                    timeout=5,
+                )
+            except (ProtocolError, OSError):
+                return {"restored": False, "restoreReason": "restore_unavailable"}
+        finally:
+            self.focus_window_lock.release()
 
     def _extension_call(
         self,

@@ -1,4 +1,4 @@
-import { WorkWindow, INPUT_ACTIONS } from './work-window.mjs';
+import { WorkWindow } from './work-window.mjs';
 import {
   createAuthority,
   createWorkspaces,
@@ -29,6 +29,7 @@ export class NativeWorkspaces {
         create: async (p) => {
           const tab = await api.tabs.create(p);
           if (isTabLeased(tab.id)) throw Error('new tab lease conflict');
+          if (p.active === true) await api.tabs.update(tab.id, { active: true });
           return tab;
         },
       },
@@ -103,13 +104,11 @@ export class NativeWorkspaces {
     }
     return cap;
   }
-  // 中文注释：工作窗口内只串行输入，不自动切换用户活动标签或窗口；拖走页面沿用既有归属规则。
+  // 中文注释：独立窗口内按动作串行切换标签；current 和接管窗口不切换。
   async withInput(task, p, guard, work) {
     if (task.silent) return work();
     if (
       (!task.incognito && task.workWindowMode === 'current') ||
-      (!INPUT_ACTIONS.has(p.action) &&
-        !(p.action === 'cdp.send' && p.method?.startsWith('Input.'))) ||
       !task.workspaceCapability
     )
       return work();
@@ -129,6 +128,7 @@ export class NativeWorkspaces {
         url: p.url,
         title: p.title,
         prepareTab: p.prepareTab,
+        active: p.active === true,
       });
     } catch (error) {
       // 中文注释：创建回执撞上已有租约只拒绝该请求，不将整个任务标成工作区未知。

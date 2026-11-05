@@ -589,9 +589,6 @@ class HostBridge:
                     actions, revoked = resolver(selected_tab)
                     state["roots"][actions._task_id] = actions
                     state["revocations"][actions._task_id] = revoked
-                    if op == "use_tab":
-                        actions.use_tab(selected_tab)
-                        state["current"] = actions
                 else:
                     revoked = state["revocations"][actions._task_id]
             if revoked.is_set():
@@ -646,6 +643,8 @@ class HostBridge:
                     value = resume_checkpoint
                 elif op == "use_tab" and isinstance(args, list) and len(args) == 1:
                     value = actions.use_tab(args[0])
+                    with state["guard"]:
+                        state["current"] = actions
                 elif op == "current_tab" and args == []:
                     value = actions.current_tab()
                 elif (
@@ -842,6 +841,14 @@ class HostBridge:
                     "cross_origin_frame_unavailable",
                     "tab_out_of_scope",
                     "execution_denied",
+                    "document_hidden_stalled",
+                    "focus_window_denied",
+                    "focus_window_busy",
+                    "screen_locked",
+                    "focus_lease_unavailable",
+                    "focus_restore_unavailable",
+                    "focus_window_changed",
+                    "focus_visibility_unavailable",
                     "access_cooldown",
                     "execution_circuit_open",
                     "execution_no_progress",
@@ -944,6 +951,8 @@ class HostBridge:
                         {
                             key: data[key]
                             for key in (
+                                "tabId",
+                                "tabState",
                                 "currentOrigin",
                                 "scopeHint",
                                 "stage",

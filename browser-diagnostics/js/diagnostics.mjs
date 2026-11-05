@@ -14,6 +14,7 @@ const EVENT_KEYS = Object.freeze([
   'error_code',
   'action',
   'stage',
+  'reason_code',
 ]);
 // 中文注释：阶段与动作只接受固定枚举，不接收页面数据。
 const ACTIONS = new Set([
@@ -28,6 +29,7 @@ const ACTIONS = new Set([
   'screenshot',
   'page.parse',
   'semantic_snapshot',
+  'focus_window',
   'frame_catalog',
   'ref_click',
   'ref_fill',
@@ -55,6 +57,8 @@ const ACTIONS = new Set([
 ]);
 const STAGES = new Set([
   null,
+  'preparation',
+  'execution',
   'queue_wait',
   'settle_wait',
   'overlay',
@@ -63,6 +67,7 @@ const STAGES = new Set([
   'dispatch',
   'post_check',
 ]);
+const REASON_CODES = new Set([null, 'tab_closed', 'debugger_attach_failed', 'debugger_detached', 'cdp_timeout', 'frame_destroyed', 'execution_context_lost', 'service_worker_disconnected', 'chrome_api_error', 'internal_exception']);
 const INPUT_KEYS = new Set(EVENT_KEYS.filter((key) => key !== 'schema_version'));
 const COMPONENTS = new Set(['native_bridge', 'mv3_background', 'mv3_content', 'diagnostics']);
 const EVENT_TYPES = new Set([
@@ -129,7 +134,8 @@ function validateEvent(event) {
   const keys = Object.keys(event).sort();
   const allowed = [...EVENT_KEYS].sort();
   rejectUnless(
-    keys.length === allowed.length && keys.every((key, index) => key === allowed[index]),
+    (keys.length === allowed.length && keys.every((key, index) => key === allowed[index])) ||
+      (keys.length === allowed.length - 1 && !Object.hasOwn(event, 'reason_code') && keys.every((key) => EVENT_KEYS.includes(key))),
     'event keys rejected',
   );
   rejectUnless(event.schema_version === SCHEMA_VERSION, 'unsupported schema_version');
@@ -160,6 +166,7 @@ function validateEvent(event) {
       'error_code is not allowlisted',
     );
   }
+  rejectUnless(REASON_CODES.has(event.reason_code ?? null), 'reason_code is invalid');
   rejectUnless(
     ACTIONS.has(event.action) && STAGES.has(event.stage),
     'action or stage is not allowlisted',
@@ -189,6 +196,7 @@ export function createDiagnosticEvent(fields) {
     error_code: fields.error_code ?? null,
     action: fields.action ?? null,
     stage: fields.stage ?? null,
+    reason_code: fields.reason_code ?? null,
   };
   validateEvent(event);
   return Object.freeze(event);

@@ -34,7 +34,7 @@ test('machine-readable contract matches the MV3 event shape', () => {
   const contract = JSON.parse(readFileSync(new URL('../schema-v1.json', import.meta.url), 'utf8'));
   const event = createDiagnosticEvent(baseEvent());
   assert.equal(contract.$id, SCHEMA_VERSION);
-  assert.deepEqual(new Set(contract.required), new Set(Object.keys(event)));
+  assert.deepEqual(new Set([...contract.required, 'reason_code']), new Set(Object.keys(event)));
   assert.equal(contract.additionalProperties, false);
   for (const component of contract.properties.component.enum)
     createDiagnosticEvent(baseEvent({ component }));
@@ -165,6 +165,7 @@ test('MV3 event schema exactly matches the versioned Python contract', () => {
     error_code: null,
     action: null,
     stage: null,
+    reason_code: null,
   });
 });
 

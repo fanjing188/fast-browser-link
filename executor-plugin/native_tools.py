@@ -253,6 +253,10 @@ TOOL_SCHEMAS = {
                 "fields": {"type": "array", "minItems": 1, "maxItems": 16, "items": _text(64)},
                 "http_method": {"type": "string", "enum": ["GET", "HEAD"]},
                 "tab_id": {"type": "integer", "minimum": 0},
+                "restore": {"oneOf": [{"type": "boolean"}, {"const": "deferred"}]},
+                "max_ms": {"type": "integer", "minimum": 1, "maximum": 120000},
+                "focus_lease_id": _text(128),
+                "hold_ms": {"type": "integer", "minimum": 0, "maximum": 15000},
                 "url": _text(4096),
                 "wait_for": {
                     "oneOf": [
@@ -354,6 +358,8 @@ PUBLIC_ACTIONS = frozenset(
         "screenshot",
         "tabs",
         "new_tab",
+        "focus_window",
+        "focus_restore",
         "page.parse",
         "semantic_snapshot",
         "frame_catalog",
@@ -397,7 +403,9 @@ _run_schema["properties"]["action"]["enum"] = sorted(PUBLIC_ACTIONS)
 _run_schema["allOf"] = [
     {
         "if": {
-            "properties": {"action": {"enum": sorted(PUBLIC_ACTIONS - {"tabs", "new_tab"})}},
+            "properties": {
+                "action": {"enum": sorted(PUBLIC_ACTIONS - {"tabs", "new_tab", "focus_restore"})}
+            },
             "required": ["action"],
         },
         "then": {"required": ["tab_id"]},
@@ -466,6 +474,7 @@ TOOL_SCHEMAS["fast_browser_get"]["description"] += (
 )
 TOOL_SCHEMAS["fast_browser_run"]["description"] += (
     " new_tab/navigate 可用 wait_for=load|idle|{type:selector|text,value:...} 与 timeout_ms=1000..45000 等待页面就绪；等待超时返回 ready=false，导航已发生。"
+    " focus_window 支持 restore=deferred、max_ms（1..120000），返回 focusLeaseId；focus_restore 使用 focus_lease_id 恢复。连续交互使用 focused_window，锁屏报 screen_locked 并停止。"
 )
 
 
@@ -611,6 +620,10 @@ def _validate_value(spec, value):
 def _validate_field(key, value, spec, public):
     from urllib.parse import urlsplit
 
+    if key == "restore":
+        if type(value) is bool or value == "deferred":
+            return
+        raise ValueError("无效焦点恢复选项")
     if key == "wait_for":
         valid = (
             value in {"load", "idle"}
@@ -774,6 +787,8 @@ def _validate(tool_name, args):
             "popup_adopt": ("candidate_ref",),
             "tabs": (),
             "new_tab": ("url",),
+            "focus_window": (),
+            "focus_restore": ("focus_lease_id",),
             "navigate": ("url",),
             "snapshot": (),
             "click": ("selector",),
@@ -815,6 +830,7 @@ def _validate(tool_name, args):
             "scroll": {"binding", "snapshot_id", "ref", "frame_token"},
             "files.upload": {"artifact_ids", "paths"},
             "new_tab": {"wait_for", "timeout_ms"},
+            "focus_window": {"restore", "hold_ms", "max_ms"},
             "navigate": {"summary", "wait_for", "timeout_ms"},
             "api_request": {"http_method"},
             "page.parse": {"options"},
@@ -840,8 +856,10 @@ def _validate(tool_name, args):
             optional[action] = optional.get(action, set()) | {"after"}
         required = fields[action]
         allowed = {"task_id", "request_id", "action"} | set(required) | optional.get(action, set())
-        if action not in ("tabs", "new_tab"):
+        if action not in ("tabs", "new_tab", "focus_restore"):
             required += ("tab_id",)
+            allowed.add("tab_id")
+        if action == "focus_restore":
             allowed.add("tab_id")
         if set(public) - allowed:
             raise ArgumentFieldsError("invalid_fields", set(public) - allowed)
@@ -915,6 +933,10 @@ def make_tool_handler(tool_name, profile_runtime, *, host_bridge=None, backend_c
                 "task_id": "taskId",
                 "action": "action",
                 "tab_id": "tabId",
+                "restore": "restore",
+                "hold_ms": "holdMs",
+                "max_ms": "maxMs",
+                "focus_lease_id": "focusLeaseId",
                 "url": "url",
                 "selector": "selector",
                 "text": "text",
@@ -1176,6 +1198,14 @@ def make_tool_handler(tool_name, profile_runtime, *, host_bridge=None, backend_c
                 "capture_frame_uninspectable": "框架遮罩位置无法确认；请移开该框架或让用户手动截图。",
                 "task_paused": "用户正在接管浏览器页面。请等待用户退出接管，再继续此任务。",
                 "execution_denied": "浏览器拒绝执行，原因未分类；请查看任务和扩展状态，先读取页面核实结果。不要自动重试。",
+                "document_hidden_stalled": "后台过渡遮挡了目标；连续交互使用 focused_window()，单个遮罩用 focus_window；锁屏须以 --disable-backgrounding-occluded-windows 启动浏览器。",
+                "screen_locked": "浏览器未带 --disable-backgrounding-occluded-windows 启动；停止并报告，勿反复重试。",
+                "focus_lease_unavailable": "焦点租约已过期或不属于此任务。",
+                "focus_window_denied": "此任务或标签不能置前。",
+                "focus_window_busy": "另一任务正在临时置前；本次未执行，可以稍后重试。",
+                "focus_restore_unavailable": "无法确认原前台浏览器窗口，未置前。",
+                "focus_window_changed": "目标或前台窗口已变化，请先核对当前状态。",
+                "focus_visibility_unavailable": "无法确认任务文档可见性，请先核对当前状态。",
                 "invalid_expression": "evaluate 需要函数表达式，例如 ()=>document.title。",
                 "invalid_semantic_options": "semantic_snapshot 的 options 不支持所列字段；sections/maxScan/schema 请使用 page.parse。",
                 "outcome_unknown": "执行结果不确定，请先检查页面；禁止自动重试。",
@@ -1356,6 +1386,12 @@ def make_tool_handler(tool_name, profile_runtime, *, host_bridge=None, backend_c
                 or (
                     data.get("outcomeUnknown") is False
                     and (code.startswith("interaction_highlight_") or code in _CONTENT_SHIELD_CODES)
+                )
+                or (
+                    data.get("outcomeUnknown") is False
+                    and code == "screen_locked"
+                    and tool_name == "fast_browser_run"
+                    and args.get("action") == "focus_window"
                 )
             )
             action_confirmed = code in _CONTENT_SHIELD_CODES and data.get("actionConfirmed") is True

@@ -1,5 +1,11 @@
 # Testing
 
+## 任务归档与 evaluate 离线测量
+
+`npm run tasks:ack -- --list` 只列出包含未知结果的终态任务。先核实站点结果及浏览器残留，再使用 `npm run tasks:ack -- TASK_ID --reason "核实依据"` 确认；写入要求 daemon 已停稳。旧任务已有核实记录且之后未变化时，无须再等七天。
+
+`python3 tests/v1.6.0/evaluate-timing.py` 测量真实 script 子进程与 host bridge、合成 daemon 回执，以及临时目录中的 daemon 账本 fsync；`node tests/v1.6.0/evaluate-timing.mjs` 测量模拟 CDP 下扩展运行时与命令调用次数。两者均不连接真实浏览器，不能据此推断真实扩展传输或 CDP 延迟。
+
 ## Existing-page attachment
 
 `existing_tab=true` 的离线回归位于现有 `test_open_tool.py`、`test_lifecycle.py`、`browser-consent.test.mjs`、`work-window.test.mjs` 与单工具/脚本适配测试。只接受当前页或唯一精确 URL，不接受模型指定任意 tabId；覆盖租约冲突、URL 变化、连接代次、原页操作与删除权分离。
@@ -265,6 +271,10 @@ node tests/native-v2/real-page-export.mjs
 
 弹窗保护、旧文档拒写与遮罩穿透使用 `tests/v1.1-overlay/real-overlay.mjs`；后台暂停过渡动画的可见性使用 `tests/v1.1-overlay/real-hidden-doc.mjs`；独立工作窗口及输入队列使用 `tests/v1.6.0/real-work-window.mjs`。三者均分别运行 Chrome 默认模式与 `--edge`，只用临时 profile 和本地合成页面。设置 `TMPDIR=/tmp`、`FBL_TEST_PYTHON` 指向带 Hermes 测试依赖的解释器，并设置 `HERMES_SOURCE` 指向对应源码；每个 runner 串行执行，记录实际结果。
 
+macOS 桌面后台过渡运行 `node tests/v1.6.0/real-hidden-transition.mjs --external-app`，Edge 再追加 `--edge`。夹具要求工作文档实际进入 hidden，经 `focus_window` 临时置前后，遮罩仅在 `transitionend` 后自然移除，再断言点击和原浏览器窗口恢复；`--external-app` 将 Finder 置前并核对动作后是否恢复。前台应用通过 NSWorkspace 读取，不要求辅助功能权限。无法进入 hidden 属于未完成验收；夹具不自动切换 macOS Space，跨 Space 需另行实测。
+
+后台渲染候选依次运行 `node tests/v1.6.0/probe-hidden-render.mjs` 及追加 `--edge` 的命令。它们使用独立临时 profile，在同一 Space 遮挡窗口并输出基线和三个候选：`PASS` 要求遮挡窗口始终有焦点、任务文档测前测后均为 hidden，且 2.5 秒内至少两次 rAF 与一次 transitionend；`INCONCLUSIVE_*`、`ERROR` 或 `FAIL` 都不能证明有效。须比较基线并重复测试，且分别核实 Chrome、Edge 及跨 Space 行为；运行时策略默认关闭，不能仅凭探针存在就开启。
+
 
 ## 2.6.0 持久工作流与桌面补验
 
@@ -273,3 +283,10 @@ node tests/native-v2/real-page-export.mjs
 桌面结果须同时记录 macOS 前台应用采样与 Chrome 窗口状态；不以无头测试替代。旧策略的独立弹窗失败保留历史证据，新策略只报告已验证范围；兼容模式仍可能切前台，不能把基础场景通过写成全部静默通过。下载校验的 PDF/图片仅签名级、XLSX 仅缓存值；合成文件不证明真实业务导出完整。
 
 新弹窗策略专项：`node tests/v1.6.0/real-desktop-download-popup.mjs` 默认无头；Edge 加 `--edge`，获用户同意后加 `--headed` 采样真实前台。默认/严格与显式兼容分开结算，不恢复旧焦点。覆盖和边界见 [网页弹窗策略](popup-policy.md)。
+
+
+### 锁屏后台渲染实测（2026-11-05）
+
+请求方在 macOS 锁屏、前台为 loginwindow、临时 profile 与 0.3 秒 opacity 过渡下测得：Chrome 无参数 hidden、2.5 秒 59 帧、无 transitionend；三个参数时 visible、273 帧、触发。Edge 无参数 hidden、50 帧、不触发；单独 `--disable-backgrounding-occluded-windows` 时 visible、267 帧、触发；单独 `--disable-renderer-backgrounding` 时 hidden、57 帧、不触发。CDP 焦点模拟、生命周期和 screencast 均未触发过渡，默认关闭。另一次用户 Edge 锁屏实测中，同一工作窗口内非活动任务页 hidden、1 帧、不触发；设为活动标签后 visible、102 帧、触发。上述是请求方测量，并非本次运行结果。
+
+真实验收在已解锁桌面运行 `TMPDIR=/private/tmp node tests/v1.6.0/real-hidden-transition.mjs --external-app`，Edge 追加 `--edge`；带参数的新页加载可见性另运行 `TMPDIR=/private/tmp node tests/v1.6.0/real-hidden-transition.mjs --background-render`，Edge 追加 `--edge`。夹具使用独立临时 profile，不代表用户已安装浏览器的锁屏表现。

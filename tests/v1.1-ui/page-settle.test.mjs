@@ -113,6 +113,27 @@ test('writes and non-transient failures are never replayed', async () => {
   assert.equal(isTransientLoadError(Error('DOCUMENT_CHANGED')), true);
 });
 
+test('新建页前来源拒绝立即返回，既不创建标签也不等待加载', async () => {
+  const f = fixture(['complete']);
+  let opened = 0;
+  f.executor.workspaces = { open: async () => { opened++; } };
+  const started = Date.now();
+  await assert.rejects(
+    f.executor.openOwnedTab(f.task, { action: 'new_tab', requestId: 'denied' }, () => {}, 'file:///private'),
+    error => error.preDispatch === true,
+  );
+  assert.equal(opened, 0);
+  assert.ok(Date.now() - started < 1000);
+  const sent = [];
+  f.executor.execute = () => f.executor.openOwnedTab(f.task, { action: 'new_tab', requestId: 'denied' }, () => {}, 'file:///private');
+  const bridge = new Bridge({ postMessage: m => sent.push(m), onMessage: { addListener() {} } }, f.executor);
+  bridge.receive({ id: 'denied', method: 'browser.execute', params: { action: 'new_tab' } });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(sent[0].error.code, 'permission_denied');
+  assert.equal(sent[0].error.data.outcomeUnknown, false);
+  assert.equal(opened, 0);
+});
+
 test('interactive DOM is readable even when tab remains loading', async () => {
   const f = fixture(['loading']);
   let reads = 0;
@@ -227,4 +248,62 @@ test('有界恢复仍检查租约，不能把权限拒绝当成导航竞态继�
   );
   assert.equal(attempts, 1);
   assert.equal(f.reads(), 1);
+});
+
+// 中文注释：浏览器内部页已提交时立即拒绝并携带已创建标签的事实。
+test('建页后跳转浏览器内部页立即报告标签编号', async () => {
+  const f=fixture(['loading']), e=f.executor, sent=[];
+  const task={...f.task,workspaceCapability:'cap',tabOpenQueue:null,agentTabs:new Set(),tabIds:new Set(),agentTabGroups:new Map(),agentTabRequests:new Map(),title:'t'};
+  e.workspaces={authority:{resolve:()=>({windowId:2})},open:async()=>({tabId:9,groupId:3})};
+  e.api.tabs.get=async()=>({id:9,windowId:2,groupId:3,url:'chrome://settings/',status:'loading'});
+  e.execute=()=>e.openOwnedTab(task,{action:'new_tab',requestId:'c'},()=>{},'https://site.test/');
+  const bridge=new Bridge({postMessage:m=>sent.push(m),onMessage:{addListener(){}}},e), start=Date.now();
+  bridge.receive({id:'c',method:'browser.execute',params:{action:'new_tab'}});
+  await new Promise(resolve=>setTimeout(resolve,30));
+  assert.ok(Date.now()-start<1000);
+  assert.equal(sent[0].error.code,'permission_denied');
+  assert.equal(sent[0].error.data.tabId,9);
+  assert.equal(sent[0].error.data.tabState,'created');
+  assert.equal(e.leases.get(9),'t');
+});
+
+test('主框架已跳到浏览器内部页但标签地址滞后时立即拒绝', async () => {
+  const f = fixture(['loading']);
+  f.executor.api.debugger.sendCommand = async (_target, method) =>
+    method === 'Page.getFrameTree'
+      ? { frameTree: { frame: { id: 'main', url: 'chrome://settings/' } } }
+      : {};
+  const started = Date.now();
+  await assert.rejects(
+    f.executor.settledTab(7, () => {}, { id: 7, url: 'https://site.test/', status: 'loading' }, 8000, f.task, 'https://site.test/'),
+    /origin scheme denied/,
+  );
+  assert.ok(Date.now() - started < 1000);
+});
+
+test('调试 API 明确报告宿主权限不足时不再等满加载期限', async () => {
+  const f = fixture(['loading']);
+  f.executor.api.debugger.attach = async () => { throw Error('Missing host permission'); };
+  const started = Date.now();
+  await assert.rejects(
+    f.executor.settledTab(7, () => {}, { id: 7, url: 'https://site.test/', status: 'loading' }, 8000, f.task, 'https://site.test/'),
+    /host permission denied/,
+  );
+  assert.ok(Date.now() - started < 1000);
+});
+
+test('建页后持续空白是未就绪且保留编号，不误报权限拒绝', async () => {
+  const f = fixture(['loading']), e = f.executor, sent = [];
+  const task = { ...f.task, workspaceCapability: 'cap', agentTabs: new Set(), tabIds: new Set(), agentTabGroups: new Map(), agentTabRequests: new Map(), title: 't' };
+  e.workspaces = { authority: { resolve: () => ({ windowId: 2 }) }, open: async () => ({ tabId: 9, groupId: 3 }) };
+  e.api.tabs.get = async () => ({ id: 9, windowId: 2, groupId: 3, url: 'about:blank', status: 'loading' });
+  e.settledTab = async () => ({ tab: await e.api.tabs.get(), ready: 'loading' });
+  e.execute = () => e.openOwnedTab(task, { action: 'new_tab', requestId: 'blank' }, () => {}, 'https://site.test/');
+  const bridge = new Bridge({ postMessage: m => sent.push(m), onMessage: { addListener() {} } }, e);
+  bridge.receive({ id: 'blank', method: 'browser.execute', params: { action: 'new_tab' } });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(sent[0].error.code, 'page_not_ready');
+  assert.equal(sent[0].error.data.tabId, 9);
+  assert.equal(sent[0].error.data.tabState, 'created');
+  assert.equal(sent[0].error.data.outcomeUnknown, true);
 });

@@ -262,6 +262,14 @@ class BridgeError(RuntimeError):
                         "role": "button",
                         "name": button["name"][:80],
                     }
+        if (
+            isinstance(data, dict)
+            and code in {"permission_denied", "page_not_ready"}
+            and data.get("tabState") == "created"
+            and type(data.get("tabId")) is int
+            and data["tabId"] >= 0
+        ):
+            self.data.update(tabId=data["tabId"], tabState="created")
         # 中文注释：只允许固定阶段原因和脱敏当前来源；字段名不会带入网页异常文本。
         if isinstance(data, dict):
             if (
@@ -345,11 +353,23 @@ class BridgeError(RuntimeError):
                 and isinstance(data.get("reasonCode"), str)
                 and (data.get("stage"), data.get("reasonCode"))
                 in {
+                    ("preparation", "tab_closed"),
+                    ("preparation", "debugger_attach_failed"),
+                    ("preparation", "chrome_api_error"),
+                    ("execution", "debugger_detached"),
+                    ("execution", "tab_closed"),
+                    ("execution", "cdp_timeout"),
+                    ("execution", "frame_destroyed"),
+                    ("execution", "execution_context_lost"),
+                    ("execution", "service_worker_disconnected"),
+                    ("execution", "chrome_api_error"),
+                    ("execution", "internal_exception"),
                     ("overlay", "initialization_exception"),
                     ("overlay", "return_type_invalid"),
                     ("document", "document_changed"),
                     ("authority", "origin_denied"),
                     ("authority", "origin_scheme_denied"),
+                    ("authority", "host_permission_denied"),
                     ("authority", "origin_authority_mismatch"),
                     ("authority", "tab_lease_denied"),
                     ("authority", "confirmation_required"),

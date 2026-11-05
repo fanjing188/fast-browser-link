@@ -70,6 +70,30 @@ test('准备阶段等待延迟启用及短暂遮挡，保持固定检查上限',
   assert.ok(calls >= 4);
 });
 
+test('隐藏文档且命中遮挡层有未结束的 CSS 过渡时立即拒绝，其他遮挡保持原码', () => {
+  const f = page('<button>Save</button><div id="cover"></div>');
+  try {
+    const cover = f.w.document.querySelector('#cover');
+    f.w.document.elementFromPoint = () => cover;
+    Object.defineProperty(f.w.document, 'visibilityState', { value: 'hidden', configurable: true });
+    Object.defineProperty(f.w.document, 'hidden', { value: true, configurable: true });
+    class CSSTransition {}
+    const transition = new CSSTransition();
+    transition.playState = 'running';
+    transition.transitionProperty = 'opacity';
+    cover.getAnimations = () => [transition];
+    assert.throws(() => f.call('reveal_ref', f.token), /HIDDEN_STALLED/);
+    cover.getAnimations = () => [];
+    assert.throws(() => f.call('reveal_ref', f.token), /TARGET_OCCLUDED/);
+    Object.defineProperty(f.w.document, 'visibilityState', { value: 'visible' });
+    Object.defineProperty(f.w.document, 'hidden', { value: false });
+    cover.getAnimations = () => [transition];
+    assert.throws(() => f.call('reveal_ref', f.token), /TARGET_OCCLUDED/);
+  } finally {
+    f.dom.window.close();
+  }
+});
+
 test('明确 SPA 或整页导航证据可确认已派发点击，不重放工作函数', async () => {
   for (const method of ['Page.navigatedWithinDocument', 'Page.frameNavigated']) {
     let listener,

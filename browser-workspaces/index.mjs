@@ -357,7 +357,7 @@ export function createWorkspaces({ chrome, authority }) {
     }
     return null;
   }
-  async function open(cap, { requestId, url, title, prepareTab }) {
+  async function open(cap, { requestId, url, title, prepareTab, active = false }) {
     const { id, key } = identity(cap);
     if (typeof requestId !== 'string' || !requestId || requestId.length > 128)
       throw Error('INVALID_REQUEST');
@@ -383,7 +383,7 @@ export function createWorkspaces({ chrome, authority }) {
         const tab = await chrome.tabs.create({
           url: prepareTab ? 'about:blank' : url,
           windowId: id.windowId,
-          active: false,
+          active,
         });
         r.tabId = tab.id;
         // A returned ID that existed at startup is not proof of creation, even if

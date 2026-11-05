@@ -349,7 +349,9 @@ _RESULT_TASK = {
     "popupClosed": _scalar_fields("returnedTo"),
     "resumeSummary": _scalar_fields("urlChanged documentReplaced referencesInvalid readPageFirst"),
     # 中文注释：日志状态和固定错误码一起交付，云端读取不能把未知结果的原因再次裁掉。
-    "recentLog": [_scalar_fields("time action target durationMs result errorCode")],
+    "recentLog": [
+        _scalar_fields("time action target durationMs result errorCode stage reasonCode")
+    ],
 }
 _RESULT_SEMANTIC = {
     "contentFilter": _RESULT_CONTENT_FILTER,
@@ -453,6 +455,10 @@ _RESULT_ACTIONS = {
     "page.parse": _RESULT_PARSE,
     "navigate": _RESULT_TAB,
     "new_tab": {**_RESULT_TAB, **_scalar_fields("open_tabs tab_hint")},
+    "focus_window": _scalar_fields(
+        "focused visible previousWindowId restored restoreReason focusLeaseId"
+    ),
+    "focus_restore": _scalar_fields("restored restoreReason"),
     "select_tab": _RESULT_TAB,
     "close_tab": _scalar_fields("closed tabId"),
     "tabs": {"tabs": [_RESULT_TAB]},

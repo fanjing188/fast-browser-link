@@ -12,6 +12,8 @@
 | `site` | 网页或用户侧阻断：登录、验证码、遮罩、弹窗保护、暂停、审批 | 等用户处理或读取页面状态 |
 | `plugin` | 内部异常、连接断开、版本不一致 | 查询插件诊断，带错误码报告；未知写入先核实 |
 
+`document_hidden_stalled` 表示原动作未派发；连续交互用 `with focused_window():`，单个遮罩用 `focus_window`。`screen_locked` 时停止，不重复置前；用户需自行以 `--disable-backgrounding-occluded-windows` 启动浏览器。run 的 `focus_window` 支持 `restore="deferred"` 和 `max_ms`，返回 `focusLeaseId`；`focus_restore` 使用 `focus_lease_id` 恢复。`focus_lease_unavailable` 表示租约已过期或不属于该任务。
+
 ## Page output and recovery
 
 页面内容原样返回，仅密码输入值不回显。coverage 表示未读范围。同一任务页可跨站；任务与会话标签租约仍隔离。定位失败插件已自动等待、重扫 frame/Shadow DOM 并最多恢复三轮。recovery 包含 triggered、rounds、locator、clickMethod、selected、otherCandidates；失败时另含 strategies、candidates 和 screenshotPath。仍失败就换描述重找或跳过该项继续，不停整个任务。已派发结果未知时先回读核实，不重复执行。
@@ -55,6 +57,18 @@ Select the current owned work tab; prefer explicit tab= for parallel work.
 ### `current_tab()`
 
 Return the explicitly selected work-tab id without guessing the active tab.
+
+扩展能力：`browser_core_v1`。
+
+### `focus_window(*, restore=True, hold_ms=1000, tab=None)`
+
+中文注释：临时置前任务页，返回 focused、visible、previousWindowId 与 restored。
+
+扩展能力：`browser_core_v1`。
+
+### `focused_window(tab=None, max_ms=120000)`
+
+连续交互期间保持窗口可见；退出、异常、max_ms 到期或任务关闭时尝试恢复。锁屏 screen_locked 时停止并提示浏览器启动参数 --disable-backgrounding-occluded-windows。
 
 扩展能力：`browser_core_v1`。
 
@@ -672,7 +686,7 @@ health/browsers 使用运行时已解析的 bridge_home；doctor/reference 跟�
 
 ```json
 {
-  "description": "同一页需要两步以上（填表、翻页、采集、点击后读结果）请用一次 fast_browser_script；打开或导航后先看回执摘要，不足再读取页面；同一页不要混用 browser_exec。需要用户处理时列出标签页；会话结束会保留待处理页。在任务的工作页执行一个动作。浏览器连接授权后，普通读取、导航、写入和 Python 工作流直接执行，不逐项确认；tabs 只返回任务标签。返回 user_input_required 时，等用户处理后用相同 request_id 和参数再查一次，不要改参重发；登录弹窗 popup_adopt 直接接管，无需确认，成功回执只交付一次，不重发接管。outcome_unknown 为真时不要重试，先读页面核实。详见技能 fast-browser-link:fast-browser-link。 点击第三方登录后查看 popupOpened 和 popupNextStep；smart/full（连接授权后的全部访问）模式下内置身份提供方授权页由本任务新打开时自动接管，直接 fast_browser_use_tab 到 popupOpened.tabId 并重读页面选账号。密码、验证码、2FA 用 manual_input 请用户亲自填写。弹窗关闭时 popupClosed.returnedTo 指向源页，返回后重读，不复用旧引用。白名单外及已发现的现有登录弹窗同样无需确认；popup_catalog 保留候选后用 popup_adopt 直接接管，再 use_tab 到返回的 tabId 并读取。用 fast_browser_get 核对 generation 与 adoptedPopupTabIds；成功回执只交付一次，不重发接管。不得另开登录网址替代原弹窗，不自动移动或关闭，不授予清理权；未知或变化的授权不能重放。 所有网站的结构读取显示真实邮箱，便于找联系人或选账号；卡号、密钥、Bearer 和密码保护不变。 semantic_snapshot 不接受 sections/maxScan/schema；需要 regions/blocks/forms/collections 等分区时用 page.parse。 页面执行：连接授权后 js.evaluate / cdp.send / cdp.events 直接执行，不逐项确认。发生过凭据填写的页面不能运行任意 JS/CDP。原始脚本结果不做字段级脱敏。 read_page/page_text 返回 dict：读 page[\"items\"] / page[\"elements\"]，不能切片 dict；wait_for timeout 上限 60 秒。 evaluate 和 js.evaluate 的 expression 必须是函数，例如 ()=>document.title；不可传 document.title。JS 用 evaluate(\"(selector)=>document.querySelector(selector)?.textContent\", \"#result\") 传值；isolated 共享 DOM，不共享网站 JS 全局变量，main 需明确理由且不自动切换。 上传：files.upload 传 selector 与 paths（用户在对话中给出的本地文件路径，可用 ~）。 new_tab/navigate 可用 wait_for=load|idle|{type:selector|text,value:...} 与 timeout_ms=1000..45000 等待页面就绪；等待超时返回 ready=false，导航已发生。",
+  "description": "同一页需要两步以上（填表、翻页、采集、点击后读结果）请用一次 fast_browser_script；打开或导航后先看回执摘要，不足再读取页面；同一页不要混用 browser_exec。需要用户处理时列出标签页；会话结束会保留待处理页。在任务的工作页执行一个动作。浏览器连接授权后，普通读取、导航、写入和 Python 工作流直接执行，不逐项确认；tabs 只返回任务标签。返回 user_input_required 时，等用户处理后用相同 request_id 和参数再查一次，不要改参重发；登录弹窗 popup_adopt 直接接管，无需确认，成功回执只交付一次，不重发接管。outcome_unknown 为真时不要重试，先读页面核实。详见技能 fast-browser-link:fast-browser-link。 点击第三方登录后查看 popupOpened 和 popupNextStep；smart/full（连接授权后的全部访问）模式下内置身份提供方授权页由本任务新打开时自动接管，直接 fast_browser_use_tab 到 popupOpened.tabId 并重读页面选账号。密码、验证码、2FA 用 manual_input 请用户亲自填写。弹窗关闭时 popupClosed.returnedTo 指向源页，返回后重读，不复用旧引用。白名单外及已发现的现有登录弹窗同样无需确认；popup_catalog 保留候选后用 popup_adopt 直接接管，再 use_tab 到返回的 tabId 并读取。用 fast_browser_get 核对 generation 与 adoptedPopupTabIds；成功回执只交付一次，不重发接管。不得另开登录网址替代原弹窗，不自动移动或关闭，不授予清理权；未知或变化的授权不能重放。 所有网站的结构读取显示真实邮箱，便于找联系人或选账号；卡号、密钥、Bearer 和密码保护不变。 semantic_snapshot 不接受 sections/maxScan/schema；需要 regions/blocks/forms/collections 等分区时用 page.parse。 页面执行：连接授权后 js.evaluate / cdp.send / cdp.events 直接执行，不逐项确认。发生过凭据填写的页面不能运行任意 JS/CDP。原始脚本结果不做字段级脱敏。 read_page/page_text 返回 dict：读 page[\"items\"] / page[\"elements\"]，不能切片 dict；wait_for timeout 上限 60 秒。 evaluate 和 js.evaluate 的 expression 必须是函数，例如 ()=>document.title；不可传 document.title。JS 用 evaluate(\"(selector)=>document.querySelector(selector)?.textContent\", \"#result\") 传值；isolated 共享 DOM，不共享网站 JS 全局变量，main 需明确理由且不自动切换。 上传：files.upload 传 selector 与 paths（用户在对话中给出的本地文件路径，可用 ~）。 new_tab/navigate 可用 wait_for=load|idle|{type:selector|text,value:...} 与 timeout_ms=1000..45000 等待页面就绪；等待超时返回 ready=false，导航已发生。 focus_window 支持 restore=deferred、max_ms（1..120000），返回 focusLeaseId；focus_restore 使用 focus_lease_id 恢复。连续交互使用 focused_window，锁屏报 screen_locked 并停止。",
   "parameters": {
     "type": "object",
     "properties": {
@@ -698,6 +712,8 @@ health/browsers 使用运行时已解析的 bridge_home；doctor/reference 跟�
           "dialog",
           "files.upload",
           "fill",
+          "focus_restore",
+          "focus_window",
           "frame_catalog",
           "images",
           "interaction.bounds",
@@ -744,6 +760,31 @@ health/browsers 使用运行时已解析的 bridge_home；doctor/reference 跟�
       "tab_id": {
         "type": "integer",
         "minimum": 0
+      },
+      "restore": {
+        "oneOf": [
+          {
+            "type": "boolean"
+          },
+          {
+            "const": "deferred"
+          }
+        ]
+      },
+      "max_ms": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 120000
+      },
+      "focus_lease_id": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128
+      },
+      "hold_ms": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 15000
       },
       "url": {
         "type": "string",
@@ -1223,6 +1264,7 @@ health/browsers 使用运行时已解析的 bridge_home；doctor/reference 跟�
                 "dialog",
                 "files.upload",
                 "fill",
+                "focus_window",
                 "frame_catalog",
                 "images",
                 "interaction.bounds",

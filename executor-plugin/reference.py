@@ -112,6 +112,8 @@ def render():
         "| `site` | 网页或用户侧阻断：登录、验证码、遮罩、弹窗保护、暂停、审批 | 等用户处理或读取页面状态 |",
         "| `plugin` | 内部异常、连接断开、版本不一致 | 查询插件诊断，带错误码报告；未知写入先核实 |",
         "",
+        '`document_hidden_stalled` 表示原动作未派发；连续交互用 `with focused_window():`，单个遮罩用 `focus_window`。`screen_locked` 时停止，不重复置前；用户需自行以 `--disable-backgrounding-occluded-windows` 启动浏览器。run 的 `focus_window` 支持 `restore="deferred"` 和 `max_ms`，返回 `focusLeaseId`；`focus_restore` 使用 `focus_lease_id` 恢复。`focus_lease_unavailable` 表示租约已过期或不属于该任务。',
+        "",
         "## Page output and recovery",
         "",
         "页面内容原样返回，仅密码输入值不回显。coverage 表示未读范围。同一任务页可跨站；任务与会话标签租约仍隔离。定位失败插件已自动等待、重扫 frame/Shadow DOM 并最多恢复三轮。recovery 包含 triggered、rounds、locator、clickMethod、selected、otherCandidates；失败时另含 strategies、candidates 和 screenshotPath。仍失败就换描述重找或跳过该项继续，不停整个任务。已派发结果未知时先回读核实，不重复执行。",

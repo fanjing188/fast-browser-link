@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import shutil
 import sys
+import subprocess
 
 HOST = "com.fast.browser_link"
 ORIGIN = "chrome-extension://hhnljehnkmhhgjjjmnlhilfpcjhobloc/"
@@ -199,6 +200,41 @@ def daemon_version(ctx):
         return None
 
 
+def browser_render_flags(browsers, run=subprocess.run):
+    """只读 ps；仅报告连接浏览器的主进程，不输出命令行。"""
+    paths = {
+        "chrome": "/Google Chrome.app/Contents/MacOS/Google Chrome",
+        "edge": "/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+    }
+    result = []
+    try:
+        output = run(
+            ["/bin/ps", "-axo", "command="], capture_output=True, text=True, timeout=5, check=True
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        output = ""
+    for browser in sorted({row.get("browser") for row in browsers if row.get("browser") in paths}):
+        path = paths[browser]
+        lines = [
+            line.strip()
+            for line in output.splitlines()
+            if path in line and "--type=" not in line and " Helper" not in line
+        ]
+        enabled = bool(lines) and all(
+            "--disable-backgrounding-occluded-windows" in line.split() for line in lines
+        )
+        bundle = "com.google.Chrome" if browser == "chrome" else "com.microsoft.edgemac"
+        result.append(
+            {
+                "browser": browser,
+                "enabled": enabled,
+                "verified": bool(lines),
+                "command": f"open -g -b {bundle} --args --disable-backgrounding-occluded-windows",
+            }
+        )
+    return result
+
+
 def doctor(ctx, fix=False, probe=None, deep=False, start=False):
     from doctor import probe as live_probe
 
@@ -305,6 +341,22 @@ def doctor(ctx, fix=False, probe=None, deep=False, start=False):
         "connected" if browsers else "disconnected",
         "Open browser extension and connect",
     )
+    for flag in browser_render_flags(browsers):
+        add(
+            "background_render_" + flag["browser"],
+            flag["enabled"],
+            "enabled"
+            if flag["enabled"]
+            else "flag_missing"
+            if flag["verified"]
+            else "process_unconfirmed",
+            flag["command"],
+            severity="info" if flag["enabled"] else "warning",
+            verified=flag["verified"],
+            message="请先自行退出该浏览器，再执行此命令启动。"
+            if flag["verified"] and not flag["enabled"]
+            else "",
+        )
     loaded = live.get("daemonVersion") if probe else daemon_version(ctx) if live.get("ok") else None
     registration_command = "fbl update --source <包>"
     unregistered = (

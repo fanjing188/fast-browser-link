@@ -753,6 +753,7 @@ export class PopupPolicy {
     if (!this.enabled(t) || read) return null;
     if (t.popupPolicyPaused || [...this.rows.values()].some((x) => x.task === t && x.blocked))
       throw policyFail('POPUP_POLICY_PAUSED');
+    if (p.action === 'focus_window') return null;
     if (this.mode(t) === 'compatible') return null;
     if (['new_tab', 'official.new_tab'].includes(p.action)) return null;
     if (

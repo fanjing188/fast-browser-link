@@ -101,7 +101,10 @@ def main(argv=None):
     parser = argparse.ArgumentParser(
         description="标记用户已核实的已关闭任务 / Acknowledge a verified closed task"
     )
-    parser.add_argument("task_id", nargs="+")
+    parser.add_argument("task_id", nargs="*")
+    parser.add_argument(
+        "--list", action="store_true", help="只列出含未知结果的终态任务，不修改数据"
+    )
     parser.add_argument("--reason", default="用户已核实浏览器中没有残留标签页或操作")
     parser.add_argument(
         "--stop-daemon",
@@ -122,6 +125,47 @@ def main(argv=None):
             ]
         )
         homes = list(dict.fromkeys(shared_home(value) for value in candidates if value))
+        if args.list:
+            found = []
+            for home in homes:
+                if not (home / "plugin-data/fast-browser-link-native").is_dir():
+                    continue
+                for task in CLI.load_task_records(home)["tasks"]:
+                    if not isinstance(task, dict) or task.get("state") not in {
+                        "closed",
+                        "cancelled",
+                        "failed",
+                    }:
+                        continue
+                    rows = (
+                        [task.get("currentOperation")]
+                        + task.get("requestHistory", [])
+                        + task.get("operationTimeline", [])
+                    )
+                    if task.get("workOutcomeUnknown") or any(
+                        isinstance(row, dict) and row.get("state") == "unknown" for row in rows
+                    ):
+                        found.append(
+                            {
+                                "home": str(home),
+                                "taskId": task.get("id"),
+                                "state": task.get("state"),
+                                "verified": isinstance(task.get("userVerified"), dict),
+                            }
+                        )
+            print(
+                json.dumps(
+                    {
+                        "tasks": found,
+                        "instruction": "先逐项核实站点结果及浏览器残留，再运行 npm run tasks:ack -- TASK_ID --reason '核实依据'；daemon 必须停稳。",
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
+            return 0
+        if not args.task_id:
+            parser.error("请提供任务 ID，或用 --list 查看未知结果任务")
         located = {}
         for home in homes:
             if not (home / "plugin-data/fast-browser-link-native").is_dir():

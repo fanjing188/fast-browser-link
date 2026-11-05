@@ -36,6 +36,64 @@ class RecordingClient:
 
 
 class NativeTests(unittest.TestCase):
+    def test_focus_window_is_exposed_with_bounded_options(self):
+        self.invoke(
+            "fast_browser_run",
+            {
+                "task_id": "task-1",
+                "tab_id": 7,
+                "action": "focus_window",
+                "restore": True,
+                "hold_ms": 100,
+            },
+        )
+        params = self.client.calls[-1][1]
+        self.assertEqual(
+            (params["action"], params["tabId"], params["holdMs"]), ("focus_window", 7, 100)
+        )
+        self.assertTrue(params["restore"])
+
+    def test_deferred_focus_and_restore_use_public_fields(self):
+        self.invoke(
+            "fast_browser_run",
+            {
+                "task_id": "task-1",
+                "tab_id": 7,
+                "action": "focus_window",
+                "restore": "deferred",
+                "max_ms": 120000,
+            },
+        )
+        self.assertEqual(
+            (self.client.calls[-1][1]["restore"], self.client.calls[-1][1]["maxMs"]),
+            ("deferred", 120000),
+        )
+        self.invoke(
+            "fast_browser_run",
+            {"task_id": "task-1", "action": "focus_restore", "focus_lease_id": "abc"},
+        )
+        self.assertEqual(self.client.calls[-1][1]["focusLeaseId"], "abc")
+
+    def test_locked_focus_reports_known_non_dispatch(self):
+        error = RuntimeError("locked")
+        error.code = "screen_locked"
+        error.data = {"outcomeUnknown": False, "retryable": False}
+        self.client.call = lambda *_: (_ for _ in ()).throw(error)
+        for restore in (True, "deferred"):
+            with self.subTest(restore=restore):
+                result, _ = self.invoke(
+                    "fast_browser_run",
+                    {
+                        "task_id": "task-1",
+                        "tab_id": 7,
+                        "action": "focus_window",
+                        "restore": restore,
+                    },
+                )
+                self.assertEqual(result["code"], "screen_locked")
+                self.assertFalse(result["outcome_unknown"])
+                self.assertFalse(result["retryable"])
+
     def test_mcp_evaluate_requires_function_even_without_arguments(self):
         self.invoke(
             "fast_browser_run",

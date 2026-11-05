@@ -21,6 +21,7 @@ ALLOWED_EVENT_KEYS = frozenset(
         "error_code",
         "action",
         "stage",
+        "reason_code",
     }
 )
 # 中文注释：与扩展共用固定枚举，拒绝内容字段。
@@ -36,6 +37,7 @@ _ACTIONS = (
     "screenshot",
     "page.parse",
     "semantic_snapshot",
+    "focus_window",
     "frame_catalog",
     "ref_click",
     "ref_fill",
@@ -63,6 +65,8 @@ _ACTIONS = (
 )
 _STAGES = (
     None,
+    "preparation",
+    "execution",
     "queue_wait",
     "settle_wait",
     "overlay",
@@ -70,6 +74,20 @@ _STAGES = (
     "highlight",
     "dispatch",
     "post_check",
+)
+_REASON_CODES = frozenset(
+    (
+        None,
+        "tab_closed",
+        "debugger_attach_failed",
+        "debugger_detached",
+        "cdp_timeout",
+        "frame_destroyed",
+        "execution_context_lost",
+        "service_worker_disconnected",
+        "chrome_api_error",
+        "internal_exception",
+    )
 )
 _COMPONENTS = frozenset({"native_bridge", "mv3_background", "mv3_content", "diagnostics"})
 _EVENT_TYPES = frozenset(
@@ -139,7 +157,7 @@ def validate_event(event: Mapping[str, Any]) -> Dict[str, Any]:
     if not isinstance(event, Mapping):
         raise UnsafeDiagnosticField("event must be a mapping")
     keys = frozenset(event.keys())
-    if keys != ALLOWED_EVENT_KEYS:
+    if keys not in (ALLOWED_EVENT_KEYS, ALLOWED_EVENT_KEYS - {"reason_code"}):
         unknown = sorted(str(key) for key in keys - ALLOWED_EVENT_KEYS)
         missing = sorted(ALLOWED_EVENT_KEYS - keys)
         raise UnsafeDiagnosticField(f"event keys rejected; unknown={unknown}, missing={missing}")
@@ -171,9 +189,16 @@ def validate_event(event: Mapping[str, Any]) -> Dict[str, Any]:
     ):
         raise UnsafeDiagnosticField("error_code is not allowlisted")
 
+    reason_code = event.get("reason_code")
+    if reason_code is not None and (
+        not isinstance(reason_code, str) or reason_code not in _REASON_CODES
+    ):
+        raise UnsafeDiagnosticField("reason_code is invalid")
+
     if event["action"] not in _ACTIONS or event["stage"] not in _STAGES:
         raise UnsafeDiagnosticField("action or stage is not allowlisted")
     validated = dict(event)
+    validated.setdefault("reason_code", None)
     for name in ("task_id", "request_id", "connection_id", "generation"):
         validated[name] = _opaque(name, event[name])
     return validated
@@ -199,5 +224,6 @@ def make_event(**fields: Any) -> Dict[str, Any]:
         "error_code": fields.get("error_code"),
         "action": fields.get("action"),
         "stage": fields.get("stage"),
+        "reason_code": fields.get("reason_code"),
     }
     return validate_event(event)

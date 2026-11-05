@@ -17,3 +17,7 @@ Use the installed Skill's Python entrypoint or `fbl browser` for JSON CLI operat
 For multi-step work use the `script` operation with `taskId`, Python `code` and a bounded `timeout`. Inspect `execution_complete`, `outcome_unknown` and `last_operation`; a caught exception does not clear pending human input or approval. Inspect an uncertain write before continuing. [Python helpers](python-scripting.md) · [CLI](fbl.md)
 
 Collaboration is provided by the separate Fast-browser-assist product. The core browser tools require no Hermes or model configuration. [中文](agent-integration.zh-CN.md)
+
+## Shared skill reference
+
+The canonical `skills/fast-browser-link` contains the fast path and installed `references/` for helper signatures, troubleshooting, batch extraction and task boundaries. The Hermes copy is a generated mirror; run `python3 tests/agent-link/test_skill_layout.py --sync` after editing the canonical files. Its tests check both copies and helper signatures. Independent installs copy that directory; `fbl setup` copies the same tree into `fbl-assets/core-skill`, and the Hermes package contains both the mirror and `core-skills`. Existing separate Hermes skills remain compatible. Candidate skill version is 2.6.1; the runtime remains 2.6.0 pending a coordinated release version bump.

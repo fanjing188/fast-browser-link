@@ -156,6 +156,7 @@
         "screenshot",
         "page.parse",
         "semantic_snapshot",
+        "focus_window",
         "frame_catalog",
         "ref_click",
         "ref_fill",
@@ -185,6 +186,8 @@
     "stage": {
       "enum": [
         null,
+        "preparation",
+        "execution",
         "queue_wait",
         "settle_wait",
         "overlay",
@@ -192,6 +195,20 @@
         "highlight",
         "dispatch",
         "post_check"
+      ]
+    },
+    "reason_code": {
+      "enum": [
+        null,
+        "tab_closed",
+        "debugger_attach_failed",
+        "debugger_detached",
+        "cdp_timeout",
+        "frame_destroyed",
+        "execution_context_lost",
+        "service_worker_disconnected",
+        "chrome_api_error",
+        "internal_exception"
       ]
     }
   }

@@ -129,12 +129,53 @@ class SafeIdleExitTests(unittest.TestCase):
         self.assertEqual(row, original)
         for changed in (
             {"updatedAt": 102},
+            {"lastActivityAt": 102},
             {"cleanupState": "unknown"},
             {"state": "running"},
             {"requestHistory": [{"state": "awaiting_human"}]},
             {"userVerified": {"reason": "", "at": row["userVerified"]["at"]}},
         ):
             self.assertFalse(self.daemon._task_safe_for_reload({**row, **changed}))
+
+    def test_created_tab_permission_receipt_retains_only_valid_identifiers(self):
+        data = {
+            "tabState": "created",
+            "tabId": 7,
+            "groupId": 8,
+            "windowId": 9,
+            "closedTabs": [2],
+            "outcomeUnknown": True,
+            "private": "secret",
+        }
+        safe = daemon_module.ProtocolError("permission_denied", "denied", data).data
+        for key in ("tabState", "tabId", "groupId", "windowId", "closedTabs"):
+            self.assertEqual(safe[key], data[key])
+        self.assertNotIn("private", safe)
+        invalid = daemon_module.ProtocolError(
+            "permission_denied", "denied", {**data, "tabId": True}
+        ).data
+        self.assertNotIn("tabId", invalid)
+
+    def test_old_verified_unknown_archives_without_new_seven_day_wait(self):
+        from datetime import datetime, timezone
+
+        now = time.time()
+        row = {
+            "id": "old",
+            "state": "closed",
+            "cleanupState": "succeeded",
+            "updatedAt": now - 9 * 86400,
+            "requestHistory": [{"state": "unknown"}],
+            "tabIds": [],
+        }
+        self.assertFalse(self.daemon._task_archive_due(row, now))
+        row["userVerified"] = {
+            "reason": "核实",
+            "at": datetime.fromtimestamp(now - 60, timezone.utc).isoformat(),
+        }
+        self.assertTrue(self.daemon._task_archive_due(row, now))
+        self.assertFalse(self.daemon._task_archive_due({**row, "updatedAt": now - 30}, now))
+        self.assertFalse(self.daemon._task_archive_due({**row, "tabIds": [3]}, now))
 
     def tick(self, now):
         with patch.object(daemon_module.time, "monotonic", return_value=now):

@@ -121,6 +121,19 @@ class SinkTests(unittest.TestCase):
                 self.assertLessEqual(path.stat().st_size, 700)
             self.assertGreater(len(sink.read_validated_events()), 0)
 
+    def test_legacy_v1_without_reason_code_is_retained_on_next_write(self):
+        with tempfile.TemporaryDirectory() as parent:
+            root = Path(parent) / "diagnostics"
+            sink = JsonlDiagnosticSink(root)
+            legacy = event_for(1)
+            legacy.pop("reason_code")
+            root.mkdir(parents=True, exist_ok=True)
+            (root / "events.jsonl").write_text(json.dumps(legacy) + "\n")
+            sink.write(event_for(2))
+            records = sink.read_validated_events()
+            self.assertEqual([row["request_id"] for row in records], ["request-1", "request-2"])
+            self.assertIsNone(records[0]["reason_code"])
+
     def test_corrupt_active_log_is_discarded_and_new_writes_recover(self):
         with tempfile.TemporaryDirectory() as parent:
             root = Path(parent) / "diagnostics"

@@ -7,6 +7,7 @@ import sys
 import tempfile
 import unittest
 from unittest.mock import patch
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "native-bridge"))
@@ -62,6 +63,196 @@ class LifecycleTests(unittest.TestCase):
         task = self.daemon.tasks[result["id"]]
         task.update(state="needs_sync", lastActivityAt=1, createdAt=1, workTabs=[])
         return task
+
+    def test_focus_window_validation_and_restricted_tasks(self):
+        common = {
+            "owner": "fixture-owner",
+            "taskId": "t",
+            "requestId": "r",
+            "action": "focus_window",
+            "tabId": 7,
+        }
+        for fields in ({}, {"restore": False, "holdMs": 15000}):
+            self.daemon._validate_run_params("focus_window", {**common, **fields})
+        for fields in (
+            {"holdMs": -1},
+            {"holdMs": 15001},
+            {"holdMs": True},
+            {"restore": None},
+            {"windowId": 2},
+        ):
+            with self.subTest(fields=fields), self.assertRaises(ProtocolError):
+                self.daemon._validate_run_params("focus_window", {**common, **fields})
+        task = self.task()
+        params = {**common, "taskId": task["id"]}
+        for changes in (
+            {"silent": True},
+            {"executionLane": "product_fill"},
+            {"executionLane": "product_work"},
+        ):
+            task.update(silent=False, executionLane="default")
+            task.update(changes)
+            with self.assertRaises(ProtocolError) as caught:
+                self.daemon._run_task(params)
+            self.assertIn(caught.exception.code, {"focus_window_denied", "execution_lane_denied"})
+            self.assertFalse(caught.exception.data["outcomeUnknown"])
+
+    def test_select_tab_runs_through_owned_task_without_focusing_window(self):
+        task = self.task()
+        task.update(state="ready", activeMode="smart", tabIds=[7], agentTabIds=[7])
+        self.daemon.tab_leases[("fixture", 7)] = task["id"]
+        calls = []
+
+        def execute(_extension, method, params, **_kwargs):
+            calls.append((method, params))
+            return {"tabId": 7}
+
+        self.daemon._extension_call = execute
+        result = self.daemon._run_task(
+            {
+                "owner": "fixture-owner",
+                "taskId": task["id"],
+                "requestId": "select",
+                "action": "select_tab",
+                "tabId": 7,
+            }
+        )
+        self.assertEqual(result["tabId"], 7)
+        self.assertEqual(calls[0][1]["action"], "select_tab")
+
+    def test_focus_window_dispatches_without_action_approval(self):
+        task = self.task()
+        task.update(state="ready", activeMode="smart", tabIds=[7], agentTabIds=[7])
+        self.daemon.tab_leases[("fixture", 7)] = task["id"]
+        calls = []
+
+        def execute(_extension, method, params, **_kwargs):
+            calls.append((method, params))
+            return {"focused": True, "visible": True, "previousWindowId": 4, "restored": True}
+
+        self.daemon._extension_call = execute
+        app = {"pid": 321, "bundle": "example.editor", "started": 123.0}
+        with (
+            patch("daemon._front_app", return_value=app),
+            patch("daemon._restore_front_app", return_value="restored"),
+        ):
+            result = self.daemon._run_task(
+                {
+                    "owner": "fixture-owner",
+                    "taskId": task["id"],
+                    "requestId": "focus",
+                    "action": "focus_window",
+                    "tabId": 7,
+                }
+            )
+        self.assertTrue(result["visible"])
+        self.assertEqual([item[0] for item in calls], ["browser.execute"])
+        self.assertEqual(self.daemon.action_approvals, {})
+
+    def test_focus_restores_only_recorded_other_application(self):
+        app = {"pid": 321, "bundle": "example.editor", "started": 123.0}
+        calls = []
+
+        def command(args, **_kwargs):
+            calls.append(args)
+            if len(calls) == 1:
+                return SimpleNamespace(
+                    stdout='{"pid":321,"bundle":"example.editor","started":123.0}'
+                )
+            self.assertEqual(args[-4:], ["321", "example.editor", "123.0", "com.google.Chrome"])
+            return SimpleNamespace(stdout="restored\n")
+
+        self.daemon._extension_call = lambda *_a, **_k: {
+            "focused": True,
+            "visible": True,
+            "previousWindowId": None,
+            "restored": False,
+            "restoreReason": "previous_window_unavailable",
+        }
+        with patch("daemon.sys.platform", "darwin"), patch("daemon.subprocess.run", command):
+            result = self.daemon._focus_window_call({"browser": "chrome"}, {}, 25)
+        self.assertTrue(result["restored"])
+        self.assertNotIn("restoreReason", result)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(app["pid"], 321)
+
+    def test_focus_restoration_failures_and_user_switch_are_reported(self):
+        app = {"pid": 321, "bundle": "example.editor", "started": 123.0}
+        self.daemon._extension_call = lambda *_a, **_k: {"focused": True, "visible": True}
+        with patch("daemon._front_app", return_value=None):
+            result = self.daemon._focus_window_call({"browser": "chrome"}, {}, 25)
+        self.assertEqual(
+            (result["restored"], result["restoreReason"]), (False, "previous_app_unavailable")
+        )
+        for reason in (
+            "focus_changed",
+            "previous_app_gone",
+            "restore_failed",
+            "restore_unverified",
+        ):
+            with (
+                self.subTest(reason=reason),
+                patch("daemon._front_app", return_value=app),
+                patch("daemon._restore_front_app", return_value=reason),
+            ):
+                result = self.daemon._focus_window_call({"browser": "edge"}, {}, 25)
+            self.assertEqual((result["restored"], result["restoreReason"]), (False, reason))
+        with (
+            patch("daemon._front_app", return_value=app),
+            patch("daemon._restore_front_app") as restore,
+        ):
+            self.daemon._extension_call = lambda *_a, **_k: {
+                "restoreReason": "focus_changed",
+                "restored": False,
+            }
+            self.daemon._focus_window_call({"browser": "edge"}, {}, 25)
+            restore.assert_not_called()
+
+    def test_focus_same_browser_and_restore_disabled(self):
+        self.daemon._extension_call = lambda *_a, **_k: {"restored": True}
+        with (
+            patch(
+                "daemon._front_app",
+                return_value={"pid": 1, "bundle": "com.google.Chrome", "started": 2},
+            ),
+            patch("daemon._restore_front_app") as restore,
+        ):
+            self.assertTrue(
+                self.daemon._focus_window_call({"browser": "chrome"}, {}, 25)["restored"]
+            )
+            restore.assert_not_called()
+        app = {"pid": 1, "bundle": "com.google.Chrome", "started": 2}
+        for later, expected in (
+            (None, "restore_unverified"),
+            ({"pid": 9, "bundle": "example.editor", "started": 3}, "focus_changed"),
+        ):
+            with self.subTest(later=later), patch("daemon._front_app", side_effect=[app, later]):
+                result = self.daemon._focus_window_call({"browser": "chrome"}, {}, 25)
+            self.assertFalse(result["restored"])
+            self.assertEqual(result["restoreReason"], expected)
+        with patch("daemon._front_app") as front:
+            self.daemon._focus_window_call({"browser": "chrome"}, {"restore": False}, 25)
+            front.assert_called_once()
+
+    def test_focus_exception_attempts_restoration_and_busy_is_predispatch(self):
+        app = {"pid": 1, "bundle": "example.editor", "started": 2}
+
+        def fail(*_args, **_kwargs):
+            raise ProtocolError("extension_disconnected", "closed")
+
+        self.daemon._extension_call = fail
+        with (
+            patch("daemon._front_app", return_value=app),
+            patch("daemon._restore_front_app") as restore,
+        ):
+            with self.assertRaises(ProtocolError):
+                self.daemon._focus_window_call({"browser": "chrome"}, {}, 25)
+            restore.assert_called_once_with(app, "com.google.Chrome")
+        with self.daemon.focus_window_lock:
+            with self.assertRaises(ProtocolError) as caught:
+                self.daemon._focus_window_call({"browser": "chrome"}, {}, 25)
+        self.assertEqual(caught.exception.code, "focus_window_busy")
+        self.assertFalse(caught.exception.data["outcomeUnknown"])
 
     def test_attach_resolves_browser_selected_page_without_cleanup_ownership(self):
         calls = []
@@ -308,6 +499,47 @@ class LifecycleTests(unittest.TestCase):
         self.assertNotIn("CANARY", raw)
         self.assertNotIn("private.invalid", raw)
 
+    def test_fixed_execution_reasons_survive_task_log_and_readback(self):
+        task = self.task()
+        for reason in (
+            "tab_closed",
+            "debugger_detached",
+            "frame_destroyed",
+            "execution_context_lost",
+            "cdp_timeout",
+            "service_worker_disconnected",
+            "chrome_api_error",
+            "internal_exception",
+        ):
+            self.daemon._append_task_log(
+                task["id"],
+                {
+                    "action": "js.evaluate",
+                    "startedAt": 1,
+                    "state": "unknown",
+                    "errorCode": "execution_denied",
+                    "stage": "execution",
+                    "reasonCode": reason,
+                },
+            )
+        rows = self.daemon._read_task_log(task["id"], 20)
+        self.assertEqual(
+            [row["reasonCode"] for row in rows],
+            [
+                "tab_closed",
+                "debugger_detached",
+                "frame_destroyed",
+                "execution_context_lost",
+                "cdp_timeout",
+                "service_worker_disconnected",
+                "chrome_api_error",
+                "internal_exception",
+            ],
+        )
+        self.assertTrue(
+            all(row["stage"] == "execution" and row["result"] == "unknown" for row in rows)
+        )
+
     def test_hourly_cleanup_revokes_empty_old_needs_sync_only(self):
         old = self.task()
         fresh = self.task()
@@ -437,3 +669,176 @@ class LifecycleTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FocusLeaseTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix="focus-lease-")
+        self.addCleanup(self.temp.cleanup)
+        self.daemon = BridgeDaemon(Path(self.temp.name))
+        self.addCleanup(self.daemon._flush_tasks)
+        self.daemon._prepare_data_dir()
+        self.app = {"pid": 1, "bundle": "example.editor", "started": 2}
+        self.daemon._extension_call = lambda *_a, **_kw: {
+            "focused": True,
+            "visible": True,
+            "workWindowId": 2,
+            "previousWindowId": 1,
+        }
+
+    def test_deferred_restores_once_and_rejects_other_task(self):
+        with (
+            patch("daemon._front_app", return_value=self.app),
+            patch("daemon._restore_front_app", return_value="restored") as restore,
+        ):
+            lease = self.daemon._focus_window_call(
+                {"browser": "chrome"}, {"taskId": "a", "restore": "deferred"}, 1
+            )
+            self.assertFalse(lease["restored"])
+            restore.assert_not_called()
+            with self.assertRaises(ProtocolError):
+                self.daemon._restore_focus_lease("b", lease["focusLeaseId"])
+            self.assertTrue(
+                self.daemon._restore_focus_lease("a", lease["focusLeaseId"])["restored"]
+            )
+            restore.assert_called_once()
+            with self.assertRaises(ProtocolError):
+                self.daemon._restore_focus_lease("a", lease["focusLeaseId"])
+            self.assertFalse(self.daemon.focus_window_lock.locked())
+
+    def test_task_close_restores_lease(self):
+        self.daemon._prepare_data_dir()
+        self.daemon._notify_tasks_changed = lambda _: None
+        self.daemon.extensions["fixture"] = {"instanceId": "fixture", "browser": "chrome"}
+        task = self.daemon._dispatch_client(
+            "shared.create",
+            {
+                "owner": "owner",
+                "title": "Task",
+                "instanceId": "fixture",
+                "allowedOrigins": ["https://example.test"],
+            },
+        )
+        task_id = task["id"]
+        self.daemon._extension_call = lambda _ext, method, _params, **_kw: (
+            {"focused": True, "visible": True, "workWindowId": 2, "previousWindowId": 1}
+            if method == "browser.execute"
+            else {"released": True, "cleanupState": "succeeded"}
+        )
+        with (
+            patch("daemon._front_app", return_value=self.app),
+            patch("daemon._restore_front_app", return_value="restored") as restore,
+        ):
+            self.daemon._focus_window_call(
+                {"browser": "chrome"}, {"taskId": task_id, "restore": "deferred"}, 1
+            )
+            self.daemon._release_task({"owner": "owner", "taskId": task_id}, "closed", True)
+            restore.assert_called_once()
+            self.assertFalse(self.daemon.focus_window_lock.locked())
+
+    def test_revoked_task_restores_without_blocking_callback(self):
+        import threading
+
+        done = threading.Event()
+        task = {"id": "a", "instanceId": "fixture", "tabIds": [], "owner": "owner"}
+        with (
+            patch("daemon._front_app", return_value=self.app),
+            patch("daemon._restore_front_app", side_effect=lambda *_: (done.set(), "restored")[1]),
+        ):
+            self.daemon._focus_window_call(
+                {"browser": "chrome"}, {"taskId": "a", "restore": "deferred"}, 1
+            )
+            self.daemon._revoke_task_locked(task, "cancelled")
+            self.assertTrue(done.wait(1))
+
+    def test_timeout_restores_and_unlocks(self):
+        import time
+
+        with (
+            patch("daemon._front_app", return_value=self.app),
+            patch("daemon._restore_front_app", return_value="restored") as restore,
+        ):
+            self.daemon._focus_window_call(
+                {"browser": "chrome"}, {"taskId": "a", "restore": "deferred", "maxMs": 20}, 1
+            )
+            deadline = time.monotonic() + 1
+            while self.daemon.focus_window_lock.locked() and time.monotonic() < deadline:
+                time.sleep(0.01)
+            self.assertFalse(self.daemon.focus_window_lock.locked())
+            restore.assert_called_once()
+
+    def test_locked_screen_never_dispatches(self):
+        self.daemon._extension_call = unittest.mock.Mock()
+        locked = SimpleNamespace(
+            stdout='{"pid":99065,"bundle":"com.apple.loginwindow","started":null}'
+        )
+        with (
+            patch("daemon.sys.platform", "darwin"),
+            patch("daemon.subprocess.run", return_value=locked),
+        ):
+            for restore in (True, False, "deferred"):
+                with self.subTest(restore=restore), self.assertRaises(ProtocolError) as caught:
+                    self.daemon._focus_window_call({"browser": "edge"}, {"restore": restore}, 1)
+                self.assertEqual(caught.exception.code, "screen_locked")
+                self.assertEqual(
+                    (caught.exception.data["outcomeUnknown"], caught.exception.data["retryable"]),
+                    (False, False),
+                )
+                self.assertFalse(self.daemon.focus_window_lock.locked())
+        self.daemon._extension_call.assert_not_called()
+
+    def test_missing_start_time_for_normal_app_remains_unavailable(self):
+        app = SimpleNamespace(stdout='{"pid":321,"bundle":"example.editor","started":null}')
+        with (
+            patch("daemon.sys.platform", "darwin"),
+            patch("daemon.subprocess.run", return_value=app),
+            patch("daemon._restore_front_app") as restore,
+        ):
+            result = self.daemon._focus_window_call({"browser": "chrome"}, {}, 1)
+        self.assertEqual(
+            (result["restored"], result["restoreReason"]), (False, "previous_app_unavailable")
+        )
+        restore.assert_not_called()
+
+    def test_context_restores_on_exception_and_preserves_tab_scope(self):
+        calls = []
+
+        def call(op, args):
+            calls.append((op, args, CHILD._tab_scope.get()))
+            return {"focusLeaseId": "lease"}
+
+        with patch.object(CHILD, "_call", side_effect=call):
+            with self.assertRaisesRegex(RuntimeError, "body"):
+                with CHILD.focused_window(tab=7, max_ms=100):
+                    self.assertIsNone(CHILD._tab_scope.get())
+                    raise RuntimeError("body")
+        self.assertEqual(
+            calls,
+            [
+                ("run", ["focus_window", {"restore": "deferred", "maxMs": 100}], 7),
+                ("run", ["focus_restore", {"focusLeaseId": "lease"}], 7),
+            ],
+        )
+
+    def test_context_does_not_restore_when_locked_before_lease(self):
+        error = ProtocolError("screen_locked", "屏幕已锁定", {"outcomeUnknown": False})
+        with patch.object(CHILD, "_call", side_effect=error) as call:
+            with self.assertRaises(ProtocolError) as caught:
+                with CHILD.focused_window(tab=7):
+                    self.fail("锁屏时不应进入上下文")
+        self.assertIs(caught.exception, error)
+        call.assert_called_once_with(
+            "run", ["focus_window", {"restore": "deferred", "maxMs": 120000}]
+        )
+
+    def test_doctor_only_checks_browser_main_process(self):
+        runtime = load("focus_lease_runtime", "native-bridge/fbl_runtime.py")
+        output = "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge --disable-backgrounding-occluded-windows\n/Applications/Google Chrome.app/Contents/MacOS/Google Chrome\n/Applications/Google Chrome.app/Contents/MacOS/Google Chrome --type=renderer --disable-backgrounding-occluded-windows\n"
+        flags = runtime.browser_render_flags(
+            [{"browser": "edge"}, {"browser": "chrome"}],
+            run=lambda *a, **k: SimpleNamespace(stdout=output),
+        )
+        self.assertEqual(
+            [(f["browser"], f["enabled"]) for f in flags], [("chrome", False), ("edge", True)]
+        )
+        self.assertIn("--disable-backgrounding-occluded-windows", flags[0]["command"])

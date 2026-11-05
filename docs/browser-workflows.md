@@ -84,7 +84,11 @@ result = read_resilient(mode="content", timeout=15)
 
 ## 后台执行
 
-普通任务的输入队列只串行执行，不自动切换活动标签、不恢复或聚焦工作窗口。键盘、编辑器及原始 CDP 键盘/文本输入通过目标页焦点模拟交付，不使用系统前台。SDK/CDP 的 Page.bringToFront 和 Target.activateTarget 只验证并选择已授权逻辑目标，不提升窗口；Target 激活仍核目标归属。原始 Browser.setWindowBounds、Target.createTarget 和 Target.sendMessageToTarget 在自动执行链拒绝，创建工作页改用 new_tab/goto_url 等原有接口。不会因后台输入不可靠而把用户窗口切走或重放未知动作。
+普通任务各有独立工作窗口；同一窗口的输入队列串行，派发前将该任务目标标签切为窗口内活动标签，不调用窗口聚焦。`current` 模式和接管窗口不切换标签；同一任务多标签并发时，以队列中正在派发的目标为准。键盘、编辑器及原始 CDP 键盘/文本输入通过目标页焦点模拟交付。SDK/CDP 的 Page.bringToFront 和 Target.activateTarget 只验证并选择已授权逻辑目标，不提升窗口；Target 激活仍核目标归属。原始 Browser.setWindowBounds、Target.createTarget 和 Target.sendMessageToTarget 在自动执行链拒绝，创建工作页改用 new_tab/goto_url 等原有接口。
+
+后台隐藏文档中，语义动作命中的遮挡元素若有正在运行的 CSS 过渡，派发前返回 `document_hidden_stalled`；调用 `focus_window` 临时置前，确认可见后重试未派发动作。此检测不保证覆盖所有遮挡或后台渲染问题；若回执标记结果未知，应先读回核实，不重放动作。
+
+`focus_window` 只作用于本任务租赁、且在独立工作窗口中的任务创建页；需指定 `tabId`，可传 `restore`（默认 true）和 `holdMs`（默认 1000，最大 15000）。回执的 `focused`、`visible` 是置前期间的读回，`previousWindowId` 是扩展能确认的原前台浏览器窗口，`restored` 是恢复读回。macOS 宿主通过 NSWorkspace 记录并恢复调用前的其他前台应用，无需辅助功能权限；记录或恢复失败仍返回置前结果，`restored:false` 和 `restoreReason` 说明原因。用户在等待期间主动切窗时不抢回焦点。静默、产品、接管及当前窗口任务被拒绝。
 
 自动审批提示使用不聚焦的扩展面板和通知，任务仍等待真实批准；用户点击通知、主动打开待确认或查看任务页时可以聚焦。连接时显式请求的浏览器授权管理窗口保留原有确认流程。旧策略实测 window.open 独立窗口会提升浏览器前台。新候选默认采用 [网页弹窗策略](popup-policy.md)：在已验证的新建顶层工作页中后台接管明确安全的同源调用，不兼容时暂停；用户显式兼容模式仍允许前台窗口。已有文档、框架及浏览器/系统原生对话框未获得全场景静默保证，不通过事后抢回焦点掩盖干扰。
 
@@ -100,3 +104,5 @@ node tests/v1.1-script-lane/real-resilience.mjs --edge
 ```
 
 同机对比分散三次脚本、原有单次批处理与一次 run_steps，保存各三轮耗时；这不是模型端到端、第三方网站或生产业务的提速证明。个人安装和公开发布另行验收。
+
+连续交互使用 `with focused_window(tab=None, max_ms=120000):`，退出或异常、超时及任务关闭时尝试恢复原前台；`focus_window` 的 `restore="deferred"` 返回 `focusLeaseId`，调用 `focus_restore` 恢复。锁屏错误 `screen_locked` 表示不尝试置前；请自行退出浏览器并以 `--disable-backgrounding-occluded-windows` 重启。独立窗口新建、导航及选择任务标签时在窗口内激活，不聚焦系统窗口。

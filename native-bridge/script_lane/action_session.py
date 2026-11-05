@@ -82,7 +82,10 @@ class OutcomeUnknown(RuntimeError):
             key: data[key]
             for key in (
                 ("effect", "suggestion", "stage", "reasonCode")
-                if code == "bridge_execution_failed"
+                if code
+                in {"bridge_execution_failed", "execution_denied", "runtime_preparation_failed"}
+                else ("effect", "suggestion", "stage", "reasonCode", "tabId", "tabState")
+                if code in {"permission_denied", "page_not_ready"}
                 else ("effect", "suggestion")
             )
             if isinstance(data, dict) and key in data
@@ -262,7 +265,7 @@ class ActionSession:
                 raise ActionRejected("task_paused")
             time.sleep(min(0.25, remaining))
 
-    def use_tab(self, tab_id):
+    def use_tab(self, tab_id, *, _activate=True):
         """中文注释：只接受本任务创建或显式接管且仍有租约的页，不跟随浏览器活动页。"""
         if self._unknown or self._pending is not None:
             raise PendingAction("reconcile or resolve pending action before changing tabs")
@@ -281,6 +284,12 @@ class ActionSession:
             or task.get("generation") != self._generation
         ):
             raise ActionRejected("foreign_tab")
+        if (
+            _activate
+            and tab_id not in task.get("attachedTabIds", [])
+            and tab_id not in task.get("adoptedPopupTabIds", [])
+        ):
+            self._request("select_tab", "select_tab", tabId=tab_id)
         self._popup_sources = dict(task.get("popupSources", {}))
         self.tab_id = tab_id
         return tab_id
@@ -325,7 +334,7 @@ class ActionSession:
         if key not in self._tab_sessions:
             child = ActionSession(self._runtime, owner=self._owner, task_id=self._task_id)
             child.install_scope(self._instance_id, self._generation)
-            child.use_tab(tab_id)
+            child.use_tab(tab_id, _activate=False)
             self._tab_sessions[key] = child
         return self._tab_sessions[key]
 
@@ -865,6 +874,8 @@ class ActionSession:
     # keys each accepts. The daemon still validates values, origins, approval
     # and sensitive targets; this only narrows the surface.
     SCRIPT_ACTIONS = {
+        "focus_window": frozenset({"restore", "holdMs", "maxMs"}),
+        "focus_restore": frozenset({"focusLeaseId"}),
         "popup_catalog": frozenset(),
         "popup_adopt": frozenset({"candidateRef"}),
         # 中文注释：复用原生已开放的滚动动作，不新增脚本任意执行权限。

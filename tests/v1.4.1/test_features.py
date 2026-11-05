@@ -11,7 +11,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "native-bridge"))
 sys.path.insert(0, str(ROOT / "browser-diagnostics/python"))
-from daemon import BridgeDaemon, ProtocolError  # noqa: E402
+from daemon import BridgeDaemon, ProtocolError, _sha256  # noqa: E402
 from browser_diagnostics.schema import make_event  # noqa: E402
 
 
@@ -35,6 +35,37 @@ class FeaturesTests(unittest.TestCase):
                 "consentStatusSupported": True,
             },
         }
+
+    def test_finish_operation_writes_fixed_reason_to_recent_log(self):
+        self.daemon.tasks["task-1"] = {
+            "id": "task-1",
+            "owner": "owner",
+            "instanceId": "chrome-1",
+            "currentOperation": {
+                "action": "click",
+                "state": "running",
+                "startedAt": 1780000000,
+                "requestIdHash": _sha256("request-1"),
+            },
+        }
+        with (
+            patch.object(self.daemon, "_persist_tasks"),
+            patch.object(self.daemon, "_notify_tasks_changed"),
+        ):
+            self.daemon._finish_ui_operation(
+                {"taskId": "task-1", "owner": "owner", "requestId": "request-1"},
+                "failed",
+                5,
+                "execution_denied",
+                error_data={
+                    "stage": "preparation",
+                    "reasonCode": "tab_closed",
+                    "secret": "private",
+                },
+            )
+        row = self.daemon._read_task_log("task-1", 1)[0]
+        self.assertEqual((row["stage"], row["reasonCode"]), ("preparation", "tab_closed"))
+        self.assertNotIn("private", json.dumps(row))
 
     def test_primary_persists_across_profiles_and_marks_offline_instance(self):
         with (
@@ -81,6 +112,24 @@ class FeaturesTests(unittest.TestCase):
         self.assertEqual(self.daemon._read_task_log("task-1", 1)[0]["target"], "敏感字段")
         self.assertNotIn("secret-value", json.dumps(rows))
         self.assertNotIn("private-page-body", json.dumps(rows))
+        reasons = (
+            ("preparation", "tab_closed"),
+            ("preparation", "debugger_attach_failed"),
+            ("execution", "internal_exception"),
+        )
+        for stage, reason in reasons:
+            self.daemon._append_task_log(
+                "reasons", {**operation, "stage": stage, "reasonCode": reason}
+            )
+        logged = self.daemon._read_task_log("reasons", 5)
+        self.assertEqual(
+            [(row["stage"], row["reasonCode"]) for row in logged],
+            list(reasons),
+        )
+        self.daemon._append_task_log(
+            "unsafe", {**operation, "stage": "private", "reasonCode": "secret"}
+        )
+        self.assertNotIn("stage", self.daemon._read_task_log("unsafe", 1)[0])
         old = self.daemon.task_log_dir / ("a" * 64 + ".jsonl")
         old.write_text("{}\n")
         import os

@@ -43,6 +43,64 @@ export function withBackgroundFocusNotice(
     },
   };
 }
+
+// 中文注释：只接受已由执行器核对过的任务页；返回置前期间的可见性和恢复结果。
+export async function focusTaskWindow(api, tabId, windowId, guard, { restore = true, holdMs = 1000, groupId, restoreOnFailure = false } = {}) {
+  if (typeof restore !== 'boolean' || !Number.isInteger(holdMs) || holdMs < 0 || holdMs > 15000)
+    throw Object.assign(Error('INVALID_FOCUS_OPTIONS'), { preDispatch: true });
+  let previous;
+  try { previous = await api.windows.getLastFocused(); }
+  catch { previous = null; }
+  guard();
+  const previousWindowId = previous?.focused && Number.isInteger(previous.id) ? previous.id : null;
+  // 中文注释：其他应用由原生宿主恢复；浏览器无法识别时仍允许置前。
+  let attempted = false, succeeded = false, result, restored = false, restoreReason = restore && previousWindowId === null ? 'previous_window_unavailable' : null;
+  try {
+    guard();
+    const tab = await api.tabs.get(tabId); guard();
+    if (tab.windowId !== windowId || (groupId !== undefined && tab.groupId !== groupId))
+      throw Object.assign(Error('FOCUS_WINDOW_DENIED'), { preDispatch: true });
+    attempted = true;
+    await api.tabs.update(tabId, { active: true }); guard();
+    const selected = await api.tabs.get(tabId); guard();
+    if (selected.windowId !== windowId || (groupId !== undefined && selected.groupId !== groupId))
+      throw Error('FOCUS_WINDOW_CHANGED');
+    if (previousWindowId !== null) {
+      const current = await api.windows.getLastFocused(); guard();
+      if (current?.id !== previousWindowId || current.focused !== true) throw Error('FOCUS_WINDOW_CHANGED');
+    }
+    await api.windows.update(windowId, { focused: true }); guard();
+    const deadline = Date.now() + 2000;
+    while (true) {
+      const win = await api.windows.get(windowId); guard();
+      const check = await api.debugger.sendCommand({ tabId }, 'Runtime.evaluate', {
+        expression: 'document.visibilityState', returnByValue: true,
+      }); guard();
+      if (check?.exceptionDetails || !['visible', 'hidden'].includes(check?.result?.value))
+        throw Error('FOCUS_VISIBILITY_UNAVAILABLE');
+      result = { focused: win.focused === true, visible: check.result.value === 'visible', previousWindowId };
+      if (result.focused && result.visible || Date.now() >= deadline) break;
+      await new Promise(resolve => setTimeout(resolve, 50)); guard();
+    }
+    if (holdMs) { await new Promise(resolve => setTimeout(resolve, holdMs)); guard(); }
+    if (restoreOnFailure && (!result.focused || !result.visible)) throw Error('FOCUS_VISIBILITY_UNAVAILABLE');
+    succeeded = true;
+  } finally {
+    if ((restore || (restoreOnFailure && !succeeded)) && attempted && previousWindowId !== null && previousWindowId !== windowId) {
+      try {
+        const current = await api.windows.getLastFocused();
+        // 中文注释：用户主动切走时尊重其选择，不重新抢回焦点。
+        if (current?.id === windowId && current.focused === true) {
+          await api.windows.get(previousWindowId);
+          await api.windows.update(previousWindowId, { focused: true });
+          restored = (await api.windows.get(previousWindowId)).focused === true;
+          if (!restored) restoreReason = 'restore_unverified';
+        } else restoreReason = 'focus_changed';
+      } catch { restoreReason = 'restore_failed'; }
+    } else if (restore && previousWindowId === windowId) restored = true;
+  }
+  return { ...result, restored, ...(restoreReason ? { restoreReason } : {}) };
+}
 export class WorkWindow {
   constructor(api, { incognito = false, scope = null } = {}) {
     this.api = api;
@@ -173,7 +231,7 @@ export class WorkWindow {
       await this.api.storage.local.set({ [this.key]: null });
     });
   }
-  // 中文注释：同窗口输入串行，但不切活动标签、不恢复窗口；后台输入由目标页 CDP/焦点模拟交付。
+  // 中文注释：独立工作窗口内串行切换任务页，不改变系统前台窗口。
   async input(windowId, tabId, guard, work) {
     const previous = this.tails.get(windowId) || Promise.resolve();
     const next = previous
@@ -184,6 +242,10 @@ export class WorkWindow {
         guard();
         if (tab.windowId !== windowId)
           throw Object.assign(Error('WORK_WINDOW_CHANGED'), { preDispatch: true });
+        if (!tab.active) {
+          await this.api.tabs.update(tabId, { active: true });
+          guard();
+        }
         guard();
         return work();
       });

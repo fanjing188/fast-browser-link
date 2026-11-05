@@ -58,7 +58,7 @@ else:
 def tool_schema():
     return {
         "name": "fast_browser_link",
-        "description": "控制 Chrome/Edge：browsers → create/get ready → run 或 script → close。多步优先 script；site_search 查已启用网站工具，site_run 运行。未知结果先读取，禁止重放写入。",
+        "description": "控制 Chrome/Edge：browsers → create/get ready → run 或 script → close。多步优先 script；后台连续交互用脚本 focused_window；run 的 focus_window 支持 deferred 租约与 focus_restore。锁屏返回 screen_locked。site_search 查已启用网站工具，site_run 运行。未知结果先读取，禁止重放写入。",
         "inputSchema": {
             "type": "object",
             "properties": {

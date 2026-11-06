@@ -78,6 +78,8 @@ class NativeV2WireTests(unittest.TestCase):
             "new_tab",
             "scroll",
             "back",
+            "focus_window",
+            "focus_restore",
             "popup_catalog",
             "popup_adopt",
             "page.parse",
@@ -116,6 +118,63 @@ class NativeV2WireTests(unittest.TestCase):
         self.assertIn(
             "paths", self.tools.TOOL_SCHEMAS["fast_browser_run"]["parameters"]["properties"]
         )
+
+    def test_focus_actions_map_exact_wire_fields(self):
+        cases = [
+            (
+                {
+                    "action": "focus_window",
+                    "tab_id": 7,
+                    "restore": "deferred",
+                    "max_ms": 100,
+                    "hold_ms": 0,
+                },
+                {
+                    "action": "focus_window",
+                    "tabId": 7,
+                    "restore": "deferred",
+                    "maxMs": 100,
+                    "holdMs": 0,
+                },
+            ),
+            (
+                {"action": "focus_restore", "focus_lease_id": "lease-1"},
+                {"action": "focus_restore", "focusLeaseId": "lease-1"},
+            ),
+        ]
+        for args, expected in cases:
+            with self.subTest(action=args["action"]):
+                result = self.invoke({"task_id": "task-1", **args})
+                self.assertNotIn("error", result)
+                method, params = self.client.calls[-1]
+                self.assertEqual(method, "shared.run")
+                self.assertEqual(
+                    params,
+                    {
+                        "owner": params["owner"],
+                        "taskId": "task-1",
+                        "requestId": "native-v2-call",
+                        **expected,
+                    },
+                )
+
+    def test_focus_actions_reject_missing_or_forged_fields_before_rpc(self):
+        for fields, code in [
+            ({"action": "focus_window"}, "missing_fields"),
+            ({"action": "focus_restore"}, "missing_fields"),
+            (
+                {
+                    "action": "focus_restore",
+                    "focus_lease_id": "lease-1",
+                    "previousWindowId": 1,
+                },
+                "invalid_fields",
+            ),
+        ]:
+            with self.subTest(fields=fields):
+                result = self.invoke({"task_id": "task-1", **fields})
+                self.assertEqual(result.get("code"), code)
+        self.assertEqual(self.client.calls, [])
 
     def test_semantic_snapshot_and_ref_actions_map_exact_wire_fields(self):
         cases = [

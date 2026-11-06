@@ -138,7 +138,18 @@ def daemon_info():
     # 中文注释：公开入口先经持久化包装，再进入实现函数；两段调用都必须存在。
     client=fn(t,'_dispatch_client'); implementation=fn(t,'_dispatch_client_impl')
     entry=bool(client and implementation and call_attr(client,'_dispatch_client_impl') and 'shared.run' in ast.unparse(implementation) and call_attr(implementation,'_run_task'))
-    return {'allowlist':allowed,'required':sorted(required),'validator':validator_ok and validates,'dispatch':dispatch and api and entry,
+    # 中文注释：恢复是已拥有任务上的租约控制分支，不经过普通动作 allowlist。
+    wrapper=fn(t,'_run_task'); restore=fn(t,'_restore_focus_lease')
+    restore_branch=next((n for n in wrapper.body if isinstance(n,ast.If) and ast.unparse(n.test)=="params.get('action') == 'focus_restore'"),None) if wrapper else None
+    restore_body=ast.Module(body=restore_branch.body,type_ignores=[]) if restore_branch else None
+    restore_ok=bool(entry and wrapper and call_attr(wrapper,'_owned_task') and restore_body
+      and "isinstance(params.get('focusLeaseId'), str)" in ast.unparse(restore_body)
+      and "set(params)" in ast.unparse(restore_body)
+      and "self._restore_focus_lease(task['id'], params['focusLeaseId'])" in ast.unparse(restore_body)
+      and restore and "lease['taskId'] != task_id" in ast.unparse(restore)
+      and "lease['id'] != lease_id" in ast.unparse(restore)
+      and call_attr(restore,'_extension_call') and "'browser.focus_restore'" in ast.unparse(restore))
+    return {'focusRestore':restore_ok,'allowlist':allowed,'required':sorted(required),'validator':validator_ok and validates,'dispatch':dispatch and api and entry,
       'debug':{'validatorGuard':validator_ok,'runValidationCall':validates,'apiRoute':api,'extensionDispatch':dispatch,'publicEntry':entry}}
 print(json.dumps({'native':native_info(),'daemon':daemon_info()}))
 `;
@@ -323,6 +334,19 @@ function extensionInfo(root) {
         /this\.leases\.set\(candidate\.tabId,\s*t\.id\)/.test(methodBody(core, 'adoptPopup')) &&
         /this\.popups\.inspect/.test(methodBody(core, 'adoptPopup'))
       );
+    // 中文注释：恢复由专用 Bridge 消息执行，不能要求它出现在普通 V1 动作集合。
+    if (action === 'focus_restore') {
+      const restore = objectBody(bridge, "m.method === 'browser.focus_restore')");
+      return (
+        /this\.executor\.api\.windows\.getLastFocused\(\)/.test(restore) &&
+        /current\?\.id !== workWindowId/.test(restore) &&
+        /current\.focused !== true/.test(restore) &&
+        /Number\.isInteger\(previousWindowId\)/.test(restore) &&
+        /this\.executor\.api\.windows\.update\(previousWindowId,\s*\{ focused: true \}\)/.test(
+          restore,
+        )
+      );
+    }
     if (action === 'api_request') return credentials;
     if (action === 'files.upload')
       return (
@@ -333,6 +357,15 @@ function extensionInfo(root) {
         /this\.withInteractionHighlight\(/.test(perform)
       );
     if (!actions.includes(action)) return false;
+    if (action === 'focus_window') {
+      const focus = methodBody(core, 'focusWindow');
+      return (
+        /if\(p\.action==='focus_window'\)return this\.focusWindow\(t,p,guard\)/.test(perform) &&
+        /this\.workspaces\.authority\.resolve\(t\.workspaceCapability\)/.test(focus) &&
+        /t\.agentTabs\?\.has\(p\.tabId\)/.test(focus) &&
+        /focusTaskWindow\(this\.api,p\.tabId,cap\.windowId,guard,/.test(focus)
+      );
+    }
     if (action.startsWith('interaction.')) {
       const forms = {
         'interaction.capture': [
@@ -585,10 +618,12 @@ export function analyzeRepository(root = rootDefault) {
       deferred = (native.deferred || []).includes(action);
     const schema = publicAction && (native.schema || []).includes(action);
     const daemon =
-      (daemonInfo.allowlist || []).includes(action) &&
-      (daemonInfo.required || []).includes(action) &&
-      daemonInfo.validator === true &&
-      daemonInfo.dispatch === true;
+      action === 'focus_restore'
+        ? daemonInfo.focusRestore === true
+        : (daemonInfo.allowlist || []).includes(action) &&
+          (daemonInfo.required || []).includes(action) &&
+          daemonInfo.validator === true &&
+          daemonInfo.dispatch === true;
     const ext = extension.route(action),
       pkg = packaged.actionDependency(action);
     const layers = {

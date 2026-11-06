@@ -132,3 +132,83 @@ test('语义动作声明不能掩盖缺失的执行分支或页面函数', async
     });
   }
 });
+
+test('焦点动作检查实际委托与租约恢复专用链路，残留声明不能掩盖断线', async (t) => {
+  const report = analyzeRepository(repo);
+  for (const name of ['focus_window', 'focus_restore']) {
+    assert.equal(action(report, name).supported, true);
+  }
+  const controls = [
+    [
+      'focus_window',
+      'native-extension/core.mjs',
+      "if(p.action==='focus_window')return this.focusWindow(t,p,guard);",
+      "if(p.action==='removed_focus_window')return this.focusWindow(t,p,guard);",
+      'extension',
+    ],
+    [
+      'focus_window',
+      'native-extension/core.mjs',
+      'await focusTaskWindow(this.api,p.tabId,cap.windowId,guard,',
+      'await removedFocusTaskWindow(this.api,p.tabId,cap.windowId,guard,',
+      'extension',
+    ],
+    [
+      'focus_restore',
+      'native-bridge/daemon.py',
+      'if params.get("action") == "focus_restore":',
+      'if params.get("action") == "removed_focus_restore":',
+      'daemon',
+    ],
+    [
+      'focus_restore',
+      'native-bridge/daemon.py',
+      'return self._restore_focus_lease(task["id"], params["focusLeaseId"])',
+      'return self._removed_restore_focus_lease(task["id"], params["focusLeaseId"])',
+      'daemon',
+    ],
+    [
+      'focus_restore',
+      'native-bridge/daemon.py',
+      'lease["taskId"] != task_id',
+      'lease["taskId"] != "bypassed"',
+      'daemon',
+    ],
+    [
+      'focus_restore',
+      'native-bridge/daemon.py',
+      'lease["id"] != lease_id',
+      'lease["id"] != "bypassed"',
+      'daemon',
+    ],
+    [
+      'focus_restore',
+      'native-extension/bridge.mjs',
+      "m.method === 'browser.focus_restore'",
+      "m.method === 'browser.removed_focus_restore'",
+      'extension',
+    ],
+    [
+      'focus_restore',
+      'native-extension/bridge.mjs',
+      'await this.executor.api.windows.update(previousWindowId, { focused: true });',
+      'await this.executor.api.windows.get(previousWindowId);',
+      'extension',
+    ],
+  ];
+  for (const [name, file, needle, replacement, layer] of controls) {
+    await t.test(`${name}: ${needle}`, async (child) => {
+      const root = await fixtureRoot(child);
+      const target = path.join(root, file);
+      const source = await readFile(target, 'utf8');
+      assert.ok(source.includes(needle), '负控制必须命中真实链路');
+      await writeFile(target, source.replace(needle, replacement));
+      const broken = analyzeRepository(root);
+      const row = action(broken, name);
+      assert.equal(row.layers.schema, true);
+      assert.equal(row.layers[layer], false);
+      assert.equal(row.supported, false);
+      assert.equal(broken.status, 'fail');
+    });
+  }
+});

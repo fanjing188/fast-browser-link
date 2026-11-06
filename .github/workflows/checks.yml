@@ -11,7 +11,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-14]
+        os: [ubuntu-latest, macos-15]
     runs-on: ${{ matrix.os }}
     # 中文注释：总预算包含锁定依赖的网络安装；不改每个测试的截止或断言。
     timeout-minutes: 35

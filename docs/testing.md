@@ -81,6 +81,10 @@ npm run check:docs
 
 The core runner uses explicit Node and Python lists. Its React renderer uses this repository's locked development dependencies, not a personal Hermes checkout. Production plugins still use Hermes' React runtime. Core tests never launch browsers or register Native Messaging hosts.
 
+## MCP 前置绑定回归
+
+`tests/agent-link/test_stdio_binding.py` 使用真实 MCP stdio 和脚本子进程、合成 runtime。未知写入或人工待处理阻止顶层 tab 绑定时，返回 `stage=task_binding`、`execution_complete=false`、`retryable=false`；只有旧结果未知才标记 `outcome_unknown=true`。进程和原 owner 保持不变，后续 ping/get 可用，未知写入不重放，跨 owner 仍拒绝。显式 `reconcile(tab=...)` 保持原有冻结限制；无参数 reconcile 的单工作页只读核对不代表真实浏览器恢复验收。
+
 ## Full integration gate
 
 `npm run verify` additionally imports the real Hermes plugin loader and tests API boundaries. It is intentionally separate from the core suite. Prepare an isolated test checkout, never overwrite your personal Hermes installation:

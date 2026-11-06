@@ -210,7 +210,7 @@ PYTHON_SUITES = (
 )
 # Some directories contain explicitly unsafe runners: select files by fixed name.
 PYTHON_FILES = {
-    "tests/agent-link": ("test_agent_link.py", "test_script.py"),
+    "tests/agent-link": ("test_agent_link.py", "test_script.py", "test_stdio_binding.py"),
     "tests/auto-update": ("test_update.py",),
     # 中文注释：诊断用例只使用合成事件和临时日志目录，按名称限定运行范围。
     "browser-diagnostics/tests": ("test_schema.py", "test_runtime.py", "test_sink.py"),

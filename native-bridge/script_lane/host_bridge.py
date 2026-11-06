@@ -23,6 +23,15 @@ class BridgeDenied(RuntimeError):
     pass
 
 
+class BindingBlocked(RuntimeError):
+    """中文注释：仅表示前置绑定受旧动作阻断，不表示旧写入未发生。"""
+
+    def __init__(self, *, outcome_unknown):
+        super().__init__("task binding blocked by unresolved action")
+        self.outcome_unknown = outcome_unknown
+        self.code = "outcome_unknown" if outcome_unknown else "pending_action"
+
+
 class WorkflowConditionError(BridgeDenied):
     outcomeUnknown = False
     outcome_unknown = False
@@ -141,6 +150,8 @@ class HostBridge:
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         self._ActionSession = module.ActionSession
+        self._binding_errors = (module.PendingAction, module.OutcomeUnknown)
+        self._OutcomeUnknown = module.OutcomeUnknown
         self._bindings = {}
         self._task_bindings = {}
         self._session_locks = {}
@@ -385,6 +396,7 @@ class HostBridge:
             if self._closed:
                 raise BridgeDenied("native host bridge is closed")
             existing = self._task_bindings.get(session_id, {}).get(task_id)
+            reusing = existing is not None
             if not existing:
                 revoked = threading.Event()
                 actions = self._ActionSession(self.runtime, owner=owner, task_id=task_id)
@@ -393,10 +405,16 @@ class HostBridge:
                 lock = self._session_locks.setdefault(session_id, threading.Lock())
                 existing = (owner, task_id, instance_id, actions, lock, revoked)
                 self._task_bindings.setdefault(session_id, {})[task_id] = existing
-            else:
-                existing[3].reconnect()
-            if tab_id is not None:
-                existing[3].use_tab(tab_id)
+            try:
+                if reusing:
+                    existing[3].reconnect()
+                if tab_id is not None:
+                    existing[3].use_tab(tab_id)
+            except self._binding_errors as exc:
+                # 中文注释：保留原动作、owner 和冻结状态；只转换已知异常，不吞掉程序错误。
+                raise BindingBlocked(
+                    outcome_unknown=existing[3]._unknown or isinstance(exc, self._OutcomeUnknown)
+                ) from exc
             if select or tab_id is not None or session_id not in self._bindings:
                 self._bindings[session_id] = existing
 

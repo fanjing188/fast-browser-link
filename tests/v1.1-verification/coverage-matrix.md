@@ -315,3 +315,5 @@ R39：补齐 `tests/v1.1-packaging/test_cloud_fence_pin.py` 的已审阅登记�
 - `tests/native-extension/product-connections-page.test.mjs`：连接管理页面、渲染和用户事件合同。
 - `tests/native-v2/test_product_adapter.py`：产品适配器、页面上下文和 SDK 通道的离线集成。
 - 六个 runner 显式进入正式 baseline，五个 Node runner 同时由核心入口复用；不启动真实浏览器、不操作个人安装。构建与包闭包回归另验六个产品资源逐字复制、构建身份变更和 `product_adapter.py` 安装前缺件拒绝。
+
+- `tests/agent-link/test_stdio_binding.py`：真实 MCP stdio 与脚本子进程；前置绑定失败不退出、不更换 owner、不重放未知写入，跨 owner 和人工待处理仍拒绝。

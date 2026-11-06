@@ -265,8 +265,7 @@ def migrate(package, home, browser_root, *, apply=False):
             "2.5.0",
             "2.5.1",
             "2.6.0",
-            "2.6.1",
-        }
+            "2.6.1", '2.6.2'}
         or ORIGIN != f"chrome-extension://{identity}/"
     ):
         raise ValueError("需要身份匹配且在迁移支持范围内的安装包")

@@ -32,6 +32,7 @@ class ScriptLane:
         self.authority = self
         self.tools = {self.script.TOOL_NAME}
         self.bridge_denied = host.BridgeDenied
+        self.binding_blocked = host.BindingBlocked
         self.host = host.HostBridge(self, owner_for_session=self.owner_for_session)
         self.handler = self.script.make_handler(
             self.host, self, self.home, lease_error=IdentityError, bridge_denied=host.BridgeDenied
@@ -94,6 +95,15 @@ class ScriptLane:
                     self.host.bind(
                         self.session, owner=self.owner, task_id=task, tab_id=tab, select=True
                     )
+                except self.binding_blocked as exc:
+                    return {
+                        "error": "task binding blocked by unresolved action",
+                        "code": exc.code,
+                        "stage": "task_binding",
+                        "execution_complete": False,
+                        "outcome_unknown": exc.outcome_unknown,
+                        "retryable": False,
+                    }
                 except RuntimeError as exc:
                     if (
                         not isinstance(exc, self.bridge_denied)

@@ -166,6 +166,21 @@ class ScriptTests(unittest.TestCase):
             self.assertFalse(result["execution_complete"])
         self.assertEqual(self.client.runs, [])
 
+    def test_binding_converts_only_known_action_errors(self):
+        self.script("print('bound')")
+        host = self.browser.lane.host
+        for error in (host._OutcomeUnknown("private diagnostic"), RuntimeError("program bug")):
+            with patch.object(host._ActionSession, "use_tab", side_effect=error):
+                if isinstance(error, host._OutcomeUnknown):
+                    result = self.script("raise AssertionError('must not run')", tabId=7)
+                    self.assertEqual(result["code"], "outcome_unknown")
+                    self.assertTrue(result["outcome_unknown"])
+                    self.assertNotIn("private diagnostic", json.dumps(result))
+                else:
+                    with self.assertRaisesRegex(RuntimeError, "program bug"):
+                        self.script("print('must not run')", tabId=7)
+        self.assertEqual(self.client.runs, [])
+
     def test_foreign_tab_is_rejected_without_crashing_mcp_or_running_code(self):
         self.script("new_tab('https://example.com')")
         before = len(self.client.runs)

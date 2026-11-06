@@ -25,7 +25,7 @@
 | 执行长流程 | 组合步骤、等待结果、批量处理、保存检查点、续做和生成报告。 |
 | 处理异常 | 在访问频繁时降速，遇到连续失败或没有进展时停止；对符合条件的故障页做受限恢复。 |
 
-**Source version: 2.6.1**。本页介绍当前源码能力；`main` 可能领先于正式安装包，已发布版本以 [Releases](https://github.com/fanjing188/fast-browser-link/releases) 为准。2.6.1 的工作流、恢复和弹窗策略详见[版本说明](docs/releases/release-2.6.1.md)。
+**Source version: 2.6.2**。本页介绍当前源码能力；`main` 可能领先于正式安装包，已发布版本以 [Releases](https://github.com/fanjing188/fast-browser-link/releases) 为准。2.6.2 的工作流、恢复和弹窗策略详见[版本说明](docs/releases/release-2.6.2.md)。
 
 ## 开始之前
 

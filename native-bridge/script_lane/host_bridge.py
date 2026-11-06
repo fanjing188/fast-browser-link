@@ -409,7 +409,10 @@ class HostBridge:
                 if reusing:
                     existing[3].reconnect()
                 if tab_id is not None:
-                    existing[3].use_tab(tab_id)
+                    if existing[3]._unknown:
+                        existing[3].use_tab(tab_id, _activate=False, _reconcile=True)
+                    else:
+                        existing[3].use_tab(tab_id)
             except self._binding_errors as exc:
                 # 中文注释：保留原动作、owner 和冻结状态；只转换已知异常，不吞掉程序错误。
                 raise BindingBlocked(
@@ -626,6 +629,8 @@ class HostBridge:
                 with actions._rpc_lock:
                     if op in {"use_tab", "current_tab", "capabilities", "checkpoint"}:
                         selected = actions
+                    elif op == "reconcile" and (actions._unknown or actions._pending is not None):
+                        selected = actions
                     elif "tab" in request:
                         selected = actions.for_tab(request["tab"])
                     elif (
@@ -688,7 +693,7 @@ class HostBridge:
                 ):
                     value = selected.goto_url(args[0], summary=args[1])
                 elif op == "reconcile" and args == []:
-                    value = selected.reconcile()
+                    value = selected.reconcile(tab=request.get("tab"))
                 elif op == "operation_status" and isinstance(args, list) and len(args) == 1:
                     value = selected.operation_status(args[0])
                 elif op == "reconnect" and args == []:

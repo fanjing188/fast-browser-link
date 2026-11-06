@@ -200,6 +200,7 @@ class ActionSession:
         self._pending: dict[str, Any] | None = None
         self._pending_kind: str | None = None
         self._unknown = False
+        self._reconcile_tab_id = None
         self._generation_reset = False
         self._last_request_id: str | None = None
         self._last_started = 0.0
@@ -265,9 +266,16 @@ class ActionSession:
                 raise ActionRejected("task_paused")
             time.sleep(min(0.25, remaining))
 
-    def use_tab(self, tab_id, *, _activate=True):
+    def use_tab(self, tab_id, *, _activate=True, _reconcile=False):
         """中文注释：只接受本任务创建或显式接管且仍有租约的页，不跟随浏览器活动页。"""
-        if self._unknown or self._pending is not None:
+        if (self._unknown or self._pending is not None) and not (
+            _reconcile
+            and not _activate
+            and self._unknown
+            and type(self._reconcile_tab_id) is int
+            and type(tab_id) is int
+            and tab_id == self._reconcile_tab_id
+        ):
             raise PendingAction("reconcile or resolve pending action before changing tabs")
         task = self._runtime.call("shared.get", {"owner": self._owner, "taskId": self._task_id})
         if task.get("state") == "paused":
@@ -451,6 +459,9 @@ class ActionSession:
         }
         self._last_request_id = payload["requestId"]
         self._last_started = time.monotonic()
+        # 原请求目标独立于当前绑定；未知 new_tab 不能从 owned tabs 推断。
+        self._reconcile_tab_id = payload.get("tabId")
+        self._generation_reset = False
         self._pending = payload
         self._pending_kind = kind
         result = self.resume_pending()
@@ -680,6 +691,15 @@ class ActionSession:
                     else None,
                     data,
                 ) from exc
+            if (
+                payload["action"] == "new_tab"
+                and code in {"permission_denied", "page_not_ready"}
+                and isinstance(data, dict)
+                and data.get("tabState") == "created"
+                and type(data.get("tabId")) is int
+                and data["tabId"] >= 0
+            ):
+                self._reconcile_tab_id = data["tabId"]
             self._unknown = True
             raise OutcomeUnknown(
                 "native action outcome unknown; no automatic replay", code=code, data=data
@@ -711,6 +731,13 @@ class ActionSession:
             self._pending = None
             self._pending_kind = None
             return receipt
+        if (
+            payload["action"] == "new_tab"
+            and receipt.get("tabState") == "created"
+            and type(receipt.get("tabId")) is int
+            and receipt["tabId"] >= 0
+        ):
+            self._reconcile_tab_id = receipt["tabId"]
         if "error" in receipt or receipt.get("ok") is False:
             self._unknown = True
             raise OutcomeUnknown("native action rejected or uncertain; inspect the task state")
@@ -823,12 +850,20 @@ class ActionSession:
                 receipt["summary"] = None
         return receipt
 
-    def reconcile(self) -> dict:
+    def reconcile(self, *, tab=None) -> dict:
         """After an uncertain write, read the page once so the caller can check
         what actually happened, then allow further actions. It never resends the
         uncertain action and never bypasses a pending approval."""
         if self._pending is not None and not self._unknown:
             raise PendingAction("resolve the pending request before reconciling")
+        if self._unknown and not self._generation_reset:
+            if type(self._reconcile_tab_id) is not int:
+                raise PendingAction("unknown action has no verified target tab")
+            if tab is None:
+                tab = self._reconcile_tab_id
+        if tab is not None:
+            # 仅允许原未知目标并重新校验租约，不发送 select_tab。
+            self.use_tab(tab, _activate=False, _reconcile=True)
         if self.tab_id is None and self._generation_reset:
             # 中文注释：新代次没有旧工作页可读；调用方显式确认后才可建新页，旧的未知写入仍需在业务侧核实。
             self._unknown = False
@@ -844,6 +879,8 @@ class ActionSession:
         if self.tab_id is None:
             raise NoBoundTab("no owned work tab")
         was_unknown = self._unknown
+        pending, pending_kind = self._pending, self._pending_kind
+        target = self._reconcile_tab_id
         self._unknown = False
         self._pending = None
         self._pending_kind = None
@@ -852,6 +889,9 @@ class ActionSession:
         except Exception:
             # 中文注释：读取失败或待确认不等于已核对现场，不能解除旧未知写入的冻结。
             self._unknown = was_unknown or self._unknown
+            if was_unknown:
+                self._pending, self._pending_kind = pending, pending_kind
+                self._reconcile_tab_id = target
             raise
 
     def snapshot(self) -> dict:

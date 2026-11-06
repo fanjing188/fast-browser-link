@@ -96,7 +96,7 @@ JavaScript and CDP use the task’s existing browser access. No extra enable cal
 | Helper | Description |
 |---|---|
 | `wait_pending(timeout_s=20, tab=source)` | Wait for the original approval/manual-input request (max 300 s); sensitive manual input returns its receipt. Login-window adoption runs directly without confirmation |
-| `reconcile()` | After an unknown outcome, read the page to decide; never replays the action |
+| `reconcile(tab=None)` | After an unknown outcome, read only the original unknown action’s verified tab to decide; never replays the action or selects/focuses the browser tab |
 | `operation_status(request_id=None)` | Read the daemon's request ledger: `awaiting_approval`, `awaiting_human`, `dispatched`, `confirmed`, `rejected` or `unknown` |
 | `reconnect(timeout_s=30)` | After a disconnect, re-verify the task, instance, generation and work tab (read-only) |
 | `load_checkpoint()` | Read the business checkpoint Hermes passed in `resume_checkpoint` |
@@ -243,3 +243,7 @@ print(page["coverage"])
 ## 通用工作流（2.6.0 候选）
 
 统一等待、带前后条件的步骤及只读定位诊断见 [通用工作流](browser-workflows.md)。三个 helper 复用现有 script 执行链，要求绑定扩展声明 `browser_workflow_v1`；候选实现不代表个人安装或公开发布已更新。
+
+MCP 未知结果恢复：多工作页时用 `script(taskId=..., code="reconcile(tab=原页ID)")`，也可传相同的外层 `tabId`。外层绑定在未知状态下必须匹配原请求目标（新建页须有 native 明确的 created/tabId 元数据），并校验页租约；缺少目标证据保持冻结，不发送 `select_tab`；普通浏览器动作仍受冻结约束。成功快照沿用原 reconcile 合同解除未知状态，读取失败继续冻结，人工输入/审批与暂停不能借此跳过。不要自动重放原动作。
+
+MCP 遇到无法分类的内部异常时返回 `isError` 和脱敏 `internal_error`，不退出 stdio；本进程随后只接受 health/get/list/browsers/operation_status 及协议 ping 等诊断请求。此状态不证明动作未发生，必须先排查并核对业务结果，不能自动重试或伪造原 owner。

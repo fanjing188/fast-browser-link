@@ -161,6 +161,7 @@ class ActionSessionTest(unittest.TestCase):
             [
                 {"outcomeUnknown": True, "delivery": "partial"},
                 {"requestIdHash": "a" * 64, "state": "unknown", "dispatched": True},
+                {"state": "ready", "generation": 2, "tabIds": [7], "workTabs": [{"tabId": 7}]},
                 {"text": "fixture readback"},
                 {"clicked": True, "delivery": "confirmed"},
             ]
@@ -184,6 +185,7 @@ class ActionSessionTest(unittest.TestCase):
             [
                 {"kind": "dom-synthetic", "outcomeUnknown": True, "delivery": "partial"},
                 {"requestIdHash": "a" * 64, "state": "unknown", "dispatched": True},
+                {"state": "ready", "generation": 2, "tabIds": [7], "workTabs": [{"tabId": 7}]},
                 {"text": "fixture readback"},
                 {"filled": True, "delivery": "confirmed"},
             ]
@@ -242,8 +244,16 @@ class ActionSessionTest(unittest.TestCase):
         denied = type(
             "Denied", (Exception,), {"code": "permission_denied", "data": {"outcomeUnknown": False}}
         )()
-        runtime = RecordingRuntime([{"tabId": 7}, TimeoutError("lost write"), denied])
+        runtime = RecordingRuntime(
+            [
+                {"tabId": 7},
+                TimeoutError("lost write"),
+                {"state": "ready", "generation": 2, "tabIds": [7], "workTabs": [{"tabId": 7}]},
+                denied,
+            ]
+        )
         session = adapter.ActionSession(runtime, owner="trusted-owner", task_id="task-1")
+        session.install_scope("instance-1", 2)
         session.new_tab("https://example.test/")
         with self.assertRaises(adapter.OutcomeUnknown):
             session.run("click", {"selector": "#save"})
@@ -252,7 +262,7 @@ class ActionSessionTest(unittest.TestCase):
         with self.assertRaises(adapter.OutcomeUnknown):
             session.run("click", {"selector": "#again"})
         self.assertEqual(
-            len(runtime.calls), 3, "failed read cannot unfreeze the original unknown write"
+            len(runtime.calls), 4, "failed read cannot unfreeze the original unknown write"
         )
 
     def test_paused_action_waits_for_same_task_then_continues(self):

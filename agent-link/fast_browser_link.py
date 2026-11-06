@@ -76,6 +76,7 @@ def tool_schema():
 
 def serve(browser, source=sys.stdin, sink=sys.stdout):
     # 中文注释：每个 MCP 进程独立身份，stdout 仅输出协议帧，不接收模型指定的身份。
+    internal_failure = False
     for line in source:
         request = None
         try:
@@ -103,6 +104,14 @@ def serve(browser, source=sys.stdin, sink=sys.stdout):
                     raise ValueError("未知工具")
                 args = params.get("arguments", {})
                 try:
+                    if internal_failure and args.get("operation") not in {
+                        "health",
+                        "get",
+                        "list",
+                        "browsers",
+                        "operation_status",
+                    }:
+                        raise RuntimeError("MCP requires internal error investigation")
                     value = browser.call(args.get("operation"), args.get("params", {}))
                     result = {
                         "content": [{"type": "text", "text": json.dumps(value, ensure_ascii=False)}]
@@ -112,6 +121,27 @@ def serve(browser, source=sys.stdin, sink=sys.stdout):
                         "isError": True,
                         "content": [
                             {"type": "text", "text": json.dumps(error(exc), ensure_ascii=False)}
+                        ],
+                    }
+                except Exception:
+                    # 协议边界兜底明确报错，不按异常类名猜测审批状态，也不输出内部数据。
+                    # 状态无法证明时，本进程只保留只读诊断，阻止后续写入。
+                    internal_failure = True
+                    result = {
+                        "isError": True,
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": json.dumps(
+                                    {
+                                        "error": "unexpected internal failure; writes blocked",
+                                        "code": "internal_error",
+                                        "execution_complete": False,
+                                        "outcome_unknown": True,
+                                        "retryable": False,
+                                    }
+                                ),
+                            }
                         ],
                     }
             else:

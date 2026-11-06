@@ -83,7 +83,7 @@ The core runner uses explicit Node and Python lists. Its React renderer uses thi
 
 ## MCP 前置绑定回归
 
-`tests/agent-link/test_stdio_binding.py` 使用真实 MCP stdio 和脚本子进程、合成 runtime。未知写入或人工待处理阻止顶层 tab 绑定时，返回 `stage=task_binding`、`execution_complete=false`、`retryable=false`；只有旧结果未知才标记 `outcome_unknown=true`。进程和原 owner 保持不变，后续 ping/get 可用，未知写入不重放，跨 owner 仍拒绝。显式 `reconcile(tab=...)` 保持原有冻结限制；无参数 reconcile 的单工作页只读核对不代表真实浏览器恢复验收。
+`tests/agent-link/test_stdio_binding.py` 使用真实 MCP stdio 和脚本子进程、合成 runtime。未知写入或人工待处理阻止顶层 tab 绑定时，返回 `stage=task_binding`、`execution_complete=false`、`retryable=false`；只有旧结果未知才标记 `outcome_unknown=true`。进程和原 owner 保持不变，后续 ping/get 可用，未知写入不重放，跨 owner 仍拒绝。显式 `reconcile(tab=...)` 仅允许原未知请求的已验证目标（新建页需要 native 的 created/tabId 元数据），重新校验页租约且不发送 `select_tab`；无目标证据、目标不符或快照失败继续冻结。多页核对、失败后目标保留和未分类内部异常的回归均使用合成 runtime，不代表真实浏览器恢复验收。未分类内部异常返回脱敏 `internal_error` 后，进程只保留只读诊断，阻止后续写入。
 
 ## Full integration gate
 

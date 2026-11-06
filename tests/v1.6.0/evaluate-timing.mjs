@@ -7,15 +7,20 @@ const record = (name, elapsed) => samples.set(name, [...(samples.get(name) || []
 const task = { id: 'timing', policy: { activeMode: 'full' }, revoked: false };
 const executor = {
   leases: new Map([[1, 'timing']]),
-  api: { debugger: { sendCommand: async (_target, method) => {
-    const start = performance.now();
-    let result = {};
-    if (method === 'Page.createIsolatedWorld') result = { executionContextId: 1 };
-    if (method === 'Runtime.evaluate') result = { result: { type: 'function', objectId: 'fn' } };
-    if (method === 'Runtime.callFunctionOn') result = { result: { type: 'number', value: 1 } };
-    record(method, performance.now() - start);
-    return result;
-  } } },
+  api: {
+    debugger: {
+      sendCommand: async (_target, method) => {
+        const start = performance.now();
+        let result = {};
+        if (method === 'Page.createIsolatedWorld') result = { executionContextId: 1 };
+        if (method === 'Runtime.evaluate')
+          result = { result: { type: 'function', objectId: 'fn' } };
+        if (method === 'Runtime.callFunctionOn') result = { result: { type: 'number', value: 1 } };
+        record(method, performance.now() - start);
+        return result;
+      },
+    },
+  },
   checkedFrameTree: async () => ({ frame: { id: 'frame', loaderId: 'doc' } }),
 };
 const runtime = new PageRuntime(executor);
@@ -26,5 +31,7 @@ for (let i = 0; i < 100; i++) {
 }
 for (const [name, values] of samples) {
   values.sort((a, b) => a - b);
-  process.stdout.write(`${name} count=${values.length} median_ms=${values[Math.floor(values.length / 2)].toFixed(4)}\n`);
+  process.stdout.write(
+    `${name} count=${values.length} median_ms=${values[Math.floor(values.length / 2)].toFixed(4)}\n`,
+  );
 }

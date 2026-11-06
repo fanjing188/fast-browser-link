@@ -651,23 +651,53 @@ test('Chrome 和未确认受影响的平台不使用 Edge/macOS 风险提示', (
 });
 
 test('新建、导航和选择时激活独立窗口标签，不调用窗口置前', async () => {
-  const f = fixture(), created = [];
+  const f = fixture(),
+    created = [];
   const create = f.api.tabs.create;
-  f.api.tabs.create = async p => { created.push({ ...p }); return create(p); };
+  f.api.tabs.create = async (p) => {
+    created.push({ ...p });
+    return create(p);
+  };
   const workspaces = new NativeWorkspaces(f.api, 'browser');
-  const task = { id: 'active', instanceId: 'browser', approvalScope: 'scope', generation: 1,
-    workWindowMode: 'separate', title: 'Task', agentTabs: new Set(), agentTabGroups: new Map() };
+  const task = {
+    id: 'active',
+    instanceId: 'browser',
+    approvalScope: 'scope',
+    generation: 1,
+    workWindowMode: 'separate',
+    title: 'Task',
+    agentTabs: new Set(),
+    agentTabGroups: new Map(),
+  };
   const cap = await workspaces.install(task, []);
   task.workspaceCapability = cap;
-  const opened = await workspaces.open(cap, { requestId: 'active-1', url: 'https://example.test/', title: task.title, active: true });
+  const opened = await workspaces.open(cap, {
+    requestId: 'active-1',
+    url: 'https://example.test/',
+    title: task.title,
+    active: true,
+  });
   assert.equal(created[0].active, true);
-  assert.ok(f.calls.some(row => row[0] === 'tabs.update' && row[1] === opened.tabId && row[2].active === true));
-  task.agentTabs.add(opened.tabId); task.agentTabGroups.set(opened.tabId, opened.groupId);
+  assert.ok(
+    f.calls.some(
+      (row) => row[0] === 'tabs.update' && row[1] === opened.tabId && row[2].active === true,
+    ),
+  );
+  task.agentTabs.add(opened.tabId);
+  task.agentTabGroups.set(opened.tabId, opened.groupId);
   for (const action of ['navigate', 'select_tab']) {
     f.tabs.get(opened.tabId).active = false;
-    await workspaces.withInput(task, { action, tabId: opened.tabId }, () => {}, async () => {
-      assert.equal(f.tabs.get(opened.tabId).active, true);
-    });
+    await workspaces.withInput(
+      task,
+      { action, tabId: opened.tabId },
+      () => {},
+      async () => {
+        assert.equal(f.tabs.get(opened.tabId).active, true);
+      },
+    );
   }
-  assert.equal(f.calls.some(row => row[0] === 'windows.update'), false);
+  assert.equal(
+    f.calls.some((row) => row[0] === 'windows.update'),
+    false,
+  );
 });

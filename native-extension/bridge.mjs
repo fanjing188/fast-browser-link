@@ -11,12 +11,21 @@ const sameValues = (a, b) =>
 function fallbackReason(error) {
   const detail = String(error?.message || '').split(/\r?\n/, 1)[0];
   const patterns = [
-    [/^(?:Debugger is not attached to the tab with id: \d+\.?|Debugger was detached\.?)$/i, 'debugger_detached'],
+    [
+      /^(?:Debugger is not attached to the tab with id: \d+\.?|Debugger was detached\.?)$/i,
+      'debugger_detached',
+    ],
     [/^No tab with id: \d+\.?$/, 'tab_closed'],
     [/^(?:CDP_TIMEOUT|Debugger command timed out|Protocol timeout)$/, 'cdp_timeout'],
     [/^(?:No frame with given id found|Frame was detached|Frame not found)\.?$/, 'frame_destroyed'],
-    [/^(?:Execution context was destroyed|Cannot find context with specified id)\.?$/, 'execution_context_lost'],
-    [/^(?:The message port closed before a response was received\.?|Extension context invalidated\.?)$/, 'service_worker_disconnected'],
+    [
+      /^(?:Execution context was destroyed|Cannot find context with specified id)\.?$/,
+      'execution_context_lost',
+    ],
+    [
+      /^(?:The message port closed before a response was received\.?|Extension context invalidated\.?)$/,
+      'service_worker_disconnected',
+    ],
     [/^(?:chrome_api_error|CHROME_API_ERROR)$/, 'chrome_api_error'],
   ];
   return patterns.find(([pattern]) => pattern.test(detail))?.[1] || 'internal_exception';
@@ -262,7 +271,10 @@ function executionError(error, message) {
   } else if (reason === 'TAB_CLOSED_BEFORE_DISPATCH' && error?.reasonCode === 'tab_closed') {
     code = 'execution_denied';
     text = '目标标签已关闭，动作未派发。';
-  } else if (reason === 'DEBUGGER_ATTACH_BEFORE_DISPATCH' && error?.reasonCode === 'debugger_attach_failed') {
+  } else if (
+    reason === 'DEBUGGER_ATTACH_BEFORE_DISPATCH' &&
+    error?.reasonCode === 'debugger_attach_failed'
+  ) {
     code = 'execution_denied';
     text = '浏览器调试连接未建立，动作未派发。';
   } else if (reason === 'DOWNLOAD_NOT_OWNED' || reason === 'DOWNLOADS_UNAVAILABLE') {
@@ -511,16 +523,17 @@ function executionError(error, message) {
   }
   // 中文注释：目标几何或状态在派发前已拒绝，回执明确可重新读取后重试。
   const refusedBeforeDispatch =
-    error?.preDispatch !== false &&
-    [
-      'target_out_of_viewport',
-      'target_hidden',
-      'target_disabled',
-      'target_zero_size',
-      'target_unavailable',
-      'target_occluded',
-      'custom_select_unsupported',
-    ].includes(code) || (code === 'document_hidden_stalled' && error?.preDispatch === true);
+    (error?.preDispatch !== false &&
+      [
+        'target_out_of_viewport',
+        'target_hidden',
+        'target_disabled',
+        'target_zero_size',
+        'target_unavailable',
+        'target_occluded',
+        'custom_select_unsupported',
+      ].includes(code)) ||
+    (code === 'document_hidden_stalled' && error?.preDispatch === true);
   // 中文注释：仅附固定阶段码与合法 origin，任何路径、查询和网页异常文本都不转发。
   let currentOrigin;
   try {
@@ -530,17 +543,19 @@ function executionError(error, message) {
   } catch {}
   // 中文注释：拒绝原因来自上面的固定分类，不等同用户点了拒绝，也不放宽任何检查。
   const stage =
-    ['execution_denied', 'runtime_preparation_failed'].includes(code) && ['tab_closed', 'debugger_attach_failed', 'chrome_api_error'].includes(error?.reasonCode) && error?.preDispatch === true
+    ['execution_denied', 'runtime_preparation_failed'].includes(code) &&
+    ['tab_closed', 'debugger_attach_failed', 'chrome_api_error'].includes(error?.reasonCode) &&
+    error?.preDispatch === true
       ? { stage: 'preparation', reasonCode: error.reasonCode }
       : code === 'permission_denied'
-      ? { stage: 'authority', reasonCode: detail.replaceAll(' ', '_') }
-      : code === 'document_changed' || code === 'overlay_frame_changed'
-        ? { stage: 'document', reasonCode: 'document_changed' }
-        : code === 'overlay_injection_failed' &&
-            error?.stage === 'overlay' &&
-            ['initialization_exception', 'return_type_invalid'].includes(error?.reasonCode)
-          ? { stage: 'overlay', reasonCode: error.reasonCode }
-          : {};
+        ? { stage: 'authority', reasonCode: detail.replaceAll(' ', '_') }
+        : code === 'document_changed' || code === 'overlay_frame_changed'
+          ? { stage: 'document', reasonCode: 'document_changed' }
+          : code === 'overlay_injection_failed' &&
+              error?.stage === 'overlay' &&
+              ['initialization_exception', 'return_type_invalid'].includes(error?.reasonCode)
+            ? { stage: 'overlay', reasonCode: error.reasonCode }
+            : {};
   const usageCodes = new Set([
     'invalid_params',
     'invalid_expression',
@@ -584,11 +599,11 @@ function executionError(error, message) {
     ? '请先读取页面核实结果，不能直接重放写操作'
     : code === 'document_hidden_stalled'
       ? '原动作未派发；连续交互使用 with focused_window()，单个遮罩可用 focus_window。锁屏时浏览器须以 --disable-backgrounding-occluded-windows 启动'
-    : category === 'usage'
-      ? '请修正参数或重新读取页面引用后重试'
-      : category === 'plugin'
-        ? '请查看插件诊断并报告错误码'
-        : '请检查页面和任务状态';
+      : category === 'usage'
+        ? '请修正参数或重新读取页面引用后重试'
+        : category === 'plugin'
+          ? '请查看插件诊断并报告错误码'
+          : '请检查页面和任务状态';
   return {
     code,
     message: text,
@@ -599,7 +614,11 @@ function executionError(error, message) {
       retryable:
         !outcomeUnknown &&
         [
-          ...(['tab_closed', 'debugger_attach_failed', 'chrome_api_error'].includes(error?.reasonCode) && error?.preDispatch === true ? ['execution_denied', 'runtime_preparation_failed'] : []),
+          ...(['tab_closed', 'debugger_attach_failed', 'chrome_api_error'].includes(
+            error?.reasonCode,
+          ) && error?.preDispatch === true
+            ? ['execution_denied', 'runtime_preparation_failed']
+            : []),
           'focus_window_busy',
           'document_changed',
           'stale_reference',
@@ -611,9 +630,19 @@ function executionError(error, message) {
           'stale_frame',
           'parse_cursor_stale',
         ].includes(code),
-      ...(code === 'execution_denied' ? { stage: 'execution', reasonCode: fallbackReason(error) } : {}),
+      ...(code === 'execution_denied'
+        ? { stage: 'execution', reasonCode: fallbackReason(error) }
+        : {}),
       ...stage,
-      ...(Number.isInteger(error?.tabId) && error?.tabState === 'created' ? {tabId:error.tabId, tabState:'created', groupId:error.groupId, windowId:error.windowId, closedTabs:error.closedTabs} : {}),
+      ...(Number.isInteger(error?.tabId) && error?.tabState === 'created'
+        ? {
+            tabId: error.tabId,
+            tabState: 'created',
+            groupId: error.groupId,
+            windowId: error.windowId,
+            closedTabs: error.closedTabs,
+          }
+        : {}),
       ...(code === 'popup_policy_unprotected' && error?.reason === 'unprotected_document'
         ? {
             reason: 'unprotected_document',
@@ -808,7 +837,10 @@ export class Bridge {
   }
   executionError(error, request) {
     const receipt = executionError(error, request);
-    if (receipt.data?.reasonCode && ['execution_denied', 'runtime_preparation_failed'].includes(receipt.code)) {
+    if (
+      receipt.data?.reasonCode &&
+      ['execution_denied', 'runtime_preparation_failed'].includes(receipt.code)
+    ) {
       // 中文注释：诊断只记录固定内部原因码，不写页面异常、正文或参数。
       try {
         this.executor.diagnostics?.recordSafely({
@@ -1213,12 +1245,19 @@ export class Bridge {
       else if (m.method === 'browser.focus_restore') {
         const { workWindowId, previousWindowId } = m.params;
         const current = await this.executor.api.windows.getLastFocused();
-        if (current?.id !== workWindowId || current.focused !== true) result = { restored: false, restoreReason: 'focus_changed' };
-        else if (!Number.isInteger(previousWindowId)) result = { restored: false, restoreReason: 'previous_window_unavailable' };
+        if (current?.id !== workWindowId || current.focused !== true)
+          result = { restored: false, restoreReason: 'focus_changed' };
+        else if (!Number.isInteger(previousWindowId))
+          result = { restored: false, restoreReason: 'previous_window_unavailable' };
         else if (previousWindowId === workWindowId) result = { restored: true };
-        else { await this.executor.api.windows.get(previousWindowId); await this.executor.api.windows.update(previousWindowId, { focused: true }); result = { restored: (await this.executor.api.windows.get(previousWindowId)).focused === true }; }
-      }
-      else if (m.method === 'browser.release') result = await this.executor.release(m.params);
+        else {
+          await this.executor.api.windows.get(previousWindowId);
+          await this.executor.api.windows.update(previousWindowId, { focused: true });
+          result = {
+            restored: (await this.executor.api.windows.get(previousWindowId)).focused === true,
+          };
+        }
+      } else if (m.method === 'browser.release') result = await this.executor.release(m.params);
       else if (m.method === 'browser.cleanup_status')
         result = await this.executor.cleanupStatus(m.params);
       else if (m.method === 'browser.cleanup_retry')

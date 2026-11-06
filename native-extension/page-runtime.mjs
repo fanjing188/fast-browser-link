@@ -641,7 +641,8 @@ export class PageRuntime {
     const tabId = source?.tabId,
       t = this.executor.tasks.get(this.executor.leases.get(tabId));
     // 中文注释：内部保活帧仅用于确认，不进入可读取的 CDP 事件缓冲或网关。
-    if (method === 'Page.screencastFrame' && this.executor.backgroundRender?.isScreencasting(tabId)) return;
+    if (method === 'Page.screencastFrame' && this.executor.backgroundRender?.isScreencasting(tabId))
+      return;
     if (!t || t.revoked) return;
     const resources = this.state(t);
     if (!resources) return;

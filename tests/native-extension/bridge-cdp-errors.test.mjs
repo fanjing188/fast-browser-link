@@ -158,10 +158,16 @@ test('page parser budget failure has a fixed code', async () => {
 test('后台过渡遮挡仅在明确派发前拒绝时报告确定结果', async () => {
   const executor = new Executor({ debugger: {} });
   for (const before of [true, false]) {
-    executor.execute = async () => { throw Object.assign(Error('HIDDEN_STALLED'), { preDispatch: before }); };
-    const sent = [], bridge = new Bridge({ postMessage: m => sent.push(m), onMessage: { addListener() {} } }, executor);
+    executor.execute = async () => {
+      throw Object.assign(Error('HIDDEN_STALLED'), { preDispatch: before });
+    };
+    const sent = [],
+      bridge = new Bridge(
+        { postMessage: (m) => sent.push(m), onMessage: { addListener() {} } },
+        executor,
+      );
     bridge.receive({ id: 'hidden', method: 'browser.execute', params: { action: 'ref_click' } });
-    await new Promise(resolve => setImmediate(resolve));
+    await new Promise((resolve) => setImmediate(resolve));
     assert.equal(sent[0].error.code, 'document_hidden_stalled');
     assert.equal(sent[0].error.data.outcomeUnknown, !before);
     assert.equal(sent[0].error.data.retryable, false);
@@ -173,12 +179,23 @@ test('后台过渡遮挡仅在明确派发前拒绝时报告确定结果', async
 
 test('目标标签在派发前已关闭时保留固定原因和安全重试状态', async () => {
   const executor = new Executor({ debugger: {} });
-  executor.execute = () => executor.performAuthorized({}, { action: 'click', tabId: 42 }, () => {}, async () => {
-    throw Error('No tab with id: 42.');
-  }, 1);
-  const sent = [], bridge = new Bridge({ postMessage: m => sent.push(m), onMessage: { addListener() {} } }, executor);
+  executor.execute = () =>
+    executor.performAuthorized(
+      {},
+      { action: 'click', tabId: 42 },
+      () => {},
+      async () => {
+        throw Error('No tab with id: 42.');
+      },
+      1,
+    );
+  const sent = [],
+    bridge = new Bridge(
+      { postMessage: (m) => sent.push(m), onMessage: { addListener() {} } },
+      executor,
+    );
   bridge.receive({ id: 'closed', method: 'browser.execute', params: { action: 'click' } });
-  await new Promise(resolve => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
   assert.equal(sent[0].error.code, 'execution_denied');
   assert.equal(sent[0].error.data.reasonCode, 'tab_closed');
   assert.equal(sent[0].error.data.stage, 'preparation');
@@ -188,12 +205,29 @@ test('目标标签在派发前已关闭时保留固定原因和安全重试状�
 
 test('调试连接在写动作派发前失败时只保留固定原因，不泄露异常', async () => {
   for (const action of ['click', 'navigate']) {
-    const executor = new Executor({ debugger: { attach: async () => { throw Error('PRIVATE_SECRET'); } } });
+    const executor = new Executor({
+      debugger: {
+        attach: async () => {
+          throw Error('PRIVATE_SECRET');
+        },
+      },
+    });
     if (action === 'navigate') executor.downloads = {};
-    executor.execute = () => executor.performAuthorized({}, { action, tabId: 42 }, () => {}, async () => ({ id: 42 }), 1);
-    const sent = [], bridge = new Bridge({ postMessage: m => sent.push(m), onMessage: { addListener() {} } }, executor);
+    executor.execute = () =>
+      executor.performAuthorized(
+        {},
+        { action, tabId: 42 },
+        () => {},
+        async () => ({ id: 42 }),
+        1,
+      );
+    const sent = [],
+      bridge = new Bridge(
+        { postMessage: (m) => sent.push(m), onMessage: { addListener() {} } },
+        executor,
+      );
     bridge.receive({ id: 'attach-failed', method: 'browser.execute', params: { action } });
-    await new Promise(resolve => setImmediate(resolve));
+    await new Promise((resolve) => setImmediate(resolve));
     assert.equal(sent[0].error.code, 'execution_denied');
     assert.equal(sent[0].error.data.stage, 'preparation');
     assert.equal(sent[0].error.data.reasonCode, 'debugger_attach_failed');
@@ -206,11 +240,17 @@ test('调试连接在写动作派发前失败时只保留固定原因，不泄�
 test('兜底失败的诊断事件使用受支持类型和固定原因', async () => {
   const executor = new Executor({ debugger: {} });
   executor.diagnostics = new DiagnosticEventBuffer();
-  executor.execute = async () => { throw Error('PRIVATE_SECRET'); };
-  const sent = [], bridge = new Bridge({ postMessage: m => sent.push(m), onMessage: { addListener() {} } }, executor);
+  executor.execute = async () => {
+    throw Error('PRIVATE_SECRET');
+  };
+  const sent = [],
+    bridge = new Bridge(
+      { postMessage: (m) => sent.push(m), onMessage: { addListener() {} } },
+      executor,
+    );
   bridge.receive({ id: 'internal', method: 'browser.execute', params: { action: 'click' } });
-  await new Promise(resolve => setImmediate(resolve));
-  const event = executor.diagnostics.snapshot().find(row => row.status === 'failed');
+  await new Promise((resolve) => setImmediate(resolve));
+  const event = executor.diagnostics.snapshot().find((row) => row.status === 'failed');
   assert.equal(event.event_type, 'action_state');
   assert.equal(event.error_code, 'execution_denied');
   assert.equal(event.reason_code, 'internal_exception');
@@ -266,23 +306,43 @@ for (const [detail, expected] of [
   ['Extension context invalidated.', 'service_worker_disconnected'],
   ['CHROME_API_ERROR', 'chrome_api_error'],
   ['arbitrary page secret', 'internal_exception'],
-]) test(`兜底固定分类 ${expected}`, async () => {
-  const executor = new Executor({debugger:{}}), sent=[];
-  executor.execute = async () => { throw Error(detail); };
-  const bridge = new Bridge({postMessage:m=>sent.push(m),onMessage:{addListener(){}}},executor);
-  bridge.receive({id:'reason',method:'browser.execute',params:{action:'click'}});
-  await new Promise(resolve=>setImmediate(resolve));
-  assert.equal(sent[0].error.data.reasonCode, expected);
-  assert.equal(sent[0].error.data.outcomeUnknown, true);
-  assert.equal(sent[0].error.data.retryable, false);
-});
+])
+  test(`兜底固定分类 ${expected}`, async () => {
+    const executor = new Executor({ debugger: {} }),
+      sent = [];
+    executor.execute = async () => {
+      throw Error(detail);
+    };
+    const bridge = new Bridge(
+      { postMessage: (m) => sent.push(m), onMessage: { addListener() {} } },
+      executor,
+    );
+    bridge.receive({ id: 'reason', method: 'browser.execute', params: { action: 'click' } });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(sent[0].error.data.reasonCode, expected);
+    assert.equal(sent[0].error.data.outcomeUnknown, true);
+    assert.equal(sent[0].error.data.retryable, false);
+  });
 
 test('标签查询 chrome API 失败发生在派发前并保留固定原因', async () => {
-  const executor = new Executor({ debugger: {} }), sent = [];
-  executor.execute = () => executor.performAuthorized({}, { action: 'js.evaluate', tabId: 42 }, () => {}, async () => { throw Error('private chrome API detail'); }, 1);
-  const bridge = new Bridge({ postMessage: m => sent.push(m), onMessage: { addListener() {} } }, executor);
+  const executor = new Executor({ debugger: {} }),
+    sent = [];
+  executor.execute = () =>
+    executor.performAuthorized(
+      {},
+      { action: 'js.evaluate', tabId: 42 },
+      () => {},
+      async () => {
+        throw Error('private chrome API detail');
+      },
+      1,
+    );
+  const bridge = new Bridge(
+    { postMessage: (m) => sent.push(m), onMessage: { addListener() {} } },
+    executor,
+  );
   bridge.receive({ id: 'api', method: 'browser.execute', params: { action: 'js.evaluate' } });
-  await new Promise(resolve => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
   assert.equal(sent[0].error.data.stage, 'preparation');
   assert.equal(sent[0].error.data.reasonCode, 'chrome_api_error');
   assert.equal(sent[0].error.data.outcomeUnknown, false);

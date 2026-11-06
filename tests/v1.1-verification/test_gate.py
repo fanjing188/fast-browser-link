@@ -659,12 +659,12 @@ class GateNegativeControls(unittest.TestCase):
     def test_baseline_and_supplemental_step_counts_are_separate(self):
         # 中文注释：逐文件运行全部已审阅 Node 清单；唯一名称及固定命令形态防止合并或漏跑。
         steps = gate.matrix(Path("/scratch/source"), "/scratch/python")
-        # 中文注释：旧协作 runner 迁出，核心 CLI 用例纳入固定门禁。
-        self.assertEqual(len(steps), 150)
+        # 中文注释：新增 focus-window Node 与真实 stdio 绑定 Python runner，仍精确核对清单。
+        self.assertEqual(len(steps), 152)
         node_steps = [(name, command) for name, command, kind in steps if kind == "tap"]
-        self.assertEqual(len(node_steps), 87)
-        self.assertEqual(len({name for name, _command in node_steps}), 87)
-        self.assertEqual(sum(kind != "tap" for _name, _command, kind in steps), 63)
+        self.assertEqual(len(node_steps), 88)
+        self.assertEqual(len({name for name, _command in node_steps}), 88)
+        self.assertEqual(sum(kind != "tap" for _name, _command, kind in steps), 64)
         self.assertEqual(gate.NODE_BOUNDARIES, (".",))
         self.assertFalse(
             any("cloud-link/" in token for _name, command, _kind in steps for token in command)
@@ -754,8 +754,8 @@ class GateNegativeControls(unittest.TestCase):
         # 中文注释：新增自动更新固定 runner 后，审阅允许清单增加一项。
         # 中文注释：version-set 回归登记后允许清单再增加一项。
         # 中文注释：导出的Node序列化和Python真实ZIP两条固定runner同时进入受审清单。
-        # 中文注释：新增通用工作流 runner 后清单由99增至100，仍精确核对数量与具体路径。
-        self.assertEqual(len(gate.known_v11_runner_paths()), 100)
+        # 中文注释：新增 focus-window runner 后清单由100增至101，仍精确核对数量与具体路径。
+        self.assertEqual(len(gate.known_v11_runner_paths()), 101)
         self.assertIn("tests/v1.1-script-lane/test_workflow.py", gate.known_v11_runner_paths())
         self.assertIn("test_workflow.py", gate.PYTHON_GROUPED_FILES["tests/v1.1-script-lane"])
         self.assertTrue(

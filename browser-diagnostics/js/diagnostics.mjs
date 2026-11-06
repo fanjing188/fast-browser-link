@@ -67,7 +67,18 @@ const STAGES = new Set([
   'dispatch',
   'post_check',
 ]);
-const REASON_CODES = new Set([null, 'tab_closed', 'debugger_attach_failed', 'debugger_detached', 'cdp_timeout', 'frame_destroyed', 'execution_context_lost', 'service_worker_disconnected', 'chrome_api_error', 'internal_exception']);
+const REASON_CODES = new Set([
+  null,
+  'tab_closed',
+  'debugger_attach_failed',
+  'debugger_detached',
+  'cdp_timeout',
+  'frame_destroyed',
+  'execution_context_lost',
+  'service_worker_disconnected',
+  'chrome_api_error',
+  'internal_exception',
+]);
 const INPUT_KEYS = new Set(EVENT_KEYS.filter((key) => key !== 'schema_version'));
 const COMPONENTS = new Set(['native_bridge', 'mv3_background', 'mv3_content', 'diagnostics']);
 const EVENT_TYPES = new Set([
@@ -135,7 +146,9 @@ function validateEvent(event) {
   const allowed = [...EVENT_KEYS].sort();
   rejectUnless(
     (keys.length === allowed.length && keys.every((key, index) => key === allowed[index])) ||
-      (keys.length === allowed.length - 1 && !Object.hasOwn(event, 'reason_code') && keys.every((key) => EVENT_KEYS.includes(key))),
+      (keys.length === allowed.length - 1 &&
+        !Object.hasOwn(event, 'reason_code') &&
+        keys.every((key) => EVENT_KEYS.includes(key))),
     'event keys rejected',
   );
   rejectUnless(event.schema_version === SCHEMA_VERSION, 'unsupported schema_version');

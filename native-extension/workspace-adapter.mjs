@@ -107,10 +107,7 @@ export class NativeWorkspaces {
   // 中文注释：独立窗口内按动作串行切换标签；current 和接管窗口不切换。
   async withInput(task, p, guard, work) {
     if (task.silent) return work();
-    if (
-      (!task.incognito && task.workWindowMode === 'current') ||
-      !task.workspaceCapability
-    )
+    if ((!task.incognito && task.workWindowMode === 'current') || !task.workspaceCapability)
       return work();
     const windowId = this.authority.resolve(task.workspaceCapability).windowId;
     const workWindow = this.taskWindow(task);

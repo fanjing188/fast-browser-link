@@ -75,6 +75,7 @@ const sourceCopies = [
   'bridge.mjs',
   'request-ledger.mjs',
   'background.mjs',
+  'background-render.mjs',
   // 中文注释：独立Assist的固定接收端也属于后台静态模块闭包。
   'assist-connections.mjs',
   'assist-controller.mjs',
